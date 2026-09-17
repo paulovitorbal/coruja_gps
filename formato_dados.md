@@ -92,7 +92,7 @@ Com os significados corretos, o que parecia anomalia fica coerente:
 > Se a sua base tiver outros códigos de `TYPE`, ajuste `mapeia_tipo()` no
 > `converte.py` e as consequências de comportamento da §7.
 
-### 0.3 Qualidade dos dados### 0.3 Qualidade dos dados
+### 0.3 Qualidade dos dados
 
 - **1 único** par de coordenadas exatamente duplicadas em 18.294 registros. Não há
   necessidade de deduplicação.
@@ -114,19 +114,20 @@ Com os significados corretos, o que parecia anomalia fica coerente:
 | Consumidor | Tamanho | Nota |
 | :--- | ---: | :--- |
 | Base de radares | **214,4 KB** | ✅ medido sobre o arquivo real |
-| Framebuffer 240×240×16bpp | 112,5 KB | **maior consumidor isolado** — ver §6 |
+| Framebuffer 320×240×16bpp | 150,0 KB | **maior consumidor isolado** — ver §6 |
 | Pilha lwIP + driver CYW43 | ~48 KB | ⚠️ estimativa; medir |
 | Stacks dos dois cores | ~8 KB | |
 | Buffers de SD (setor + cache FAT) | ~4 KB | |
 | `.data` / `.bss` / runtime | ~20 KB | ⚠️ estimativa |
-| **Total** | **~407 KB** | **~113 KB livres de 520 KB** |
+| **Total** | **~444 KB** | **~76 KB livres de 520 KB** |
 
 Cabe. Duas alavancas de alívio, se apertar:
 
-1. **Renderização em bandas** em vez de framebuffer cheio → libera ~94 KB (§6).
+1. **Renderização em bandas** em vez de framebuffer cheio → libera **125 KB** (§6).
 2. **Empacotamento em 8 bytes** por registro → libera ~71 KB (§3.3).
 
-Com as duas, o total cai a ~242 KB — folga acima de 50%.
+Com as duas, o total cai a **~248 KB** — folga acima de 50%. Só com as bandas já são
+~319 KB, deixando ~201 KB livres.
 
 ### Por que não particionar
 
@@ -455,18 +456,20 @@ de flags.
 Não é óbvio e não aparecia em nenhum documento original:
 
 ```
-240 × 240 pixels × 2 bytes (RGB565) = 115.200 B = 112,5 KB
+320 × 240 pixels × 2 bytes (RGB565) = 153.600 B = 150,0 KB
 ```
 
 O display consome **metade** do que a base consome, para uma função que não precisa de
 memória persistente. Se o orçamento da §1 apertar, atacar aqui é mais barato que
 comprimir dados:
 
-- **Banda de 40 linhas:** 240 × 40 × 2 = 18,8 KB → **libera 94 KB**.
+- **Banda de 40 linhas:** 320 × 40 × 2 = 25,0 KB → **libera 125 KB**.
 - A tela é composta em 6 passadas, enviando cada banda por SPI antes de gerar a próxima.
-  Para esta interface (números grandes, poucas cores, 5 Hz) o custo é irrelevante.
-- A Zona de Perigo pisca o fundo inteiro em vermelho — preencher a banda com cor
-  constante é o caso mais barato que existe.
+  Para esta interface (números grandes, poucas cores, 4 Hz) o custo é irrelevante.
+- **Nada na tela pisca** (`requirements.md` §4.1), e o fundo é preto permanente: a maior parte das bandas é
+  preenchimento de cor constante, o caso mais barato que existe. O redesenho típico é
+  parcial — só a região que mudou — o que torna o framebuffer cheio ainda menos
+  justificável.
 
 ---
 
@@ -645,7 +648,7 @@ Mesmo errando por 3×, MicroPython usaria ~10% do orçamento. **O algoritmo de d
 estágios é eficiente o bastante para tornar a linguagem irrelevante neste eixo.**
 
 E há uma ironia útil: o custo dominante do ciclo não é o cálculo, é o display. Empurrar
-112,5 KB de framebuffer por SPI a 32 MHz leva **~29 ms** — 14% do ciclo, quase 150× o
+150 KB de framebuffer por SPI a 32 MHz leva **~38 ms** — 15% do ciclo, quase 200× o
 custo da busca em C. É limite de banda de barramento, idêntico nas duas linguagens
 (embora em C o DMA o tire do caminho crítico).
 
@@ -654,7 +657,7 @@ custo da busca em C. É limite de banda de barramento, idêntico nas duas lingua
 | Consumidor | C / Pico SDK | MicroPython |
 | :--- | ---: | ---: |
 | Base 18.294 × 12 B | 214 KB estático em `.bss` | 214 KB em `bytearray` **contíguo** |
-| Framebuffer cheio | 112,5 KB | 112,5 KB |
+| Framebuffer cheio | 150,0 KB | 150,0 KB |
 | Runtime / interpretador | ~20 KB | ⚠️ **~80–120 KB** |
 | lwIP + CYW43 | ~48 KB | ~48 KB |
 | **Sobra de 520 KB** | **~111 KB** | ⚠️ **perto de zero ou negativo** |
@@ -720,7 +723,7 @@ projeto e MicroPython não entrega. Memória em segundo lugar.
 
 Ressalva honesta: se o objetivo de aprendizado estiver mais na lógica geográfica e na UX
 do que em embarcados de baixo nível, **MicroPython é viável** aceitando renderização em
-bandas (18,8 KB em vez de 112,5 KB) e abrindo mão do paralelismo real. A base de 214 KB
+bandas (25,0 KB em vez de 150,0 KB) e abrindo mão do paralelismo real. A base de 214 KB
 cabe; o framebuffer cheio é que não.
 
 ---

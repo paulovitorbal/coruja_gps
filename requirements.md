@@ -142,7 +142,7 @@ erro de configuração na bancada e descobri-lo depois de meses rodando a 1 Hz s
 * A taxa medida e a contagem de checksums inválidos devem estar visíveis em algum ponto
   da interface (tela de diagnóstico ou tela de boot), não apenas em log.
 
-#### [RF01.3] Conversão de velocidade#### [RF01.3] Conversão de velocidade
+#### [RF01.3] Conversão de velocidade
 
 A sentença RMC entrega velocidade em **nós**. Conversão obrigatória:
 `km/h = nós × 1,852`.
@@ -815,7 +815,7 @@ Comportamento obrigatório nas condições de falha:
   1. **Paralelismo real entre núcleos.** O RNF04 exige divisão de trabalho entre core 0
      e core 1; `multicore_launch_core1()` do SDK entrega isso. O `_thread` do
      MicroPython no port RP2 tem GIL e não executaria bytecode em paralelo.
-  2. **Orçamento de memória.** A base de 214 KB mais o framebuffer de 112,5 KB não
+  2. **Orçamento de memória.** A base de 214 KB mais o framebuffer de 150 KB não
      conviveriam com o interpretador e a heap do MicroPython em 520 KB de SRAM.
 
   Comparação completa em `formato_dados.md` §9.
@@ -825,7 +825,7 @@ Comportamento obrigatório nas condições de falha:
   | Consumidor | Limite |
   | :--- | ---: |
   | Base de radares (estática em `.bss`) | 214 KB — teto de 40.000 registros |
-  | Framebuffer 240×240 RGB565 | 112,5 KB |
+  | Framebuffer 320×240 RGB565 | 150,0 KB |
   | Pilha lwIP + driver CYW43 | ~48 KB *(medir)* |
   | Stacks dos dois núcleos | ~8 KB |
   | Buffers de SD e UART | ~4 KB |
@@ -833,8 +833,11 @@ Comportamento obrigatório nas condições de falha:
   | **Reserva livre mínima** | **≥ 60 KB** |
 
   Alavanca de alívio prevista, se o limite for excedido: **renderização em bandas** de
-  40 linhas (18,8 KB em vez de 112,5 KB), liberando ~94 KB. O consumo real deve ser medido
-  com `arm-none-eabi-size` e marca d'água de stack, não estimado.
+  40 linhas (25,0 KB em vez de 150,0 KB), liberando **125 KB**. Com o display de 2,4" a
+  reserva livre sem bandas cai a ~76 KB, abaixo do mínimo de 60 KB apenas por margem de
+  estimativa — **as bandas deixaram de ser alavanca opcional e passaram a ser o desenho
+  esperado**. O consumo real deve ser medido com `arm-none-eabi-size` e marca d'água de
+  stack, não estimado.
 
 * **[RNF08] Precisão Numérica:** a FPU do RP2350 é de **precisão simples**. Os cálculos
   geográficos devem seguir o RF02.2 — operar sobre diferenças de coordenadas, nunca
@@ -869,26 +872,202 @@ Comportamento obrigatório nas condições de falha:
 Esta tabela define como as ações do usuário (motorista) ou do ambiente geram respostas
 nos atuadores visuais e sonoros do dispositivo.
 
-| Evento / Ação do Usuário | Estado do Sistema | Visor IPS ST7789 (1.3") | LED RGB Periférico | Buzzer SFM-27 (Painel) |
+| Evento / Ação do Usuário | Estado do Sistema | Visor IPS 2,4" 320×240 (ver §4.1) | LED RGB Periférico | Buzzer SFM-27 (Painel) |
 | :--- | :--- | :--- | :--- | :--- |
 | **Girar chave do carro (Boot)** | Inicialização | Exibe logo e contagem de pontos carregados. Indica que a proteção ainda não está ativa. | **Apagado** | Silencioso |
 | **Aguardando primeiro fix** | Sem Sinal | "Buscando satélites" com tempo decorrido. | **Apagado** | Silencioso |
-| **Dirigindo sem pontos próximos** | Zona Segura | Velocidade atual em fontes grandes (cor branca). Fundo preto. | **Verde Fixo** | Silencioso |
-| **Entrou no raio de 300m, dentro do limite** (`vel ≤ limite`) | Aproximação — conforme | Velocidade, ícone do limite da via e distância decrescente em metros. | **Amarelo Fixo** | **Silencioso** |
-| **Acima do limite, ainda sem multa** (`limite < vel ≤ V_infra`) | Aproximação — **margem** | Idem, com destaque de que o limite foi excedido e quanto falta para o limiar. | 🩷 **Rosa Piscante (1 Hz)** | **Silencioso** |
-| **Acima do limiar de infração** — faixa 1 (`V_infra` a +10%) | Zona de Perigo | Tela pisca fundo vermelho. Mensagem de alerta centralizada. | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **1000 ms** |
-| **Acima do limiar de infração** — faixa 2 (+10% a +20%) | Zona de Perigo | Idem, com indicação do excesso. | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **350 ms** |
+| **Dirigindo sem pontos próximos** | Zona Segura | Velocidade em branco, **sem denominador** — fora do raio de um ponto o aparelho não sabe o limite da via. Sem ícone e sem barra: a faixa inferior fica vazia. | **Verde Fixo** | Silencioso |
+| **Entrou no raio de 300m, dentro do limite** (`vel ≤ limite`) | Aproximação — conforme | `velocidade/limite` em branco; ícone do tipo de ponto e barra de proximidade em **âmbar**. | **Amarelo Fixo** | **Silencioso** |
+| **Acima do limite, ainda sem multa** (`limite < vel ≤ V_infra`) | Aproximação — **margem** | Idem, com a barra de proximidade em **rosa**. | 🩷 **Rosa Piscante (1 Hz)** | **Silencioso** |
+| **Acima do limiar de infração** — faixa 1 (`V_infra` a +10%) | Zona de Perigo | Barra de proximidade em **vermelho**. Layout inalterado, **nada pisca na tela** (§4.1). | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **1000 ms** |
+| **Acima do limiar de infração** — faixa 2 (+10% a +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **350 ms** |
 | **Acima do limiar de infração** — faixa 3 (acima de +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | **Bipe contínuo** |
-| **Entrou no raio de 300m de semáforo** | Zona de Semáforo | Ícone de semáforo e distância decrescente em metros. **Sem placa de limite.** | **Amarelo/Vermelho alternados (2 Hz)** | **Silencioso — sem exceção.** |
-| **Entrou no raio de 300m de radar móvel** | Idêntico a radar fixo | Distinção visual do radar móvel — a fiscalização pode não estar ativa no momento. Zonamento e LED idênticos a radar de velocidade. | conforme o estado da via | conforme o estado da via |
-| **Perda de sinal em movimento** | Sem Sinal | "Sem sinal GPS" com tempo decorrido. Alertas suspensos. | **Apagado** | Silencioso |
-| **Girar o botão do Encoder** | Ajuste de Brilho | Atualiza instantaneamente a intensidade luminosa (5% a 100%). | Mantém estado atual | Silencioso |
-| **Clique do Encoder com carro em movimento** | Recusa | Exibe "Pare o veículo para atualizar" por 2s. | Mantém estado atual | Silencioso |
+| **Entrou no raio de 300m de semáforo** | Zona de Semáforo | Ícone 🚦 e barra em **âmbar**. **Sem denominador** — não há limite a comparar. Para `TYPE=2` (semáforo *com* radar) o ícone é 🚦+🏎 e **há** denominador: resolve o **R-26**. | **Amarelo/Vermelho alternados (2 Hz)** | **Silencioso — sem exceção.** |
+| **Entrou no raio de 300m de radar móvel** | Idêntico a radar fixo | Ícone 🏎 **vazado** em vez de preenchido: confiança expressa como preenchimento, não como símbolo novo — a fiscalização pode não estar ativa. Zonamento e LED idênticos a radar fixo. | conforme o estado da via | conforme o estado da via |
+| **Perda de sinal em movimento** | Sem Sinal | Numerador vira **`- -`** — o GPS é a única fonte de velocidade. Faixa inferior: `SEM SINAL — alertas suspensos` com tempo decorrido, em **cinza**. Layout preservado. | **Apagado** | Silencioso |
+| **Girar o botão do Encoder** | Ajuste de Brilho | Barra de brilho por ~1,5 s **na faixa superior**, deslocando o relógio. Curva perceptual, não linear (§4.1). | Mantém estado atual | Silencioso |
+| **Clique do Encoder com carro em movimento** | Recusa | `PARE O VEÍCULO PARA ATUALIZAR` por 2 s **na faixa inferior**, não em tela cheia — os alertas continuam visíveis. | Mantém estado atual | Silencioso |
 | **Clique do Encoder com carro parado** | Sincronismo OTA | Altera tela para "Atualizando base de dados...". | **Apagado** | Silencioso |
 | **Wi-Fi autenticado e baixando arquivo** | Transferência | Barra de progresso ou animação de download. | **Apagado** | Silencioso |
 | **Fim do download / Falha no Timeout** | Conclusão | Exibe "Sucesso!" ou "Falha na conexão — base anterior mantida". Retorna ao velocímetro após 2s. | Restaura estado da via | Silencioso |
 | **Taxa de GPS abaixo de 3 Hz** | Degradação | Indicador discreto de taxa reduzida, sem ocultar o velocímetro. Alertas seguem ativos. | Mantém estado da via | Silencioso |
-| **Cartão SD ausente ou base inválida** | Falha de Dados | "Base indisponível — modo velocímetro". Permanece na tela 3s. | **Apagado** | Silencioso |
+| **Cartão SD ausente ou base inválida** | Falha de Dados | `⚠ BASE INDISPONÍVEL — sem alertas` **permanente** na faixa inferior, em **cinza**, não 3 s. Sem base não há ponto, logo a barra de proximidade nunca teria o que mostrar: a faixa fica livre. Corrige o **R-30**. | **Apagado** | Silencioso |
+
+---
+
+### 4.1 Desenho de tela — geometria, canais e paleta
+
+> Definido em 2026-09-17, na sessão dedicada a telas. Fecha o **R-26** e a distinção
+> visual do radar móvel (RF03.5), ambos deferidos, e origina o **R-30**.
+
+#### Módulo e geometria
+
+| Grandeza | Valor |
+| :--- | :--- |
+| Painel | 2,4", **320×240**, paisagem, montado à esquerda do painel do veículo |
+| Área ativa | 48,8 × 36,6 mm → **6,56 px/mm** |
+| Dígito no pior caso (`120/110`) | 79 px = **12,0 mm** = 59 arcmin a 70 cm |
+
+Referência de legibilidade: ~25 arcmin é o mínimo de placa de trânsito, 45+ é
+confortável. O painel de 2,4" tem **pixels maiores** que um 1,3" de 240×240 (6,56 contra
+10,28 px/mm), e é isso que torna o formato `velocidade/limite` legível de viés.
+
+#### Divisão vertical (240 px)
+
+| Região | Altura | Conteúdo |
+| :--- | ---: | :--- |
+| Fio de moldura | 2 px | decorativo, cor fixa |
+| **Faixa superior** | 26 px | status do aparelho (ver inquilinato) |
+| **Área do número** | 166 px | `velocidade/limite` |
+| **Faixa inferior** | 44 px | ícone + barra, ou a razão de não haver alerta |
+| Fio de moldura | 2 px | |
+
+#### Quatro canais ortogonais
+
+A informação se divide em quatro canais que **não se duplicam**. Cada um responde uma
+pergunta diferente, e é isso que permite quatro estados de via, quatro tipos de ponto e
+três estados degradados sem ambiguidade:
+
+| Canal | Responde | Valores |
+| :--- | :--- | :--- |
+| **Número** | a que velocidade eu vou | `75` · `75/110` · `- -` |
+| **Denominador** | há limite a comparar | presente / ausente |
+| **Ícone** | que tipo de ponto vem | 🏎 cheio · 🏎 vazado · 🚦 · 🚦+🏎 |
+| **Barra** | quão perto, e quão grave | preenchimento + cor |
+
+A **moldura não é canal**: cor fixa, decorativa. O LED RGB periférico continua sendo o
+canal de estado de via, e **nada na tela pisca** — a tela é o canal estável, o LED é o
+canal pulsante. Trocar o layout no instante de maior estresse obrigaria o motorista a
+reaprender a tela com 9 segundos de aviso a 120 km/h.
+
+#### Número e denominador
+
+Fora do raio de um ponto, **o aparelho não conhece o limite da via**: a base é um
+conjunto de pontos, não uma malha viária, e `limite` é o limite *daquele radar*. O
+denominador portanto só existe perto de um ponto que afira velocidade:
+
+| Situação | Número | Ícone | Barra |
+| :--- | :--- | :--- | :--- |
+| Zona Segura | `75` | — | — |
+| Radar fixo (`TYPE=1`) | `75/110` | 🏎 cheio | ✓ |
+| Radar móvel (`TYPE=5`) | `75/110` | 🏎 **vazado** | ✓ |
+| Semáforo c/ radar (`TYPE=2`) | `75/60` | 🚦 **+** 🏎 | ✓ |
+| Semáforo c/ câmera (`TYPE=3`) | `75` | 🚦 | ✓ |
+| Sem sinal de GPS | `- -` | — | — |
+
+A presença do ícone e da barra **é** o aviso de ponto à frente: o motorista percebe que
+algo apareceu na faixa inferior antes de ler qualquer dígito. Em Zona Segura a faixa
+fica vazia de propósito — o vazio é a mensagem, e é ele que dá contraste ao alerta.
+
+#### Inquilinato das faixas — um ocupante por vez
+
+**Faixa inferior (44 px)** — "há alerta, ou por que não há":
+
+| Prioridade | Ocupante | Duração |
+| :---: | :--- | :--- |
+| 1 | `PARE O VEÍCULO PARA ATUALIZAR` | transitório, 2 s |
+| 2 | `⚠ BASE INDISPONÍVEL — sem alertas` | **persistente** |
+| 3 | `⚠ SEM SINAL — alertas suspensos   0:14` | **persistente** |
+| 4 | Ícone(s) + barra de proximidade | enquanto houver ponto em alcance |
+| 5 | Vazia | Zona Segura |
+
+**Faixa superior (26 px)** — status do aparelho:
+
+| Prioridade | Ocupante | Duração |
+| :---: | :--- | :--- |
+| 1 | Taxa de GPS reduzida (RF07) | persistente |
+| 2 | Barra de ajuste de brilho | transitório, ~1,5 s |
+| 3 | Relógio `dd/mm/aa hh:mm` | padrão |
+
+O relógio vem do GPS. **Não há RTC com bateria no BOM**, então ele mostra
+`--/--/-- --:--` até o primeiro fix — até **26 s** em cold start (RNF datasheet). Fuso
+fixo em **UTC−3**, sem lógica de horário de verão: o Brasil o extinguiu em 2019.
+
+O tempo decorrido em "sem sinal" não é enfeite: `0:14` é um viaduto e `3:20` é problema
+real, e a ação do motorista difere nos dois casos.
+
+#### Paleta
+
+Três regras, todas consequência do **brilho ser controlado por PWM do backlight**, que
+multiplica a luminância de tudo na tela pelo mesmo fator:
+
+1. **Distinguir por matiz, nunca por luminância.** Diferenças de valor são justamente o
+   que o PWM destrói: a 5% de brilho, um vermelho escuro desaparece e um vermelho claro
+   sobrevive. Todas as cores de estado ficam em valor alto e diferem em *hue*.
+2. **Nunca por saturação apenas.** Um "rosa claro" `#FF8080` tem **matiz 0 — o mesmo do
+   vermelho**, diferindo só em saturação, que é a primeira coisa a colapsar no escuro.
+   O rosa precisa de azul de verdade.
+3. **O número fica sempre branco.** Ele é o que precisa ser lido; branco dá 21:1 de
+   contraste sobre preto, contra 5,3:1 do vermelho — quatro vezes mais. A cor do risco
+   vai para a barra, que não é texto e não perde nada ao ser colorida.
+
+| Uso | Hex | RGB565 | Matiz |
+| :--- | :--- | :--- | ---: |
+| Fundo | `#000000` | `0x0000` | — |
+| **Número, denominador, texto** | `#FFFFFF` | `0xFFFF` | — |
+| Estado degradado (sem base, sem sinal, `- -`) | `#C0C0C0` | `0xC618` | neutro |
+| Fio de moldura e trilho vazio da barra | `#404040` | `0x4208` | neutro |
+| **Barra — aproximação conforme e semáforo** | `#FFB000` | `0xFD80` | 42° |
+| **Barra — margem** | `#FF40C0` | `0xFA18` | 318° |
+| **Barra — perigo** | `#FF0000` | `0xF800` | 0° |
+
+Separação de matiz entre as cores de barra: âmbar↔vermelho 42°, vermelho↔rosa 40°,
+âmbar↔rosa 84°. O mínimo de 40° é discriminável em área grande.
+
+**Âmbar `#FFB000` em vez de amarelo puro `#FFFF00`:** o amarelo puro dessatura na direção
+do branco a baixo brilho e passa a competir com o número. O âmbar mantém identidade.
+
+**Verde não aparece na tela.** Zona Segura não tem barra, e barra só existe perto de
+ponto — então as cores necessárias são três, não quatro. O verde vive no LED.
+
+⚠️ **A definir na bancada (R-05):** se a âmbar, a rosa e a vermelha continuam
+distinguíveis no piso de 5% de brilho. Se não, o piso sobe para ~10%. A cor da barra e a
+do LED devem concordar, e o rosa é a mais sensível das duas calibrações.
+
+#### Controle de brilho pelo encoder
+
+* **Faixa de 5% a 100%**, conforme a matriz de IHM.
+* **Curva perceptual, não linear.** A percepção humana de brilho é aproximadamente
+  logarítmica: passos lineares de *duty cycle* fazem toda a mudança acontecer no fundo
+  da escala. Use `duty = (passo / N) ^ 2,2` ou uma tabela logarítmica.
+* **PWM em ≥ 20 kHz.** Abaixo de ~1 kHz o painel cintila de forma perceptível na visão
+  periférica e pode produzir efeito estroboscópico com feições da estrada; entre 1 e
+  20 kHz alguns módulos assobiam.
+* Fundo preto permanente não é estética: com o brilho ajustado a 5% à noite, quanto menor
+  a área acesa, menor o ofuscamento. Não há sensor de luz ambiente — o ajuste é manual, e
+  o desenho precisa cooperar com isso.
+
+#### Assets
+
+Tudo em **flash** (4 MB), zero impacto no orçamento de RAM da §1 do `formato_dados.md`:
+
+| Asset | Custo |
+| :--- | ---: |
+| Fonte numérica 56×94, **1 bpp** (11 glifos: `0-9` e `/`) | 7,1 KiB |
+| Fonte de texto 12×20, 1 bpp, ASCII | 2,9 KiB |
+| 3 sprites 40×40 RGB565 (🏎 cheio, 🏎 vazado, 🚦) | 9,4 KiB |
+| **Total** | **~19 KiB** |
+
+**1 bpp com a cor aplicada no blit** é o que faz uma única fonte servir todos os estados;
+em RGB565 gastaria 16× mais e exigiria uma cópia por cor. Os sprites são **três** porque
+o `TYPE=2` **compõe** 🚦 com 🏎 em vez de ser um quarto desenho.
+
+Os "emoji" são **sprites próprios, não caracteres**: não há sistema operacional nem pilha
+de fontes no Pico, e o emoji colorido do desktop vem de uma fonte de vários megabytes.
+O caminho reproduzível é um script que renderize o desenho de origem uma vez e converta
+para array C, versionado junto ao código.
+
+#### Custo de redesenho por região (SPI a 32 MHz)
+
+| Região | Bytes | Tempo |
+| :--- | ---: | ---: |
+| Tela inteira | 150,0 KiB | 38,4 ms |
+| Faixa inferior 320×44 | 27,5 KiB | 7,0 ms |
+| Barra ~240×28 | 13,1 KiB | 3,4 ms |
+| Fio de moldura 2 px | 4,3 KiB | 1,1 ms |
+
+O ciclo nominal é de 4 Hz, ou 250 ms. Como **o layout não muda entre estados** e nada
+pisca, o redesenho típico é parcial: número, barra e faixas, não a tela toda.
 
 ---
 

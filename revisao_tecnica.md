@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 20 de 20 | 2 medições (R-13, R-17) + 1 inspeção (R-14) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 21 de 21 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -202,9 +202,11 @@ e falha de cartão em movimento passa a ser irrelevante.
 
 **O que sobrou de real deste achado** — dois pontos que valem independentemente:
 
-1. **O framebuffer do display consome 112,5 KB** (240 × 240 × 2 B), metade do que a base
-   consome, e não aparecia em nenhum documento. É o maior alvo de otimização se a
-   memória apertar (renderização em bandas libera ~94 KB). Ver `formato_dados.md` §6.
+1. **O framebuffer do display consome 150 KB** (320 × 240 × 2 B), quase o que a base
+   inteira consome, e não aparecia em nenhum documento. É o maior alvo de otimização se a
+   memória apertar (renderização em bandas libera **125 KB**). Ver `formato_dados.md` §6.
+   *Número atualizado em 2026-09-17: o painel passou de 1,3" 240×240 para 2,4" 320×240,
+   e com ele o framebuffer de 112,5 para 150 KB.*
 2. **O orçamento de memória continua precisando ser escrito** como requisito, agora com
    números reais em vez de estimativas. Ver **L-02**.
 
@@ -1020,6 +1022,35 @@ O único ponto divergente é o conector de entrada: o `.fzz` tem 2 vias rotulada
 Ao terminar, confira que o total de peças voltou a 21 e que nenhuma rede ficou órfã:
 o `gera_fritzing.py` continua sendo a referência das 30 redes.
 
+## R-30 — A falha de dados avisa por 3 s e depois cala para sempre
+
+- **Onde:** `requirements.md` matriz de IHM, linha "Cartão SD ausente ou base inválida"
+- **Confiança:** ✅ Verificado no próprio texto da matriz
+- **Registrado em:** 2026-09-17
+- **Status:** ✅ **CORRIGIDO** na mesma data — `requirements.md` §4.1
+
+**Problema.** A matriz mandava exibir *"Base indisponível — modo velocímetro"* e
+**permanecer na tela 3 s**, voltando depois ao velocímetro. Passados os 3 segundos, a
+tela ficava idêntica à Zona Segura — número branco, LED apagado — e o motorista rodava o
+resto da viagem **sem nenhuma proteção e sem nenhum indício disso**.
+
+O LED não cobre o furo: em Falha de Dados ele fica **apagado** por decisão do R-25, e
+apagado é indistinguível de aparelho desligado na visão periférica.
+
+A ambiguidade é de significado, não de pixel: a tela de Zona Segura afirma *"não há
+pontos próximos"*. Sem base, o que o aparelho sabe é *"não sei se há pontos"*. As duas
+afirmações eram visualmente iguais, e a segunda é perigosa porque produz confiança
+infundada — exatamente a classe de falha silenciosa que o RF07 foi escrito para evitar.
+
+**Correção aplicada.** A mensagem passa a ser **persistente**, na faixa inferior, em
+cinza. O encaixe é exato e foi o autor quem o apontou: **sem base não existe ponto, logo
+a barra de proximidade nunca teria o que mostrar** — a faixa inferior está livre 100% do
+tempo nesse estado, e o relógio nem precisa ceder lugar.
+
+A mesma lógica generalizou a faixa inferior para um canal único — *"há alerta, ou por que
+não há"* — que também absorveu o estado "sem sinal" e a recusa de OTA em movimento. Ver o
+inquilinato em `requirements.md` §4.1.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1037,12 +1068,12 @@ boot** até o primeiro alerta útil — o TTFF do NEO-M8N em cold start pode pas
 e o motorista não tem como saber que ainda não há proteção.
 
 O orçamento de memória já tem números: `formato_dados.md` §1 estima **~407 KB de 520 KB**
-(base 214 KB + framebuffer 112,5 KB + pilha Wi-Fi ~48 KB + resto), com duas alavancas de
+(base 214 KB + framebuffer 150 KB + pilha Wi-Fi ~48 KB + resto), com duas alavancas de
 alívio identificadas. Falta **transformar isso em requisito** e **medir** os itens
 marcados ⚠️ com `arm-none-eabi-size` e marca d'água de stack.
 
 Dois números que merecem virar limites explícitos:
-- **Framebuffer: 112,5 KB** — maior consumidor isolado, e não aparecia em nenhum documento.
+- **Framebuffer: 150 KB** — maior consumidor isolado, e não aparecia em nenhum documento.
 - **Base: 214 KB hoje, teto de ~35.000 registros** antes de o particionamento do
   Anexo A voltar a ser necessário.
 
@@ -1084,7 +1115,7 @@ Nenhum dos dois documentos menciona verificação. Mínimo necessário:
 Nenhum dos documentos diz se o firmware é **C/C++ (Pico SDK)** ou **MicroPython**. Para
 esta arquitetura a escolha não é livre: o orçamento de `formato_dados.md` §1 assume
 overhead de runtime de ~20 KB, compatível com o SDK em C. O heap do MicroPython mais o
-interpretador não deixariam espaço para 214 KB de base **e** 112,5 KB de framebuffer — e
+interpretador não deixariam espaço para 214 KB de base **e** 150 KB de framebuffer — e
 nesse caminho o particionamento em quadrantes (Anexo A) voltaria a ser obrigatório.
 
 **Comparação completa de desempenho em `formato_dados.md` §9.** Resumo: **velocidade não
@@ -1165,7 +1196,8 @@ RELEVANTES
 [x] R-23  RESOLVIDO — faixas sonoras reancoradas em V_infra
 [x] R-24  RESOLVIDO — precedência Perigo > Margem > Semáforo > Conforme
 [x] R-25  RESOLVIDO — LED RGB exclusivo de estado de via, 5 estados
-[ ] R-26  Indicação visual de semáforo nos 2.994 pontos de TYPE=2 (sessão de telas)
+[x] R-26  RESOLVIDO — ícone 🚦+🏎 composto nos 2.994 pontos de TYPE=2 (requirements.md §4.1)
+[x] R-30  RESOLVIDO — BASE INDISPONÍVEL persistente na faixa inferior (requirements.md §4.1)
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

@@ -188,9 +188,9 @@
     <h1>Roteiro de Bancada</h1>
     <p class="dek">Procedimento de medição para as três pendências de hardware
       <span class="u">R-05</span>, <span class="u">R-17</span> e <span class="u">R-13</span>
-      de <em>revisao_tecnica.md</em>, com multímetro digital doméstico, mais a inspeção
-      visual <span class="u">R-14</span>. Execute na ordem das seções — a §01 pode
-      alterar a lista de compras.</p>
+      de <em>revisao_tecnica.md</em>, com multímetro digital doméstico, mais as inspeções
+      visuais do <span class="u">R-14</span> e do módulo de display. Execute na ordem das
+      seções — a §01 pode alterar a lista de compras.</p>
 
     <div class="idblock">
       <div><label for="f-data">Data</label><input type="text" id="f-data"></div>
@@ -492,6 +492,21 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
             <td class="lbl">Corrente do SD</td>
             <td><input type="text" id="r13-i-sd"></td></tr>
 
+          <tr><td class="grp" colspan="4">Display 2,4" · Inspeção visual e paleta</td></tr>
+          <tr><td class="lbl">Controlador do módulo
+              <span class="hint">serigrafia ou anúncio; muda a inicialização</span></td>
+            <td><input type="text" id="disp-ctrl" placeholder="ST7789 / ILI9341"></td>
+            <td class="lbl">Resolução confirmada</td>
+            <td><input type="text" id="disp-res" placeholder="320x240 ?"></td></tr>
+          <tr><td class="lbl">Tem regulador de 3 pinos e aceita 5 V?
+              <span class="hint">se sim, VCC vai nos 5 V e o backlight sai do trilho 3V3</span></td>
+            <td><input type="text" id="disp-reg" placeholder="sim / não"></td>
+            <td class="lbl">Slot de microSD embutido?</td>
+            <td><input type="text" id="disp-sd" placeholder="sim / não"></td></tr>
+          <tr><td class="lbl">Âmbar, rosa e vermelho continuam distinguíveis a 5% de brilho?
+              <span class="hint">se não, o piso sobe para ~10%</span></td>
+            <td colspan="3"><input type="text" id="disp-pal" placeholder="sim / não — a partir de que % separam"></td></tr>
+
           <tr><td class="grp" colspan="4">R-14 · Inspeção visual (não é medida)</td></tr>
           <tr><td class="lbl">Regulador de 3 pinos na placa GY-GPSV3?
               <span class="hint">sem ele, os 5 V destroem o módulo</span></td>
@@ -523,6 +538,6 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
   </section>
 
   <p class="fin"><span>Coruja GPS · Roteiro de bancada</span>
-    <span>Pendências R-05 · R-17 · R-13 · R-14</span>
-    <span>rev. 2 — 2026-09-17</span></p>
+    <span>Pendências R-05 · R-17 · R-13 · R-14 · display</span>
+    <span>rev. 3 — 2026-09-17</span></p>
 </div>

@@ -18,7 +18,7 @@
 | 2 | **Módulo GPS u-blox NEO-M8N** | Conector serial UART com antena ativa externa SMA | Rastrear velocidade, coordenadas e rumo em tempo real. |
 | 3 | **Leitor Micro SD Adafruit 4682** | Breakout board nativo para nível lógico de 3,3 V (*3V ONLY!*) | Interface física para o cartão de memória. |
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. |
-| 5 | **Display IPS TFT 1.3" ST7789** | Colorido, 240×240 pixels, interface SPI com pino de Backlight (BL) | Exibir velocidade, limites e alertas visuais. |
+| 5 | ⚠️ **Display IPS TFT 2,4"** | Colorido, **320×240 pixels**, interface SPI com pino de Backlight (BL). **Controlador a confirmar:** 2,4" costuma ser ILI9341, não ST7789 — a sequência de inicialização difere | Exibir velocidade, limites e alertas visuais. |
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. |
 | 7 | **Buzzer Ativo SFM-27** | Piezoelétrico de alta potência (95 dB a 105 dB), 5 V | Bipes estridentes audíveis no painel do veículo. |
 | 8 | **LED RGB 5mm Difuso** | **Cátodo comum** (terminal mais longo vai ao GND) | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. |
@@ -86,7 +86,7 @@ duas formas de perder tempo depurando, ao mesmo custo. Vale manter.
 > 🔴 **O perigo real migrou para o trecho de 12 V.** Ver *"O trecho de 12 V NÃO pode
 > usar JST-XH"* na seção 0 — é lá que um plugue errado destrói o aparelho.
 
-### ⚠️ Nota crítica — resistores do LED RGB### ⚠️ Nota crítica — resistores do LED RGB (itens 11 e 12)
+### ⚠️ Nota crítica — resistores do LED RGB (itens 11 e 12)
 
 LEDs difusos verde e azul têm tensão direta típica de **3,0 a 3,2 V**. Com o GPIO em
 3,3 V e 330 Ω em série, sobram ~0,1–0,3 V no resistor, ou seja **menos de 1 mA** —
@@ -273,8 +273,14 @@ eficiência são ~0,25 W.
 * **Pico GPIO 21 (Pino 27 / TFT_DC):** conecta ao pino **DC/RS** do Display TFT.
 * **Pico GPIO 22 (Pino 29 / TFT_RST):** conecta ao pino **RES/RESET** do Display TFT.
 * **Pico GPIO 15 (Pino 20 / PWM BL):** conecta ao pino **BL / BLK** (Backlight).
-* **Alimentação do Bloco:** conecte o pino **`3V`** do leitor SD **E** o **VCC** da tela
-  TFT no pino **`3V3_OUT` (Pino 36)**. Conecte os **GND** de ambos ao GND comum.
+* **Alimentação do Bloco:** conecte o pino **`3V`** do leitor SD no pino
+  **`3V3_OUT` (Pino 36)**. O **VCC da tela** depende da inspeção da seção 3: **5 V** se o
+  módulo tiver regulador próprio (preferível — tira o backlight do trilho de 3V3),
+  `3V3_OUT` se não tiver. Conecte os **GND** de ambos ao GND comum.
+* **PWM do backlight:** use frequência **≥ 20 kHz**. Abaixo de ~1 kHz o painel
+  cintila de forma perceptível na visão periférica e pode bater com feições da estrada
+  em efeito estroboscópico; entre 1 e 20 kHz alguns módulos assobiam. Ver §8 do
+  `formato_dados.md` para a curva de brilho.
 
 #### ⚠️ Pinagem física do leitor microSD (conferida na placa, 2026-09-17)
 
@@ -417,8 +423,24 @@ Número de projeto do bloco GPS: **~82 mA** (67 mA de pico + ~15 mA de LNA de an
 patch típica). Com antena que consuma o máximo de `ICC_RF`, chega a 117 mA.
 
 Alimentando em 5 V, essa carga inteira sai do regulador interno do Pico e passa para o
-LDO da placa GPS. O `3V3_OUT` fica então com display (~50–80 mA com backlight) e picos de
-escrita do SD (até ~100 mA) — margem bem mais confortável.
+LDO da placa GPS. O `3V3_OUT` fica então com display e picos de escrita do SD (até
+~100 mA).
+
+⚠️ **O display de 2,4" mudou essa conta (rev. 5).** O backlight de um painel de 2,4"
+ilumina ~4× a área do de 1,3" e usa tipicamente 4 LEDs em vez de 1 ou 2, então a
+estimativa anterior de 50–80 mA não se aplica mais. Isso torna a medição do **R-13** mais
+crítica, não menos.
+
+> 🔍 **Inspeção antes de ligar — mesma lógica do R-14 (GPS).** Muitos módulos de 2,4"
+> trazem **regulador próprio e aceitam 5 V na entrada**. Se o seu tiver, ligue o `VCC`
+> do display nos **5 V**, não no `3V3_OUT`: o backlight inteiro sai do conversor CC e o
+> trilho de 3V3 do Pico volta a ter folga, eliminando o risco do R-13. Procure o
+> encapsulamento de 3 pinos junto ao `VCC` e leia a serigrafia da entrada (`5V` vs
+> apenas `3.3V`). **Sem regulador, 5 V destroem o módulo.**
+>
+> 🔍 Verifique também se o módulo traz **slot de microSD embutido**. Se trouxer, pode
+> tornar o leitor Adafruit (item 6) redundante — mas seria o mesmo SPI0, e o mutex
+> display ↔ SD continua obrigatório.
 
 ⚠️ *Medir de todo modo:* consumo agregado no `3V3_OUT` com todos os periféricos ativos e
 backlight em 100%.
