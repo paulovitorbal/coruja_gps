@@ -14,8 +14,8 @@
 
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
-| 🔴 **Bloqueador** | 9 de 9 | 3 medições | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 18 de 18 | 2 medições | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
+| 🟠 **Relevante** | 20 de 20 | 2 medições (R-13, R-17) + 1 inspeção (R-14) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -34,7 +34,6 @@
 | Item | Verificação |
 | :--- | :--- |
 | **R-14** | Confirmar o encapsulamento de 3 pinos junto ao VCC da placa GPS. Sem regulador, os 5 V destroem o módulo. 30 segundos. |
-| **SD `DET`** | Medir a polaridade com e sem cartão (modo continuidade entre `DET` e `GND`). Se não mudar de estado, a placa não tem a chave e o pino fica desconectado. |
 
 **❓ Decisões de produto — não bloqueiam nada:**
 
@@ -46,7 +45,7 @@
 | Item | Escopo |
 | :--- | :--- |
 | **RF03.10** | Controle de velocidade média em trecho. Desenho completo registrado. |
-| **Telas e interfaces visuais** | Sessão dedicada. Inclui o sinal de alerta de trecho controlado do RF03.5 e todos os estados que migraram para a tela no R-25. |
+| **Telas e interfaces visuais** | Sessão dedicada. Inclui a distinção visual de radar móvel do RF03.5 e todos os estados que migraram para a tela no R-25. |
 
 **🔨 Todo o resto é implementar.** Ver ordem de ataque abaixo.
 
@@ -88,9 +87,14 @@ desde que o LED de Wi-Fi saiu (R-25). Permite ao RF07 distinguir **cartão ausen
 o motorista resolve inserindo o cartão, de **cartão ilegível**, que ele não resolve
 dirigindo. Antes eram a mesma mensagem.
 
-Custo zero em componentes: usa o pull-up interno do Pico. Duas ressalvas no RNF03: a
-polaridade varia por placa e é medida em bancada, e o `DET` é indício — a tentativa de
-leitura continua sendo o veredito.
+Custo zero em componentes: **a própria placa traz o pull-up de 4,7 kΩ para 3 V**, então
+o GPIO 14 é entrada **sem pull** — o interno do Pico, que eu havia recomendado, seria
+redundante e mais fraco.
+
+A polaridade **não é incógnita de bancada**: o guia do fabricante documenta que o `DET`
+fica em GND sem cartão e sobe a 3 V quando há cartão, logo **cartão presente = nível
+ALTO**. Fica uma ressalva no RNF03: o `DET` é **indício, não autoridade** — a tentativa
+de leitura continua sendo o veredito.
 
 ### Histórico de resoluções
 
@@ -129,7 +133,7 @@ didático e por dependência:
    descobertas depois. O R-05 é o mais urgente: sem o canal verde funcionando, a Zona de
    Semáforo que você decidiu não tem como ser validada.
 2. **Fechar as duas decisões de produto restantes** — RF03.4 (prioridade entre alertas
-   simultâneos) e RF03.5 (mensagem de trecho controlado). Podem esperar o aparelho
+   simultâneos) e RF03.5 (distinção visual de radar móvel). Podem esperar o aparelho
    rodando; não bloqueiam nada. *(R-06, conector JST-XH, confirmado em 2026-09-15.)*
 3. **Parser NMEA e matemática geográfica** (RF01, RF02) — o núcleo, e o melhor terreno
    para os testes do RNF10: vetores conhecidos, zero hardware na mesa. O wraparound
@@ -198,9 +202,9 @@ e falha de cartão em movimento passa a ser irrelevante.
 
 **O que sobrou de real deste achado** — dois pontos que valem independentemente:
 
-1. **O framebuffer do display consome 115 KB** (240 × 240 × 2 B), metade do que a base
+1. **O framebuffer do display consome 112,5 KB** (240 × 240 × 2 B), metade do que a base
    consome, e não aparecia em nenhum documento. É o maior alvo de otimização se a
-   memória apertar (renderização em bandas libera ~96 KB). Ver `formato_dados.md` §6.
+   memória apertar (renderização em bandas libera ~94 KB). Ver `formato_dados.md` §6.
 2. **O orçamento de memória continua precisando ser escrito** como requisito, agora com
    números reais em vez de estimativas. Ver **L-02**.
 
@@ -232,202 +236,6 @@ dependeria de cos(lat) e o índice ficaria distorcido de norte a sul do país.
 
 A invariante de ordenação é validada no carregamento (ver R-10 e `formato_dados.md` §2):
 se o arquivo vier desordenado, a busca binária erra silenciosamente.
-
----
-
-## ~~R-21 — 5 Hz é exatamente o teto do NEO-M8N~~ → ✅ **RESOLVIDO**
-
-- **Onde:** `requirements.md` RF01, RF01.4, RF01.5
-- **Confiança:** ✅ **Verificado no datasheet oficial** (UBX-15031086, Tabela 1, p. 6)
-- **Decisão do autor:** 2026-09-15 — **GPS+GLONASS a 4 Hz nominal, piso de 3 Hz**
-
-> ✅ **Resolvido.** O autor optou por banda de tolerância em vez de ponto único, o que é
-> mais robusto: 4 Hz nominal com 20% de folga sob o teto, e 3 Hz como piso aceitável.
-> O custo do piso é de no máximo um período de amostragem de antecedência — 333 ms, ou
-> 11 m dos 300 m de raio a 120 km/h.
->
-> **Consequência que gerou requisito novo:** definir um piso só tem valor se o sistema
-> souber quando o cruzou. Daí o **RF01.5** (monitoramento da taxa efetiva), que na
-> prática funciona como verificação de que a configuração UBX do RF01.2 foi aplicada —
-> taxa abaixo do nominal quase nunca é o receptor com dificuldade, é a configuração que
-> não pegou.
-
-**Problema.** O RF01 exige "taxa de amostragem mínima de 5 Hz". A Tabela 1 do datasheet
-traz a taxa máxima de navegação do NEO-M8N por modo de GNSS:
-
-| Modo GNSS | Taxa máx. | Precisão horiz. | Cold start | Sensib. (tracking) | Talker NMEA |
-| :--- | :---: | :--- | :---: | :---: | :---: |
-| **GPS + GLONASS** *(padrão de fábrica)* | **5 Hz** | 2,5 m · 2,0 m c/ SBAS | 26 s | −167 dBm | `$GNRMC` |
-| **GPS apenas** | **10 Hz** | 2,5 m · 2,0 m c/ SBAS | 29 s | −166 dBm | `$GPRMC` |
-| GLONASS apenas | 10 Hz | 4 m | 30 s | −166 dBm | `$GLRMC` |
-| BeiDou | 10 Hz | 3 m | 34 s | −160 dBm | — |
-| Galileo | 10 Hz | 3 m | 45 s | −159 dBm | — |
-
-O módulo sai de fábrica em **recepção concorrente de GPS + GLONASS**, modo em que o teto
-é **exatamente 5 Hz**. O requisito não tem **nenhuma folga**: qualquer degradação —
-temperatura, sinal fraco, muitos satélites rastreados — e a taxa efetiva cai abaixo do
-que o RF01 exige, sem aviso.
-
-**O dado mais útil da tabela:** GPS-apenas tem **precisão horizontal idêntica** à
-concorrente (2,5 m, 2,0 m com SBAS). O que se perde são 3 s de cold start, 1 dBm de
-sensibilidade e a disponibilidade extra de satélites — que importa em cânion urbano,
-justamente onde os radares estão.
-
-**Vale reexaminar o próprio 5 Hz.** A 100 km/h (27,8 m/s), o deslocamento por amostra é:
-
-| Taxa | Deslocamento/amostra a 100 km/h |
-| :---: | :--- |
-| 5 Hz | 5,6 m |
-| 4 Hz | 6,9 m |
-| 2 Hz | 13,9 m |
-
-Contra um raio de alerta de **300 m**, mesmo 2 Hz daria granularidade de 14 m — 4,6% do
-raio. O 5 Hz é generoso, não apertado.
-
-**Três configurações viáveis:**
-
-| Opção | Configuração | Folga | Custo |
-| :---: | :--- | :--- | :--- |
-| **a** | GPS+GLONASS @ 5 Hz | **nenhuma** | — |
-| **b** | GPS apenas @ 5 Hz | 2× | +3 s cold start, −1 dBm, menos satélites em cânion urbano |
-| **c** ⭐ | GPS+GLONASS @ 4 Hz | 20% | 6,9 m/amostra em vez de 5,6 m |
-
-**Recomendação: opção (c).** Mantém a disponibilidade multiconstelação, que é o ativo
-real em cidade, e compra 20% de folga trocando 1,3 m de granularidade que o raio de
-300 m absorve sem notar. Exige relaxar o RF01 de 5 Hz para 4 Hz.
-
-> **Fecha o R-08 por outro caminho:** a escolha de modo determina o talker NMEA —
-> `$GNRMC` em concorrente, `$GPRMC` em GPS-apenas. Aceitar os dois, como o R-08 já
-> exigia, deixa o firmware indiferente a esta decisão e permite mudá-la sem tocar no
-> parser.
-
----
-
-## R-24 — Precedência por categoria suprimiria o aviso de margem
-
-- **Onde:** `requirements.md` RF03.4 vs RF03.9
-- **Confiança:** ✅ Verificado na base real (29,2% de coexistência)
-- **Origem:** interação entre duas decisões do autor, 2026-09-15
-- **Resolvido em:** mesma data
-
-**Problema.** O autor escolheu a opção (d) para o RF03.4 — precedência por categoria,
-com Semáforo acima de Aproximação — e, na mesma decisão, aprovou o sub-estado de
-**margem** (rosa piscante entre o limite e `V_infra`).
-
-As duas combinadas criam um furo: um semáforo em **qualquer** ponto da janela de 300 m
-suprimiria o rosa piscante, e o motorista a 1 km/h do limiar de multa não receberia
-aviso. Como **29,2% dos semáforos da base têm radar de velocidade a menos de 300 m**, o
-aviso de margem seria perdido justamente nas vias urbanas onde ele mais importa.
-
-A justificativa original da opção (d) era que *"a Aproximação é o único estado sem ação
-associada"* — argumento que o RF03.9 tornou verdadeiro **apenas para o sub-estado
-conforme**. A margem tem ação clara (não acelerar) e certeza (o aparelho comparou a
-velocidade com `V_infra`).
-
-**Correção aplicada.** A precedência passa a ter quatro níveis, com a margem elevada
-acima do semáforo:
-
-```
-Perigo  >  Margem  >  Semáforo  >  Conforme
-```
-
-Dentro de cada nível, vence o mais próximo. Exige rastrear **quatro candidatos** na
-varredura — um por categoria — em vez de um único alvo.
-
-**Achado colateral.** Ao especificar os quatro ponteiros, ficou explícito um erro sutil
-que a implementação ingênua cometeria: **o estado é por ponto, não global.** Dois radares
-na janela com limites diferentes — um de 60 km/h a 250 m e um de 80 km/h a 100 m, veículo
-a 70 km/h — produzem simultaneamente um candidato de Perigo (o mais distante) e um de
-conforme (o mais próximo). Avaliar o estado do radar *mais próximo* e usá-lo como estado
-do sistema perderia a infração em curso.
-
----
-
-## R-23 — Faixas de 10%/20% ficam vazias em 82,5% dos radares da base
-
-- **Onde:** `requirements.md` RF03.7 (escalonamento sonoro da Zona de Perigo)
-- **Confiança:** ✅ **Verificado na base real** (base real, 16.864 radares de velocidade)
-- **Origem:** especificação de comportamento do autor, 2026-09-15
-- **Resolvido em:** mesma data, ancoragem reformulada
-
-**Problema.** O autor especificou duas regras que, combinadas literalmente, se anulam:
-
-1. **Tolerância legal absoluta** de 7 km/h até 100 km/h (RF03.6).
-2. **Faixas sonoras** a 10% e 20% "acima da velocidade da via" (RF03.7).
-
-Sete km/h é um percentual **grande** em via lenta — a 30 km/h equivale a 23%, já acima
-da própria faixa de 20%. Ancorando os percentuais no limite da via, a faixa de bipes
-lentos nasce **abaixo** do limiar em que a Zona de Perigo começa:
-
-| Limite | `V_infra` | `limite × 1,10` | Faixa 1 |
-| :--- | ---: | ---: | :--- |
-| 30 | 37,0 | 33,0 | ❌ vazia — *e a faixa 2 (36,0) também* |
-| 40 | 47,0 | 44,0 | ❌ vazia |
-| 50 | 57,0 | 55,0 | ❌ vazia |
-| 60 | 67,0 | 66,0 | ❌ vazia |
-| 70 | 77,0 | 77,0 | ❌ vazia |
-| 80 | 87,0 | 88,0 | +1,0 km/h |
-| 120 | 126,0 | 132,0 | +6,0 km/h |
-
-**Alcance medido na base:** os limites ≤ 70 km/h são **13.905 de 16.864 radares de
-velocidade — 82,5%**. Em todos eles a faixa de bipes lentos seria vazia. E a 30 km/h
-até a intermediária seria vazia, fazendo o aparelho saltar direto para **bipe contínuo**
-no instante em que cruzasse o limiar de infração — o oposto exato do escalonamento
-pretendido, e precisamente nas vias urbanas onde o aparelho mais será usado.
-
-É o tipo de defeito que não aparece na leitura da especificação: as duas regras são
-individualmente corretas e a interação entre elas é que falha.
-
-**Correção aplicada.** Os percentuais passam a contar a partir de **`V_infra`** (o
-limiar de infração) e não do limite da via. Preserva a intenção do escalonamento em
-passos de 10% e garante faixas não vazias e monotônicas em todos os dez limites da base.
-Tabela completa em `requirements.md` RF03.7.
-
-**Ganho colateral:** as fronteiras da nova ancoragem ficam próximas dos degraus de
-gravidade da legislação em vias rápidas, onde a tolerância percentual e a absoluta
-convergem.
-
----
-
-## R-22 — GPIO do Pico em 3,3 V excede a faixa de entrada do GPS
-
-- **Onde:** `bom_schematic.md` seção 3 (GPS RX ← Pico GPIO 0)
-- **Confiança:** ✅ **Verificado no datasheet oficial** (UBX-15031086, Tabelas 9 e 10)
-- **Registrado em:** 2026-09-15
-
-**Problema.** O datasheet especifica para os pinos digitais de entrada:
-
-| Parâmetro | Valor | Fonte |
-| :--- | :--- | :--- |
-| Faixa de operação `VIN` | **0 a VCC** | Tabela 10 (operating conditions) |
-| Máximo absoluto `VIN` | VCC + 0,5 V *(se VCC < 3,1 V)* / 3,6 V *(se VCC > 3,1 V)* | Tabela 9 |
-| `VCC` NEO-M8N | min 2,7 · **típico 3,0** · máx 3,6 V | Tabela 10 |
-| Corrente por pino `IPIN` | máx 10 mA | Tabela 9 |
-
-O Pico aciona o GPIO 0 em **3,3 V**. Como o VCC **típico** do NEO-M8N é **3,0 V**, a
-faixa de operação da entrada fica em 0–3,0 V e os 3,3 V do Pico a **excedem em 0,3 V**.
-Não há dano — o máximo absoluto nesse caso é VCC + 0,5 = 3,5 V — mas é operação fora de
-especificação, e a margem até o limite absoluto é de apenas 0,2 V.
-
-Se a placa tiver LDO de 3,3 V, `VIN` máximo passa a 3,3 V e a situação é limítrofe mas
-dentro da faixa. Se o LDO for de 3,0 V, ou se o VCC cair sob carga, fica fora.
-
-**Esta direção do barramento é necessária:** os comandos UBX de configuração do RF01.2
-vão do Pico para o GPS.
-
-**Correção.** **Resistor de 1 kΩ em série** no caminho `Pico GPIO 0 → GPS RX`. Limita
-qualquer corrente de clamp a menos de 1 mA (contra o `IPIN` de 10 mA) e é eletricamente
-irrelevante a 115200 bps: com ~10 pF de capacitância de pino, a constante RC é de ~10 ns
-contra um bit de 8,7 µs.
-
-**A direção oposta está confirmada como segura**, agora com números:
-
-| | Valor | Conclusão |
-| :--- | :--- | :--- |
-| `VOH` do GPS (Tabela 10) | ≥ VCC − 0,4 V a IOH = 4 mA | 2,9 V com VCC 3,3 · 2,6 V com VCC 3,0 |
-| `VIH` do RP2350 | ≈ 0,65 × 3,3 = 2,15 V | Ambos os casos leem nível alto com margem |
-
-Nenhum divisor ou level shifter é necessário no `GPS TX → Pico GPIO 1`.
 
 ---
 
@@ -502,6 +310,114 @@ energia é antipadrão conhecido justamente por isso.
    preserva o requisito de liberação rápida do RNF05 sem o modo de falha.
 2. Se o P2 for mandatório por restrição mecânica: inverter os nós (5V no sleeve) e
    adicionar PTC rearmável ou fusível na perna de 5V do jack.
+
+---
+
+## ~~R-21 — 5 Hz é exatamente o teto do NEO-M8N~~ → ✅ **RESOLVIDO**
+
+- **Onde:** `requirements.md` RF01, RF01.4, RF01.5
+- **Confiança:** ✅ **Verificado no datasheet oficial** (UBX-15031086, Tabela 1, p. 6)
+- **Decisão do autor:** 2026-09-15 — **GPS+GLONASS a 4 Hz nominal, piso de 3 Hz**
+
+> ✅ **Resolvido.** O autor optou por banda de tolerância em vez de ponto único, o que é
+> mais robusto: 4 Hz nominal com 20% de folga sob o teto, e 3 Hz como piso aceitável.
+> O custo do piso é de no máximo um período de amostragem de antecedência — 333 ms, ou
+> 11 m dos 300 m de raio a 120 km/h.
+>
+> **Consequência que gerou requisito novo:** definir um piso só tem valor se o sistema
+> souber quando o cruzou. Daí o **RF01.5** (monitoramento da taxa efetiva), que na
+> prática funciona como verificação de que a configuração UBX do RF01.2 foi aplicada —
+> taxa abaixo do nominal quase nunca é o receptor com dificuldade, é a configuração que
+> não pegou.
+
+**Problema.** O RF01 exige "taxa de amostragem mínima de 5 Hz". A Tabela 1 do datasheet
+traz a taxa máxima de navegação do NEO-M8N por modo de GNSS:
+
+| Modo GNSS | Taxa máx. | Precisão horiz. | Cold start | Sensib. (tracking) | Talker NMEA |
+| :--- | :---: | :--- | :---: | :---: | :---: |
+| **GPS + GLONASS** *(padrão de fábrica)* | **5 Hz** | 2,5 m · 2,0 m c/ SBAS | 26 s | −167 dBm | `$GNRMC` |
+| **GPS apenas** | **10 Hz** | 2,5 m · 2,0 m c/ SBAS | 29 s | −166 dBm | `$GPRMC` |
+| GLONASS apenas | 10 Hz | 4 m | 30 s | −166 dBm | `$GLRMC` |
+| BeiDou | 10 Hz | 3 m | 34 s | −160 dBm | — |
+| Galileo | 10 Hz | 3 m | 45 s | −159 dBm | — |
+
+O módulo sai de fábrica em **recepção concorrente de GPS + GLONASS**, modo em que o teto
+é **exatamente 5 Hz**. O requisito não tem **nenhuma folga**: qualquer degradação —
+temperatura, sinal fraco, muitos satélites rastreados — e a taxa efetiva cai abaixo do
+que o RF01 exige, sem aviso.
+
+**O dado mais útil da tabela:** GPS-apenas tem **precisão horizontal idêntica** à
+concorrente (2,5 m, 2,0 m com SBAS). O que se perde são 3 s de cold start, 1 dBm de
+sensibilidade e a disponibilidade extra de satélites — que importa em cânion urbano,
+justamente onde os radares estão.
+
+**Vale reexaminar o próprio 5 Hz.** A 100 km/h (27,8 m/s), o deslocamento por amostra é:
+
+| Taxa | Deslocamento/amostra a 100 km/h |
+| :---: | :--- |
+| 5 Hz | 5,6 m |
+| 4 Hz | 6,9 m |
+| 2 Hz | 13,9 m |
+
+Contra um raio de alerta de **300 m**, mesmo 2 Hz daria granularidade de 14 m — 4,6% do
+raio. O 5 Hz é generoso, não apertado.
+
+**Três configurações viáveis:**
+
+| Opção | Configuração | Folga | Custo |
+| :---: | :--- | :--- | :--- |
+| **a** | GPS+GLONASS @ 5 Hz | **nenhuma** | — |
+| **b** | GPS apenas @ 5 Hz | 2× | +3 s cold start, −1 dBm, menos satélites em cânion urbano |
+| **c** ⭐ | GPS+GLONASS @ 4 Hz | 20% | 6,9 m/amostra em vez de 5,6 m |
+
+**Recomendação: opção (c).** Mantém a disponibilidade multiconstelação, que é o ativo
+real em cidade, e compra 20% de folga trocando 1,3 m de granularidade que o raio de
+300 m absorve sem notar. Exige relaxar o RF01 de 5 Hz para 4 Hz.
+
+> **Fecha o R-08 por outro caminho:** a escolha de modo determina o talker NMEA —
+> `$GNRMC` em concorrente, `$GPRMC` em GPS-apenas. Aceitar os dois, como o R-08 já
+> exigia, deixa o firmware indiferente a esta decisão e permite mudá-la sem tocar no
+> parser.
+
+---
+
+## R-28 — Conector permutável com 12 V destrói o aparelho
+
+- **Onde:** `bom_schematic.md` seção 0; BOM itens 18, 19 e 22
+- **Confiança:** ✅ Verificado por análise do circuito
+- **Origem:** revisão do autor em 2026-09-17
+- **Resolvido em:** mesma data, com o perigo reposicionado
+
+**Problema.** Um plugue de **12 V** que encaixe na entrada do aparelho injeta 12 V no nó
+`VSYS`, cujo máximo absoluto é **5,5 V**. Pico, GPS, display e cartão saem juntos. O
+erro é fácil: dois plugues iguais, sob o painel, no escuro.
+
+### O perigo mudou de lugar duas vezes
+
+| Arranjo | Onde estava o risco |
+| :--- | :--- |
+| Conversor **dentro** do gabinete | Nos **dois conectores do aparelho**: a entrada trazia 12 V e o buzzer trazia `VSYS`. Trocar destruía tudo. |
+| Conversor **fora** *(decisão final)* | Nos **dois cabos externos**: 12 V (piggyback → conversor) e 5 V (conversor → gabinete). |
+
+Com o conversor fora, a entrada do aparelho passou a ser 5 V, então **trocar os dois
+conectores do aparelho deixou de ser destrutivo** — o pior caso é o buzzer tocar sozinho
+ou o aparelho não ligar.
+
+Mas o risco não desapareceu: migrou para o cabo de 12 V, que agora existe do lado de
+fora e pode encaixar na entrada do gabinete.
+
+### Correções aplicadas
+
+1. **O trecho de 12 V não usa JST-XH.** Preferência: ligar direto aos terminais do
+   conversor, sem conector — não existindo plugue de 12 V, não há o que trocar. Se
+   houver conector, família diferente (VH, faston).
+2. **Entrada do aparelho com 3 vias**, pino central sem uso, contra as 2 do buzzer.
+   Agora é medida de **robustez**, não de segurança: evita duas formas de perder tempo
+   depurando, ao mesmo custo.
+
+Achado do autor, não meu: eu especifiquei os dois conectores sem notar que se tornaram
+permutáveis quando a entrada deixou de ser 5 V, e teria mantido o erro se ele não
+tivesse pedido a revisão.
 
 ---
 
@@ -860,6 +776,171 @@ simples" sempre esteve correto. Radar Móvel afere velocidade instantânea.
 
 ---
 
+## R-22 — GPIO do Pico em 3,3 V excede a faixa de entrada do GPS
+
+- **Onde:** `bom_schematic.md` seção 3 (GPS RX ← Pico GPIO 0)
+- **Confiança:** ✅ **Verificado no datasheet oficial** (UBX-15031086, Tabelas 9 e 10)
+- **Registrado em:** 2026-09-15
+
+**Problema.** O datasheet especifica para os pinos digitais de entrada:
+
+| Parâmetro | Valor | Fonte |
+| :--- | :--- | :--- |
+| Faixa de operação `VIN` | **0 a VCC** | Tabela 10 (operating conditions) |
+| Máximo absoluto `VIN` | VCC + 0,5 V *(se VCC < 3,1 V)* / 3,6 V *(se VCC > 3,1 V)* | Tabela 9 |
+| `VCC` NEO-M8N | min 2,7 · **típico 3,0** · máx 3,6 V | Tabela 10 |
+| Corrente por pino `IPIN` | máx 10 mA | Tabela 9 |
+
+O Pico aciona o GPIO 0 em **3,3 V**. Como o VCC **típico** do NEO-M8N é **3,0 V**, a
+faixa de operação da entrada fica em 0–3,0 V e os 3,3 V do Pico a **excedem em 0,3 V**.
+Não há dano — o máximo absoluto nesse caso é VCC + 0,5 = 3,5 V — mas é operação fora de
+especificação, e a margem até o limite absoluto é de apenas 0,2 V.
+
+Se a placa tiver LDO de 3,3 V, `VIN` máximo passa a 3,3 V e a situação é limítrofe mas
+dentro da faixa. Se o LDO for de 3,0 V, ou se o VCC cair sob carga, fica fora.
+
+**Esta direção do barramento é necessária:** os comandos UBX de configuração do RF01.2
+vão do Pico para o GPS.
+
+**Correção.** **Resistor de 1 kΩ em série** no caminho `Pico GPIO 0 → GPS RX`. Limita
+qualquer corrente de clamp a menos de 1 mA (contra o `IPIN` de 10 mA) e é eletricamente
+irrelevante a 115200 bps: com ~10 pF de capacitância de pino, a constante RC é de ~10 ns
+contra um bit de 8,7 µs.
+
+**A direção oposta está confirmada como segura**, agora com números:
+
+| | Valor | Conclusão |
+| :--- | :--- | :--- |
+| `VOH` do GPS (Tabela 10) | ≥ VCC − 0,4 V a IOH = 4 mA | 2,9 V com VCC 3,3 · 2,6 V com VCC 3,0 |
+| `VIH` do RP2350 | ≈ 0,65 × 3,3 = 2,15 V | Ambos os casos leem nível alto com margem |
+
+Nenhum divisor ou level shifter é necessário no `GPS TX → Pico GPIO 1`.
+
+---
+
+## R-23 — Faixas de 10%/20% ficam vazias em 82,5% dos radares da base
+
+- **Onde:** `requirements.md` RF03.7 (escalonamento sonoro da Zona de Perigo)
+- **Confiança:** ✅ **Verificado na base real** (base real, 16.864 radares de velocidade)
+- **Origem:** especificação de comportamento do autor, 2026-09-15
+- **Resolvido em:** mesma data, ancoragem reformulada
+
+**Problema.** O autor especificou duas regras que, combinadas literalmente, se anulam:
+
+1. **Tolerância legal absoluta** de 7 km/h até 100 km/h (RF03.6).
+2. **Faixas sonoras** a 10% e 20% "acima da velocidade da via" (RF03.7).
+
+Sete km/h é um percentual **grande** em via lenta — a 30 km/h equivale a 23%, já acima
+da própria faixa de 20%. Ancorando os percentuais no limite da via, a faixa de bipes
+lentos nasce **abaixo** do limiar em que a Zona de Perigo começa:
+
+| Limite | `V_infra` | `limite × 1,10` | Faixa 1 |
+| :--- | ---: | ---: | :--- |
+| 30 | 37,0 | 33,0 | ❌ vazia — *e a faixa 2 (36,0) também* |
+| 40 | 47,0 | 44,0 | ❌ vazia |
+| 50 | 57,0 | 55,0 | ❌ vazia |
+| 60 | 67,0 | 66,0 | ❌ vazia |
+| 70 | 77,0 | 77,0 | ❌ vazia |
+| 80 | 87,0 | 88,0 | +1,0 km/h |
+| 120 | 126,0 | 132,0 | +6,0 km/h |
+
+**Alcance medido na base:** os limites ≤ 70 km/h são **13.905 de 16.864 radares de
+velocidade — 82,5%**. Em todos eles a faixa de bipes lentos seria vazia. E a 30 km/h
+até a intermediária seria vazia, fazendo o aparelho saltar direto para **bipe contínuo**
+no instante em que cruzasse o limiar de infração — o oposto exato do escalonamento
+pretendido, e precisamente nas vias urbanas onde o aparelho mais será usado.
+
+É o tipo de defeito que não aparece na leitura da especificação: as duas regras são
+individualmente corretas e a interação entre elas é que falha.
+
+**Correção aplicada.** Os percentuais passam a contar a partir de **`V_infra`** (o
+limiar de infração) e não do limite da via. Preserva a intenção do escalonamento em
+passos de 10% e garante faixas não vazias e monotônicas em todos os dez limites da base.
+Tabela completa em `requirements.md` RF03.7.
+
+**Ganho colateral:** as fronteiras da nova ancoragem ficam próximas dos degraus de
+gravidade da legislação em vias rápidas, onde a tolerância percentual e a absoluta
+convergem.
+
+---
+
+## R-24 — Precedência por categoria suprimiria o aviso de margem
+
+- **Onde:** `requirements.md` RF03.4 vs RF03.9
+- **Confiança:** ✅ Verificado na base real (29,2% de coexistência)
+- **Origem:** interação entre duas decisões do autor, 2026-09-15
+- **Resolvido em:** mesma data
+
+**Problema.** O autor escolheu a opção (d) para o RF03.4 — precedência por categoria,
+com Semáforo acima de Aproximação — e, na mesma decisão, aprovou o sub-estado de
+**margem** (rosa piscante entre o limite e `V_infra`).
+
+As duas combinadas criam um furo: um semáforo em **qualquer** ponto da janela de 300 m
+suprimiria o rosa piscante, e o motorista a 1 km/h do limiar de multa não receberia
+aviso. Como **29,2% dos semáforos da base têm radar de velocidade a menos de 300 m**, o
+aviso de margem seria perdido justamente nas vias urbanas onde ele mais importa.
+
+A justificativa original da opção (d) era que *"a Aproximação é o único estado sem ação
+associada"* — argumento que o RF03.9 tornou verdadeiro **apenas para o sub-estado
+conforme**. A margem tem ação clara (não acelerar) e certeza (o aparelho comparou a
+velocidade com `V_infra`).
+
+**Correção aplicada.** A precedência passa a ter quatro níveis, com a margem elevada
+acima do semáforo:
+
+```
+Perigo  >  Margem  >  Semáforo  >  Conforme
+```
+
+Dentro de cada nível, vence o mais próximo. Exige rastrear **quatro candidatos** na
+varredura — um por categoria — em vez de um único alvo.
+
+**Achado colateral.** Ao especificar os quatro ponteiros, ficou explícito um erro sutil
+que a implementação ingênua cometeria: **o estado é por ponto, não global.** Dois radares
+na janela com limites diferentes — um de 60 km/h a 250 m e um de 80 km/h a 100 m, veículo
+a 70 km/h — produzem simultaneamente um candidato de Perigo (o mais distante) e um de
+conforme (o mais próximo). Avaliar o estado do radar *mais próximo* e usá-lo como estado
+do sistema perderia a infração em curso.
+
+---
+
+## R-25 — Paleta do LED RGB saturada em nove estados → ✅ **RESOLVIDO**
+
+- **Onde:** `requirements.md` RF03.9 e matriz IHM
+- **Decisão do autor:** 2026-09-15
+
+**Problema.** Com a adição do rosa (RF03.9), o LED RGB acumulava **nove** estados
+distintos — segura, conforme, margem, perigo, semáforo, boot, sem sinal, OTA e falha de
+dados — distinguidos por hue e taxa de piscada. Perto do limite do que um LED difuso
+comunica com confiabilidade na visão periférica, e misturando duas categorias
+semânticas: estado da **via** e estado do **aparelho**.
+
+**Decisão.** Os estados de **boot, sem sinal, OTA e falha de dados** passam a ser
+exibidos **somente na tela**. O LED RGB fica apagado neles, reduzindo a paleta a
+**cinco** estados, todos da mesma categoria — "qual é a sua situação em relação à via".
+
+| Estado | LED RGB |
+| :--- | :--- |
+| Zona Segura | 🟢 verde fixo |
+| Aproximação conforme | 🟡 amarelo fixo |
+| Aproximação em margem | 🩷 rosa piscante (1 Hz) |
+| Zona de Perigo | 🔴 vermelho piscante (4 Hz) |
+| Zona de Semáforo | 🟡🔴 amarelo/vermelho alternados (2 Hz) |
+| *(todos os demais)* | **apagado** |
+
+**Consequência não óbvia e favorável:** o **LED apagado ganha significado próprio —
+nenhuma proteção ativa.** É inequivocamente distinguível do verde fixo, então um olhar
+de relance informa que o sistema não está avaliando a via. Um LED colorido nesses
+estados diria "estou trabalhando" sem estar.
+
+O canal **azul** deixa de ser usado isoladamente e serve apenas à mistura do rosa (R+B).
+
+**Pendência que este achado gerou, já resolvida:** o LED verde dedicado ao status de
+Wi-Fi ficou redundante e **saiu do projeto** em 2026-09-15, liberando o **GPIO 14** —
+que passou a ser usado pelo card detect do leitor SD (2026-09-17).
+
+---
+
 ## R-26 — `TYPE=2` é semáforo e não recebe aviso de semáforo
 
 - **Onde:** `requirements.md` RF03.3
@@ -886,6 +967,59 @@ visual** de que ali também se fiscaliza o sinal.
 ---
 
 
+## R-29 — O `.fzz` versionado divergiu do gerador
+
+- **Onde:** `coruja_gps.fzz` vs `gera_fritzing.py`
+- **Registrado em:** 2026-09-17
+
+**Situação.** O `.fzz` foi gerado por script e depois **ajustado à mão** no Fritzing:
+roteamento com pontos de dobra (53 → 155 fios), orientação de 16 peças e 4 notas
+rotulando os módulos que aparecem como headers genéricos. Nada disso o gerador
+reproduz.
+
+Regerar o arquivo **descarta o trabalho manual**. E o gerador já foi atualizado para a
+entrada de 12 V com 3 vias, enquanto o `.fzz` ainda mostra a de 5 V com 2 — a
+divergência existe agora.
+
+**Convenção adotada:** o gerador é fonte da **netlist**; o `.fzz` é fonte do
+**layout**. Para mudar fiação: editar `NETS`, regerar num arquivo temporário, comparar
+as redes e aplicar a mudança à mão no Fritzing.
+
+O documento de referência para montagem é o **`bom_schematic.md`**, não o `.fzz`.
+
+### Como fechar a divergência à mão, no Fritzing
+
+O único ponto divergente é o conector de entrada: o `.fzz` tem 2 vias rotuladas
+`+5V / GND`, o gerador tem 3 vias `+12V / n/c / GND`. São quatro passos e dois fios.
+
+1. **Na vista Protoboard, apague o conector de entrada atual.** É o header de 2 vias
+   com título *"Entrada 5V (carregador veicular)"*, ligado ao anodo do `D1`
+   (Schottky) e ao GND. Apagar leva os dois fios com ele.
+
+2. **Arraste um header fêmea de 3 vias** para a mesma posição. Na paleta:
+   *Core Parts → Connection → Generic female header*, e ajuste `pins` para **3**.
+   Se preferir garantir a peça exata, é a `generic-female-header-rounded_3`,
+   moduleId `b13c0353-1ee1-11de-8283-0019d2b7521e`.
+
+3. **Renomeie** para `Entrada 12V (pos-chave) -> conversor CC`, em *Inspector →
+   part label*. Se quiser, acrescente uma nota ao lado, como você fez com os módulos.
+
+4. **Refaça os dois fios**, deixando o pino central sem ligação:
+
+   | Do pino | Para | Cor |
+   | :--- | :--- | :--- |
+   | 1 — `+12V` | anodo do `D1` (1N5817) | vermelho `#ff1a1a` |
+   | 2 — `n/c` | *nada* | — |
+   | 3 — `GND` | rede de GND | preto `#000000` |
+
+> ⚠️ **Fisicamente, o `D1` fica depois do conversor CC**, não antes — o conversor não
+> está representado no esquemático, que começa no 5 V. Ligar `+12V` ao `D1` no desenho
+> é atalho de representação. Quem monta segue a **seção 0** do `bom_schematic.md`, não
+> o `.fzz`.
+
+Ao terminar, confira que o total de peças voltou a 21 e que nenhuma rede ficou órfã:
+o `gera_fritzing.py` continua sendo a referência das 30 redes.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -902,13 +1036,13 @@ Não há requisito não-funcional para **memória**, **corrente** (ver R-13) nem
 boot** até o primeiro alerta útil — o TTFF do NEO-M8N em cold start pode passar de 30 s,
 e o motorista não tem como saber que ainda não há proteção.
 
-O orçamento de memória já tem números: `formato_dados.md` §1 estima **~409 KB de 520 KB**
-(base 214 KB + framebuffer 115 KB + pilha Wi-Fi ~48 KB + resto), com duas alavancas de
+O orçamento de memória já tem números: `formato_dados.md` §1 estima **~407 KB de 520 KB**
+(base 214 KB + framebuffer 112,5 KB + pilha Wi-Fi ~48 KB + resto), com duas alavancas de
 alívio identificadas. Falta **transformar isso em requisito** e **medir** os itens
 marcados ⚠️ com `arm-none-eabi-size` e marca d'água de stack.
 
 Dois números que merecem virar limites explícitos:
-- **Framebuffer: 115 KB** — maior consumidor isolado, e não aparecia em nenhum documento.
+- **Framebuffer: 112,5 KB** — maior consumidor isolado, e não aparecia em nenhum documento.
 - **Base: 214 KB hoje, teto de ~35.000 registros** antes de o particionamento do
   Anexo A voltar a ser necessário.
 
@@ -928,31 +1062,29 @@ Painel de veículo ao sol passa de 60 °C. O capacitor eletrolítico (item 14) n
 temperatura especificada — **exigir 105 °C, não 85 °C**. Avaliar também a faixa de
 operação do display IPS e do cartão SD. Nenhum RNF trata disso.
 
-## L-09 — Precisão numérica não especificada (FPU de precisão simples)
-
-A FPU do Cortex-M33 do RP2350 é de **precisão simples**; `double` é emulado em software.
-Nenhum documento especifica em que precisão rodam os cálculos geográficos, e a combinação
-que parece natural é justamente a errada: `float` tem ~7,2 dígitos significativos,
-enquanto uma coordenada como `-23.537216` precisa de 8 — e a Haversine subtrai números
-próximos, ampliando o erro exatamente em distâncias curtas.
-
-Ver `formato_dados.md` §4.1: a forma **equirretangular sobre diferenças** é 5–8× mais
-barata, tem erro <0,01% em 300 m e escapa do problema naturalmente, porque opera sobre
-números pequenos. Escrever como requisito, junto com a decisão sobre manter ou não a
-Haversine do RF02.
-
 ## L-06 — Conversão e tratamento da velocidade
 
 A sentença RMC entrega velocidade em nós. O fator ×1,852 e a estratégia de suavização
 (média móvel, filtro) não estão especificados, apesar de a velocidade ser o gatilho da
 transição Aproximação → Perigo.
 
+## L-07 — Estratégia de verificação e testes
+
+Nenhum dos dois documentos menciona verificação. Mínimo necessário:
+- Testes unitários do parser NMEA (incluindo checksum inválido, campos vazios, sem fix).
+- Testes unitários do Haversine e do filtro de rumo com vetores conhecidos —
+  **incluindo o caso de wraparound de R-04**.
+- Replay de logs NMEA gravados em estrada, para validar transições de zona sem dirigir.
+- Teste de interrupção de energia durante o OTA (valida R-10).
+
+---
+
 ## L-08 — Linguagem e runtime do firmware não declarados
 
 Nenhum dos documentos diz se o firmware é **C/C++ (Pico SDK)** ou **MicroPython**. Para
 esta arquitetura a escolha não é livre: o orçamento de `formato_dados.md` §1 assume
 overhead de runtime de ~20 KB, compatível com o SDK em C. O heap do MicroPython mais o
-interpretador não deixariam espaço para 214 KB de base **e** 115 KB de framebuffer — e
+interpretador não deixariam espaço para 214 KB de base **e** 112,5 KB de framebuffer — e
 nesse caminho o particionamento em quadrantes (Anexo A) voltaria a ser obrigatório.
 
 **Comparação completa de desempenho em `formato_dados.md` §9.** Resumo: **velocidade não
@@ -965,16 +1097,18 @@ core 0 = GPS / core 1 = UI que o RNF04 e o R-15 exigem não se realiza em MicroP
 decisão de maior alavancagem em aberto no projeto — resolve ou reabre R-02. O teste de
 heap da §9.5 fecha a dúvida em 30 segundos no hardware real.
 
-## L-07 — Estratégia de verificação e testes
+## L-09 — Precisão numérica não especificada (FPU de precisão simples)
 
-Nenhum dos dois documentos menciona verificação. Mínimo necessário:
-- Testes unitários do parser NMEA (incluindo checksum inválido, campos vazios, sem fix).
-- Testes unitários do Haversine e do filtro de rumo com vetores conhecidos —
-  **incluindo o caso de wraparound de R-04**.
-- Replay de logs NMEA gravados em estrada, para validar transições de zona sem dirigir.
-- Teste de interrupção de energia durante o OTA (valida R-10).
+A FPU do Cortex-M33 do RP2350 é de **precisão simples**; `double` é emulado em software.
+Nenhum documento especifica em que precisão rodam os cálculos geográficos, e a combinação
+que parece natural é justamente a errada: `float` tem ~7,2 dígitos significativos,
+enquanto uma coordenada como `-23.537216` precisa de 8 — e a Haversine subtrai números
+próximos, ampliando o erro exatamente em distâncias curtas.
 
----
+Ver `formato_dados.md` §4.1: a forma **equirretangular sobre diferenças** é 5–8× mais
+barata, tem erro <0,01% em 300 m e escapa do problema naturalmente, porque opera sobre
+números pequenos. Escrever como requisito, junto com a decisão sobre manter ou não a
+Haversine do RF02.
 
 # ⚪ Correções editoriais
 
@@ -1010,6 +1144,8 @@ BLOQUEADORES
                 └─ implementação pendente; DEPENDE do R-05 (sem verde, não há amarelo)
 [ ] R-05  Resistores do LED RGB recalculados e medidos  <-- pré-requisito do R-19
 [ ] R-06  Conector do buzzer trocado ou protegido
+[x] R-21  RESOLVIDO — GPS+GLONASS a 4 Hz nominal, piso de 3 Hz
+[ ] R-28  Trecho de 12 V sem conector JST-XH (direto no conversor)
 
 RELEVANTES
 [ ] R-07  Sequência de configuração UBX especificada no RF01
@@ -1025,7 +1161,13 @@ RELEVANTES
 [ ] R-16  Justificativa do diodo corrigida
 [ ] R-17  Transistor com margem de corrente (BC337 / 2N2222)
 [x] R-18  RESOLVIDO — cabeçalho explícito + DirType confirmado; converte.py verificado
-[ ] R-20  Mensagem distinta para trecho controlado (TYPE=5) — decisão de produto
+[ ] R-22  Resistor de 1 kΩ em série no `GPIO 0 → GPS RX`
+[x] R-23  RESOLVIDO — faixas sonoras reancoradas em V_infra
+[x] R-24  RESOLVIDO — precedência Perigo > Margem > Semáforo > Conforme
+[x] R-25  RESOLVIDO — LED RGB exclusivo de estado de via, 5 estados
+[ ] R-26  Indicação visual de semáforo nos 2.994 pontos de TYPE=2 (sessão de telas)
+[ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
+[x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 
 LACUNAS
 [ ] L-01  Comportamento sem fix de GPS
