@@ -43,6 +43,74 @@ Obter a base é problema de quem monta: o projeto não presume fonte nenhuma.
 
 ---
 
+## Alimentação e instalação no veículo
+
+Alimentado pelo **pós-chave**, derivado na caixa de fusíveis. O conversor CC fica **fora
+do gabinete** — ocupa espaço demais dentro — então o que entra no aparelho é **5 V**.
+
+```
+bateria ─ caixa de fusíveis ─ piggyback ─ fusível 2 A ─ 1,5 mm² (12 V)
+                                                             │
+                                          ┌──────────────────▼─────────┐
+                                          │ conversor 12 V → 5 V       │ fora,
+                                          │ ajustável, entrada ≥ 40 V  │ sob o painel
+                                          └──────────────────┬─────────┘
+                                                             │ 22 AWG (5 V)
+                                          ┌──────────────────▼─────────┐
+                                          │ JST 3 vias → Schottky      │ gabinete
+                                          │   → VSYS (pino 39)         │
+                                          └────────────────────────────┘
+```
+
+Consumo: **~145 mA em 12 V** (≈1,6 W) em condução normal, com pico de ~200 mA quando a
+tensão cai a 9 V durante a partida. No lado de 5 V são ~162 mA normais e ~310 mA no
+pior caso sustentado.
+
+### 🔴 O trecho de 12 V não pode usar o mesmo conector do aparelho
+
+Com o conversor fora, há **dois cabos externos**: 12 V (piggyback → conversor) e 5 V
+(conversor → gabinete). Se ambos usarem JST-XH, o de 12 V encaixa na entrada do
+aparelho e injeta **12 V no nó `VSYS`** — máximo absoluto 5,5 V. Pico, GPS, display e
+cartão destruídos juntos.
+
+**Ligue o 12 V direto aos terminais do conversor, sem conector.** Não existindo plugue
+de 12 V, não há o que trocar. Se quiser conector ali, use família diferente (VH,
+faston) — nunca XH.
+
+### Três decisões que não são óbvias
+
+**Pós-chave em vez de bateria direta com relé.** O pós-chave permanece energizado
+durante a partida, então não há reinício na ignição. O relé foi descartado porque a
+bobina consome 80–150 mA contra ~180 mA do aparelho inteiro — gastaria quase tanto
+quanto liga — e o benefício dele (consumo parasita zero) já vem da chave de ignição.
+
+**Fusível de 2 A, não 10 A.** Fusível protege o fio, não a carga. Com 10 A, uma falta
+intermediária de 6 A não abriria o fusível mas aqueceria o condutor. O cabo de 1,5 mm²
+suporta ~15 A e está sobredimensionado de propósito — mas o fusível acompanha a carga.
+
+**Conversor com entrada ≥ 40 V.** O transiente que destrói eletrônica automotiva não é
+a partida, é o *load dump*: 60–120 V por dezenas de milissegundos quando a carga do
+alternador sai. Módulos comuns de 35 V podem não sobreviver.
+
+### Ajuste opcional da saída do conversor
+
+O Schottky derruba 0,3–0,45 V, então 5,00 V na saída deixam o `VSYS` em ~4,6 V. Se o
+módulo for ajustável, regule para **5,35–5,45 V** e o `VSYS` chega a ~5,0 V, com o
+buzzer na tensão nominal. **Nunca acima de 5,8 V** — o `VSYS` aceita no máximo 5,5 V.
+Meça antes de conectar.
+
+### Conectores do aparelho
+
+| Conector | Vias | Pino A | Pino B |
+| :--- | :---: | :--- | :--- |
+| Entrada | **3** (central sem uso) | +5 V | GND |
+| Buzzer | **2** | +5 V (`VSYS`) | Coletor |
+
+Contagens diferentes impedem a troca. Com o conversor fora, trocá-los deixou de ser
+destrutivo — o pior caso é o buzzer tocar sozinho ou o aparelho não ligar — então as
+3 vias são medida de **robustez**, não de segurança. O perigo real está no trecho de
+12 V, acima.
+
 ## Documentos
 
 Leia nesta ordem:
@@ -75,11 +143,24 @@ LED RGB exclusivo de estado de via.
 
 ## Esquemático no Fritzing
 
-`coruja_gps.fzz` é **gerado**, não editado à mão:
+`coruja_gps.fzz` foi **gerado** e depois **ajustado à mão** no Fritzing:
 
 ```bash
-python3 gera_fritzing.py
+python3 gera_fritzing.py    # ⚠️ sobrescreve o .fzz e DESCARTA o ajuste manual
 ```
+
+> ⚠️ **O `.fzz` versionado contém trabalho manual que o gerador não reproduz:**
+> roteamento dos fios com pontos de dobra, orientação de 16 peças e 4 notas rotulando
+> os módulos representados por headers genéricos. Regerar descarta tudo isso.
+>
+> O gerador é a fonte da **netlist**; o `.fzz` é a fonte do **layout**. Ao mudar a
+> fiação, o caminho é editar `NETS`, regerar num arquivo temporário, comparar as redes
+> e então aplicar a mudança à mão no Fritzing — não sobrescrever.
+>
+> **Divergência conhecida:** o gerador já traz a entrada do gabinete com 3 vias
+> (`J5V`, +5 V · n/c · GND), mas o `.fzz` versionado ainda mostra a entrada antiga de
+> 2 vias, rotulada "carregador veicular". O documento de referência para montagem é o
+> `bom_schematic.md`.
 
 A netlist vive em `NETS`, dentro de `gera_fritzing.py`, transcrita do
 `bom_schematic.md`. Mudou a fiação? Edite ali e regenere.

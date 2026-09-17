@@ -31,11 +31,62 @@
 | 15 | ⚠️ **Capacitor Eletrolítico** | **470 µF a 1000 µF / 16 V (ou 25 V), 105 °C** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. |
 | 16 | **Capacitor Cerâmico** | **100 nF (0,1 µF)** — código impresso: 104 | Suprimir ruído de alta frequência da ignição. |
 | 17 | ⚠️ **Capacitores Cerâmicos 100 nF** | 2 unidades — código 104 | **Novo na rev. 2.** Debounce em hardware do encoder (CLK e DT). |
-| 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Substitui o Jack P2.** Saída do buzzer, polarizada e sem contato deslizante. |
-| 19 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. |
-| 20 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. |
+| 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. |
+| 19 | ⚠️ **Conector JST-XH 3 vias** | Par macho + fêmea. **Pino central sem uso** | **Entrada de 5 V**, depois do conversor. Três vias de propósito, para não encaixar no conector de 2 vias do buzzer. |
+| 20 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. |
+| 21 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. |
+| 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. |
+| 23 | 🆕 **Adaptador de fusível piggyback** | *"add-a-circuit"*, do tipo de fusível da caixa do seu carro (mini, padrão ou micro2) | Deriva um circuito pós-chave na caixa de fusíveis **sem emenda no chicote**. Reversível. |
+| 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. |
+| 25 | **Cabo 1,5 mm² (2 vias)** | Da caixa de fusíveis ao **conversor** (trecho de 12 V) | Sobredimensionado para a carga (~180 mA), o que é seguro. |
+| 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. |
 
-### ⚠️ Nota crítica — resistores do LED RGB (itens 11 e 12)
+### ⚠️ Nota — fiação interna em 22 AWG (item 26)
+
+O 22 AWG (0,35 mm²) suporta ~3 A contínuo, contra um máximo de **310 mA** em qualquer
+ramo interno — margem de 10× no pior caso. A queda de tensão é desprezível em todos:
+
+| Ramo | Corrente | Compr. | Queda (ida e volta) |
+| :--- | ---: | ---: | ---: |
+| 12 V da entrada ao conversor | 200 mA | 15 cm | 3,2 mV |
+| 5 V do conversor ao `VSYS` | 310 mA | 10 cm | 3,3 mV |
+| GND geral | 310 mA | 15 cm | 4,9 mV |
+| 3V3 ao display e cartão | 220 mA | 12 cm | 2,8 mV |
+| **Conversor ao gabinete (5 V)** | **310 mA** | **1,5 m** | **49 mV** |
+| Buzzer, cabo até o painel | 50 mA | 2 m | 10,6 mV |
+
+**Cobre estanhado é a escolha certa aqui**, e não só pela solda: o estanho protege
+contra oxidação, o que importa num ambiente com variação térmica e umidade como o
+interior de um painel.
+
+> 💡 **Convenção de cor sugerida**, espelhando as cores dos fios no Fritzing: preto para
+> GND, vermelho para 5 V e 12 V, azul para 3V3. Nos sinais, qualquer cor — mas manter a
+> mesma do esquemático poupa conferência durante a montagem.
+
+### ⚠️ Nota — os dois conectores do aparelho
+
+O gabinete tem **dois conectores externos**, ambos em ~5 V:
+
+| Conector | Vias | Pino A | Pino B |
+| :--- | :---: | :--- | :--- |
+| **Entrada** (item 19) | **3** (central sem uso) | +5 V do conversor | GND |
+| **Buzzer** (item 18) | **2** | +5 V do trilho `VSYS` | Coletor do transistor |
+
+Contagens diferentes impedem a troca. Com o conversor **fora** do gabinete, a troca
+deixou de ser destrutiva — é o que mudou em relação à revisão anterior:
+
+* Plugue do buzzer na entrada → buzzer recebe 5 V e GND e **toca continuamente**.
+  Irritante, não destrutivo.
+* Plugue da entrada no buzzer → o GND da alimentação encosta no coletor; o aparelho
+  **não liga**. Sem dano.
+
+Então as 3 vias passaram de **medida de segurança** a **medida de robustez**: evita
+duas formas de perder tempo depurando, ao mesmo custo. Vale manter.
+
+> 🔴 **O perigo real migrou para o trecho de 12 V.** Ver *"O trecho de 12 V NÃO pode
+> usar JST-XH"* na seção 0 — é lá que um plugue errado destrói o aparelho.
+
+### ⚠️ Nota crítica — resistores do LED RGB### ⚠️ Nota crítica — resistores do LED RGB (itens 11 e 12)
 
 LEDs difusos verde e azul têm tensão direta típica de **3,0 a 3,2 V**. Com o GPIO em
 3,3 V e 330 Ω em série, sobram ~0,1–0,3 V no resistor, ou seja **menos de 1 mA** —
@@ -74,6 +125,106 @@ Se mantido, a orientação está correta: catodo no 5 V, anodo no coletor.
 
 Mapeamento de nós para interligar os componentes na aba "Esquemático" ou "Protoboard".
 
+### 🆕 0. Instalação no veículo
+
+A alimentação vem do **pós-chave**, derivada na caixa de fusíveis. O conversor CC fica
+**fora do gabinete** — ocupa espaço demais dentro — e o conector de entrada do aparelho
+vem **depois** dele. O que entra no gabinete é **5 V**.
+
+```
+bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
+                             └─ piggyback ─ fusível 2 A
+                                    │
+                                    │  1,5 mm², 12 V
+                                    ▼
+                          ┌──────────────────────┐
+                          │ conversor 12 V → 5 V │   fora do gabinete,
+                          │  (ajustável)         │   sob o painel
+                          └──────────┬───────────┘
+                                     │  22 AWG, 5 V
+                                     ▼
+                          JST-XH 3 vias  (entrada do gabinete)
+                                     │
+                          Schottky ─ VSYS (pino 39)      ← seção 1
+```
+
+#### 🔴 O trecho de 12 V NÃO pode usar JST-XH
+
+Com o conversor fora, existem agora **dois cabos externos**: um de 12 V (piggyback →
+conversor) e um de 5 V (conversor → gabinete). Se os dois usarem JST-XH, o de 12 V
+encaixa no conector do gabinete e injeta **12 V no nó `VSYS`**, cujo máximo absoluto é
+5,5 V — Pico, GPS, display e cartão destruídos juntos.
+
+Duas formas de impedir, escolha uma:
+
+* **Ligue o 12 V direto aos terminais do conversor**, sem conector. É o mais simples:
+  não existindo plugue de 12 V, não há o que trocar.
+* Se quiser conector no 12 V, use **família diferente** — JST-VH (passo 3,96 mm) ou
+  faston. Nunca XH.
+
+> O risco mudou de lugar, não desapareceu. Antes o 12 V entrava no gabinete e o perigo
+> estava nos dois conectores do aparelho; agora o 12 V para no conversor e o perigo
+> está entre os dois cabos externos.
+
+#### Por que pós-chave e não bateria direta com relé
+
+O pós-chave permanece energizado durante a partida do motor — **confirmado pelo autor
+no veículo**. A bateria cai a ~9–10 V enquanto o arranque gira, mas não desaparece, e um
+buck de entrada larga regula 5 V normalmente nessa faixa. Logo **não há reinício na
+ignição**, que era a única razão real para bateria auxiliar ou supercapacitor.
+
+Um relé acionado pelo pós-chave liberando a bateria direta foi considerado e
+**descartado**: a bobina de um relé automotivo consome 80 a 150 mA, contra **~180 mA do
+aparelho inteiro** — gastaria quase tanto quanto liga. E o benefício dele (consumo
+parasita zero) já vem da própria chave de ignição, que corta o pós-chave.
+
+#### ⚠️ Dimensionamento do fusível: 2 A, não 10 A
+
+**Fusível protege o fio, não a carga.** Consumo no lado de 12 V:
+
+| Tensão de entrada | Corrente |
+| :--- | ---: |
+| 13,8 V (motor ligado) | ~132 mA |
+| 12,6 V (bateria em repouso) | ~145 mA |
+| 9,0 V (durante a partida) | ~203 mA |
+
+São ~1,6 W. Um fusível de **10 A só atua em curto franco**: uma falta intermediária —
+isolamento raspado gerando 6 A — não o abriria, mas aqueceria o condutor. **2 A** dá
+margem de 10× sobre a carga e protege de verdade.
+
+O cabo de 1,5 mm² suporta ~15 A e está sobredimensionado de propósito, o que é seguro —
+mas o fusível acompanha a **carga**, e o cabo só precisa não ser o elo fraco.
+
+#### 💡 Ajuste a saída do conversor para compensar o Schottky
+
+O Schottky da seção 1 derruba 0,3–0,45 V. Com o conversor em 5,00 V, o `VSYS` fica em
+~4,6 V — o Pico lida bem com isso, mas o buzzer, que é alimentado do `VSYS`, sai um
+pouco mais fraco.
+
+Se o seu módulo for ajustável, regule a saída para **5,35–5,45 V**: o `VSYS` chega a
+~5,0 V e o buzzer trabalha na tensão nominal.
+
+> ⚠️ **Limite:** o `VSYS` do Pico aceita no máximo **5,5 V**. Não passe de **5,8 V** na
+> saída do conversor, e **meça** antes de conectar à placa. Ajuste com a placa
+> desligada.
+
+#### ⚠️ Load dump e polaridade reversa
+
+O transiente que destrói eletrônica automotiva não é a partida, é o **load dump** —
+quando a carga do alternador sai abruptamente, o 12 V pode chegar a **60–120 V por
+dezenas de milissegundos**. Módulos buck comuns são especificados para 35–40 V e podem
+não sobreviver.
+
+* Especifique o conversor para **≥ 40 V de entrada**, ou acrescente um **TVS** no 12 V.
+* **Polaridade reversa:** o Schottky protege o lado de 5 V. No 12 V não há proteção —
+  uma inversão chega direta ao conversor. Um diodo em série ou TVS resolve.
+
+Com o conversor fora do gabinete, ele fica exposto a vibração e umidade: proteja com
+termorretrátil ou uma caixinha própria. Dissipação não é preocupação — a ~85% de
+eficiência são ~0,25 W.
+
+---
+
 ### ⚠️ 1. Barramento de Entrada e Filtro Duplo de Energia
 
 > **Correção da revisão 1:** o documento anterior mandava a entrada para "VBUS (Pino
@@ -81,10 +232,21 @@ Mapeamento de nós para interligar os componentes na aba "Esquemático" ou "Prot
 > estava trocado. Além disso, `VBUS` é ligado diretamente ao conector USB: injetar 5 V
 > externo ali cria conflito de fontes quando o USB é usado para gravação ou debug. A
 > entrada correta é `VSYS`, através de diodo Schottky.
+>
+> **Revisão 4:** o 5 V deixou de vir de carregador USB veicular e passa a vir do
+> conversor CC da seção 0, **externo** ao gabinete, através do JST de 3 vias.
 
-* **Carregador USB Veicular (+5 V)** → **Anodo** do **Diodo Schottky 1N5819**.
+* **Pino 1 do JST de entrada** (+5 V, vindo do conversor externo) → **Anodo** do
+  **Diodo Schottky 1N5819**.
 * **Catodo do Schottky** (lado da faixa) → pino **`VSYS` (Pino 39)** do Pico 2 W.
-* **Carregador USB Veicular (GND)** → pino **`GND` (Pino 38)** do Pico 2 W.
+* **Pino 3 do JST de entrada** (GND) → pino **`GND` (Pino 38)** do Pico 2 W.
+  *(Pino 2 do JST fica sem uso.)*
+
+> *Nota:* o Pico tem **oito pinos de GND** — 3, 8, 13, 18, 23, 28, 33 e 38 — todos
+> internamente ligados. O pino 38 é a referência deste documento por ficar ao lado do
+> `VSYS` (39), o que encurta o laço de corrente do par de capacitores. Use os demais
+> livremente para distribuir terra na perfboard; o esquemático do Fritzing usa também o
+> **pino 3**, próximo aos periféricos de sinal.
 * **Capacitor Eletrolítico (470 µF a 1000 µF, 105 °C):** terminal positivo `(+)` na
   linha `VSYS (39)`, terminal negativo `(−)` (lado da faixa cinza) na linha `GND (38)`.
 * **Capacitor Cerâmico (100 nF):** um terminal em `VSYS (39)`, o outro em `GND (38)`.
@@ -307,7 +469,7 @@ Da esquerda para a direita, olhando de frente:
 > foi **substituído por conector JST-XH de 2 vias**. No arranjo anterior (tip = 5 V, sleeve = coletor), inserir ou remover o
 > plugue faz o sleeve varrer o tip; com o transistor conduzindo nesse instante, o
 > resultado é curto direto de 5 V ao GND **sem o buzzer limitando a corrente** — risco
-> de dano ao transistor e ao carregador veicular. Conector de áudio para energia é
+> de dano ao transistor e à fonte de 5 V. Conector de áudio para energia é
 > antipadrão conhecido justamente por isso.
 
 * **Pico GPIO 5 (Pino 7)** → **Resistor de 1 kΩ**.
@@ -317,7 +479,12 @@ Da esquerda para a direita, olhando de frente:
 * Pino **COLETOR** do transistor → terminal **negativo** do **conector JST-XH fêmea**
   montado no gabinete.
 * Linha de **5 V** (nó `VSYS` filtrado, após o Schottky) → terminal **positivo** do
-  conector JST-XH fêmea.
+  conector JST-XH fêmea **de 2 vias** (item 18).
+
+> 🔴 **O conector do buzzer tem 2 vias e o da entrada de 12 V tem 3, de propósito.**
+> Se ambos fossem de 2 vias, plugar a entrada de 12 V no soquete do buzzer injetaria
+> 12 V no nó `VSYS` — máximo 5,5 V — destruindo Pico, GPS, display e cartão de uma vez.
+> Ver a nota crítica dos conectores no início deste documento.
 * **Diodo 1N4148 (opcional):** se mantido, solde em paralelo nos terminais do conector,
   com a listra (catodo) no terminal de 5 V e o lado sem listra (anodo) no terminal do
   coletor. Ver nota do BOM: não é necessário para buzzer piezoelétrico.
@@ -337,6 +504,13 @@ Da esquerda para a direita, olhando de frente:
 
 Antes de ligar o circuito pela primeira vez:
 
+- [ ] **Fusível de 2 A** instalado no adaptador piggyback, em slot **pós-chave**.
+- [ ] Conversor CC **fora** do gabinete, protegido contra vibração e umidade.
+- [ ] Saída do conversor **medida** antes de ligar à placa: 5,0 V, ou 5,35–5,45 V se
+      for compensar o Schottky. **Nunca acima de 5,8 V.**
+- [ ] **Trecho de 12 V sem conector JST-XH** — direto no conversor, ou família diferente.
+- [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
+- [ ] Polaridade da entrada de 5 V conferida no JST, com o cabo já crimpado.
 - [ ] Continuidade entre `GND (38)` e todos os terras dos módulos.
 - [ ] **Ausência** de continuidade entre `VSYS (39)` e `GND (38)` (curto de alimentação).
 - [ ] Polaridade do capacitor eletrolítico (faixa cinza no GND).
@@ -369,6 +543,9 @@ Antes de ligar o circuito pela primeira vez:
 | RF04 — Debounce do encoder | BOM item 18; seção 4 |
 | Pinagens físicas conferidas | Seções 2 e 4 — leitor SD tem 8 pinos; KY-040 estava invertido |
 | Card detect | Seção 2 — `DET` → GPIO 14; distingue cartão ausente de ilegível (RF07) |
+| Instalação no veículo | Seção 0 — pós-chave via piggyback, fusível de 2 A, **conversor externo** |
+| Conectores permutáveis | Seção 0 (12 V, crítico) e nota dos conectores do aparelho (5 V, robustez) |
+| Fiação interna | BOM item 26 — 22 AWG estanhado, margem de 10× e quedas < 11 mV |
 
 **Confirmado pelo autor (2026-09-15):** conector **JST-XH** no lugar do Jack P2 (seção 5).
 

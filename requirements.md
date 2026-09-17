@@ -755,8 +755,9 @@ Comportamento obrigatório nas condições de falha:
 
 ## ⚙️ 3. Requisitos Não-Funcionais (RNF)
 
-* **[RNF01] Robustez Elétrica:** a entrada de 5 V do carregador veicular deve ser
-  aplicada em **`VSYS` (pino 39)** através de **diodo Schottky em série**, e **não** em
+* **[RNF01] Robustez Elétrica:** a entrada de 5 V, proveniente do **conversor CC
+  12 V → 5 V externo ao gabinete**, deve ser aplicada em **`VSYS` (pino 39)** através de
+  **diodo Schottky em série**, e **não** em
   `VBUS` (pino 40). `VBUS` é ligado diretamente ao conector USB do Pico, e injetar 5 V
   externo nesse nó cria conflito de fontes quando o USB é usado para gravação ou debug.
   O circuito deve possuir filtragem capacitiva dupla (eletrolítico de 470 µF a 1000 µF
@@ -814,7 +815,7 @@ Comportamento obrigatório nas condições de falha:
   1. **Paralelismo real entre núcleos.** O RNF04 exige divisão de trabalho entre core 0
      e core 1; `multicore_launch_core1()` do SDK entrega isso. O `_thread` do
      MicroPython no port RP2 tem GIL e não executaria bytecode em paralelo.
-  2. **Orçamento de memória.** A base de 214 KB mais o framebuffer de 115 KB não
+  2. **Orçamento de memória.** A base de 214 KB mais o framebuffer de 112,5 KB não
      conviveriam com o interpretador e a heap do MicroPython em 520 KB de SRAM.
 
   Comparação completa em `formato_dados.md` §9.
@@ -824,7 +825,7 @@ Comportamento obrigatório nas condições de falha:
   | Consumidor | Limite |
   | :--- | ---: |
   | Base de radares (estática em `.bss`) | 214 KB — teto de 40.000 registros |
-  | Framebuffer 240×240 RGB565 | 115 KB |
+  | Framebuffer 240×240 RGB565 | 112,5 KB |
   | Pilha lwIP + driver CYW43 | ~48 KB *(medir)* |
   | Stacks dos dois núcleos | ~8 KB |
   | Buffers de SD e UART | ~4 KB |
@@ -832,7 +833,7 @@ Comportamento obrigatório nas condições de falha:
   | **Reserva livre mínima** | **≥ 60 KB** |
 
   Alavanca de alívio prevista, se o limite for excedido: **renderização em bandas** de
-  40 linhas (19 KB em vez de 115 KB), liberando ~96 KB. O consumo real deve ser medido
+  40 linhas (18,8 KB em vez de 112,5 KB), liberando ~94 KB. O consumo real deve ser medido
   com `arm-none-eabi-size` e marca d'água de stack, não estimado.
 
 * **[RNF08] Precisão Numérica:** a FPU do RP2350 é de **precisão simples**. Os cálculos
@@ -879,7 +880,7 @@ nos atuadores visuais e sonoros do dispositivo.
 | **Acima do limiar de infração** — faixa 2 (+10% a +20%) | Zona de Perigo | Idem, com indicação do excesso. | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **350 ms** |
 | **Acima do limiar de infração** — faixa 3 (acima de +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | **Bipe contínuo** |
 | **Entrou no raio de 300m de semáforo** | Zona de Semáforo | Ícone de semáforo e distância decrescente em metros. **Sem placa de limite.** | **Amarelo/Vermelho alternados (2 Hz)** | **Silencioso — sem exceção.** |
-| **Entrou em trecho controlado** | Idêntico a radar simples | **Sinal de alerta próprio** na tela, distinguindo de radar pontual. Zonamento e LED idênticos a radar de velocidade. | conforme o estado da via | conforme o estado da via |
+| **Entrou no raio de 300m de radar móvel** | Idêntico a radar fixo | Distinção visual do radar móvel — a fiscalização pode não estar ativa no momento. Zonamento e LED idênticos a radar de velocidade. | conforme o estado da via | conforme o estado da via |
 | **Perda de sinal em movimento** | Sem Sinal | "Sem sinal GPS" com tempo decorrido. Alertas suspensos. | **Apagado** | Silencioso |
 | **Girar o botão do Encoder** | Ajuste de Brilho | Atualiza instantaneamente a intensidade luminosa (5% a 100%). | Mantém estado atual | Silencioso |
 | **Clique do Encoder com carro em movimento** | Recusa | Exibe "Pare o veículo para atualizar" por 2s. | Mantém estado atual | Silencioso |
@@ -952,7 +953,7 @@ nos atuadores visuais e sonoros do dispositivo.
 | R-15 — Mutex SPI0 e divisão entre núcleos | RNF04 |
 | R-16 / R-17 — Buzzer: diodo e transistor | RNF02 e `bom_schematic.md` |
 | R-19 — `limite == 0` e Zona de Semáforo | RF03, RF03.3 |
-| R-20 — Trecho controlado | RF03.5 |
+| R-20 — Significado de `TYPE=5` | RF03.5 — reescrito de trecho controlado para **Radar Móvel** |
 | L-01 — Perda de fix | RF07 |
 | L-02 — Orçamento de memória | RNF07 |
 | L-03 — Falha de cartão SD | RF07, RNF03 — refinado com `DET` em 2026-09-17 |

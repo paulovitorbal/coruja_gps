@@ -74,9 +74,14 @@ PECAS = [
      "generic-female-header-rounded_5.fzp",
      "Encoder KY-040", {}, ["GND", "+ 3V3", "SW", "DT", "CLK"]),
 
-    ("J5V", "SparkFun-Connectors-M02-JST-PTH-2-KIT",
-     "sparkfun-connectors-m02-jst-pth-2-kit.fzp",
-     "Entrada 5V (carregador veicular)", {}, ["+5V", "GND"]),
+    # Entrada de 5 V, DEPOIS do conversor CC — que fica FORA do gabinete.
+    # Três vias de propósito: XH de 2 e de 3 vias não encaixam, o que evita
+    # plugar a entrada no soquete do buzzer. Pino central sem uso.
+    # O conversor não é representado aqui: o esquemático começa no 5 V.
+    ("J5V", "b13c0353-1ee1-11de-8283-0019d2b7521e",
+     "generic-female-header-rounded_3.fzp",
+     "Entrada 5V (do conversor 12V->5V externo)", {},
+     ["+5V", "n/c", "GND"]),
 
     ("JBZ", "SparkFun-Connectors-M02-JST-PTH-2-KIT",
      "sparkfun-connectors-m02-jst-pth-2-kit.fzp",
@@ -207,7 +212,7 @@ POS = {
 # sinal, para dar rastreabilidade visual na perfboard.
 CORES = {
     "GND":        "#000000",   # preto
-    "5V_ENTRADA": "#ff1a1a",   # vermelho
+    "5V_ENTRADA":  "#ff1a1a",   # vermelho
     "VSYS_5V":    "#ff1a1a",   # vermelho
     "3V3":        "#418dd9",   # azul
     "SPI0_SCK":   "#4faf4e", "SPI0_MOSI": "#4faf4e", "SPI0_MISO": "#4faf4e",
