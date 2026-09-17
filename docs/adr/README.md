@@ -11,6 +11,7 @@ anterior, e o antigo fica marcado como superado em vez de ser editado.
 | [0003](0003-idioma-dos-identificadores.md) | Domínio em português, infraestrutura em inglês | 2026-09-17 | aceita |
 | [0004](0004-testes-contra-a-base-real.md) | Fixture sintética versionada, em vez de pular testes | 2026-09-17 | aceita |
 | [0005](0005-taxa-de-amostragem-do-encoder.md) | Encoder amostrado a 1 ms, não no laço de 4 Hz | 2026-09-17 | aceita |
+| [0006](0006-orcamento-de-memoria-verificado-pelo-compilador.md) | `Ponto` em 12 B e capacidade separada do teto de formato, com `static_assert` | 2026-09-17 | aceita |
 
 ## Decisões anteriores a este diretório
 

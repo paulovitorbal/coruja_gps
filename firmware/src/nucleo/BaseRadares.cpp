@@ -133,7 +133,7 @@ ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
             static_cast<float>(lat_e) / kEscala,
             static_cast<float>(le_i32(r + 4)) / kEscala,
             r[8],
-            static_cast<std::uint16_t>(r[9] * 2),
+            r[9],  // rumo ja vem quantizado no arquivo; nao expandir
             static_cast<TipoPonto>(tipo),
             static_cast<Sentido>(sentido),
         };

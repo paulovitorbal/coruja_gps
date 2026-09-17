@@ -24,7 +24,7 @@ namespace {
 
 /// A base vive em `.bss`, dimensionada pelo teto do formato. Não há alocação
 /// dinâmica em nenhum ponto do caminho crítico.
-coruja::Ponto g_pontos[coruja::kTetoPontos];
+coruja::Ponto g_pontos[coruja::kCapacidadeFirmware];
 
 /// Período de amostragem do encoder.
 ///
@@ -46,10 +46,20 @@ int main() {
     log.info("boot", "Coruja GPS — modo de teste de bancada");
 
     char msg[96];
-    std::snprintf(msg, sizeof msg, "base reservada: %u pontos, %u B em .bss",
-                  static_cast<unsigned>(coruja::kTetoPontos),
-                  static_cast<unsigned>(sizeof g_pontos));
+    std::snprintf(msg, sizeof msg, "base reservada: %u pontos x %u B = %u KiB",
+                  static_cast<unsigned>(coruja::kCapacidadeFirmware),
+                  static_cast<unsigned>(sizeof(coruja::Ponto)),
+                  static_cast<unsigned>(sizeof g_pontos / 1024));
     log.info("mem", msg);
+
+    // Exercita o caminho real de carga. Sem cartao nao ha bytes, e a base
+    // recusa — que e exatamente o estado de Falha de Dados do RF07. Isto
+    // tambem **referencia** g_pontos: se so `sizeof` fosse usado, o linker
+    // eliminaria o array e a reserva de memoria nao existiria de fato.
+    const auto carga = coruja::carrega_base(nullptr, 0, g_pontos,
+                                            coruja::kCapacidadeFirmware, &log);
+    std::snprintf(msg, sizeof msg, "carga sem cartao: %s", descreve(carga.erro));
+    log.info("base", msg);
     std::snprintf(msg, sizeof msg, "V_infra(80) = %.1f  V_infra(110) = %.1f",
                   static_cast<double>(coruja::velocidade_infracao(80)),
                   static_cast<double>(coruja::velocidade_infracao(110)));

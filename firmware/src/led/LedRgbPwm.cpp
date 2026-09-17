@@ -1,6 +1,7 @@
 #include "led/LedRgbPwm.h"
 
 #include <hardware/clocks.h>
+#include <hardware/gpio.h>
 #include <hardware/pwm.h>
 
 namespace coruja {

@@ -10,16 +10,27 @@ hardware está no `bom_schematic.md` e os requisitos no `requirements.md`.
 | CMake ≥ 3.13 | build dos dois alvos | `brew install cmake` |
 | Ninja | gerador | `brew install ninja` |
 | GoogleTest | suíte de testes | `brew install googletest` |
-| Arm GNU Toolchain | compilar para o RP2350 | `brew install --cask gcc-arm-embedded` |
+| Arm GNU Toolchain | compilar para o RP2350 | ver o aviso abaixo |
 | Pico SDK ≥ 2.0 | biblioteca do alvo | `git clone --depth 1 https://github.com/raspberrypi/pico-sdk` |
 
 > ⚠️ **Não use a formula `brew install arm-none-eabi-gcc`.** Ela instala um
 > toolchain **só de C**: não vem com a biblioteca padrão de C++, e qualquer
 > `#include <cmath>` ou `<cstdio>` falha com *"No such file or directory"*.
-> Verificado nesta máquina com a 16.2.0 — não há um único `cmath` no Cellar.
-> O que serve é o **cask** `gcc-arm-embedded`, que é o toolchain oficial da Arm
-> e traz a libstdc++. Ele instala via `.pkg` e **pede senha de administrador**,
-> então precisa rodar num terminal interativo.
+> Verificado com a 16.2.0 — não há um único `cmath` no Cellar.
+
+O que serve é o toolchain oficial da Arm. O cask `gcc-arm-embedded` instala via
+`.pkg` e **pede senha de administrador**, o que não funciona em terminal não
+interativo. Dá para contornar extraindo o `.pkg` sem `sudo` e sem tocar em `/`:
+
+```sh
+brew fetch --cask gcc-arm-embedded          # só baixa, não instala
+PKG=$(find ~/Library/Caches/Homebrew/downloads -name '*arm-gnu-toolchain*.pkg' | head -1)
+pkgutil --expand-full "$PKG" /tmp/armx
+mkdir -p ~/arm-gnu-toolchain && cp -R /tmp/armx/Payload/. ~/arm-gnu-toolchain/
+export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
+```
+
+Ocupa ~1,0 GB. É o que está em uso aqui: **Arm GNU Toolchain 14.2.Rel1**.
 
 O Pico SDK precisa do `PICO_SDK_PATH` apontando para o clone, e do submódulo
 `lib/tinyusb` inicializado:
@@ -74,11 +85,30 @@ cd firmware/build-cov && xcrun gcov -b src/CMakeFiles/coruja_nucleo.dir/nucleo/*
 
 ```sh
 export PICO_SDK_PATH="$HOME/pico-sdk"
-cmake -S firmware -B firmware/build -G Ninja -DPICO_BOARD=pico2_w
-cmake --build firmware/build
+export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
+cmake -S firmware -B firmware/build-pico -G Ninja -DPICO_BOARD=pico2_w \
+      -DPICO_TOOLCHAIN_PATH="$HOME/arm-gnu-toolchain"
+cmake --build firmware/build-pico
 ```
 
-Sai `firmware/build/coruja_gps.uf2`. Para gravar: segure `BOOTSEL`, conecte o
+Sai `firmware/build-pico/coruja_gps.uf2`.
+
+### Conferir o orçamento de memória
+
+```sh
+arm-none-eabi-size firmware/build-pico/coruja_gps.elf
+```
+
+Medição de 2026-09-17, com núcleo, log, LED e encoder:
+
+| | Uso | De |
+| :--- | ---: | ---: |
+| Flash | **66,6 KiB** | 4096 KiB |
+| SRAM | **284,2 KiB** | 520 KiB |
+| Livre | **235,8 KiB** | |
+
+A base é reserva estática de 24.000 pontos, 281,2 KiB. Ver `docs/adr/0006`
+para por que isso **não** é o teto de 40.000 do formato. Para gravar: segure `BOOTSEL`, conecte o
 USB e copie o `.uf2` para o volume `RP2350` que aparece.
 
 O `stdio` sai pelo **USB-CDC**, não pela UART — a UART0 fica para o GPS. Para
@@ -142,13 +172,12 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
   `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
   `ModoTesteEncoder`.
-* **Não verificado:** a compilação para ARM. O alvo Pico **configura** sem
-  erro, mas não foi possível compilá-lo nesta máquina porque o toolchain
-  correto exige instalação com senha de administrador (ver o aviso acima).
-  O `src/main.cpp` roda o modo de teste de bancada e **nunca rodou numa
-  placa**. Os nomes de função do SDK foram conferidos um por um contra os
-  cabeçalhos do `pico-sdk` 2.3.1, o que descarta erro de API, mas não
-  substitui compilar.
+* **Verificado:** a compilação para ARM, com o toolchain oficial 14.2.Rel1 e o
+  `pico-sdk` 2.3.1. Sai `coruja_gps.uf2` de 126 KB, e o orçamento de memória
+  passou a ser medido no linker.
+* **Não verificado:** nada rodou numa placa. O `src/main.cpp` compila e liga,
+  mas o comportamento do modo de teste — inclusive se esquerda e direita saem
+  na ordem certa — só se confirma na bancada.
 
 ## Modo de teste de bancada
 

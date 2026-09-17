@@ -49,10 +49,35 @@ constexpr float         kEscala         = 100000.0F;
 constexpr std::size_t   kTamCabecalho   = 16;
 constexpr std::size_t   kTamRegistro    = 12;
 
-/// Teto de pontos que a carga integral aceita. Nao e limite de formato, e
-/// protecao de memoria: acima disso os 12 B por registro estouram a SRAM e o
-/// firmware deve recusar o arquivo em vez de travar (formato_dados.md §2).
+/// O ponto em RAM e o registro em arquivo tem de ter o mesmo tamanho. Nao e
+/// coincidencia nem conveniencia: o orcamento de memoria do `formato_dados.md`
+/// §1 foi calculado sobre 12 B por ponto, e padding silencioso de alinhamento
+/// ja custou 71 KiB uma vez. O compilador guarda esse invariante agora.
+static_assert(sizeof(Ponto) == kTamRegistro,
+              "Ponto cresceu por padding: ver docs/adr/0006");
+
+/// Teto do **formato**: acima disto o arquivo e absurdo e deve ser recusado
+/// como corrompido (formato_dados.md §2). Nao e o que o firmware reserva.
 constexpr std::uint32_t kTetoPontos = 40000;
+
+/// Capacidade que o **firmware** reserva estaticamente em `.bss`.
+///
+/// Confundir os dois foi um erro real: dimensionar o array pelo teto de
+/// formato reserva 468,75 KiB e deixa so 48 KiB livres dos 520 KiB — medido no
+/// linker, nao estimado. Nao sobra para lwIP, stacks e as bandas do display.
+///
+/// O orcamento do `formato_dados.md` §1 deixa 355 KiB para a base, ou ~30.300
+/// pontos. Reservar 24.000 da **31% de folga** sobre os 18.294 de hoje e ainda
+/// sobram ~134 KiB. Um arquivo entre 24.000 e 40.000 pontos e valido pelo
+/// formato e recusado por este firmware com `ExcedeuCapacidade`, que e a
+/// distincao correta: o arquivo nao esta corrompido, esta grande demais para
+/// esta placa. Ver `docs/adr/0006`.
+constexpr std::uint32_t kCapacidadeFirmware = 24000;
+
+static_assert(kCapacidadeFirmware <= kTetoPontos,
+              "a capacidade do firmware nao pode passar do teto do formato");
+static_assert(kCapacidadeFirmware * sizeof(Ponto) < 355u * 1024u,
+              "a base estourou a fatia de 355 KiB do orcamento do §1");
 
 /// Decodifica um arquivo `radares.bin` ja em memoria para um vetor de `Ponto`.
 ///

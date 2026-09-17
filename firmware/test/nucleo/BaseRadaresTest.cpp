@@ -86,7 +86,8 @@ TEST(CarregaBase, DecodificaOsCamposCorretamente) {
     EXPECT_NEAR(d[0].lat, -16.0F, 1e-5F);
     EXPECT_NEAR(d[0].lon, -48.0F, 1e-5F);
     EXPECT_EQ(d[0].limite, 60);
-    EXPECT_EQ(d[0].rumo, 90);  // quantizado: 45 * 2
+    EXPECT_EQ(d[0].rumo_graus(), 90);  // 45 quantizado -> 90 graus
+    EXPECT_EQ(d[0].rumo_q, 45);
     EXPECT_EQ(d[0].tipo, TipoPonto::RadarFixo);
     EXPECT_EQ(d[0].sentido, Sentido::Unidirecional);
 
@@ -380,7 +381,7 @@ TEST_F(Fixture, SemLimiteSoAcontecemEmCameraDeSemaforo) {
 TEST_F(Fixture, TemRumosCruzandoOZeroParaOTesteDeWraparound) {
     int perto_do_zero = 0;
     for (std::size_t i = 0; i < n_; ++i) {
-        const auto r = pontos_[i].rumo;
+        const auto r = pontos_[i].rumo_graus();
         if (pontos_[i].sentido != Sentido::Omnidirecional && (r <= 4 || r >= 356)) {
             ++perto_do_zero;
         }
@@ -404,7 +405,7 @@ TEST_F(Fixture, EstaOrdenadaEDentroDoOceanoSintetico) {
         EXPECT_LE(pontos_[i].lat, -21.999F);
         EXPECT_GE(pontos_[i].lon, -40.001F);
         EXPECT_LE(pontos_[i].lon, -34.999F);
-        EXPECT_LT(pontos_[i].rumo, 360);
+        EXPECT_LT(pontos_[i].rumo_graus(), 360);
         if (i > 0) {
             EXPECT_GE(pontos_[i].lat, pontos_[i - 1].lat);
         }
@@ -414,7 +415,7 @@ TEST_F(Fixture, EstaOrdenadaEDentroDoOceanoSintetico) {
 TEST_F(Fixture, OsRumosSobrevivemAQuantizacaoEmPassosDeDois) {
     // O formato guarda rumo/2 em um byte, entao todo rumo lido e par.
     for (std::size_t i = 0; i < n_; ++i) {
-        EXPECT_EQ(pontos_[i].rumo % 2, 0) << "ponto " << i;
+        EXPECT_EQ(pontos_[i].rumo_graus() % 2, 0) << "ponto " << i;
     }
 }
 

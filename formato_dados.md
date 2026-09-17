@@ -121,6 +121,19 @@ Com os significados corretos, o que parecia anomalia fica coerente:
 | `.data` / `.bss` / runtime | ~20 KB | ⚠️ estimativa |
 | **Total** | **~444 KB** | **~76 KB livres de 520 KB** |
 
+> ✅ **Parcialmente medido em 2026-09-17**, no linker e não no papel. Com o
+> firmware atual — núcleo, log, LED e encoder, sem GPS, SD nem display — o
+> RP2350 fecha em **284,2 KiB de SRAM e 66,6 KiB de flash**, deixando
+> **235,8 KiB livres**. A fatia da base é reserva estática de **24.000 pontos**
+> (281,2 KiB), e não os 40.000 do teto de formato: reservar o teto custaria
+> 468,75 KiB e deixaria só 48,3 KiB. As duas constantes são distintas e há
+> `static_assert` guardando as duas. Ver `docs/adr/0006`.
+>
+> O `Ponto` em RAM tem **exatamente os 12 B do registro em arquivo**, garantido
+> por `static_assert`. Guardar o rumo em graus em vez de quantizado empurraria a
+> struct para 16 B por padding — 33% a mais, e 625 KiB no teto, acima da SRAM
+> inteira.
+
 Cabe. Duas alavancas de alívio, se apertar:
 
 1. **Renderização em bandas** em vez de framebuffer cheio → libera **125 KB** (§6).
