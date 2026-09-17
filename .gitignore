@@ -3,3 +3,8 @@ __pycache__/
 *.bak
 _fzz_tmp/
 .DS_Store
+
+# firmware
+firmware/build*/
+coruja.cfg
+firmware/src/nucleo/ConfigCalibracao.h

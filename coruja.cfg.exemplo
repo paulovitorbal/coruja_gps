@@ -1,0 +1,9 @@
+# Configuração de execução do Coruja GPS.
+# Gerado por scripts/gera_config.py. Vai na raiz do cartão microSD.
+#
+# O cartão é removível e legível por qualquer um: use uma rede de
+# convidados ou de IoT, nunca a rede principal da casa.
+wifi_ssid=minha-rede-iot
+wifi_senha=troque-me
+fuso_utc=-3
+brilho_inicial=40
