@@ -32,13 +32,31 @@ export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 
 Ocupa ~1,0 GB. É o que está em uso aqui: **Arm GNU Toolchain 14.2.Rel1**.
 
-O Pico SDK precisa do `PICO_SDK_PATH` apontando para o clone, e do submódulo
-`lib/tinyusb` inicializado:
+O Pico SDK precisa do submódulo `lib/tinyusb` inicializado:
+
+```sh
+git -C "$HOME/pico-sdk" submodule update --init --depth 1 lib/tinyusb
+```
+
+### Variáveis de ambiente
+
+Duas variáveis, e vale deixá-las permanentes em vez de exportar a cada sessão.
+
+**fish** — em `~/.config/fish/config.fish`:
+
+```fish
+set -gx PICO_SDK_PATH $HOME/pico-sdk
+fish_add_path $HOME/arm-gnu-toolchain/bin
+```
+
+**bash ou zsh** — em `~/.bashrc` ou `~/.zshrc`:
 
 ```sh
 export PICO_SDK_PATH="$HOME/pico-sdk"
-git -C "$PICO_SDK_PATH" submodule update --init --depth 1 lib/tinyusb
+export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 ```
+
+Só o alvo Pico precisa delas. Os testes no host rodam sem nenhuma.
 
 ## Testes no host
 
@@ -70,6 +88,14 @@ cmake -S firmware -B firmware/build-teste -G Ninja -DCORUJA_TESTES=ON \
       -DCORUJA_BASE_REAL="$PWD/radares.bin"
 ```
 
+### Rodar um teste só
+
+```sh
+./firmware/build-teste/test/testes --gtest_filter='Decodificador.*'
+./firmware/build-teste/test/testes --gtest_filter='*Wraparound*'
+./firmware/build-teste/test/testes --gtest_list_tests   # lista tudo
+```
+
 ### Cobertura
 
 O mínimo do projeto é 80%.
@@ -84,12 +110,14 @@ cd firmware/build-cov && xcrun gcov -b src/CMakeFiles/coruja_nucleo.dir/nucleo/*
 ## Firmware para o Pico 2 W
 
 ```sh
-export PICO_SDK_PATH="$HOME/pico-sdk"
-export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 cmake -S firmware -B firmware/build-pico -G Ninja -DPICO_BOARD=pico2_w \
       -DPICO_TOOLCHAIN_PATH="$HOME/arm-gnu-toolchain"
 cmake --build firmware/build-pico
 ```
+
+Com as variáveis já no config do shell. Sem elas, prefixe a linha do `cmake`
+com `PICO_SDK_PATH=$HOME/pico-sdk PATH=$HOME/arm-gnu-toolchain/bin:$PATH`, que
+funciona igual em fish, bash e zsh.
 
 Sai `firmware/build-pico/coruja_gps.uf2`.
 
