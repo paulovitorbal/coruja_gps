@@ -1,0 +1,527 @@
+<title>Roteiro de Bancada Coruja</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#fdfdfb; --ink:#16191c; --ink-soft:#5a6169; --ink-faint:#8b9298;
+    --rule:#d4d8dc; --rule-strong:#9aa2a8;
+    --accent:#0b5f4f; --accent-tint:#e8f0ed;
+    --warn:#9a3412; --warn-tint:#fbeee8;
+    --fill:#f1f4f2;
+    --sans:"IBM Plex Sans Condensed",-apple-system,"Segoe UI",sans-serif;
+    --serif:"IBM Plex Serif",Georgia,serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--serif); font-size:15px; line-height:1.62;
+    -webkit-text-size-adjust:100%;
+  }
+  .sheet{max-width:74ch; margin:0 auto; padding:0 20px; padding-block:40px 64px}
+
+  /* ---------- cabeçalho ---------- */
+  .mast{border-bottom:2.5px solid var(--ink); padding-bottom:14px}
+  .eyebrow{
+    font-family:var(--sans); font-weight:700; font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 6px
+  }
+  h1{
+    font-family:var(--sans); font-weight:700; font-size:clamp(28px,6vw,40px);
+    line-height:1.05; letter-spacing:-.015em; margin:0; text-wrap:balance
+  }
+  .dek{
+    font-size:15px; color:var(--ink-soft); margin:10px 0 0; max-width:62ch
+  }
+  .idblock{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:14px 22px; margin-top:22px; padding-top:16px; border-top:1px solid var(--rule)
+  }
+  .idblock label{
+    display:block; font-family:var(--sans); font-weight:600; font-size:10.5px;
+    letter-spacing:.11em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:3px
+  }
+  input[type=text]{
+    width:100%; font-family:var(--mono); font-size:13.5px; color:var(--ink);
+    background:transparent; border:0; border-bottom:1.25px solid var(--rule-strong);
+    padding:3px 2px; border-radius:0;
+  }
+  input[type=text]:focus{outline:2px solid var(--accent); outline-offset:2px}
+
+  /* ---------- seções ---------- */
+  section{margin-top:44px}
+  .shead{display:flex; gap:14px; align-items:baseline; border-bottom:1px solid var(--ink); padding-bottom:7px}
+  .snum{
+    font-family:var(--mono); font-weight:600; font-size:13px; color:var(--accent);
+    flex:none; padding-top:2px
+  }
+  .shead h2{
+    font-family:var(--sans); font-weight:700; font-size:21px; letter-spacing:-.01em;
+    margin:0; text-wrap:balance
+  }
+  .tag{
+    margin-left:auto; flex:none; font-family:var(--mono); font-size:11px;
+    color:var(--ink-faint); padding-top:4px; white-space:nowrap
+  }
+  h3{
+    font-family:var(--sans); font-weight:600; font-size:14px; letter-spacing:.03em;
+    text-transform:uppercase; color:var(--accent); margin:26px 0 8px
+  }
+  p{margin:11px 0}
+  .lead{font-size:15.5px}
+  strong{font-weight:600}
+  em{font-style:italic}
+  code,.u{font-family:var(--mono); font-size:.88em; font-weight:500}
+  code{background:var(--fill); padding:1px 4px; border-radius:2px}
+
+  /* ---------- passos ---------- */
+  ol.steps{list-style:none; margin:14px 0 0; padding:0; display:grid; gap:13px}
+  ol.steps>li{
+    display:grid; grid-template-columns:2.1em 1fr; gap:0 10px; align-items:start;
+    break-inside:avoid
+  }
+  ol.steps>li::before{
+    content:counter(s,decimal-leading-zero); counter-increment:s;
+    font-family:var(--mono); font-weight:600; font-size:12px; color:var(--accent);
+    padding-top:4px; border-top:2px solid var(--accent-tint)
+  }
+  ol.steps{counter-reset:s}
+  ol.steps>li>*{margin:0}
+  ol.steps>li>*+*{margin-top:5px}
+
+  /* ---------- avisos ---------- */
+  .warn,.note{
+    border-left:3px solid; padding:12px 14px; margin:18px 0; break-inside:avoid;
+    font-size:14.5px
+  }
+  .warn{border-color:var(--warn); background:var(--warn-tint)}
+  .note{border-color:var(--accent); background:var(--accent-tint)}
+  .warn p,.note p{margin:7px 0}
+  .warn p:first-child,.note p:first-child{margin-top:0}
+  .warn p:last-child,.note p:last-child{margin-bottom:0}
+  .warn .wl,.note .wl{
+    font-family:var(--sans); font-weight:700; font-size:10.5px; letter-spacing:.13em;
+    text-transform:uppercase; display:block; margin-bottom:5px
+  }
+  .warn .wl{color:var(--warn)}
+  .note .wl{color:var(--accent)}
+
+  /* ---------- fórmula ---------- */
+  .formula{
+    font-family:var(--mono); font-size:14px; line-height:1.9; background:var(--fill);
+    border:1px solid var(--rule); padding:13px 15px; margin:16px 0;
+    white-space:pre; overflow-x:auto; break-inside:avoid
+  }
+
+  /* ---------- tabelas ---------- */
+  .tw{overflow-x:auto; margin:18px 0; break-inside:avoid}
+  table{width:100%; border-collapse:collapse; font-size:13.5px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--rule); vertical-align:top}
+  thead th{
+    font-family:var(--sans); font-weight:700; font-size:10.5px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--ink); border-bottom:1.5px solid var(--ink);
+    white-space:nowrap
+  }
+  tbody tr:last-child td{border-bottom:1px solid var(--rule-strong)}
+  td.n,th.n{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .vd{font-family:var(--sans); font-weight:700; font-size:11px; letter-spacing:.06em; text-transform:uppercase}
+  .vd.ok{color:var(--accent)} .vd.mid{color:#8a6d1f} .vd.bad{color:var(--warn)}
+
+  /* ---------- formulário de registro ---------- */
+  .form-sheet{break-before:page}
+  table.rec{font-size:13px}
+  table.rec th,table.rec td{border:1px solid var(--rule-strong); padding:0}
+  table.rec thead th{padding:7px 9px; background:var(--fill); border-color:var(--ink)}
+  table.rec td.lbl{
+    padding:7px 9px; font-family:var(--sans); font-size:12.5px; line-height:1.35;
+    background:var(--paper); width:38%
+  }
+  table.rec td.lbl .hint{display:block; color:var(--ink-faint); font-size:11px; margin-top:2px}
+  table.rec input[type=text]{
+    border:0; border-bottom:0; background:var(--fill); padding:9px 8px;
+    font-size:13.5px; min-height:38px
+  }
+  .grp{
+    font-family:var(--sans); font-weight:700; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; background:var(--ink) !important; color:var(--paper);
+    padding:6px 9px !important; border-color:var(--ink) !important
+  }
+  .ruled{margin:14px 0 0; break-inside:avoid}
+  .ruled .line{border-bottom:1px solid var(--rule-strong); height:30px}
+  .sig{
+    display:grid; grid-template-columns:1fr 1fr; gap:26px; margin-top:30px;
+    padding-top:16px; border-top:1px solid var(--rule); break-inside:avoid
+  }
+
+  ul.plain{margin:11px 0; padding-left:1.15em}
+  ul.plain li{margin:5px 0}
+  .fin{
+    margin-top:40px; padding-top:14px; border-top:2.5px solid var(--ink);
+    font-family:var(--sans); font-size:12px; color:var(--ink-faint);
+    display:flex; flex-wrap:wrap; gap:6px 18px; justify-content:space-between
+  }
+
+  @media (max-width:460px){
+    .sheet{padding-block:28px 44px}
+    ol.steps>li{grid-template-columns:1.8em 1fr}
+    .sig{grid-template-columns:1fr}
+    table.rec td.lbl{width:auto}
+  }
+  @media print{
+    @page{margin:15mm 14mm}
+    body{font-size:10.5pt; background:#fff}
+    .sheet{max-width:none; padding:0}
+    input[type=text]{border-bottom-color:#555}
+    table.rec input[type=text]{background:#fafafa}
+    section{break-inside:auto}
+    .shead{break-after:avoid}
+    h3{break-after:avoid}
+    .grp{background:#222 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+    .warn,.note,.formula,table.rec td.lbl{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+</style>
+
+<div class="sheet">
+
+  <header class="mast">
+    <p class="eyebrow">Coruja GPS · Detector de radares · Pico 2 W</p>
+    <h1>Roteiro de Bancada</h1>
+    <p class="dek">Procedimento de medição para as três pendências de hardware
+      <span class="u">R-05</span>, <span class="u">R-17</span> e <span class="u">R-13</span>
+      de <em>revisao_tecnica.md</em>, com multímetro digital doméstico. Execute na ordem
+      das seções — a §01 pode alterar a lista de compras.</p>
+
+    <div class="idblock">
+      <div><label for="f-data">Data</label><input type="text" id="f-data"></div>
+      <div><label for="f-dmm">Multímetro (modelo)</label><input type="text" id="f-dmm"></div>
+      <div><label for="f-fus">Fusível da entrada mA</label><input type="text" id="f-fus" placeholder="ex. 200 mA"></div>
+      <div><label for="f-pontas">Resistência das pontas (Ω)</label><input type="text" id="f-pontas"></div>
+    </div>
+  </header>
+
+  <!-- ============ 00 ============ -->
+  <section>
+    <div class="shead"><span class="snum">00</span><h2>Regras que evitam estrago</h2>
+      <span class="tag">antes de tocar em nada</span></div>
+
+    <div class="warn">
+      <span class="wl">Corrente é sempre em série</span>
+      <p>No modo de corrente o multímetro é praticamente um curto. Encostar as pontas
+        entre <span class="u">3V3</span> e <span class="u">GND</span> no modo mA queima o
+        fusível na hora. Para medir corrente, <strong>abra o circuito</strong> e insira o
+        aparelho no caminho.</p>
+    </div>
+
+    <div class="warn">
+      <span class="wl">Confira o jack antes de cada medida de corrente</span>
+      <p>A entrada <span class="u">mA</span> costuma ter fusível de 200 mA; a entrada
+        <span class="u">10 A</span> é separada e às vezes sem fusível. A medida da §03
+        pode passar de 200 mA. Comece sempre pela faixa mais alta.</p>
+    </div>
+
+    <ol class="steps">
+      <li><p><strong>Anote a resistência das pontas.</strong> Modo <span class="u">Ω</span>,
+        encoste uma ponta na outra. Tipicamente 0,2 a 0,8 Ω. Subtraia esse valor ao medir
+        resistores pequenos, como os de 68 Ω. Registre no cabeçalho.</p></li>
+      <li><p><strong>Alimente pelo próprio Pico no USB.</strong> Use
+        <span class="u">3V3_OUT (pino 36)</span> como fonte de 3,3 V e
+        <span class="u">VBUS (pino 40)</span> como fonte de 5 V. São as tensões reais do
+        circuito final — medir com fonte de bancada daria número que não se repete depois.</p></li>
+    </ol>
+  </section>
+
+  <!-- ============ 01 ============ -->
+  <section>
+    <div class="shead"><span class="snum">01</span><h2>LEDs do RGB</h2>
+      <span class="tag">R-05 · ~10 min</span></div>
+
+    <p class="lead">Mede a tensão direta e a corrente dos três canais para definir o
+      resistor de cada um. É a medida mais importante do conjunto: dela dependem o amarelo
+      da Zona de Semáforo e o rosa da faixa de margem.</p>
+
+    <div class="warn">
+      <span class="wl">Não meça esta corrente em série</span>
+      <p>O LED verde tem tensão direta de cerca de 3,1 V numa alimentação de 3,3 V —
+        sobram <strong>~0,2 V</strong> para o resistor. Na faixa de 20 mA, o shunt interno
+        de um multímetro barato pode ser de <strong>100 Ω ou mais</strong>, comparável ao
+        próprio resistor de 68 Ω sob teste.</p>
+      <p>O aparelho rouba metade da tensão disponível, o LED acende fraco e a leitura não
+        corresponde ao circuito real. Use o <strong>método indireto</strong> abaixo, que
+        nunca mede corrente.</p>
+    </div>
+
+    <h3>Montagem</h3>
+    <p>No protoboard, um canal por vez:</p>
+    <div class="formula">3V3_OUT (pino 36) ──[ resistor R ]──▶|── GND
+                                    LED</div>
+
+    <h3>Procedimento — repita para vermelho, verde e azul</h3>
+    <ol class="steps">
+      <li><p><strong>Meça o resistor fora do circuito.</strong> Modo
+        <span class="u">Ω</span>. Um resistor "68 Ω" com tolerância de 5% pode ser 65 ou
+        71 — o valor nominal não serve para o cálculo. Anote como <span class="u">R</span>.</p></li>
+      <li><p><strong>Meça a alimentação.</strong> Modo <span class="u">V⎓</span>, pontas
+        entre o pino 36 e GND, circuito ligado. Não assuma 3,300 V: o regulador do Pico
+        entrega algo entre 3,25 e 3,35 V. Anote como <span class="u">Vcc</span>.</p></li>
+      <li><p><strong>Meça a tensão sobre o resistor.</strong> Modo
+        <span class="u">V⎓</span>, uma ponta em cada perna do resistor, com o LED aceso.
+        Anote como <span class="u">Vr</span>.</p></li>
+      <li><p><strong>Calcule.</strong> Sem nunca ter medido corrente:</p>
+        <div class="formula">I  = Vr / R          (corrente, em A — multiplique por 1000 para mA)
+Vf = Vcc − Vr        (tensão direta do LED)</div></li>
+    </ol>
+
+    <h3>Como interpretar o Vf medido</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th class="n">Vf medido</th><th>Situação</th><th>Ação</th></tr></thead>
+        <tbody>
+          <tr><td class="n">≤ 3,00 V</td><td><span class="vd ok">Confortável</span></td>
+            <td>68 Ω deve render 4 a 5 mA. Ajuste fino só se quiser mais brilho.</td></tr>
+          <tr><td class="n">3,00 – 3,15 V</td><td><span class="vd mid">Apertado</span></td>
+            <td>Reduza para 22 a 33 Ω. Recalcule <span class="u">I</span> e mantenha
+              abaixo de ~10 mA por pino do Pico.</td></tr>
+          <tr><td class="n">&gt; 3,15 V</td><td><span class="vd bad">Problema real</span></td>
+            <td>Sobram menos de 0,15 V. Mesmo sem resistor a corrente seria baixa —
+              ver nota abaixo.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="wl">Se cair na terceira faixa, a lista de compras muda</span>
+      <p>O trilho de 3,3 V é insuficiente para esse LED. As saídas são trocar por um LED
+        de Vf menor — <em>confirme antes de comprar</em> — ou acionar verde e azul a
+        partir dos 5 V com um transistor por canal, o que acrescenta dois transistores ao
+        BOM. Por isso esta seção vem antes das outras.</p>
+    </div>
+
+    <div class="note">
+      <span class="wl">A calibração de cor não é medida de multímetro</span>
+      <p>Amarelo (R+G) e rosa (R+B) dependem de razão <em>percebida</em>, e o olho não é
+        linear. O método é varrer algumas razões de PWM por software e escolher
+        <strong>a olho</strong>, com o LED montado no gabinete final, <strong>de dia e à
+        noite</strong>. O rosa é o mais sensível: confira lado a lado com o vermelho e o
+        amarelo para garantir que os três sejam inconfundíveis. Anote o resultado em
+        Observações, §04.</p>
+    </div>
+  </section>
+
+  <!-- ============ 02 ============ -->
+  <section>
+    <div class="shead"><span class="snum">02</span><h2>Buzzer e transistor</h2>
+      <span class="tag">R-17 · ~10 min</span></div>
+
+    <h3>Corrente do buzzer SFM-27</h3>
+    <p>Aqui a medida direta funciona: o buzzer opera em 5 V e não há problema de margem.</p>
+    <ol class="steps">
+      <li><p>Alimente o buzzer pelo <span class="u">VBUS (pino 40)</span>, com o Pico no USB.</p></li>
+      <li><p>Multímetro em <strong>série</strong> entre o 5 V e o terminal positivo do
+        buzzer. Modo <span class="u">mA</span>, faixa mais alta primeiro.</p></li>
+      <li><p>Espere 20 a 50 mA. Registre em §04.</p></li>
+    </ol>
+    <div class="note">
+      <span class="wl">A leitura é média, não pico</span>
+      <p>Buzzer ativo tem oscilador interno, então a corrente é pulsada e o multímetro
+        mostra a média. O pico pode ser 2 a 3× maior. Para dimensionar o transistor a
+        média basta: o BC337 tem 500 mA de folga.</p>
+    </div>
+
+    <h3>Pinagem do transistor</h3>
+    <div class="warn">
+      <span class="wl">Procure o datasheet do modelo exato</span>
+      <p>A ordem E-B-C <strong>difere</strong> entre BC547, BC337 e 2N2222, e varia até
+        com a orientação da marcação do fabricante. Não confie em analogia nem em memória.
+        O multímetro confirma parte disso, não tudo.</p>
+    </div>
+
+    <p><strong>Identificar a base.</strong> Um NPN são dois diodos com o ânodo comum na
+      base. No modo de teste de diodo <span class="u">▶|</span>:</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Ponta vermelha</th><th>Ponta preta</th><th>Leitura esperada</th></tr></thead>
+        <tbody>
+          <tr><td>Base</td><td>Emissor</td><td class="n">0,6 – 0,7 V</td></tr>
+          <tr><td>Base</td><td>Coletor</td><td class="n">0,6 – 0,7 V</td></tr>
+          <tr><td>Emissor</td><td>Base</td><td>aberto</td></tr>
+          <tr><td>Coletor</td><td>Emissor</td><td>aberto nos dois sentidos</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>O pino que dá ~0,7 V para os <strong>dois</strong> outros é a base. Em TO-92 dessas
+      famílias é o pino central, e o teste confirma.</p>
+
+    <p><strong>Distinguir coletor de emissor</strong> é mais difícil com multímetro
+      simples — as tensões de junção diferem pouco demais. Dois caminhos:</p>
+    <ul class="plain">
+      <li>Se o seu aparelho tem <strong>soquete hFE</strong> com furos marcados
+        <span class="u">NPN E-B-C</span>: insira conforme o datasheet. Ganho entre 100 e
+        400 confirma a orientação. Perto de zero significa C e E trocados.</li>
+      <li>Sem soquete: confie no datasheet e verifique <strong>funcionalmente</strong>.
+        Com C e E invertidos o transistor opera em modo reverso, com ganho de 2 a 5 em vez
+        de ~200 — o buzzer fica <strong>muito baixo ou mudo</strong>. Buzzer fraco com o
+        circuito aparentemente correto é o sintoma clássico de C/E trocados.</li>
+    </ul>
+  </section>
+
+  <!-- ============ 03 ============ -->
+  <section>
+    <div class="shead"><span class="snum">03</span><h2>Trilho de 3,3 V sob carga</h2>
+      <span class="tag">R-13 · exige o circuito montado</span></div>
+
+    <div class="note">
+      <span class="wl">A pergunta certa não é "quanta corrente"</span>
+      <p>O que importa é se o regulador do Pico sustenta a carga — e isso é uma medida de
+        <strong>tensão</strong>: fácil, segura, sem abrir circuito e sem risco de fusível.
+        A corrente é diagnóstico secundário, para descobrir de quem é a culpa se a tensão
+        cair.</p>
+    </div>
+
+    <h3>Teste principal — tensão sob carga</h3>
+    <ol class="steps">
+      <li><p>Monte display, cartão SD e encoder no <span class="u">3V3_OUT</span>.
+        <em>O GPS vai em 5 V pelo LDO da própria placa, então fica fora desta conta.</em></p></li>
+      <li><p><strong>Force o backlight em 100% constante:</strong> configure o
+        <span class="u">GPIO 15</span> como saída em nível alto, <strong>sem PWM</strong>.
+        Multímetro barato lê PWM de forma imprevisível; com nível constante você mede o
+        pior caso e obtém leitura estável.</p></li>
+      <li><p>Modo <span class="u">V⎓</span> entre o pino 36 e GND. Anote em repouso.</p></li>
+      <li><p>Provoque o pior caso: escreva um arquivo grande no cartão SD, com o backlight
+        a 100% e a tela sendo redesenhada. Anote o menor valor que conseguir ler.</p></li>
+    </ol>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th class="n">Leitura sob carga</th><th>Veredito</th></tr></thead>
+        <tbody>
+          <tr><td class="n">≥ 3,20 V</td><td><span class="vd ok">Folga confortável</span></td></tr>
+          <tr><td class="n">3,10 – 3,20 V</td><td><span class="vd mid">Aceitável, sem margem para crescer</span></td></tr>
+          <tr><td class="n">&lt; 3,10 V</td><td><span class="vd bad">Prever regulador 3,3 V dedicado</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Diagnóstico secundário — corrente por carga</h3>
+    <p>Só se a tensão cair. Meça <strong>cada carga separadamente</strong>, nunca o total:
+      cada uma fica abaixo de 100 mA, dentro do fusível de 200 mA, e a leitura é mais
+      precisa que na faixa de 10 A. Para cada periférico, desconecte o fio de 3V3 dele,
+      insira o multímetro em série nesse fio e religue. Some os resultados.</p>
+
+    <div class="warn">
+      <span class="wl">Picos do cartão SD não são mensuráveis aqui</span>
+      <p>Duram poucos milissegundos e nenhum multímetro doméstico captura isso — o
+        aparelho mostra uma média. Não tente: o teste de tensão sob carga já responde o
+        que importa, porque se o trilho aguenta o pico, ele não afunda.</p>
+    </div>
+  </section>
+
+  <!-- ============ 04 ============ -->
+  <section class="form-sheet">
+    <div class="shead"><span class="snum">04</span><h2>Quadro de registro</h2>
+      <span class="tag">preencher na bancada</span></div>
+
+    <div class="tw">
+      <table class="rec">
+        <thead>
+          <tr><th>Grandeza</th><th>Leitura</th><th>Calculado</th><th>Veredito</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="grp" colspan="4">R-05 · Canal vermelho</td></tr>
+          <tr><td class="lbl">R medido <span class="hint">modo Ω, fora do circuito</span></td>
+            <td><input type="text" id="r05-r-r"></td>
+            <td><input type="text" id="r05-r-i" placeholder="I = Vr/R"></td>
+            <td rowspan="3"><input type="text" id="r05-r-v" placeholder="resistor final"></td></tr>
+          <tr><td class="lbl">Vcc no pino 36</td>
+            <td><input type="text" id="r05-r-vcc"></td>
+            <td><input type="text" id="r05-r-vf" placeholder="Vf = Vcc−Vr"></td></tr>
+          <tr><td class="lbl">Vr sobre o resistor</td>
+            <td><input type="text" id="r05-r-vr"></td><td></td></tr>
+
+          <tr><td class="grp" colspan="4">R-05 · Canal verde</td></tr>
+          <tr><td class="lbl">R medido</td>
+            <td><input type="text" id="r05-g-r"></td>
+            <td><input type="text" id="r05-g-i" placeholder="I = Vr/R"></td>
+            <td rowspan="3"><input type="text" id="r05-g-v" placeholder="resistor final"></td></tr>
+          <tr><td class="lbl">Vcc no pino 36</td>
+            <td><input type="text" id="r05-g-vcc"></td>
+            <td><input type="text" id="r05-g-vf" placeholder="Vf = Vcc−Vr"></td></tr>
+          <tr><td class="lbl">Vr sobre o resistor</td>
+            <td><input type="text" id="r05-g-vr"></td><td></td></tr>
+
+          <tr><td class="grp" colspan="4">R-05 · Canal azul</td></tr>
+          <tr><td class="lbl">R medido</td>
+            <td><input type="text" id="r05-b-r"></td>
+            <td><input type="text" id="r05-b-i" placeholder="I = Vr/R"></td>
+            <td rowspan="3"><input type="text" id="r05-b-v" placeholder="resistor final"></td></tr>
+          <tr><td class="lbl">Vcc no pino 36</td>
+            <td><input type="text" id="r05-b-vcc"></td>
+            <td><input type="text" id="r05-b-vf" placeholder="Vf = Vcc−Vr"></td></tr>
+          <tr><td class="lbl">Vr sobre o resistor</td>
+            <td><input type="text" id="r05-b-vr"></td><td></td></tr>
+
+          <tr><td class="grp" colspan="4">R-05 · Calibração de cor (a olho)</td></tr>
+          <tr><td class="lbl">Razão R:G do amarelo <span class="hint">duty de PWM</span></td>
+            <td><input type="text" id="cor-am"></td>
+            <td class="lbl">Razão R:B do rosa</td>
+            <td><input type="text" id="cor-rosa"></td></tr>
+          <tr><td class="lbl">As três hues são inconfundíveis sob sol direto?</td>
+            <td colspan="3"><input type="text" id="cor-sol" placeholder="sim / não — descreva"></td></tr>
+
+          <tr><td class="grp" colspan="4">R-17 · Buzzer e transistor</td></tr>
+          <tr><td class="lbl">Corrente do SFM-27 <span class="hint">série, modo mA, 5 V</span></td>
+            <td><input type="text" id="r17-i"></td>
+            <td class="lbl">Modelo do transistor</td>
+            <td><input type="text" id="r17-mod" placeholder="BC337 / 2N2222"></td></tr>
+          <tr><td class="lbl">Base identificada no pino <span class="hint">teste de diodo</span></td>
+            <td><input type="text" id="r17-base" placeholder="esq / centro / dir"></td>
+            <td class="lbl">hFE medido <span class="hint">se houver soquete</span></td>
+            <td><input type="text" id="r17-hfe"></td></tr>
+
+          <tr><td class="grp" colspan="4">R-13 · Trilho de 3,3 V</td></tr>
+          <tr><td class="lbl">Vcc em repouso</td>
+            <td><input type="text" id="r13-rep"></td>
+            <td class="lbl">Vcc com backlight 100%</td>
+            <td><input type="text" id="r13-bl"></td></tr>
+          <tr><td class="lbl">Vcc no pior caso <span class="hint">escrita no SD + backlight</span></td>
+            <td><input type="text" id="r13-pior"></td>
+            <td class="lbl">Veredito</td>
+            <td><input type="text" id="r13-vd"></td></tr>
+          <tr><td class="lbl">Corrente do display <span class="hint">só se a tensão cair</span></td>
+            <td><input type="text" id="r13-i-disp"></td>
+            <td class="lbl">Corrente do SD</td>
+            <td><input type="text" id="r13-i-sd"></td></tr>
+
+          <tr><td class="grp" colspan="4">R-14 · Inspeção visual (não é medida)</td></tr>
+          <tr><td class="lbl">Regulador de 3 pinos na placa GY-GPSV3?
+              <span class="hint">sem ele, os 5 V destroem o módulo</span></td>
+            <td><input type="text" id="r14-reg" placeholder="sim / não"></td>
+            <td class="lbl">Marcação lida</td>
+            <td><input type="text" id="r14-marc" placeholder="AMS1117 / HT7333 / 662K"></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Observações</h3>
+    <div class="ruled">
+      <div class="line"></div><div class="line"></div><div class="line"></div>
+      <div class="line"></div><div class="line"></div><div class="line"></div>
+      <div class="line"></div><div class="line"></div>
+    </div>
+
+    <h3>Decisões decorrentes</h3>
+    <p>Resistores definidos, alterações no BOM, componentes a comprar:</p>
+    <div class="ruled">
+      <div class="line"></div><div class="line"></div><div class="line"></div>
+      <div class="line"></div><div class="line"></div>
+    </div>
+
+    <div class="sig">
+      <div><label for="s-exec">Executado por</label><input type="text" id="s-exec"></div>
+      <div><label for="s-data">Data / hora de conclusão</label><input type="text" id="s-data"></div>
+    </div>
+  </section>
+
+  <p class="fin"><span>Coruja GPS · Roteiro de bancada</span>
+    <span>Pendências R-05 · R-17 · R-13 · R-14</span>
+    <span>rev. 1 — 2026-09-15</span></p>
+</div>
