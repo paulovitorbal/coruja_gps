@@ -9,7 +9,8 @@ anterior, e o antigo fica marcado como superado em vez de ser editado.
 | [0001](0001-alvo-duplo-host-e-pico.md) | Um CMake com alvo duplo: testes no host, firmware no RP2350 | 2026-09-17 | aceita |
 | [0002](0002-onde-vive-a-configuracao.md) | Credenciais no cartão, calibração compilada | 2026-09-17 | aceita |
 | [0003](0003-idioma-dos-identificadores.md) | Domínio em português, infraestrutura em inglês | 2026-09-17 | aceita |
-| [0004](0004-testes-contra-a-base-real.md) | Testes que dependem da base real se auto-pulam | 2026-09-17 | aceita |
+| [0004](0004-testes-contra-a-base-real.md) | Fixture sintética versionada, em vez de pular testes | 2026-09-17 | aceita |
+| [0005](0005-taxa-de-amostragem-do-encoder.md) | Encoder amostrado a 1 ms, não no laço de 4 Hz | 2026-09-17 | aceita |
 
 ## Decisões anteriores a este diretório
 

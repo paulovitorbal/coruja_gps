@@ -6,10 +6,28 @@ add_library(coruja_nucleo STATIC
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# coruja_ihm: logica de interface de usuario. Portavel, sem hardware: o
+# decodificador de quadratura, o anti-repique e o modo de teste sao funcoes
+# puras, e e por isso que a decodificacao inteira e testada no host.
+add_library(coruja_ihm STATIC
+    encoder/DecodificadorQuadratura.cpp
+    encoder/AntiRepique.cpp
+    encoder/EventoEncoder.cpp
+    app/ModoTesteEncoder.cpp
+)
+target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 # coruja_log: interface + implementacao de console. Portavel.
 add_library(coruja_log STATIC log/LoggerConsole.cpp)
 target_include_directories(coruja_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # coruja_portes: implementacoes que tocam hardware. So no alvo Pico.
-# Vazia por enquanto: os componentes de hardware ainda nao foram escritos.
-# Ver a tabela de estado no README.
+if(NOT CORUJA_TESTES)
+    add_library(coruja_portes STATIC
+        led/LedRgbPwm.cpp
+        encoder/EncoderKy040.cpp
+    )
+    target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(coruja_portes PUBLIC
+        coruja_ihm coruja_log pico_stdlib hardware_pwm hardware_gpio)
+endif()

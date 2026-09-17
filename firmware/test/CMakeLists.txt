@@ -30,6 +30,9 @@ add_executable(testes
     nucleo/LimiarInfracaoTest.cpp
     nucleo/BaseRadaresTest.cpp
     log/LoggerConsoleTest.cpp
+    encoder/DecodificadorQuadraturaTest.cpp
+    encoder/AntiRepiqueTest.cpp
+    app/ModoTesteEncoderTest.cpp
 )
 target_include_directories(testes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_dependencies(testes fixture)
@@ -37,5 +40,5 @@ target_compile_definitions(testes PRIVATE
     CORUJA_FIXTURE_BIN="${FIXTURE_BIN}"
     CORUJA_BASE_REAL="${CORUJA_BASE_REAL}")
 target_link_libraries(testes PRIVATE
-    coruja_nucleo coruja_log GTest::gtest GTest::gtest_main)
+    coruja_nucleo coruja_log coruja_ihm GTest::gtest GTest::gtest_main)
 gtest_discover_tests(testes)

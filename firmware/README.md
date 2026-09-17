@@ -103,9 +103,11 @@ Gera o `coruja.cfg` no cartão e o `ConfigCalibracao.h` no firmware. Ver
 firmware/src/
 ├── nucleo/          lógica pura — compila e é testada no host
 ├── log/             Logger (interface) + LoggerConsole
-├── led/             LedRgb (interface) + LedRgbPwm (hardware)
+├── led/             Cor, LedRgb (interface), LedRgbPwm (hardware)
+├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
+│                    Encoder (interface), EncoderKy040 (hardware)
+├── app/             ModoTesteEncoder — lógica do teste de bancada
 ├── buzzer/          a fazer
-├── encoder/         a fazer
 ├── armazenamento/   a fazer — cartão SD
 ├── display/         a fazer — módulo ainda não chegou
 └── gps/             a fazer — módulo ainda não chegou
@@ -121,11 +123,12 @@ do Pico SDK, vai para `coruja_portes`; caso contrário, fica no alvo portável.*
 
 | Componente | Peça em mãos | Interface | Implementação | Testes |
 | :--- | :---: | :---: | :---: | :---: |
-| `nucleo` — tipos, Geo, LimiarInfracao, BaseRadares | — | — | ✅ | ✅ 58 casos |
+| `nucleo` — tipos, Geo, LimiarInfracao, BaseRadares | — | — | ✅ | ✅ |
 | `log` — Logger, console, mock | — | ✅ | ✅ | ✅ |
-| `led` — LED RGB | ✅ | ⬜ | ⬜ | ⬜ |
+| `led` — LED RGB | ✅ | ✅ | ✅ | ✅ |
+| `encoder` — KY-040 | ✅ | ✅ | ✅ | ✅ |
+| `app` — modo de teste de bancada | ✅ | — | ✅ | ✅ |
 | `buzzer` — SFM-27 + BC337 | ✅ | ⬜ | ⬜ | ⬜ |
-| `encoder` — KY-040 | ✅ | ⬜ | ⬜ | ⬜ |
 | `armazenamento` — microSD | ✅ | ⬜ | ⬜ | ⬜ |
 | `display` — 2,4" 320×240 | ❌ Correios | ⬜ | ⬜ | ⬜ |
 | `gps` — NEO-M8N | ❌ Correios | ⬜ | ⬜ | ⬜ |
@@ -135,9 +138,33 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 ### O que está verificado e o que não está
 
-* **Verificado:** a suíte de 59 casos no host, com cobertura medida — 97,9% de
-  linhas e **100% de ramos** no carregador, 100% em `Geo` e `LimiarInfracao`.
+* **Verificado:** a suíte de **92 casos** no host, com cobertura medida — 97,9%
+  de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
+  `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
+  `ModoTesteEncoder`.
 * **Não verificado:** a compilação para ARM. O alvo Pico **configura** sem
   erro, mas não foi possível compilá-lo nesta máquina porque o toolchain
   correto exige instalação com senha de administrador (ver o aviso acima).
-  O `src/main.cpp` é um smoke test do alvo e nunca rodou numa placa.
+  O `src/main.cpp` roda o modo de teste de bancada e **nunca rodou numa
+  placa**. Os nomes de função do SDK foram conferidos um por um contra os
+  cabeçalhos do `pico-sdk` 2.3.1, o que descarta erro de API, mas não
+  substitui compilar.
+
+## Modo de teste de bancada
+
+O firmware atual valida a fiação do encoder e do LED sem GPS, cartão nem
+display:
+
+| Ação | LED |
+| :--- | :--- |
+| Girar à esquerda | vermelho |
+| Girar à direita | azul |
+| Clicar o botão | apaga |
+
+Cada evento também sai no log pelo USB-CDC. Se esquerda e direita saírem
+trocadas, é porque `CLK` e `DT` estão invertidos em relação ao esperado:
+construa o encoder com `EncoderKy040(true, /*invertido=*/true)` em vez de
+mexer na fiação.
+
+Este modo serve de passagem ao **R-05**: é com ele que se compara vermelho e
+azul lado a lado, em luz ambiente e sob sol direto.

@@ -25,7 +25,7 @@ else()
     add_subdirectory(src)
     add_executable(coruja_gps src/main.cpp)
     target_link_libraries(coruja_gps PRIVATE
-        coruja_nucleo coruja_log pico_stdlib)
+        coruja_nucleo coruja_log coruja_ihm coruja_portes pico_stdlib)
     pico_enable_stdio_usb(coruja_gps 1)
     pico_enable_stdio_uart(coruja_gps 0)
     pico_add_extra_outputs(coruja_gps)
