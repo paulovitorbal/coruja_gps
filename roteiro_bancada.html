@@ -252,9 +252,23 @@
     </div>
 
     <h3>Montagem</h3>
+    <div class="warn">
+      <span class="wl">O LED é de ânodo comum — corrigido na rev. 5</span>
+      <p>O LED que você tem é <strong>10 mm difuso, ânodo comum</strong>: o terminal
+        mais longo vai ao <span class="u">3V3_OUT</span> e cada cátodo desce pelo
+        resistor. A rev. 4 desta folha mostrava o resistor do lado do 3V3, que é o
+        arranjo de cátodo comum.</p>
+      <p>Para o cálculo <strong>não muda nada</strong>: medir a tensão sobre o resistor
+        dá a mesma corrente e o mesmo <span class="u">Vf</span> independente de qual
+        lado ele está. O que muda é <strong>um canal por vez</strong>: com ânodo comum
+        os três cátodos são independentes, então conecte só o cátodo do canal sob teste
+        e deixe os outros dois soltos.</p>
+    </div>
+
     <p>No protoboard, um canal por vez:</p>
-    <div class="formula">3V3_OUT (pino 36) ──[ resistor R ]──▶|── GND
-                                    LED</div>
+    <div class="formula">3V3_OUT (pino 36) ──▶|──[ resistor R ]── GND
+                        LED
+                     (anodo comum)</div>
 
     <h3>Procedimento — repita para vermelho, verde e azul</h3>
     <ol class="steps">
@@ -556,5 +570,5 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
 
   <p class="fin"><span>Coruja GPS · Roteiro de bancada</span>
     <span>Pendências R-05 · R-17 · R-13 · R-14 · R-32 · display</span>
-    <span>rev. 4 — 2026-09-18</span></p>
+    <span>rev. 5 — 2026-09-18</span></p>
 </div>

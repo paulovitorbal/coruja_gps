@@ -161,7 +161,7 @@ Gera o `coruja.cfg` no cartão e o `ConfigCalibracao.h` no firmware. Ver
 firmware/src/
 ├── nucleo/          lógica pura — compila e é testada no host
 ├── log/             Logger (interface) + LoggerConsole
-├── led/             Cor, LedRgb (interface), LedRgbPwm (hardware)
+├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
 ├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
 │                    Encoder (interface), EncoderKy040 (hardware)
 ├── app/             ModoTesteEncoder — lógica do teste de bancada

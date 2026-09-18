@@ -24,7 +24,7 @@ target_include_directories(coruja_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # coruja_portes: implementacoes que tocam hardware. So no alvo Pico.
 if(NOT CORUJA_TESTES)
     add_library(coruja_portes STATIC
-        led/LedRgbPwm.cpp
+        led/LedRgbAnodoComum.cpp
         encoder/EncoderKy040.cpp
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

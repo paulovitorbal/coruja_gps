@@ -1,4 +1,4 @@
-#include "led/LedRgbPwm.h"
+#include "led/LedRgbAnodoComum.h"
 
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
@@ -12,7 +12,8 @@ namespace {
 constexpr std::uint16_t kWrap = 255;
 }  // namespace
 
-LedRgbPwm::LedRgbPwm(unsigned gpio_r, unsigned gpio_g, unsigned gpio_b)
+LedRgbAnodoComum::LedRgbAnodoComum(unsigned gpio_r, unsigned gpio_g,
+                                   unsigned gpio_b)
     : gpio_r_(gpio_r), gpio_g_(gpio_g), gpio_b_(gpio_b) {
     configura_canal(gpio_r_);
     configura_canal(gpio_g_);
@@ -20,7 +21,7 @@ LedRgbPwm::LedRgbPwm(unsigned gpio_r, unsigned gpio_g, unsigned gpio_b)
     define_cor(cores::kApagado);
 }
 
-void LedRgbPwm::configura_canal(unsigned gpio) {
+void LedRgbAnodoComum::configura_canal(unsigned gpio) {
     gpio_set_function(gpio, GPIO_FUNC_PWM);
     const unsigned slice = pwm_gpio_to_slice_num(gpio);
 
@@ -33,11 +34,20 @@ void LedRgbPwm::configura_canal(unsigned gpio) {
     pwm_set_enabled(slice, true);
 }
 
-void LedRgbPwm::escreve_canal(unsigned gpio, std::uint8_t intensidade) {
-    pwm_set_gpio_level(gpio, intensidade);
+void LedRgbAnodoComum::escreve_canal(unsigned gpio, std::uint8_t intensidade) {
+    // Ânodo comum: nível baixo acende, então o nível de PWM é o complemento da
+    // intensidade. Intensidade 0 vira nível kWrap, que mantém o pino sempre
+    // alto e o LED apagado.
+    //
+    // A inversão é aritmética e não por `pwm_set_output_polarity()` de
+    // propósito: a polaridade em hardware é por *canal* de slice, e os três
+    // GPIO deste LED se espalham por dois slices — GPIO 6 e 7 são os canais A e
+    // B do mesmo slice, GPIO 8 é o canal A de outro. Acertar essa contabilidade
+    // é fonte de bug silencioso; uma subtração não é.
+    pwm_set_gpio_level(gpio, static_cast<std::uint16_t>(kWrap - intensidade));
 }
 
-void LedRgbPwm::define_cor(const Cor& cor) {
+void LedRgbAnodoComum::define_cor(const Cor& cor) {
     atual_ = cor;
     escreve_canal(gpio_r_, cor.r);
     escreve_canal(gpio_g_, cor.g);

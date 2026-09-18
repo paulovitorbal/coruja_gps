@@ -15,7 +15,7 @@
 
 #include "app/ModoTesteEncoder.h"
 #include "encoder/EncoderKy040.h"
-#include "led/LedRgbPwm.h"
+#include "led/LedRgbAnodoComum.h"
 #include "log/LoggerConsole.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/LimiarInfracao.h"
@@ -66,7 +66,7 @@ int main() {
     log.info("limiar", msg);
     log.warning("boot", "sem base carregada: leitor SD ainda nao implementado");
 
-    coruja::LedRgbPwm      led;
+    coruja::LedRgbAnodoComum led;
     coruja::EncoderKy040   encoder;
     coruja::ModoTesteEncoder modo;
 

@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 23 de 23 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 24 de 24 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -274,7 +274,9 @@ ser ignorado". Entre rumo 355° e radar 5° a diferença aritmética é 350° �
 ## R-05 — 330 Ω deixa o verde e o azul do LED RGB praticamente invisíveis
 
 - **Onde:** `bom_schematic.md` itens 11 e 8, seção 4
-- **Confiança:** ⚠️ Valor típico (Vf depende do LED adquirido — **medir**)
+- **Confiança:** ⚠️ Valor típico (Vf depende do LED adquirido — **medir**). ⚠️ A peça
+  real é **10 mm, ânodo comum** (R-33); a conta de resistor não muda, o arranjo de
+  medição sim.
 
 **Problema.** LEDs difusos verde e azul têm Vf típico de 3,0–3,2 V. Com GPIO em 3,3 V e
 330 Ω em série, sobram ~0,1–0,3 V no resistor → menos de 1 mA → emissão desprezível.
@@ -1162,6 +1164,65 @@ então a decisão de modelo não é crítica. A de montagem é.
 > é. O teste é subjetivo e não cabe em multímetro: montar, rodar a 80 km/h com janela
 > aberta e julgar se é inconfundível. Se não for, seguir a ordem de tentativa acima.
 
+## R-33 — O LED é de ânodo comum, e isso inverte a lógica de acionamento
+
+- **Onde:** `bom_schematic.md` item 8 e §4 · `gera_fritzing.py` · `firmware/src/led/`
+- **Confiança:** ✅ Verificado na peça física pelo autor
+- **Registrado em:** 2026-09-18
+- **Status:** ✅ **CORRIGIDO** na mesma data
+
+**Problema.** O projeto especificava **LED RGB 5 mm, cátodo comum**, e o firmware foi
+escrito sobre essa premissa. A peça que o autor tem em casa é **10 mm difuso, ânodo
+comum**.
+
+| | Cátodo comum *(premissa)* | **Ânodo comum** *(realidade)* |
+| :--- | :--- | :--- |
+| Terminal comum | GND | **`3V3_OUT`** |
+| O GPIO | **fornece** corrente | **drena** corrente |
+| Acende com GPIO em | nível **alto** | nível **baixo** |
+| PWM | duty direto | **duty complementado** |
+
+Montar um no lugar do outro **não queima nada**, e é por isso que o erro é ruim: o LED
+simplesmente fica **aceso ao contrário** — apagado quando deveria acender, e no brilho
+complementar em cada canal. O sintoma é confuso, e num LED que codifica quatro estados
+de via por cor, é o tipo de coisa que se depura por horas.
+
+**Correção aplicada, em quatro lugares:**
+
+1. **Firmware.** `LedRgbPwm` virou `LedRgbAnodoComum`, com o nível de PWM complementado
+   (`kWrap − intensidade`). A polaridade está no **nome da classe** e não num parâmetro
+   de construtor, de propósito: ela não é configuração, é propriedade física da peça
+   soldada, e com o nome no tipo a escolha errada fica visível onde se escolhe a classe.
+   A inversão é aritmética e não por `pwm_set_output_polarity()`, porque a polaridade em
+   hardware é por canal de slice e os três GPIO se espalham por dois slices — GPIO 6 e 7
+   são A e B do mesmo, GPIO 8 é A de outro. Essa contabilidade é fonte de bug silencioso;
+   uma subtração não é.
+2. **Netlist.** O terminal comum saiu da rede `GND` e entrou na rede `3V3`. As redes
+   `LED_x_ANODO` viraram `LED_x_CATODO`, porque é o cátodo que agora desce pelo resistor.
+3. **BOM e §4.** Item 8 passa a 10 mm, ânodo comum, e a fiação foi reescrita.
+4. **Folha de bancada, rev. 5.** O diagrama do R-05 mostrava o resistor do lado do 3V3.
+
+**O que o teste não pegou, e por quê.** Os 92 casos continuaram verdes durante toda a
+troca, e corretamente: a inversão vive na única classe que toca registrador de PWM, que
+por decisão do **ADR 0001** fica fora do alvo de teste de host. O `LedRgbMock` é
+agnóstico de polaridade — ele guarda `Cor`, não duty — e é isso que faz a lógica de
+`ModoTesteEncoder` continuar válida sem uma linha de mudança. A separação funcionou como
+projetada; só não há como um teste de host detectar um LED soldado ao contrário.
+
+**Duas notas que não são defeito.**
+
+* **O 10 mm é melhor** para este uso: lente maior, mais área luminosa na visão
+  periférica, que é exatamente o papel do LED no RF03.4. Muda o furo do gabinete.
+* **Não ligar o ânodo comum nos 5 V**, por tentador que pareça — resolveria o aperto de
+  margem do verde e do azul que o R-05 investiga. Durante o reset os GPIO ficam em alta
+  impedância e o LED puxaria os pinos na direção de 5 V menos o `Vf`; no canal vermelho,
+  de `Vf` mais baixo, isso chega perto do máximo absoluto do GPIO.
+
+**Divergência conhecida no `.fzz`.** O arquivo versionado usa a peça *"LED RGB catodo
+comum"* da biblioteca do Fritzing, com o comum ligado ao GND. O gerador já está correto;
+o `.fzz` foi editado à mão pelo autor e **não será regerado** (R-29). A correção ali é
+manual: mover o fio do terminal comum do GND para o `3V3`.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1311,6 +1372,7 @@ RELEVANTES
 [x] R-30  RESOLVIDO — BASE INDISPONÍVEL persistente na faixa inferior (requirements.md §4.1)
 [x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
 [~] R-32  Faixa 3 virou pulso de 10 Hz; audibilidade com janela aberta PENDENTE de julgamento em campo
+[x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

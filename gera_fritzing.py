@@ -89,7 +89,7 @@ PECAS = [
 
     ("LED", "d4d5af9700923b8a114f57961f29a8a0ColorLEDModuleID",
      "led-rgb-4pin-cathode_v5.fzp",
-     "LED RGB catodo comum", {}, None),
+     "LED RGB 10mm anodo comum", {}, None),
 
     ("R1", "ResistorModuleID", "resistor.fzp", "R1 330R",
      {"resistance": "330", "pin spacing": "400 mil"}, None),
@@ -128,6 +128,9 @@ PECAS = [
 
 # Conectores nomeados por peça. Pico: pino fisico N -> connector(N-1).
 CONN = {
+    # "K" e o pino comum da peca do Fritzing. Como o LED real e de anodo
+    # comum, este pino vai ao 3V3 e nao ao GND -- o nome do conector na peca
+    # continua "K" porque e a peca de catodo comum da biblioteca.
     "LED": {"R": "connector0", "K": "connector1", "G": "connector2", "B": "connector3"},
     "Q1": {"E": "connector0", "B": "connector1", "C": "connector2"},
     "D1": {"K": "connector0", "A": "connector1"},      # cathode, anode
@@ -155,11 +158,14 @@ NETS = {
     "VSYS_5V":     [("D1", "K"), ("PICO", "39"), ("C1", "+"), ("C2", "0"),
                     ("GPS", "VCC 5V"), ("JBZ", "+5V"), ("D2", "K")],
     "GND":         [("J5V", "GND"), ("PICO", "38"), ("PICO", "3"), ("C1", "-"),
-                    ("C2", "1"), ("LED", "K"), ("Q1", "E"), ("GPS", "GND"),
+                    ("C2", "1"), ("Q1", "E"), ("GPS", "GND"),
                     ("SD", "GND"), ("TFT", "GND"), ("ENC", "GND"),
                     ("C3", "1"), ("C4", "1")],
+    # O LED e de ANODO comum (BOM item 8, corrigido em 2026-09-18): o terminal
+    # comum vai ao 3V3, nao ao GND, e cada catodo desce por seu resistor ate um
+    # GPIO. Ver R-33 -- isso inverte a logica de acionamento no firmware.
     "3V3":         [("PICO", "36"), ("SD", "3V"), ("TFT", "VCC 3V3"),
-                    ("ENC", "+ 3V3")],
+                    ("ENC", "+ 3V3"), ("LED", "K")],
 
     "SPI0_SCK":    [("PICO", "24"), ("SD", "CLK"), ("TFT", "SCL")],
     "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD/SI"), ("TFT", "SDA")],
@@ -183,11 +189,11 @@ NETS = {
     "ENC_SW":      [("PICO", "6"), ("ENC", "SW")],
 
     "LED_R_GPIO6":  [("PICO", "9"), ("R1", "0")],
-    "LED_R_ANODO":  [("R1", "1"), ("LED", "R")],
+    "LED_R_CATODO": [("R1", "1"), ("LED", "R")],
     "LED_G_GPIO7":  [("PICO", "10"), ("R2", "0")],
-    "LED_G_ANODO":  [("R2", "1"), ("LED", "G")],
+    "LED_G_CATODO": [("R2", "1"), ("LED", "G")],
     "LED_B_GPIO8":  [("PICO", "11"), ("R3", "0")],
-    "LED_B_ANODO":  [("R3", "1"), ("LED", "B")],
+    "LED_B_CATODO": [("R3", "1"), ("LED", "B")],
 
     "BUZZ_GPIO5":   [("PICO", "7"), ("R4", "0")],
     "BUZZ_BASE":    [("R4", "1"), ("Q1", "B")],
@@ -221,9 +227,9 @@ CORES = {
     "TFT_RST":    "#ffe500", "TFT_BL_PWM": "#ffe500",
     "GPS_TX":     "#8c3b00", "GPS_RX": "#8c3b00", "UART_TX_R5": "#8c3b00",
     "ENC_CLK":    "#ff7f00", "ENC_DT": "#ff7f00", "ENC_SW": "#ff7f00",
-    "LED_R_GPIO6": "#8c00ff", "LED_R_ANODO": "#8c00ff",
-    "LED_G_GPIO7": "#8c00ff", "LED_G_ANODO": "#8c00ff",
-    "LED_B_GPIO8": "#8c00ff", "LED_B_ANODO": "#8c00ff",
+    "LED_R_GPIO6": "#8c00ff", "LED_R_CATODO": "#8c00ff",
+    "LED_G_GPIO7": "#8c00ff", "LED_G_CATODO": "#8c00ff",
+    "LED_B_GPIO8": "#8c00ff", "LED_B_CATODO": "#8c00ff",
 }
 COR_PADRAO = "#999999"
 
