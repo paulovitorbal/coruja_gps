@@ -4,6 +4,7 @@
 #include "encoder/AntiRepique.h"
 #include "encoder/DecodificadorQuadratura.h"
 #include "encoder/Encoder.h"
+#include "placa/Pinos.h"
 
 namespace coruja {
 
@@ -20,10 +21,6 @@ namespace coruja {
 /// diretamente em dois GPIO.
 class EncoderKy040 final : public Encoder {
 public:
-    static constexpr unsigned kGpioClk = 2;
-    static constexpr unsigned kGpioDt  = 3;
-    static constexpr unsigned kGpioSw  = 4;
-
     /// `pull_up_interno` liga o pull-up do Pico nos três pinos. O módulo
     /// KY-040 costuma trazer pull-up de 10 kΩ em `CLK` e `DT` mas **não** em
     /// `SW`; o interno do RP2350 é de ~50 a 80 kΩ, então onde já existe um o
@@ -32,10 +29,11 @@ public:
     ///
     /// `invertido` troca esquerda e direita, caso `CLK` e `DT` estejam
     /// trocados em relação ao esperado.
+    /// Os pinos vêm de `placa/Pinos.h`, que é a fonte única.
     explicit EncoderKy040(bool pull_up_interno = true, bool invertido = false,
-                          unsigned gpio_clk = kGpioClk,
-                          unsigned gpio_dt = kGpioDt,
-                          unsigned gpio_sw = kGpioSw);
+                          unsigned gpio_clk = pinos::kEncoderClk,
+                          unsigned gpio_dt = pinos::kEncoderDt,
+                          unsigned gpio_sw = pinos::kEncoderSw);
 
     /// Amostra os pinos e devolve o evento resultante. Chamar com frequência:
     /// a decodificação por tabela precisa ver cada transição, e a 4 Hz do

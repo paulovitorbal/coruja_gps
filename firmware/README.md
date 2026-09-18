@@ -159,6 +159,7 @@ Gera o `coruja.cfg` no cartão e o `ConfigCalibracao.h` no firmware. Ver
 
 ```
 firmware/src/
+├── placa/           Pinos.h — mapa único de GPIO, com invariantes em static_assert
 ├── nucleo/          lógica pura — compila e é testada no host
 ├── log/             Logger (interface) + LoggerConsole
 ├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
@@ -177,10 +178,29 @@ firmware/test/
 A regra de pertencimento está no `docs/adr/0001`: **se precisa de um cabeçalho
 do Pico SDK, vai para `coruja_portes`; caso contrário, fica no alvo portável.**
 
+### Mapa de pinos
+
+`src/placa/Pinos.h` é a **fonte única** dos 18 GPIO que o firmware usa. Nenhuma classe
+declara pino próprio: `LedRgbAnodoComum` e `EncoderKy040` consomem as constantes de lá.
+
+Três invariantes são garantidas pelo **compilador**, não por revisão de código:
+
+| Invariante | Mensagem se violada |
+| :--- | :--- |
+| Nenhum GPIO usado duas vezes | `dois periféricos foram atribuídos ao mesmo GPIO` |
+| Todo GPIO existe no cabeçalho e não é do CYW43 (23, 24, 25, 29) | `algum GPIO não existe no cabeçalho do Pico...` |
+| A contagem de 18 não mudou sem revisão | `a contagem de GPIO mudou: confira o bom_schematic.md...` |
+
+As três foram **verificadas quebrando o arquivo de propósito** e conferindo que o build
+para com a mensagem certa. Os testes de `placa/PinosTest.cpp` acrescentam o que o
+`static_assert` não alcança: eles **fixam os valores** contra a fiação documentada, para
+que trocar o GPIO 2 pelo 3 falhe dizendo qual periférico mudou de pino.
+
 ## Estado
 
 | Componente | Peça em mãos | Interface | Implementação | Testes |
 | :--- | :---: | :---: | :---: | :---: |
+| `placa` — mapa de pinos | — | — | ✅ | ✅ |
 | `nucleo` — tipos, Geo, LimiarInfracao, BaseRadares | — | — | ✅ | ✅ |
 | `log` — Logger, console, mock | — | ✅ | ✅ | ✅ |
 | `led` — LED RGB | ✅ | ✅ | ✅ | ✅ |
@@ -196,7 +216,7 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 ### O que está verificado e o que não está
 
-* **Verificado:** a suíte de **92 casos** no host, com cobertura medida — 97,9%
+* **Verificado:** a suíte de **98 casos** no host, com cobertura medida — 97,9%
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
   `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
   `ModoTesteEncoder`.

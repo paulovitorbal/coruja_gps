@@ -435,6 +435,39 @@ fusível a montante vira aquecedor ligado na bateria.
 > ⚠️ **Proteja o conjunto com termorretrátil** e fixe contra vibração, como o conversor.
 > São três componentes soldados num cabo, sob o painel, num carro em movimento.
 
+> 🔗 **O firmware tem o mapa completo em `firmware/src/placa/Pinos.h`**, com os 18 GPIO
+> e os pinos de alimentação, e com três invariantes guardadas por `static_assert`:
+> nenhum GPIO repetido, nenhum fora do cabeçalho ou pertencente ao módulo Wi-Fi, e a
+> contagem fixada. Esta seção e aquele arquivo têm de concordar — o teste
+> `placa/PinosTest.cpp` fixa os valores justamente para que a divergência apareça.
+
+### 🆕 🔴 Pino 36 é `3V3_OUT`. Pino 37 é `3V3_EN`. Não confunda.
+
+São **pinos adjacentes**, e **quatro coisas** deste projeto vão no 36: o leitor SD, o
+encoder, o ânodo comum do LED RGB e — se o módulo não tiver regulador próprio — o VCC do
+display. Quatro chances de errar por um pino.
+
+| Pino | Nome | O que é |
+| :---: | :--- | :--- |
+| **36** | **`3V3_OUT`** | ✅ **A fonte.** Saída de 3,3 V do regulador da placa, capaz de algumas centenas de mA. É aqui que tudo se liga. |
+| **37** | `3V3_EN` | ❌ **Um controle.** Entrada de *enable* do regulador, com pull-up de 100 kΩ para `VSYS` na própria placa. Puxá-lo ao GND **desliga o regulador de 3,3 V** — e com ele o próprio RP2350. |
+
+**O que acontece se o ânodo comum do LED for ao 37.** Não queima nada, e é justamente por
+isso que é ruim:
+
+1. Através do pull-up de 100 kΩ passam **microampères**. O LED fica praticamente apagado
+   em qualquer cor.
+2. Pior: quando o firmware acende um canal, o GPIO drena corrente e **puxa o `3V3_EN`
+   para baixo**. Se cair abaixo do limiar de *enable*, o regulador desliga e a placa
+   inteira morre.
+3. **Sintoma:** o Pico funciona no boot, imprime o log, e **morre ou entra em reset
+   cíclico no instante em que tenta acender o LED**. Alguém pode passar horas procurando
+   bug de firmware por causa de um pino de diferença.
+
+> 💡 Ao contar os pinos na barra, conte a partir de uma referência inequívoca. O **pino
+> 38 é GND** e o **40 é `VBUS`**, na mesma fileira: `3V3_OUT` é o **terceiro antes do
+> GND do canto**. Conferir com o multímetro em modo contínuo é mais barato que depurar.
+
 ### ⚠️ 1. Barramento de Entrada e Filtro Duplo de Energia
 
 > **Correção da revisão 1:** o documento anterior mandava a entrada para "VBUS (Pino
@@ -779,6 +812,9 @@ Antes de ligar o circuito pela primeira vez:
       conversor não tem proteção de polaridade reversa.
 - [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
 - [ ] Polaridade da entrada de 5 V conferida no JST, com o cabo já crimpado.
+- [ ] 🆕 **Tudo que é 3,3 V está no pino 36 (`3V3_OUT`), não no 37 (`3V3_EN`).**
+      São pinos adjacentes; o 37 desliga o regulador da placa. Confira o leitor SD,
+      o encoder, o ânodo comum do LED e o VCC do display se ele for de 3,3 V.
 - [ ] Continuidade entre `GND (38)` e todos os terras dos módulos.
 - [ ] **Ausência** de continuidade entre `VSYS (39)` e `GND (38)` (curto de alimentação).
 - [ ] Polaridade do capacitor eletrolítico (faixa cinza no GND).

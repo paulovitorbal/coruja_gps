@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "led/LedRgb.h"
+#include "placa/Pinos.h"
 
 namespace coruja {
 
@@ -27,17 +28,16 @@ namespace coruja {
 /// vai medir e o que `ConfigCalibracao.h` vai corrigir.
 class LedRgbAnodoComum final : public LedRgb {
 public:
-    static constexpr unsigned kGpioVermelho = 6;
-    static constexpr unsigned kGpioVerde    = 7;
-    static constexpr unsigned kGpioAzul     = 8;
-
     /// 1 kHz é folgado para um LED: acima de ~200 Hz não há cintilação
     /// perceptível, e não há razão para subir mais e gastar resolução.
     static constexpr std::uint16_t kFrequenciaHz = 1000;
 
-    LedRgbAnodoComum(unsigned gpio_r = kGpioVermelho,
-                     unsigned gpio_g = kGpioVerde,
-                     unsigned gpio_b = kGpioAzul);
+    /// Os pinos vêm de `placa/Pinos.h`, que é a fonte única. Continuam
+    /// parametrizáveis para teste e para bancada, mas o padrão não é repetido
+    /// aqui — repetir era o que fazia o mapa divergir.
+    LedRgbAnodoComum(unsigned gpio_r = pinos::kLedVermelho,
+                     unsigned gpio_g = pinos::kLedVerde,
+                     unsigned gpio_b = pinos::kLedAzul);
 
     void define_cor(const Cor& cor) override;
     Cor  cor_atual() const override { return atual_; }
