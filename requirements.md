@@ -445,7 +445,7 @@ Resultado da ancoragem literal no limite:
 
 Em **~80% dos radares de velocidade da base** (13.429 de 16.864, os de limite
 ≤ 60 km/h), a faixa de bipes lentos seria vazia — e a 30 km/h até a faixa intermediária
-seria vazia, fazendo o aparelho saltar direto para bipe contínuo no instante em que
+seria vazia, fazendo o aparelho saltar direto para a faixa mais alta no instante em que
 cruzasse o limiar. Exatamente o oposto do escalonamento pretendido, e nas vias onde o
 aparelho mais será usado.
 
@@ -455,11 +455,11 @@ aparelho mais será usado.
 | :---: | :--- | :--- |
 | **1** | `V_infra` a `V_infra × 1,10` | bipe de 100 ms a cada **1000 ms** |
 | **2** | `V_infra × 1,10` a `V_infra × 1,20` | bipe de 100 ms a cada **350 ms** |
-| **3** | acima de `V_infra × 1,20` | **contínuo** |
+| **3** | acima de `V_infra × 1,20` | bipe de 50 ms a cada **100 ms** — pulso rápido, **não contínuo** |
 
 Faixas resultantes, em km/h (com os valores de projeto do RF03.6):
 
-| Limite | Faixa 1 — lento | Faixa 2 — rápido | Faixa 3 — contínuo |
+| Limite | Faixa 1 — lento | Faixa 2 — rápido | Faixa 3 — pulso rápido |
 | :--- | :--- | :--- | :--- |
 | 30 | 36,0 – 39,6 | 39,6 – 43,2 | > 43,2 |
 | 40 | 46,0 – 50,6 | 50,6 – 55,2 | > 55,2 |
@@ -473,7 +473,22 @@ Faixas resultantes, em km/h (com os valores de projeto do RF03.6):
 | 120 | 126,0 – 138,6 | 138,6 – 151,2 | > 151,2 |
 
 Todas as faixas são não vazias e monotônicas em todos os limites da base, e o
-escalonamento 1 Hz → ~2,9 Hz → contínuo é perceptivelmente distinguível.
+escalonamento **1 Hz → ~2,9 Hz → 10 Hz** é perceptivelmente distinguível.
+
+##### ⚠️ Por que a faixa 3 não é contínua
+
+A especificação anterior usava **bipe contínuo** na faixa 3. Alterado em 2026-09-18:
+**tom contínuo é o padrão menos detectável contra ruído estável.** O sistema auditivo se
+adapta a um tom constante em segundos, e ruído de vento faz exatamente isso com ele — o
+alerta mais urgente teria a forma mais fácil de mascarar.
+
+Um pulso rápido a 10 Hz mantém a mensagem de escalonamento pela cadência, resiste ao
+mascaramento por ser transiente repetido, e ainda é inconfundível em relação aos ~2,9 Hz
+da faixa 2. Ver **R-32** para a análise de audibilidade que motivou a mudança.
+
+O buzzer é **piezo ativo** nos dois modelos aceitos (item 7 do BOM), então as três faixas
+são geradas apenas ligando e desligando a alimentação — o tom é interno ao componente.
+A 10 Hz o ciclo é de 100 ms, folgado para um timer de hardware.
 
 ##### Histerese de faixa
 
@@ -803,12 +818,22 @@ Comportamento obrigatório nas condições de falha:
   inicialização**, enquanto o display opera em dezenas de MHz — a velocidade deve ser
   reconfigurada por dispositivo antes de cada transação.
 
-* **[RNF05] Modularidade Mecânica:** o buzzer potente (SFM-27) deve ser montado
-  externamente, escondido sob o painel, conectando-se ao gabinete principal por meio de
-  conector **JST-XH de 2 vias** — polarizado, de liberação rápida e sem contato
-  deslizante. Conectores de áudio do tipo P2 estão **proibidos** neste circuito: a
-  inserção faz o sleeve varrer o tip, curto-circuitando 5 V ao coletor do transistor sem
-  o buzzer limitando a corrente. *(Decisão confirmada em 2026-09-15.)*
+* **[RNF05] Modularidade Mecânica:** o buzzer deve ser montado **externamente ao
+  gabinete**, conectando-se a ele por **JST-XH de 2 vias** — polarizado, de liberação
+  rápida e sem contato deslizante. Conectores de áudio do tipo P2 estão **proibidos**
+  neste circuito: a inserção faz o sleeve varrer o tip, curto-circuitando 5 V ao coletor
+  do transistor sem o buzzer limitando a corrente. *(Decisão confirmada em 2026-09-15.)*
+
+  ⚠️ **A posição não é detalhe de acabamento — é requisito acústico (R-32).** O caso de
+  projeto é **janela aberta a 80 km/h**, com ruído interno da ordem de 87 dB(A), e nessa
+  condição reposicionar e reorientar o buzzer valem **mais decibel do que trocar de
+  modelo**. Portanto: **apontado para o motorista**, não para dentro do painel, e o mais
+  próximo possível dele — coluna de direção ou base do para-brisa, não enterrado no
+  console. "Escondido sob o painel", como dizia a revisão 2, era o oposto do que a
+  acústica pede.
+
+  O JST-XH torna o buzzer **trocável com o projeto fechado**, então o modelo é decisão
+  reversível; a posição, uma vez fixada, não é.
 
 * **[RNF06] Plataforma de Software:** o firmware deve ser implementado em **C++17 com o
   Raspberry Pi Pico SDK**. A escolha é condicionada por dois fatores:
@@ -881,7 +906,7 @@ nos atuadores visuais e sonoros do dispositivo.
 | **Acima do limite, ainda sem multa** (`limite < vel ≤ V_infra`) | Aproximação — **margem** | Idem, com a barra de proximidade em **rosa**. | 🩷 **Rosa Piscante (1 Hz)** | **Silencioso** |
 | **Acima do limiar de infração** — faixa 1 (`V_infra` a +10%) | Zona de Perigo | Barra de proximidade em **vermelho**. Layout inalterado, **nada pisca na tela** (§4.1). | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **1000 ms** |
 | **Acima do limiar de infração** — faixa 2 (+10% a +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | Bipe de 100 ms a cada **350 ms** |
-| **Acima do limiar de infração** — faixa 3 (acima de +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | **Bipe contínuo** |
+| **Acima do limiar de infração** — faixa 3 (acima de +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | Bipe de 50 ms a cada **100 ms** — pulso rápido, não contínuo (R-32) |
 | **Entrou no raio de 300m de semáforo** | Zona de Semáforo | Ícone 🚦 e barra em **âmbar**. **Sem denominador** — não há limite a comparar. Para `TYPE=2` (semáforo *com* radar) o ícone é 🚦+🏎 e **há** denominador: resolve o **R-26**. | **Amarelo/Vermelho alternados (2 Hz)** | **Silencioso — sem exceção.** |
 | **Entrou no raio de 300m de radar móvel** | Idêntico a radar fixo | Ícone 🏎 **vazado** em vez de preenchido: confiança expressa como preenchimento, não como símbolo novo — a fiscalização pode não estar ativa. Zonamento e LED idênticos a radar fixo. | conforme o estado da via | conforme o estado da via |
 | **Perda de sinal em movimento** | Sem Sinal | Numerador vira **`- -`** — o GPS é a única fonte de velocidade. Faixa inferior: `SEM SINAL — alertas suspensos` com tempo decorrido, em **cinza**. Layout preservado. | **Apagado** | Silencioso |

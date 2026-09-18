@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 22 de 22 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 23 de 23 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -27,7 +27,7 @@
 | :--- | :--- | :--- |
 | **R-05** | Vf e corrente reais dos LEDs verde **e azul**, mais **calibração de razão por PWM** | **Pré-requisito do R-19 (amarelo) e do RF03.9 (rosa).** Sem verde não há amarelo; sem azul não há rosa, e o estado de margem apareceria como vermelho piscante — indistinguível do Perigo. Calibrar as razões R:G e R:B e verificar as cores lado a lado, em luz ambiente e sob sol direto. |
 | **R-13** | Corrente agregada no `3V3_OUT` com backlight em 100% | Com o GPS migrado para 5 V (R-14), sobraram display e SD — margem provavelmente confortável, mas não verificada. |
-| **R-17** | Consumo do SFM-27 e pinagem do BC337/2N2222 | A ordem E-B-C difere da do BC547. |
+| **R-17** | Consumo do buzzer e pinagem do BC337/2N2222 | A ordem E-B-C difere da do BC547. ⚠️ **Esperado ~10 mA no SFM-20B**, não 20–50 mA como dizia a rev. 2 da folha de bancada — aquele número era do SFM-27 (R-32). |
 
 **🔍 Inspeção antes de energizar:**
 
@@ -635,7 +635,9 @@ coletor) — preservar caso o diodo seja mantido.
 ## R-17 — BC547 opera no limite de corrente
 
 - **Onde:** `bom_schematic.md` item 10, seção 5; `requirements.md` RNF02
-- **Confiança:** ⚠️ Valor típico (consumo do SFM-27 — **medir**)
+- **Confiança:** ⚠️ Valor típico — **medir**. O SFM-20B, que passou a ser o modelo
+  padrão, consome ~10 mA; o SFM-27, ~50 mA. Em qualquer dos dois o BC337 fica folgado,
+  mas o BC547 seguiria inadequado por princípio (ver R-32).
 
 **Problema.** O BC547 tem Ic máximo de 100 mA. Um piezo de 95–105 dB pode puxar
 30–50 mA, somando a capacitância do cabo longo até o painel. Funciona, mas sem margem.
@@ -1095,6 +1097,71 @@ curto permanente com 12 V atrás. E o fusível tem de ficar **antes** da proteç
 no percurso do cabo: o modo de falha desejável de um TVS é curto, e sem fusível
 a montante ele vira aquecedor ligado na bateria.
 
+## R-32 — Audibilidade com janela aberta, e a faixa 3 era o padrão menos detectável
+
+- **Onde:** `requirements.md` RF03.7 · `bom_schematic.md` item 7 e RNF05
+- **Confiança:** ⚠️ Estimativa acústica, **não medida** — ver ressalva
+- **Registrado em:** 2026-09-18
+- **Status:** ✅ **CORRIGIDO** — faixa 3 virou pulso de 10 Hz; montagem documentada
+
+**Contexto que faltava.** O veículo é um **Uno Mille 2009 sem ar-condicionado**, e o
+autor roda normalmente **com as janelas abertas**, em vias de ~80 km/h. Isso não é uma
+condição excepcional a tolerar: é o caso de uso normal, e portanto o **caso de projeto**.
+
+Com janela aberta a 80 km/h, num carro de 2009 e pouco isolamento, o ruído interno fica
+em torno de **87 dB(A)**, dominado por vento. Contra isso, em decibéis brutos:
+
+| Buzzer | A 70 cm | A 30 cm |
+| :--- | ---: | ---: |
+| SFM-20B (95 dB) | **−9 dB** | −2 dB |
+| SFM-20B (se vier 85 dB) | −19 dB | −12 dB |
+| SFM-27 (105 dB) | +1 dB | +8 dB |
+
+**Nem o SFM-27 tem folga a 70 cm.** A conclusão importante é que **trocar de buzzer não
+resolve** um déficit desse tamanho — e é a primeira coisa que alguém tentaria.
+
+**Por que não é tão ruim quanto a tabela.** A comparação em dB brutos é pessimista por
+três motivos, e nenhum deles é desprezível:
+
+1. **Separação espectral.** Mascaramento é seletivo por frequência: um tom estreito só
+   precisa vencer o ruído **na banda crítica dele**, não o nível total de banda larga.
+   Ruído de vento se concentra abaixo de ~1 kHz; os **3,9 kHz** do SFM-20B caem onde o
+   ruído tem pouca energia e a audição é mais sensível.
+2. **Padrão pulsado** detecta muito melhor que tom estável contra ruído estável.
+3. **O LED é o canal periférico primário por projeto.** Nesta condição ele deixa de ser
+   redundância e passa a ser a defesa principal — o que o desenho já acomoda.
+
+**O defeito de projeto que isso expôs.** A faixa 3 do RF03.7 usava **bipe contínuo**, e
+tom contínuo é **o padrão menos detectável** contra ruído estável: o sistema auditivo se
+adapta em segundos, e o vento faz exatamente isso. O alerta mais urgente tinha a forma
+mais fácil de mascarar.
+
+**Corrigido:** faixa 3 passa a ser **50 ms a cada 100 ms**, um pulso de 10 Hz. Mantém a
+mensagem de escalonamento pela cadência (1 Hz → 2,9 Hz → 10 Hz), resiste ao mascaramento
+por ser transiente repetido, e continua inconfundível em relação à faixa 2.
+
+**Nota de sorte de configuração.** Numa via de 80 km/h o `V_infra` é 86, e a faixa 3 só
+começa a **103,2 km/h** — raro num Uno Mille com janela aberta. Na prática o autor viverá
+nas faixas 1 e 2, que já eram pulsadas. Isso reduz a exposição ao problema, mas não era
+projeto, era acaso, e não valeria deixar como está.
+
+**O que vale mais que o modelo.** Documentado no item 7 do BOM:
+
+| Ação | Ganho | Custo |
+| :--- | ---: | ---: |
+| Trocar SFM-20B por SFM-27 | +10 dB | ~R$ 15 |
+| Apontar para o motorista | +6 a +12 dB | R$ 0 |
+| Aproximar de 70 cm para 30 cm | +7 dB | R$ 0 |
+
+O JST-XH de 2 vias (R-06) torna a troca de buzzer reversível depois do projeto fechado,
+então a decisão de modelo não é crítica. A de montagem é.
+
+> ⚠️ **Ressalva de confiança.** Os 87 dB(A) de ruído interno e os ganhos de
+> reposicionamento são **estimativas de campo livre e de literatura, não medições neste
+> veículo**. A atenuação por distância assume campo livre, e o interior de um carro não
+> é. O teste é subjetivo e não cabe em multímetro: montar, rodar a 80 km/h com janela
+> aberta e julgar se é inconfundível. Se não for, seguir a ordem de tentativa acima.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1243,6 +1310,7 @@ RELEVANTES
 [x] R-26  RESOLVIDO — ícone 🚦+🏎 composto nos 2.994 pontos de TYPE=2 (requirements.md §4.1)
 [x] R-30  RESOLVIDO — BASE INDISPONÍVEL persistente na faixa inferior (requirements.md §4.1)
 [x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
+[~] R-32  Faixa 3 virou pulso de 10 Hz; audibilidade com janela aberta PENDENTE de julgamento em campo
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

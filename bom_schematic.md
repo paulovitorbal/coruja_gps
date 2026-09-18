@@ -20,7 +20,7 @@
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. |
 | 5 | ⚠️ **Display IPS TFT 2,4"** | Colorido, **320×240 pixels**, interface SPI com pino de Backlight (BL). **Controlador a confirmar:** 2,4" costuma ser ILI9341, não ST7789 — a sequência de inicialização difere | Exibir velocidade, limites e alertas visuais. |
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. |
-| 7 | **Buzzer Ativo SFM-27** | Piezoelétrico de alta potência (95 dB a 105 dB), 5 V | Bipes estridentes audíveis no painel do veículo. |
+| 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. |
 | 8 | **LED RGB 5mm Difuso** | **Cátodo comum** (terminal mais longo vai ao GND) | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. |
 | 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de 5 V com margem de corrente. |
 | 10 | **Resistor de 330 Ω** | 1 unidade | Canal **vermelho** do LED RGB. |
@@ -102,6 +102,44 @@ Perigo. Este item é **pré-requisito funcional** daquele requisito, não ajuste
 
 **Medir Vf e corrente reais** dos LEDs adquiridos e ajustar, depois equalizando as
 cores por PWM em software.
+
+### 🆕 ⚠️ Nota — escolha e montagem do buzzer (item 7)
+
+**Ativo, nunca passivo.** Os dois modelos aceitos têm oscilador interno: o firmware só
+liga e desliga, e o tom nasce dentro do componente. Um buzzer **passivo** exigiria o
+firmware sintetizar a frequência, o que é mudança de projeto e não troca de peça.
+
+| | SFM-20B | SFM-27 |
+| :--- | :--- | :--- |
+| SPL | 95 dB | 95 a 105 dB |
+| Corrente | **10 mA** | ~50 mA |
+| Frequência | **3900 ±500 Hz** | não especificada |
+| Tensão | 3–24 V | 5 V |
+| Diâmetro | 22 mm | 27 mm |
+
+**O SFM-20B é o padrão**, por três razões: 10 mA em vez de 50 deixa o BC337 folgado e a
+queda no cabo desprezível; 22 mm facilita a fixação no painel; e os **3,9 kHz caem na
+banda de maior sensibilidade da audição humana** (2 a 5 kHz), enquanto o ruído de
+rodagem é dominado por baixas frequências — a separação espectral vale mais que
+decibéis brutos.
+
+> ⚠️ **As lojas discordam do SPL** do SFM-20B: algumas anunciam 95 dB, outras 85 dB para
+> o mesmo código. Se vier o de 85 dB, a margem sobre o ruído fica curta.
+
+#### 🔴 Posição e orientação valem mais que o modelo
+
+O conector JST-XH de 2 vias (item 18) torna o buzzer **trocável depois do projeto
+fechado**, então a escolha do modelo é reversível. A montagem não é — e é ela que decide:
+
+| Ação | Ganho | Custo |
+| :--- | ---: | ---: |
+| Trocar SFM-20B por SFM-27 | +10 dB | ~R$ 15 |
+| **Apontar para o motorista**, não para dentro do painel | **+6 a +12 dB** | R$ 0 |
+| **Aproximar de 70 cm para 30 cm** — coluna de direção, base do para-brisa | **+7 dB** | R$ 0 |
+
+Reposicionar e reorientar entregam mais decibel de graça do que a troca de modelo
+entrega pagando. **Ordem de tentativa se o volume decepcionar: reposicionar →
+reorientar → trocar de modelo.** O R-32 tem a análise de audibilidade.
 
 ### ⚠️ Nota — transistor do buzzer (item 10)
 
@@ -563,7 +601,7 @@ Da esquerda para a direita, olhando de frente:
 > * O LED RGB é o **único** indicador luminoso do projeto, e sinaliza exclusivamente
 >   estado de via.
 
-### ⚠️ 5. Circuito de Potência do Buzzer Remoto Oculto
+### ⚠️ 5. Circuito de Potência do Buzzer Remoto
 
 > **Correção da revisão 1 — ✅ confirmada pelo autor em 2026-09-15:** o Jack P2 (3,5 mm)
 > foi **substituído por conector JST-XH de 2 vias**. No arranjo anterior (tip = 5 V, sleeve = coletor), inserir ou remover o
@@ -588,8 +626,9 @@ Da esquerda para a direita, olhando de frente:
 * **Diodo 1N4148 (opcional):** se mantido, solde em paralelo nos terminais do conector,
   com a listra (catodo) no terminal de 5 V e o lado sem listra (anodo) no terminal do
   coletor. Ver nota do BOM: não é necessário para buzzer piezoelétrico.
-* **Extensão do Painel:** fio **positivo (+)** do Buzzer SFM-27 no pino positivo do
-  **JST-XH macho**, fio **negativo (−)** no pino negativo.
+* **Extensão do Painel:** fio **positivo (+)** do buzzer no pino positivo do
+  **JST-XH macho**, fio **negativo (−)** no pino negativo. Ver o RNF05 e o R-32 para
+  posição e orientação, que são requisito acústico e não acabamento.
 
 > ⚠️ *Confirmar a pinagem do transistor no datasheet.* A ordem E-B-C do BC337 e do
 > 2N2222 **difere** da do BC547 descrita na revisão 1. Não assuma a mesma disposição.
@@ -614,6 +653,9 @@ Antes de ligar o circuito pela primeira vez:
 - [ ] 🆕 **Polaridade do eletrolítico de 50 V da entrada** — faixa no GND. Invertido
       com 12 V atrás, ele explode.
 - [ ] 🆕 Fusível **antes** da proteção no percurso do cabo, nunca depois.
+- [ ] 🆕 **Polaridade do 12 V na entrada do conversor** conferida com o multímetro,
+      antes de energizar. O TVS bidirecional **não** protege contra inversão, e o
+      conversor não tem proteção de polaridade reversa.
 - [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
 - [ ] Polaridade da entrada de 5 V conferida no JST, com o cabo já crimpado.
 - [ ] Continuidade entre `GND (38)` e todos os terras dos módulos.

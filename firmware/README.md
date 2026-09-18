@@ -186,7 +186,7 @@ do Pico SDK, vai para `coruja_portes`; caso contrário, fica no alvo portável.*
 | `led` — LED RGB | ✅ | ✅ | ✅ | ✅ |
 | `encoder` — KY-040 | ✅ | ✅ | ✅ | ✅ |
 | `app` — modo de teste de bancada | ✅ | — | ✅ | ✅ |
-| `buzzer` — SFM-27 + BC337 | ✅ | ⬜ | ⬜ | ⬜ |
+| `buzzer` — piezo ativo + BC337 | ✅ | ⬜ | ⬜ | ⬜ |
 | `armazenamento` — microSD | ✅ | ⬜ | ⬜ | ⬜ |
 | `display` — 2,4" 320×240 | ❌ Correios | ⬜ | ⬜ | ⬜ |
 | `gps` — NEO-M8N | ❌ Correios | ⬜ | ⬜ | ⬜ |
