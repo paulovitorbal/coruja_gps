@@ -28,7 +28,7 @@
 | 12 | ⚠️ **Resistores de 1 kΩ** | **2 unidades** — filme de carbono ou metálico | Base do transistor do buzzer **+ série no `GPIO 0 → GPS RX`** (R-22). | ⚪ disponível |
 | 13 | ⚠️ **Diodo Schottky** | Ou SS34 / 1N5817 — queda direta ≤ 0,45 V | **Novo na rev. 2.** Proteção da entrada de 5 V em `VSYS`. | ⚪ disponível |
 | 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
-| 15 | ⚠️ **Capacitor Eletrolítico** | **470 µF a 1000 µF / 16 V (ou 25 V), 105 °C** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. | 🔴 faltante |
+| 15 | ⚠️ **Capacitor Eletrolítico** | ✅ **470 µF / 16 V / 105 °C** confirmado em mãos. Em `VSYS` (~4,7 V) opera a **29% do nominal** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. | ⚪ disponível |
 | 16 | **Capacitor Cerâmico** | **100 nF (0,1 µF)** — código impresso: 104 | Suprimir ruído de alta frequência da ignição. | ⚪ disponível |
 | 17 | ⚠️ **Capacitores Cerâmicos 100 nF** | 2 unidades — código 104 | **Novo na rev. 2.** Debounce em hardware do encoder (CLK e DT). | ⚪ disponível |
 | 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. | ⚪ disponível |
@@ -38,10 +38,10 @@
 | 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. | 🔴 faltante |
 | 23 | 🆕 **Adaptador de fusível piggyback** | *"add-a-circuit"*, do tipo de fusível da caixa do seu carro (mini, padrão ou micro2) | Deriva um circuito pós-chave na caixa de fusíveis **sem emenda no chicote**. Reversível. | ⚪ disponível |
 | 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. | 🔴 faltante |
-| 25 | **Cabo 1,5 mm² (2 vias)** | Da caixa de fusíveis ao **conversor** (trecho de 12 V) | Sobredimensionado para a carga (~180 mA), o que é seguro. | 🔴 faltante |
+| 25 | **Cabo 1,5 mm²** | ✅ Em mãos: **1 via, flexível**. Usar **dois trechos trançados** entre si — ver nota | Do pós-chave ao conversor (trecho de 12 V). Sobredimensionado para a carga (~180 mA), o que é seguro. | ⚪ disponível |
 | 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. | ⚪ disponível |
 | 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. | 🔴 faltante |
-| 28 | 🆕 **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é obrigatório aqui**, não 25 V. 105 °C — atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔴 faltante |
+| 28 | 🆕 ⚠️ **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é exigência, não preferência** — ver nota. 105 °C, atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔴 faltante |
 ### Situação em 2026-09-18
 
 Levantado item a item com o autor.
@@ -50,17 +50,17 @@ Levantado item a item com o autor.
 | :--- | ---: | :--- |
 | 🟢 **entregue** | 4 | 1, 3, 4, 6 |
 | 🔵 **comprado** | 2 | 2 (GPS), 5 (display) — nos Correios |
-| ⚪ **disponível** | 13 | 8, 9, 10, 12, 13, 14, 16, 17, 18, 19, 20, 23, 26 |
-| 🔴 **faltante** | 9 | 7, 11, 15, 21, 22, 24, 25, 27, 28 |
+| ⚪ **disponível** | 15 | 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 23, 25, 26 |
+| 🔴 **faltante** | 7 | 7, 11, 21, 22, 24, 27, 28 |
 
-#### O que os 9 faltantes bloqueiam
+#### O que os 7 faltantes bloqueiam
 
 | Bloqueia | Itens faltantes |
 | :--- | :--- |
 | **Nada — a bancada pode começar** | — |
 | §02 da bancada (R-17, buzzer) | 7 |
 | Montagem definitiva na perfboard | 21 |
-| **Toda a instalação no veículo** | 15, 22, 24, 25, 27, 28 |
+| Instalação no veículo | 22, 24, 27, 28 |
 
 > ✅ **O teste de bancada do LED e do encoder não está bloqueado.** Tudo que ele exige
 > está entregue ou disponível, e os 68 Ω do item 11 saem de **100 Ω ∥ 220 Ω** com o
@@ -72,18 +72,15 @@ Levantado item a item com o autor.
 | Item | O que | Por quê agora |
 | :--- | :--- | :--- |
 | 7 | Buzzer piezo **ativo** SFM-20B | Destrava a §02 da bancada. ~R$ 10 |
-| 11 | 2× resistor 68 Ω | Opcional: dá para fazer de 100 ∥ 220 |
+| 11 | 2× resistor 68 Ω | **Opcional** — dá para fazer de 100 ∥ 220 |
 | 21 | Barras de pinos fêmea 1×20, 2 un. | Só para a montagem definitiva |
-| 15 | Eletrolítico 470–1000 µF / 25 V / **105 °C** | Instalação no veículo |
 | 22 | Conversor buck, entrada ≥ 40 V | LM2596 da Eletrogate, R$ 8,90 |
 | 24 | Fusível 2 A, tipo da caixa do Uno | Conferir o tipo: mini, padrão ou micro2 |
-| 25 | Cabo 1,5 mm², 2 vias | Da caixa de fusíveis ao conversor |
 | 27 | TVS **P6KE24CA** — sufixo `CA` | Ponto da Eletrônica, R$ 3,50 |
-| 28 | Eletrolítico 470 µF / **50 V** / 105 °C | Entrada de 12 V, junto ao TVS |
+| 28 | Eletrolítico 470 µF / **50 V** / 105 °C | 50 V é exigência — ver a nota do clamp |
 
-Os itens 15, 22, 24, 25, 27 e 28 são todos da cadeia de 12 V e podem ser comprados
-juntos, depois que a bancada fechar — o R-05 pode mudar a lista, e é por isso que ele
-vem primeiro.
+Os itens 22, 24, 27 e 28 são da cadeia de 12 V e podem ser comprados juntos, depois que a
+bancada fechar — o R-05 pode mudar a lista, e é por isso que ele vem primeiro.
 
 ### Legenda de status
 
@@ -240,6 +237,20 @@ Se mantido, a orientação está correta: catodo no 5 V, anodo no coletor.
 
 ---
 
+### 🆕 Nota — cabo de 12 V com dois trechos de 1 via (item 25)
+
+O cabo em mãos é de **1,5 mm², 1 via, flexível**. Serve: use **dois trechos**, um para
+`+12 V` e outro para `GND`, e **trance-os entre si** ao longo do percurso.
+
+Eletricamente é idêntico a um cabo de 2 vias. O trançado não é estética: ele reduz a
+**área de laço** do par, e com isso a captação e a irradiação de ruído — o que importa
+porque esse cabo corre sob o painel perto da antena do GPS, e o conversor chaveia a
+150 kHz.
+
+> ⚠️ **Flexível é requisito, não preferência.** Cobre maciço encrua com vibração e
+> fratura por fadiga, tipicamente junto ao ponto de fixação. A falha é intermitente e
+> difícil de localizar. O cabo em mãos é flexível — confirmado.
+
 ### 🆕 ⚠️ Nota — proteção da entrada de 12 V (itens 27 e 28)
 
 **O que estava desprotegido.** O fusível de 2 A protege o **fio** contra curto, não o
@@ -273,11 +284,26 @@ chaveamento de cargas indutivas, ruído de ignição, os pulsos da ISO 7637-2. S
 que matam módulo barato no uso diário, e para esses 600 W bastam. É proteção bem
 investida, não blindagem contra tudo.
 
-**Por que o eletrolítico da entrada é 50 V e o da saída é 25 V.** São papéis diferentes.
-Na entrada de 12 V a tensão nominal é margem real contra transiente, e 50 V é o mínimo
-sensato. Em `VSYS`, que fica em ~4,7 V, 25 V já é folga de 5× — ali o que importa é
-capacitância e o rating de **105 °C**, porque o painel passa de 60 °C e a vida de um
-eletrolítico cai pela metade a cada 10 °C.
+**Por que 50 V na entrada é exigência, e não folga por precaução.** O motivo não é a
+tensão normal da rede — é **o próprio TVS**. Durante um transiente o TVS segura o nó em
+até **33,2 V**, e o capacitor está **em paralelo com ele**: vê os mesmos 33,2 V. Um
+eletrolítico de 25 V nessa condição é sobretensão direta, e eletrolítico sobretensionado
+não degrada devagar, ele **abre a válvula**.
+
+Só pela tensão da rede um 25 V passaria — a 14,4 V ele opera a 57,6%, dentro da regra de
+≤ 80%. É a interação com o clamp que o desqualifica, e é o tipo de coisa que se perde ao
+dimensionar cada componente isoladamente.
+
+| Nominal | A 14,4 V (rede) | A 33,2 V (clamp do TVS) |
+| ---: | ---: | :--- |
+| 16 V | 90% — **inadequado** | destruído |
+| 25 V | 58% — ok | **sobretensão** |
+| **50 V** | 29% — ok | **66% — ok** |
+
+**E o da saída, em `VSYS`?** Papel diferente: a ~4,7 V, um **16 V** opera a 29% do
+nominal, o que é confortável, e é exatamente o que o BOM sempre pediu para o item 15. Ali
+o que importa não é tensão, é capacitância e o rating de **105 °C** — o painel passa de
+60 °C e a vida de um eletrolítico cai pela metade a cada 10 °C.
 
 ---
 
