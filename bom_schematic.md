@@ -20,11 +20,11 @@
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. | 🟢 entregue |
 | 5 | ⚠️ **Display IPS TFT 2,4"** | Colorido, **320×240 pixels**, interface SPI com pino de Backlight (BL). **Controlador a confirmar:** 2,4" costuma ser ILI9341, não ST7789 — a sequência de inicialização difere | Exibir velocidade, limites e alertas visuais. | 🔵 comprado |
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. | 🟢 entregue |
-| 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. | 🔴 faltante |
+| 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. | 🔵 comprado |
 | 8 | ⚠️ **LED RGB 10 mm Difuso** | **Ânodo comum** (terminal mais longo vai ao **3V3**) — **lógica invertida**, ver nota | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. | ⚪ disponível |
 | 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de 5 V com margem de corrente. | ⚪ disponível |
 | 10 | **Resistor de 330 Ω** | 1 unidade | Canal **vermelho** do LED RGB. | ⚪ disponível |
-| 11 | ⚠️ **Resistores de 68 Ω** | 2 unidades (ou 47–100 Ω) | Canais **verde e azul** do LED RGB — ver nota crítica abaixo. | 🔴 faltante |
+| 11 | ⚠️ **Resistores de 68 Ω** | 2 unidades (ou 47–100 Ω) | Canais **verde e azul** do LED RGB — ver nota crítica abaixo. | 🔵 comprado |
 | 12 | ⚠️ **Resistores de 1 kΩ** | **2 unidades** — filme de carbono ou metálico | Base do transistor do buzzer **+ série no `GPIO 0 → GPS RX`** (R-22). | ⚪ disponível |
 | 13 | ⚠️ **Diodo Schottky** | Ou SS34 / 1N5817 — queda direta ≤ 0,45 V | **Novo na rev. 2.** Proteção da entrada de 5 V em `VSYS`. | ⚪ disponível |
 | 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
@@ -34,53 +34,42 @@
 | 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. | ⚪ disponível |
 | 19 | ⚠️ **Conector JST-XH 3 vias** | Par macho + fêmea. **Pino central sem uso** | **Entrada de 5 V**, depois do conversor. Três vias de propósito, para não encaixar no conector de 2 vias do buzzer. | ⚪ disponível |
 | 20 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. | ⚪ disponível |
-| 21 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. | 🔴 faltante |
-| 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. | 🔴 faltante |
+| 21 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. | 🔵 comprado |
+| 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. | 🔵 comprado |
 | 23 | 🆕 **Adaptador de fusível piggyback** | *"add-a-circuit"*, do tipo de fusível da caixa do seu carro (mini, padrão ou micro2) | Deriva um circuito pós-chave na caixa de fusíveis **sem emenda no chicote**. Reversível. | ⚪ disponível |
-| 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. | 🔴 faltante |
+| 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. | 🔵 comprado |
 | 25 | **Cabo 1,5 mm²** | ✅ Em mãos: **1 via, flexível**. Usar **dois trechos trançados** entre si — ver nota | Do pós-chave ao conversor (trecho de 12 V). Sobredimensionado para a carga (~180 mA), o que é seguro. | ⚪ disponível |
 | 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. | ⚪ disponível |
-| 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. | 🔴 faltante |
-| 28 | 🆕 ⚠️ **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é exigência, não preferência** — ver nota. 105 °C, atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔴 faltante |
-### Situação em 2026-09-18
+| 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. | 🔵 comprado |
+| 28 | 🆕 ⚠️ **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é exigência, não preferência** — ver nota. 105 °C, atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔵 comprado |### Situação em 2026-09-18
 
-Levantado item a item com o autor.
+Levantado item a item com o autor. **Nada mais faltante:** os 7 itens que faltavam foram
+comprados em 18/09 e devem chegar na semana de 22/09, junto com o GPS e o display que já
+estavam em trânsito.
 
 | | Qtd | Itens |
 | :--- | ---: | :--- |
 | 🟢 **entregue** | 4 | 1, 3, 4, 6 |
-| 🔵 **comprado** | 2 | 2 (GPS), 5 (display) — nos Correios |
+| 🔵 **comprado** | 9 | 2, 5, 7, 11, 21, 22, 24, 27, 28 — chegada prevista p/ semana de 22/09 |
 | ⚪ **disponível** | 15 | 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 23, 25, 26 |
-| 🔴 **faltante** | 7 | 7, 11, 21, 22, 24, 27, 28 |
+| 🔴 **faltante** | 0 | — |
 
-#### O que os 7 faltantes bloqueiam
+#### O que dá para fazer antes da entrega
 
-| Bloqueia | Itens faltantes |
-| :--- | :--- |
-| **Nada — a bancada pode começar** | — |
-| §02 da bancada (R-17, buzzer) | 7 |
-| Montagem definitiva na perfboard | 21 |
-| Instalação no veículo | 22, 24, 27, 28 |
-
-> ✅ **O teste de bancada do LED e do encoder não está bloqueado.** Tudo que ele exige
-> está entregue ou disponível, e os 68 Ω do item 11 saem de **100 Ω ∥ 220 Ω** com o
-> estoque em casa — ver a nota acima. O R-05 inclusive deve começar com 330 Ω, que está
-> disponível.
-
-#### Lista de compras
-
-| Item | O que | Por quê agora |
+| Seção da bancada | Precisa de | Situação |
 | :--- | :--- | :--- |
-| 7 | Buzzer piezo **ativo** SFM-20B | Destrava a §02 da bancada. ~R$ 10 |
-| 11 | 2× resistor 68 Ω | **Opcional** — dá para fazer de 100 ∥ 220 |
-| 21 | Barras de pinos fêmea 1×20, 2 un. | Só para a montagem definitiva |
-| 22 | Conversor buck, entrada ≥ 40 V | LM2596 da Eletrogate, R$ 8,90 |
-| 24 | Fusível 2 A, tipo da caixa do Uno | Conferir o tipo: mini, padrão ou micro2 |
-| 27 | TVS **P6KE24CA** — sufixo `CA` | Ponto da Eletrônica, R$ 3,50 |
-| 28 | Eletrolítico 470 µF / **50 V** / 105 °C | 50 V é exigência — ver a nota do clamp |
+| **§01 — R-05, LEDs do RGB** | LED, resistores, Pico | ✅ **tudo disponível — pode fazer agora** |
+| §02 — R-17, buzzer e transistor | buzzer (7) | 🔵 aguardando |
+| §03 — R-13, trilho de 3V3 | display (5) | 🔵 aguardando |
+| Inspeção do display | display (5) | 🔵 aguardando |
+| R-14 — regulador do GPS | GPS (2) | 🔵 aguardando |
+| R-32 — audibilidade no carro | buzzer (7) + instalação | 🔵 aguardando |
 
-Os itens 22, 24, 27 e 28 são da cadeia de 12 V e podem ser comprados juntos, depois que a
-bancada fechar — o R-05 pode mudar a lista, e é por isso que ele vem primeiro.
+> ⚠️ **Faça a §01 antes da entrega.** Ela é o pré-requisito do R-19 e do RF03.9, e é a
+> única que pode acrescentar componentes ao BOM: se o `Vf` do verde ou do azul cair acima
+> de 3,15 V, a saída é trocar o LED ou acionar os dois canais pelos 5 V com um transistor
+> por canal. Com tudo já comprado, a vantagem de "medir antes de comprar" se perdeu — mas
+> medir **esta semana** ainda permite que a compra extra chegue junto com o resto.
 
 ### Legenda de status
 
