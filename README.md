@@ -52,6 +52,10 @@ do gabinete** — ocupa espaço demais dentro — então o que entra no aparelho
 bateria ─ caixa de fusíveis ─ piggyback ─ fusível 2 A ─ 1,5 mm² (12 V)
                                                              │
                                           ┌──────────────────▼─────────┐
+                                          │ TVS 24 V  ┬  470 µF / 50 V │ proteção da
+                                          │  (bidir.) │               │ entrada
+                                          └──────────────────┬─────────┘
+                                          ┌──────────────────▼─────────┐
                                           │ conversor 12 V → 5 V       │ fora,
                                           │ ajustável, entrada ≥ 40 V  │ sob o painel
                                           └──────────────────┬─────────┘
@@ -65,6 +69,28 @@ bateria ─ caixa de fusíveis ─ piggyback ─ fusível 2 A ─ 1,5 mm² (12 V
 Consumo: **~145 mA em 12 V** (≈1,6 W) em condução normal, com pico de ~200 mA quando a
 tensão cai a 9 V durante a partida. No lado de 5 V são ~162 mA normais e ~310 mA no
 pior caso sustentado.
+
+### Proteção da entrada de 12 V
+
+O fusível protege o **fio** contra curto; ele não reage a sobretensão. E os capacitores
+de filtro ficam em `VSYS`, **depois** do conversor — protegem o Pico, não a fonte dele.
+Sem mais nada, o conversor é o único componente exposto direto à rede do carro.
+
+Daí o **TVS bidirecional de 24 V** (`P6KE24CA` ou `1.5KE24CA`) e um **eletrolítico de
+470 µF / 50 V** em paralelo na entrada, junto ao conversor. O clamp de 24 V cai numa
+janela estreita: tem de ficar acima de 16 V, porque a rede é 13,8 a 14,4 V com o motor
+ligado, e abaixo de 40 V, porque é o máximo do conversor. O `24CA` clampa em 33,2 V.
+
+**O que isso não resolve:** um *load dump* real chega a 60–120 V por até 400 ms, o que
+contra um clamp de 33 V significa mais de 1 kW sustentado — nenhum TVS axial pequeno
+sobrevive. O que ele cobre são os transientes frequentes e de baixa energia, que são os
+que matam módulo barato no uso diário. Para o load dump, o projeto se apoia em o
+alternador de carro moderno já clampar internamente em ~35 V, e isso é **suposição, não
+medição**.
+
+Dois detalhes que estragam tudo se errados: o sufixo **`CA`** significa bidirecional, e
+a versão `A` montada ao contrário fica em curto permanente; e o **fusível vai antes** da
+proteção no percurso do cabo, porque o modo de falha desejável de um TVS é curto.
 
 ### 🔴 O trecho de 12 V não pode usar o mesmo conector do aparelho
 

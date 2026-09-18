@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 21 de 21 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 22 de 22 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -1051,6 +1051,50 @@ A mesma lógica generalizou a faixa inferior para um canal único — *"há aler
 não há"* — que também absorveu o estado "sem sinal" e a recusa de OTA em movimento. Ver o
 inquilinato em `requirements.md` §4.1.
 
+## R-31 — A entrada de 12 V não tinha proteção nenhuma
+
+- **Onde:** `bom_schematic.md` seção 0
+- **Confiança:** ✅ Verificado no próprio desenho
+- **Registrado em:** 2026-09-18
+- **Status:** ✅ **CORRIGIDO** na mesma data — BOM itens 27 e 28
+
+**Problema.** A cadeia de alimentação tinha três proteções, e nenhuma cobria o
+conversor:
+
+| Proteção | Protege | Não protege |
+| :--- | :--- | :--- |
+| Fusível de 2 A | o **fio** contra curto | sobretensão — fusível não reage a transiente de milissegundos |
+| `C1` 470 µF em `VSYS` | o **Pico** contra ruído e queda | o conversor: fica **depois** dele |
+| `C2` 100 nF em `VSYS` | idem, alta frequência | idem |
+
+O conversor CC era **o único componente exposto direto à rede do carro**, e o
+desenho contava com ele aguentar sozinho. Apareceu quando o autor perguntou se
+um módulo específico de 3 A era seguro: a resposta exigia olhar o que havia a
+montante dele, e não havia nada.
+
+**Correção aplicada.** TVS bidirecional de 24 V (item 27) e eletrolítico de
+470 µF / 50 V (item 28), em paralelo na entrada de 12 V, junto ao conversor.
+
+**Sobre o que isso cobre — e o que não cobre.** Registro aqui porque eu mesmo
+exagerei ao propor: disse que o TVS "existe justamente para load dump". Está
+errado. Um load dump real chega a 60–120 V com impedância de fonte de ordem de
+ohms por até 400 ms; contra um clamp de 33 V isso dá dezenas de ampères e mais
+de **1 kW sustentado**, e 600 W ou 1500 W são ratings de pulso de 10/1000 µs,
+não de centenas de milissegundos. Nenhum TVS axial pequeno sobrevive.
+
+O que o TVS cobre são os transientes **frequentes e de baixa energia** —
+chaveamento indutivo, ruído de ignição, pulsos da ISO 7637-2 — que são os que
+matam módulo barato no uso diário. Para o load dump, o projeto se apoia no fato
+de que alternador de carro moderno já clampa internamente em ~35 V. **É uma
+suposição, não uma medição**, e vale dizer isso em voz alta em vez de deixar o
+componente novo dar falsa sensação de blindagem.
+
+**Detalhe que quase passou.** O sufixo `CA` é obrigatório: significa
+bidirecional. A versão `A` é unidirecional e, montada ao contrário, fica em
+curto permanente com 12 V atrás. E o fusível tem de ficar **antes** da proteção
+no percurso do cabo: o modo de falha desejável de um TVS é curto, e sem fusível
+a montante ele vira aquecedor ligado na bateria.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1198,6 +1242,7 @@ RELEVANTES
 [x] R-25  RESOLVIDO — LED RGB exclusivo de estado de via, 5 estados
 [x] R-26  RESOLVIDO — ícone 🚦+🏎 composto nos 2.994 pontos de TYPE=2 (requirements.md §4.1)
 [x] R-30  RESOLVIDO — BASE INDISPONÍVEL persistente na faixa inferior (requirements.md §4.1)
+[x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

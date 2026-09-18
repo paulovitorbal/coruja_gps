@@ -40,6 +40,8 @@
 | 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. |
 | 25 | **Cabo 1,5 mm² (2 vias)** | Da caixa de fusíveis ao **conversor** (trecho de 12 V) | Sobredimensionado para a carga (~180 mA), o que é seguro. |
 | 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. |
+| 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. |
+| 28 | 🆕 **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é obrigatório aqui**, não 25 V. 105 °C — atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. |
 
 ### ⚠️ Nota — fiação interna em 22 AWG (item 26)
 
@@ -121,6 +123,47 @@ Se mantido, a orientação está correta: catodo no 5 V, anodo no coletor.
 
 ---
 
+### 🆕 ⚠️ Nota — proteção da entrada de 12 V (itens 27 e 28)
+
+**O que estava desprotegido.** O fusível de 2 A protege o **fio** contra curto, não o
+conversor contra sobretensão: fusível não reage a um transiente de dezenas de volts por
+milissegundos. E o `C1`/`C2` da seção 1 ficam em `VSYS`, ou seja **depois** do
+conversor — protegem o Pico, não a fonte dele. O conversor era o único componente
+exposto à rede do carro, e o desenho contava com ele aguentar sozinho. Registrado como
+**R-31**.
+
+**Por que 24 V de standoff.** O clamp precisa ficar numa janela estreita:
+
+| Limite | Valor | Por quê |
+| :--- | ---: | :--- |
+| Piso | **> 16 V** | a rede é 13,8 a 14,4 V com o motor ligado; clampar abaixo disso conduziria em operação normal e queimaria o diodo |
+| Teto | **< 40 V** | máximo absoluto do LM2596 é 45 V; o clamp tem de proteger antes disso |
+
+O **24CA** clampa em **33,2 V** — no meio da janela. Para comparação, um `1.5KE30CA`
+clampa em 41,4 V, colado no limite do chip, e um `47CA` clampa em 65 V, que não protege
+nada. **O sufixo `CA` é obrigatório**: significa bidirecional. A versão `A` é
+unidirecional e, montada ao contrário, fica em curto permanente.
+
+**Honestidade sobre o que isso resolve.** Um *load dump* real — bateria se desconectando
+com o alternador carregando — chega a 60 a 120 V com impedância de fonte de ordem de
+ohms, por até 400 ms. Contra um clamp de 33 V isso dá dezenas de ampères e **mais de
+1 kW sustentado**; nem 600 W nem 1500 W de rating de pulso (10/1000 µs) sobrevivem a
+isso. Alternador de carro moderno já clampa o load dump internamente em ~35 V, e é nisso
+que o projeto se apoia.
+
+O que o TVS **de fato** resolve são os transientes frequentes e de baixa energia:
+chaveamento de cargas indutivas, ruído de ignição, os pulsos da ISO 7637-2. São esses
+que matam módulo barato no uso diário, e para esses 600 W bastam. É proteção bem
+investida, não blindagem contra tudo.
+
+**Por que o eletrolítico da entrada é 50 V e o da saída é 25 V.** São papéis diferentes.
+Na entrada de 12 V a tensão nominal é margem real contra transiente, e 50 V é o mínimo
+sensato. Em `VSYS`, que fica em ~4,7 V, 25 V já é folga de 5× — ali o que importa é
+capacitância e o rating de **105 °C**, porque o painel passa de 60 °C e a vida de um
+eletrolítico cai pela metade a cada 10 °C.
+
+---
+
 ## 🔌 Esquema de Conexões e Roteamento (Fritzing)
 
 Mapeamento de nós para interligar os componentes na aba "Esquemático" ou "Protoboard".
@@ -136,6 +179,12 @@ bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
                              └─ piggyback ─ fusível 2 A
                                     │
                                     │  1,5 mm², 12 V
+                                    ▼
+                          ┌─── proteção da entrada ───┐
+                          │  TVS P6KE24CA   ┬  470 µF │  itens 27 e 28
+                          │  (bidirecional) │   50 V  │  em paralelo, junto
+                          └────────┬────────┴─────────┘  ao conversor
+                                    │
                                     ▼
                           ┌──────────────────────┐
                           │ conversor 12 V → 5 V │   fora do gabinete,
@@ -224,6 +273,35 @@ termorretrátil ou uma caixinha própria. Dissipação não é preocupação —
 eficiência são ~0,25 W.
 
 ---
+
+#### 🆕 Montagem da proteção de entrada (itens 27 e 28)
+
+Os dois componentes ficam **em paralelo entre `+12 V` e `GND`**, fisicamente o mais perto
+possível dos terminais de entrada do conversor — laço de corrente curto é metade da
+eficácia de um supressor.
+
+* **TVS P6KE24CA:** um terminal em `+12 V`, o outro em `GND`. **Bidirecional, portanto
+  sem polaridade** — é o único componente desta seção que pode ser montado em qualquer
+  sentido, e é justamente por isso que o sufixo `CA` importa.
+* **Eletrolítico 470 µF / 50 V:** terminal positivo `(+)` em `+12 V`, negativo `(−)`,
+  o do lado da faixa, em `GND`. **Polaridade invertida aqui explode o capacitor**, com
+  12 V e um fusível de 2 A para alimentar o erro.
+
+Ordem ao longo do cabo, da caixa de fusíveis para o aparelho:
+
+```
+piggyback ─ fusível 2 A ─── 1,5 mm² ───┬──── TVS ────┬──── conversor ─── 5 V
+                                       │             │
+                                       └─ 470 µF/50 V┘
+                                       └──── GND ────┘
+```
+
+O fusível vem **antes** da proteção, não depois: se o TVS falhar em curto — que é o modo
+de falha desejável dele — o fusível é o que interrompe a corrente. TVS em curto sem
+fusível a montante vira aquecedor ligado na bateria.
+
+> ⚠️ **Proteja o conjunto com termorretrátil** e fixe contra vibração, como o conversor.
+> São três componentes soldados num cabo, sob o painel, num carro em movimento.
 
 ### ⚠️ 1. Barramento de Entrada e Filtro Duplo de Energia
 
@@ -531,6 +609,11 @@ Antes de ligar o circuito pela primeira vez:
 - [ ] Saída do conversor **medida** antes de ligar à placa: 5,0 V, ou 5,35–5,45 V se
       for compensar o Schottky. **Nunca acima de 5,8 V.**
 - [ ] **Trecho de 12 V sem conector JST-XH** — direto no conversor, ou família diferente.
+- [ ] 🆕 **TVS de 24 V instalado** na entrada de 12 V, junto ao conversor. Confirmar que
+      é o sufixo **`CA`** (bidirecional), não `A`.
+- [ ] 🆕 **Polaridade do eletrolítico de 50 V da entrada** — faixa no GND. Invertido
+      com 12 V atrás, ele explode.
+- [ ] 🆕 Fusível **antes** da proteção no percurso do cabo, nunca depois.
 - [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
 - [ ] Polaridade da entrada de 5 V conferida no JST, com o cabo já crimpado.
 - [ ] Continuidade entre `GND (38)` e todos os terras dos módulos.
