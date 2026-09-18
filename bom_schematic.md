@@ -575,10 +575,42 @@ breakout, `adafruit-microsd-spi-sdio.pdf`, pág. 8):
 
 ### ⚠️ 3. Módulo GPS NEO-M8N (UART0)
 
+#### 🆕 ⚠️ Pinagem física do GY-GPSV3 (da foto do anúncio, **não confirmada na placa**)
+
+Da esquerda para a direita, olhando de frente:
+
+| # | Serigrafia | Liga em |
+| :---: | :--- | :--- |
+| 1 | `VCC` | **5 V** (`VSYS`) — ver a árvore de decisão abaixo |
+| 2 | `RX` | GPIO 0 (pino 1), **através de resistor de 1 kΩ** |
+| 3 | `TX` | GPIO 1 (pino 2) |
+| 4 | `GND` | GND comum |
+
+> 🔴 **Ordem a confirmar na serigrafia quando a placa chegar.** Esta tabela vem da foto do
+> anúncio do módulo comprado, não da peça em mãos. Não é formalidade: **os dois outros
+> módulos que foram conferidos fisicamente divergiam do documentado** — o leitor SD tinha
+> 8 pinos em vez de 6, e o KY-040 estava com a ordem invertida, o que colocaria 3,3 V e
+> GND diretamente em dois GPIO. Ver **R-34**.
+>
+> O próprio `gera_fritzing.py` assumia `VCC, GND, TX, RX` até 2026-09-18 — os pinos 2 e 4
+> trocados em relação a esta tabela.
+
+**Se a ordem estiver errada, o que acontece.** Não é destrutivo, e é por isso que é ruim
+de diagnosticar: o **`VCC` é o pino 1 em qualquer das duas versões**, então não há risco
+de 5 V no lugar errado. Mas o `GND` do módulo chegaria através do resistor de 1 kΩ, e o
+`RX` ficaria preso em nível baixo — o GPS não liga direito e nunca recebe a configuração
+UBX do RF01.2. Dano zero, sintoma confuso.
+
+#### Ligações
+
 * **GPS TX** → **Pico GPIO 1 (Pino 2 / RX)**.
-* **GPS RX** → **Pico GPIO 0 (Pino 1 / TX)**.
+* **GPS RX** → **Pico GPIO 0 (Pino 1 / TX)**, através do resistor de 1 kΩ (R-22).
 * **GPS VCC** → **depende do regulador da placa breakout.** Ver árvore de decisão abaixo.
 * **GPS GND** → GND comum.
+
+> ⚠️ **O cruzamento é obrigatório:** `TX` de um lado vai no `RX` do outro. Ligar TX↔TX e
+> RX↔RX é o erro clássico de UART e não produz comunicação nenhuma. A netlist do
+> `gera_fritzing.py` já cruza corretamente.
 
 #### ⚠️ Alimentação: a faixa do chip não é a faixa da placa
 
@@ -821,6 +853,9 @@ Antes de ligar o circuito pela primeira vez:
 - [ ] Orientação do diodo Schottky (catodo/faixa apontando para o Pico).
 - [ ] Pinagem do transistor conferida no datasheet do modelo adquirido.
 - [ ] **Regulador de 3 pinos confirmado na placa GPS** antes de aplicar 5 V (seção 3).
+- [ ] 🆕 **Serigrafia do GPS conferida** contra a tabela da seção 3: `VCC RX TX GND`
+      da esquerda para a direita. Confirmar **antes** de ligar — a tabela veio da
+      foto do anúncio, não da placa, e os outros dois módulos divergiram.
 - [ ] Resistor de 1 kΩ em série no caminho `GPIO 0 → GPS RX`.
 - [ ] Nenhum módulo de 3,3 V **sem regulador** conectado à linha de 5 V.
 - [ ] Cartão SD formatado em FAT32, com `radares.bin` e `wifi.cfg` presentes.

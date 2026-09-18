@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 24 de 24 | 2 medições (R-13, R-17) + 2 inspeções (R-14, display) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 25 de 25 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -1223,6 +1223,53 @@ comum"* da biblioteca do Fritzing, com o comum ligado ao GND. O gerador já est�
 o `.fzz` foi editado à mão pelo autor e **não será regerado** (R-29). A correção ali é
 manual: mover o fio do terminal comum do GND para o `3V3`.
 
+## R-34 — O GPS era o único módulo sem tabela de pinagem, e o desenho estava errado
+
+- **Onde:** `bom_schematic.md` §3 · `gera_fritzing.py`
+- **Confiança:** ⚠️ Ordem vinda da **foto do anúncio** do módulo comprado — a confirmar
+  na serigrafia
+- **Registrado em:** 2026-09-18
+- **Status:** ✅ **CORRIGIDO** na mesma data; confirmação física pendente
+
+**Problema.** Três módulos deste projeto têm pinagem que não se adivinha, e **dois deles
+divergiram do documentado** quando o autor conferiu a peça física:
+
+| Módulo | O que o documento dizia | O que a placa tinha |
+| :--- | :--- | :--- |
+| Leitor microSD | 6 pinos, `VCC GND CLK DI DO CS` | **8 pinos**, com nomes duplos |
+| KY-040 | `CLK DT SW + GND` | **`GND + SW DT CLK`** — invertido |
+| **GY-GPSV3 (GPS)** | **nada — não havia tabela** | a confirmar |
+
+O GPS era o único **sem tabela de pinagem física**, apesar de ser o módulo onde um erro de
+`VCC`/`GND` seria destrutivo. E o `gera_fritzing.py` assumia `VCC, GND, TX, RX`, enquanto a
+foto do anúncio do módulo efetivamente comprado mostra **`VCC, RX, TX, GND`** — pinos 2 e
+4 trocados.
+
+**Correção aplicada.** Tabela criada na §3 no mesmo formato das outras duas, ordem do
+gerador corrigida, e item novo no checklist de pré-energização exigindo conferir a
+serigrafia **antes** de ligar.
+
+**O que aconteceria seguindo o desenho errado.** Não é destrutivo, e é por isso que é ruim:
+o **`VCC` é o pino 1 nas duas versões**, então não havia risco de 5 V no lugar errado. Mas
+o `GND` do módulo chegaria através do resistor de 1 kΩ do R-22, e o `RX` ficaria preso em
+nível baixo. O GPS não ligaria direito e nunca receberia a configuração UBX do RF01.2 —
+dano zero, sintoma confuso, e o tipo de coisa que se procura no firmware.
+
+**O que estava certo e vale registrar.** O cruzamento UART está correto na netlist:
+`GPIO 0 (TX) → 1 kΩ → GPS RX` e `GPS TX → GPIO 1 (RX)`. O outro erro clássico de UART,
+ligar TX↔TX, não está presente.
+
+**Divergência adicional no `.fzz`.** O arquivo versionado tem o GPS com a ordem antiga:
+`connector1` é o `GND` e `connector3` é o `RX`, quando deveriam estar trocados. O gerador
+já está correto e o `.fzz` não será regerado (R-29). A correção ali é manual: trocar de
+posição os fios de `GND` e de `RX` do módulo GPS.
+
+**Padrão que isto revela.** Dois de três módulos com pinagem divergente não é azar, é taxa
+de acerto de documentação de módulo genérico de marketplace. A regra que vale para o
+display de 2,4" que também está chegando: **nenhuma pinagem de módulo é confiável até ser
+lida na serigrafia da peça em mãos**, e o checklist de pré-energização é onde isso vira
+obrigação em vez de intenção.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1373,6 +1420,7 @@ RELEVANTES
 [x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
 [~] R-32  Faixa 3 virou pulso de 10 Hz; audibilidade com janela aberta PENDENTE de julgamento em campo
 [x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
+[~] R-34  Tabela de pinagem do GPS criada e gerador corrigido; serigrafia A CONFERIR na placa
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

@@ -52,7 +52,11 @@ PECAS = [
 
     ("GPS", "b799cea1-1ee1-11de-8283-0019d2b7521e",
      "generic-female-header-rounded_4.fzp",
-     "GPS NEO-M8N (GY-GPSV3)", {}, ["VCC 5V", "GND", "TX", "RX"]),
+     # Ordem conferida na foto do anuncio do modulo comprado (2026-09-18):
+     # VCC, RX, TX, GND. A suposicao anterior era VCC, GND, TX, RX -- os pinos
+     # 2 e 4 estavam trocados. A CONFIRMAR na serigrafia quando a placa chegar,
+     # como foi feito com o KY-040 e o leitor SD, que ambos divergiam. Ver R-34.
+     "GPS NEO-M8N (GY-GPSV3)", {}, ["VCC 5V", "RX", "TX", "GND"]),
 
     # Pinagem conferida na placa física (2026-09-17), da esquerda para a
     # direita olhando de frente. DAT2 e DET não são usados em modo SPI.

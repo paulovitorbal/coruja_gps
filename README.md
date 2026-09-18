@@ -183,10 +183,15 @@ python3 gera_fritzing.py    # ⚠️ sobrescreve o .fzz e DESCARTA o ajuste manu
 > fiação, o caminho é editar `NETS`, regerar num arquivo temporário, comparar as redes
 > e então aplicar a mudança à mão no Fritzing — não sobrescrever.
 >
-> **Divergência conhecida:** o gerador já traz a entrada do gabinete com 3 vias
-> (`J5V`, +5 V · n/c · GND), mas o `.fzz` versionado ainda mostra a entrada antiga de
-> 2 vias, rotulada "carregador veicular". O documento de referência para montagem é o
-> `bom_schematic.md`.
+> **Divergências conhecidas entre o gerador e o `.fzz` versionado.** O `.fzz` é editado à
+> mão e **não é regerado** (R-29), então ele acumula atrasos em relação à netlist. O
+> documento de referência para montagem é sempre o `bom_schematic.md`.
+>
+> | O gerador tem | O `.fzz` ainda tem | Correção manual |
+> | :--- | :--- | :--- |
+> | Entrada do gabinete com 3 vias (`J5V`) | Entrada de 2 vias, "carregador veicular" | trocar a peça |
+> | LED de **ânodo comum**, comum no `3V3` (R-33) | Peça de cátodo comum, comum no `GND` | mover um fio |
+> | GPS em `VCC RX TX GND` (R-34) | `VCC GND TX RX` — pinos 2 e 4 trocados | trocar dois fios |
 
 A netlist vive em `NETS`, dentro de `gera_fritzing.py`, transcrita do
 `bom_schematic.md`. Mudou a fiação? Edite ali e regenere.
