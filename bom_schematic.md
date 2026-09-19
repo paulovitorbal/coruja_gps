@@ -30,7 +30,7 @@
 | 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
 | 15 | ⚠️ **Capacitor Eletrolítico** | ✅ **470 µF / 16 V / 105 °C** confirmado em mãos. Em `VSYS` (~4,7 V) opera a **29% do nominal** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. | ⚪ disponível |
 | 16 | **Capacitor Cerâmico** | **100 nF (0,1 µF)** — código impresso: 104 | Suprimir ruído de alta frequência da ignição. | ⚪ disponível |
-| 17 | ⚠️ **Capacitores Cerâmicos 100 nF** | 2 unidades — código 104 | **Novo na rev. 2.** Debounce em hardware do encoder (CLK e DT). | ⚪ disponível |
+| 17 | 🔴 ⚠️ **Capacitores Cerâmicos 1 a 10 nF** | 2 unidades. **NÃO 100 nF** — o valor anterior matava a quadratura, ver nota | Debounce em hardware do encoder (`CLK` e `DT`). | 🔴 faltante |
 | 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. | ⚪ disponível |
 | 19 | ⚠️ **Conector JST-XH 3 vias** | Par macho + fêmea. **Pino central sem uso** | **Entrada de 5 V**, depois do conversor. Três vias de propósito, para não encaixar no conector de 2 vias do buzzer. | ⚪ disponível |
 | 20 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. | ⚪ disponível |
@@ -41,35 +41,42 @@
 | 25 | **Cabo 1,5 mm²** | ✅ Em mãos: **1 via, flexível**. Usar **dois trechos trançados** entre si — ver nota | Do pós-chave ao conversor (trecho de 12 V). Sobredimensionado para a carga (~180 mA), o que é seguro. | ⚪ disponível |
 | 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. | ⚪ disponível |
 | 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. | 🔵 comprado |
-| 28 | 🆕 ⚠️ **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é exigência, não preferência** — ver nota. 105 °C, atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔵 comprado |### Situação em 2026-09-18
+| 28 | 🆕 ⚠️ **Capacitor Eletrolítico 470 µF / 50 V** | **50 V é exigência, não preferência** — ver nota. 105 °C, atenção à polaridade | **Na entrada de 12 V**, em paralelo com o TVS. Segura o que o TVS não pega e amortece a queda na partida. | 🔵 comprado |### Situação em 2026-09-19
 
-Levantado item a item com o autor. **Nada mais faltante:** os 7 itens que faltavam foram
-comprados em 18/09 e devem chegar na semana de 22/09, junto com o GPS e o display que já
-estavam em trânsito.
+Levantado item a item com o autor. Os 7 itens que faltavam foram comprados em 18/09 e
+devem chegar na semana de 22/09, junto com o GPS e o display.
 
 | | Qtd | Itens |
 | :--- | ---: | :--- |
 | 🟢 **entregue** | 4 | 1, 3, 4, 6 |
-| 🔵 **comprado** | 9 | 2, 5, 7, 11, 21, 22, 24, 27, 28 — chegada prevista p/ semana de 22/09 |
-| ⚪ **disponível** | 15 | 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 23, 25, 26 |
-| 🔴 **faltante** | 0 | — |
+| 🔵 **comprado** | 8 | 2, 5, 7, 21, 22, 24, 27, 28 |
+| ⚪ **disponível** | 15 | 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 23, 25, 26 |
+| 🔴 **faltante** | 1 | **17** — capacitores de 1 a 10 nF, ver abaixo |
 
-#### O que dá para fazer antes da entrega
+#### O único item faltante nasceu de uma medição
 
-| Seção da bancada | Precisa de | Situação |
-| :--- | :--- | :--- |
-| **§01 — R-05, LEDs do RGB** | LED, resistores, Pico | ✅ **tudo disponível — pode fazer agora** |
-| §02 — R-17, buzzer e transistor | buzzer (7) | 🔵 aguardando |
-| §03 — R-13, trilho de 3V3 | display (5) | 🔵 aguardando |
-| Inspeção do display | display (5) | 🔵 aguardando |
-| R-14 — regulador do GPS | GPS (2) | 🔵 aguardando |
-| R-32 — audibilidade no carro | buzzer (7) + instalação | 🔵 aguardando |
+O item 17 estava como comprado: eram **100 nF**, e com eles **o encoder não decodifica
+giro nenhum** (R-36). O valor correto é **1 a 10 nF**, e esse ainda não foi comprado.
+Os 100 nF ficam de sobra — servem de filtro em outros pontos.
 
-> ⚠️ **Faça a §01 antes da entrega.** Ela é o pré-requisito do R-19 e do RF03.9, e é a
-> única que pode acrescentar componentes ao BOM: se o `Vf` do verde ou do azul cair acima
-> de 3,15 V, a saída é trocar o LED ou acionar os dois canais pelos 5 V com um transistor
-> por canal. Com tudo já comprado, a vantagem de "medir antes de comprar" se perdeu — mas
-> medir **esta semana** ainda permite que a compra extra chegue junto com o resto.
+#### O que já foi validado na placa em 19/09
+
+| Item | Resultado |
+| :--- | :--- |
+| **R-05 — LED RGB** | ✅ **concluído**: 330/470/150 Ω e PWM âmbar 19,6%, rosa 15,7%. Os quatro estados de via são distinguíveis |
+| Encoder — clique | ✅ 18 cliques sem evento duplicado |
+| Encoder — giro | ✅ 160 eventos, quadratura íntegra nos dois sentidos, **sem** os 100 nF |
+| Mapa de pinos do LED | ✅ corrigido: vermelho no GPIO 8, azul no 6 (R-35) |
+| Inversão de PWM do ânodo comum | ✅ correta |
+
+#### O que ainda espera entrega
+
+| Seção da bancada | Aguarda |
+| :--- | :--- |
+| §02 — R-17, buzzer e pinagem do 2N2222 | buzzer (item 7) |
+| §03 — R-13, trilho de 3V3 | display (item 5) |
+| Inspeção do display e serigrafia do GPS | itens 5 e 2 |
+| R-32 — audibilidade a 80 km/h | buzzer + instalação |
 
 ### Legenda de status
 
@@ -753,15 +760,32 @@ Da esquerda para a direita, olhando de frente:
 > ⚠️ **Esta ordem é o INVERSO da que costuma aparecer documentada** para o KY-040.
 > Confira na sua placa antes de soldar. A revisão 2 deste documento tinha a sequência
 > ao contrário, o que colocaria **3,3 V e GND diretamente em dois GPIO**.
-* ⚠️ **Debounce do encoder (novo na rev. 2):** solde um **capacitor cerâmico de 100 nF**
-  entre **CLK e GND** e outro entre **DT e GND**, o mais próximo possível do módulo. O
-  KY-040 é eletricamente ruidoso; sem este filtro o ajuste de brilho salta de forma
-  errática mesmo com decodificação por máquina de estados em software (RF04).
+* 🔴 ⚠️ **Debounce do encoder — valor corrigido em 2026-09-19:** um capacitor cerâmico
+  de **1 a 10 nF** entre **CLK e GND** e outro entre **DT e GND**, o mais próximo
+  possível do módulo.
+
+> 🔴 **Não use 100 nF.** Era o valor da revisão 2, e com ele **o encoder não produz um
+> único passo decodificado**. Medido na placa: as fases do sinal duram **45 a 128 ms**,
+> e os 100 nF com o pull-up de 10 kΩ do módulo dão **τ = 1 ms** — o filtro comprimia
+> pulsos de 60 ms em pulsos de 1 ms e **apagava o estado `(0,0)`**, que é onde a
+> quadratura codifica a direção. Ver **R-36**.
+>
+> Com **1 a 10 nF** a constante cai para 10 a 100 µs: filtra repique de contato, que é
+> da ordem de microssegundos, e não toca nos **5,75 ms** do pior caso medido do `(0,0)`.
+>
+> **Remover o filtro não é a saída.** O RF04 o pede por uma razão real. Medido parado e
+> sem capacitor nenhum, houve zero mudanças espúrias em 12 s — mas isso foi **na
+> bancada**, com fio curto e sem alternador por perto.
 
 * ⚠️ **LED RGB Ânodo Comum** (terminal mais longo): direto ao **`3V3_OUT` (pino 36)**.
-* ⚠️ **Cátodo R (Vermelho):** **Resistor de 330 Ω** → **Pico GPIO 6 (Pino 9)**.
+* ✅ **Cátodo R (Vermelho):** **Resistor de 330 Ω** → **Pico GPIO 8 (Pino 11)**.
 * ✅ **Cátodo G (Verde):** **Resistor de 470 Ω** → **Pico GPIO 7 (Pino 10)**.
-* ✅ **Cátodo B (Azul):** **Resistor de 150 Ω** → **Pico GPIO 8 (Pino 11)**.
+* ✅ **Cátodo B (Azul):** **Resistor de 150 Ω** → **Pico GPIO 6 (Pino 9)**.
+
+> 🔴 **Vermelho e azul não seguem a ordem crescente de GPIO — isso é intencional.**
+> A ordem das pernas deste LED de 10 mm **não é R-G-B**, e a fiação foi mantida como
+> construída em vez de remontada. Os resistores acompanham a **cor**, não o GPIO.
+> Ver **R-35**.
 
 > ✅ **Valores medidos na bancada em 2026-09-19**, sob luz solar direta. A previsão
 > anterior — 68 Ω nos dois, por temer que 330 Ω os deixasse invisíveis — estava errada:
@@ -873,6 +897,8 @@ Antes de ligar o circuito pela primeira vez:
       da esquerda para a direita. Confirmar **antes** de ligar — a tabela veio da
       foto do anúncio, não da placa, e os outros dois módulos divergiram.
 - [ ] Resistor de 1 kΩ em série no caminho `GPIO 0 → GPS RX`.
+- [ ] 🔴 **Capacitores do encoder são de 1 a 10 nF, não 100 nF.** Com 100 nF o
+      encoder não decodifica giro nenhum (R-36).
 - [ ] Nenhum módulo de 3,3 V **sem regulador** conectado à linha de 5 V.
 - [ ] Cartão SD formatado em FAT32, com `radares.bin` e `wifi.cfg` presentes.
 - [ ] Medir tensão em `3V3_OUT` com todos os periféricos conectados e backlight em 100%.

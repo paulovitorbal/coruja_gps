@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | — *(R-05 medido em 19/09)* | Queima componente, ou o requisito não roda no hardware. R-05, R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 25 de 25 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 27 de 27 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -25,7 +25,7 @@
 
 | Item | O que medir | Por quê |
 | :--- | :--- | :--- |
-| **R-05** *(parcial)* | ✅ Resistores **medidos em 2026-09-19**: 330 Ω vermelho, 470 Ω verde, 150 Ω azul. ⏳ Falta a **calibração de razão por PWM** do âmbar e do rosa | As cores compostas nascem certas com estes resistores, mas as razões de duty não foram levantadas. O **rosa é o crítico**: precisa ser inconfundível em relação ao vermelho, senão a faixa de margem vira Zona de Perigo aos olhos do motorista (RF03.4). |
+| ~~**R-05**~~ | ✅ **CONCLUÍDO em 2026-09-19.** Resistores: 330 Ω vermelho, 470 Ω verde, 150 Ω azul. PWM: âmbar 19,6% de verde, rosa 15,7% de azul | Critério do RF03.4 atendido: rosa inconfundível com o vermelho, âmbar claro. |
 | **R-13** | Corrente agregada no `3V3_OUT` com backlight em 100% | Com o GPS migrado para 5 V (R-14), sobraram display e SD — margem provavelmente confortável, mas não verificada. |
 | **R-17** | Consumo do buzzer e pinagem do BC337/2N2222 | A ordem E-B-C difere da do BC547. ⚠️ **Esperado ~10 mA no SFM-20B**, não 20–50 mA como dizia a rev. 2 da folha de bancada — aquele número era do SFM-27 (R-32). |
 
@@ -320,12 +320,21 @@ frequência, e ele não é — é a suposição que estava escondida no achado.
   trilho de 3V3.
 * Os **68 Ω comprados** antes da medição ficam de sobra. Os 150 Ω e 470 Ω saem do estoque.
 
-**O que continua aberto.** A **calibração de PWM** do âmbar e do rosa. O autor ligou as
-cores compostas em brilho máximo e elas nascem certas com estes resistores, mas as razões
-de duty não foram levantadas, e o **rosa é a mais delicada** — ele precisa ser
-inconfundível em relação ao vermelho, sob pena de a faixa de margem virar Zona de Perigo
-aos olhos do motorista (RF03.4). Fica pendente, agora como ajuste fino e não como risco
-de projeto.
+**Calibração de PWM concluída em 2026-09-19**, com o modo de calibração na placa:
+
+| Cor | Composição | Razão |
+| :--- | :--- | ---: |
+| **Âmbar** | `rgb(255, 50, 0)` | 19,6% de verde |
+| **Rosa** | `rgb(255, 0, 40)` | 15,7% de azul |
+
+Os dois canais secundários precisam de **muito pouco**. Os nominais que este documento
+propunha — 45% e 60% — estavam errados por **2,3× e 3,8×**, e teriam produzido um amarelo
+esverdeado e um rosa lavado, quase lilás. Mesma origem do erro dos resistores: estimativa
+fotométrica feita de cabeça.
+
+✅ **Critério do RF03.4 atendido**, confirmado pelo autor: o rosa é inconfundível em
+relação ao vermelho, e o âmbar sai âmbar claro. Os quatro estados de via — verde, âmbar,
+rosa, vermelho — são distinguíveis.
 
 **Duas ressalvas sobre a medição.**
 
@@ -1309,6 +1318,120 @@ display de 2,4" que também está chegando: **nenhuma pinagem de módulo é conf
 lida na serigrafia da peça em mãos**, e o checklist de pré-energização é onde isso vira
 obrigação em vez de intenção.
 
+## R-35 — Vermelho e azul do LED estavam trocados, e o mapa passou a descrever a placa
+
+- **Onde:** `firmware/src/placa/Pinos.h` · `bom_schematic.md` §4 · `gera_fritzing.py`
+- **Confiança:** ✅ **Determinado empiricamente** com o modo de calibração na placa
+- **Registrado em:** 2026-09-19
+- **Status:** ✅ **CORRIGIDO** no mapa de pinos
+
+**Como apareceu.** Com o modo de calibração gravado, o autor observou a sequência de
+cores ao clicar: **azul, verde, vermelho, ciano, lilás**. O firmware manda vermelho,
+verde, azul, âmbar, rosa.
+
+**As compostas fecharam o diagnóstico**, e são o que descarta as outras hipóteses:
+
+| Item | Firmware manda | Observado | Com R e B trocados |
+| :--- | :--- | :--- | :--- |
+| Vermelho | `255,0,0` | azul | azul ✅ |
+| Verde | `0,255,0` | verde | verde ✅ |
+| Azul | `0,0,255` | vermelho | vermelho ✅ |
+| **Âmbar** | `255,115,0` | **ciano** | azul+verde = **ciano** ✅ |
+| **Rosa** | `255,0,153` | **lilás** | azul+vermelho = **lilás** ✅ |
+
+Cinco de cinco. A hipótese concorrente — comum ligado ao GND em vez do 3V3 — foi
+descartada por cálculo antes do teste: ela acenderia verde e azul juntos, e como o verde
+é ~3,7× mais visível na combinação de correntes deste projeto, o resultado seria verde ou
+ciano esverdeado, **não azul puro**.
+
+**A decisão: corrigir o mapa, não a fiação.** O autor optou por manter a protoboard como
+está e trocar as constantes. É a escolha certa, e por um motivo que não é preguiça:
+**`placa/Pinos.h` documenta a placa como construída**, e esse é o papel dele. Trocar fio
+para satisfazer um documento é inverter quem manda.
+
+O que tornou a troca possível sem perder nada foi um detalhe: **os resistores já estavam
+casados com a cor**, não com o GPIO. O de 330 Ω já terminava na perna vermelha. Se
+estivessem presos ao GPIO, trocar só as constantes daria cores certas com **correntes
+trocadas** — vermelho a 150 Ω e azul a 330 Ω — jogando fora a calibração do R-05 feita
+sob sol. Foi a pergunta que se fez antes de mexer em qualquer linha.
+
+**Mapa final:**
+
+| Canal | GPIO | Pino físico | Resistor |
+| :--- | ---: | ---: | ---: |
+| Vermelho | **8** | 11 | 330 Ω |
+| Verde | 7 | 10 | 470 Ω |
+| Azul | **6** | 9 | 150 Ω |
+
+**O quarto módulo com pinagem diferente da assumida.** Depois do leitor SD (8 pinos em
+vez de 6), do KY-040 (ordem invertida) e do GPS (pinos 2 e 4 trocados), agora o LED RGB.
+Quatro de quatro entre os que foram verificados fisicamente. A regra do R-34 se confirma
+e vale para o display de 2,4" que ainda vai chegar: **nenhuma pinagem de módulo genérico
+é confiável até ser observada na peça.**
+
+**De passagem, o que o mesmo teste já provou funcionando:** o encoder decodifica o
+clique, o anti-repique não gera evento duplo, o ciclo de itens avança na ordem certa, os
+três canais do LED acendem, e a inversão de PWM do ânodo comum está correta — se
+estivesse errada, os canais apareceriam complementados.
+
+## R-36 — Os 100 nF de debounce do encoder destruíam o sinal que deviam limpar
+
+- **Onde:** `bom_schematic.md` item 17 e §4 · `requirements.md` RF04
+- **Confiança:** ✅ **Medido na placa** em 2026-09-19, com e sem os capacitores
+- **Registrado em:** 2026-09-19
+- **Status:** ⏳ valor novo a especificar e comprar
+
+**Problema.** A revisão 2 deste documento mandou soldar **100 nF entre `CLK` e GND** e
+outro entre `DT` e GND, com a justificativa de que "o KY-040 é eletricamente ruidoso;
+sem este filtro o ajuste de brilho salta de forma errática mesmo com decodificação por
+máquina de estados em software".
+
+A justificativa é razoável. **O valor foi escolhido sem medir nada**, e com ele o giro
+do encoder **não produz um único passo decodificado**.
+
+**A medição.** Com o firmware de diagnóstico amostrando a 50 µs:
+
+| | Com 100 nF | Sem capacitor |
+| :--- | ---: | ---: |
+| Fase `(0,1)` | 0,6 – 2 ms | **45 – 128 ms** |
+| Estado `(0,0)` | **nunca ocorreu** | **5,75 – 25,4 ms** |
+| Passos decodificados | **zero** | quadratura íntegra |
+
+O capacitor de 100 nF com o pull-up de 10 kΩ do módulo dá **τ = 1 ms**. Contra fases que
+duram **dezenas de milissegundos**, ele comprimia pulsos de 60 ms em pulsos de 1 ms e
+**apagava a sobreposição inteira** — o estado `(0,0)`, que é onde a quadratura codifica
+a direção. A tabela de transição fazia o que devia: sem `(0,0)`, o acumulado oscila em
+torno de zero e nunca atinge ±4.
+
+**Direção conferida nos dois sentidos**, com o filtro removido: 11 ocorrências de
+`(0,1) → (0,0) → (1,0)` e 12 de `(1,0) → (0,0) → (0,1)`, praticamente simétrico para
+8 detentes em cada sentido.
+
+**Correção proposta: 1 a 10 nF**, não 100 nF. Dá τ de 10 a 100 µs — filtra repique de
+contato, que é da ordem de microssegundos, e não toca nos 5,75 ms do pior caso medido.
+A remoção completa **não** é a saída: o RF04 pede o filtro por uma razão real, e a
+bancada tem fio curto e nenhum alternador por perto.
+
+> ℹ️ Registro de honestidade: medido **parado e sem capacitor nenhum, zero mudanças
+> espúrias em 12 s** nas linhas em repouso. Isso enfraquece a necessidade do filtro *na
+> bancada*, não no veículo.
+
+**Como o erro se sustentou.** Duas vezes, e as duas por olhar a variável errada:
+
+1. Ao especificar, dimensionei um filtro **sem conhecer a duração das fases do sinal**
+   que ele iria filtrar. Constante de tempo só significa alguma coisa em relação ao que
+   se quer preservar.
+2. Quando o autor perguntou diretamente *"será que o problema são os capacitores?"*,
+   respondi que duvidava, argumentando que o RC **alarga** o pulso baixo e portanto
+   deveria tornar o `(0,0)` mais provável. O argumento está correto **isoladamente** e é
+   irrelevante: o que importa é a **fase relativa** entre os dois canais, e o RC atrasa
+   cada um independentemente. Ele chegou lá primeiro; eu o demovi.
+
+**Consequência para o ADR 0005.** O receio de perder detente girando rápido não se
+confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** contra
+1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
+deixa de ser pendência e passa a ser desnecessária.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1431,8 +1554,9 @@ BLOQUEADORES
 [ ] R-04  Diferença circular + porta de velocidade + DirType (0=omni, 2=bi)
 [~] R-19  DECIDIDO: Zona de Semáforo silenciosa, LED amarelo/vermelho 2 Hz
                 └─ implementação pendente; DEPENDE do R-05 (sem verde, não há amarelo)
-[x] R-05  MEDIDO 19/09 — 330R vermelho, 470R verde, 150R azul. A previsao estava
-          errada: verde precisou do MAIOR resistor. Falta so a calibracao de PWM.
+[x] R-05  CONCLUIDO 19/09 — 330R/470R/150R e PWM ambar 19,6% / rosa 15,7%.
+          Duas previsoes erradas: verde precisou do MAIOR resistor, e os
+          nominais de PWM erravam por 2,3x e 3,8x.
 [ ] R-06  Conector do buzzer trocado ou protegido
 [x] R-21  RESOLVIDO — GPS+GLONASS a 4 Hz nominal, piso de 3 Hz
 [ ] R-28  Trecho de 12 V sem conector JST-XH (direto no conversor)
@@ -1461,6 +1585,8 @@ RELEVANTES
 [~] R-32  Faixa 3 virou pulso de 10 Hz; audibilidade com janela aberta PENDENTE de julgamento em campo
 [x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
 [~] R-34  Tabela de pinagem do GPS criada e gerador corrigido; serigrafia A CONFERIR na placa
+[x] R-35  RESOLVIDO — LED com vermelho no GPIO 8 e azul no 6; o mapa descreve a placa
+[~] R-36  MEDIDO — os 100 nF matavam a quadratura. Trocar por 1-10 nF; valor a comprar
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

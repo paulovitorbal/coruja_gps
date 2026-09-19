@@ -84,9 +84,10 @@ def coleta_runtime() -> dict:
 
 def coleta_calibracao() -> dict:
     print("\n--- calibração do LED RGB (R-05) ---")
-    print("Os resistores já foram medidos em 2026-09-19: 330 Ω vermelho,")
-    print("470 Ω verde, 150 Ω azul. O que falta são as razões de PWM do")
-    print("âmbar e do rosa. Deixe em branco para usar os nominais.")
+    print("Tudo já foi medido na placa em 2026-09-19:")
+    print("  resistores: 330 Ω vermelho, 470 Ω verde, 150 Ω azul")
+    print("  âmbar: 19,6% de verde   rosa: 15,7% de azul")
+    print("Deixe em branco para usar esses valores.")
     if not input("Já tem as medidas? [s/N]: ").strip().lower().startswith("s"):
         return {}
     d = {}
@@ -128,6 +129,8 @@ def corpo_header(cal: dict) -> str:
 
 namespace coruja::calibracao {{
 
+// Os resistores e as razões de PWM já vêm dos valores medidos; este
+// sinalizador diz se ESTA instalação rodou o script com valores próprios.
 constexpr bool kMedido = {"true" if cal else "false"};
 
 // Resistores de cada canal, em ohms. Os nominais sao os MEDIDOS na bancada
@@ -137,10 +140,18 @@ constexpr float kResistorVerde    = {val("r_verde", "470.0F")};
 constexpr float kResistorAzul     = {val("r_azul", "150.0F")};
 
 // Razões de PWM que produzem cada cor composta, de 0 a 1.
+//
+// MEDIDAS na placa em 2026-09-19 com o modo de calibração, e não estimadas.
+// Os nominais anteriores eram 0,45 e 0,60 — errados por 2,3x e 3,8x, o que
+// teria dado um amarelo esverdeado e um rosa lavado. Ambos os canais
+// secundários precisam de muito pouco: 20% de verde já faz âmbar e 16% de
+// azul já faz rosa.
+//
+//   âmbar = rgb(255, 50, 0)     rosa = rgb(255, 0, 40)
 constexpr float kDutyAmbarVermelho = {val("duty_ambar_r", "1.0F")};
-constexpr float kDutyAmbarVerde    = {val("duty_ambar_g", "0.45F")};
+constexpr float kDutyAmbarVerde    = {val("duty_ambar_g", "0.196F")};
 constexpr float kDutyRosaVermelho  = {val("duty_rosa_r", "1.0F")};
-constexpr float kDutyRosaAzul      = {val("duty_rosa_b", "0.60F")};
+constexpr float kDutyRosaAzul      = {val("duty_rosa_b", "0.157F")};
 
 }}  // namespace coruja::calibracao
 """

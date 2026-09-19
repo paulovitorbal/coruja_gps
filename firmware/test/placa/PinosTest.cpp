@@ -25,9 +25,11 @@ TEST(Pinos, ValoresBatemComOBomSchematic) {
     EXPECT_EQ(kEncoderDt, 3u);
     EXPECT_EQ(kEncoderSw, 4u);
     EXPECT_EQ(kBuzzerBase, 5u);
-    EXPECT_EQ(kLedVermelho, 6u);
+    // Vermelho e azul estão invertidos em relação à ordem crescente de GPIO,
+    // e é intencional: descreve a placa como construída. Ver R-35.
+    EXPECT_EQ(kLedVermelho, 8u);
     EXPECT_EQ(kLedVerde, 7u);
-    EXPECT_EQ(kLedAzul, 8u);
+    EXPECT_EQ(kLedAzul, 6u);
     EXPECT_EQ(kSdDet, 14u);
     EXPECT_EQ(kDisplayBacklight, 15u);
     EXPECT_EQ(kSpiMiso, 16u);

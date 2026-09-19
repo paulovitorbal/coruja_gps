@@ -44,6 +44,16 @@ ao relógio e uma indexação de tabela. Não há divisão, não há ponto flutu
   nenhuma. Não foi feito agora por YAGNI — 1 ms de polling tem folga de mais de
   10× sobre a necessidade medida no papel, e ISR traz reentrância e cuidado com
   `volatile` que ainda não se pagam.
-* **Ainda não foi medido em hardware.** Os números acima são de cálculo, não de
-  bancada. O modo de teste do `main.cpp` existe justamente para confirmar que
-  nenhum detente se perde girando depressa.
+* ✅ **Medido em hardware em 2026-09-19**, e a folga é maior do que este ADR
+  supunha. Com o encoder amostrado a 50 µs, o estado `(0,0)` — que é onde a
+  quadratura codifica direção — dura **5,75 ms no pior caso**, já incluindo
+  uma volta rápida. Contra 1 ms de amostragem, são **5,8× de folga**.
+
+  A interrupção de borda, listada acima como alternativa, deixa de ser
+  pendência e passa a ser **desnecessária**. O polling a 1 ms basta com
+  margem.
+
+  A medição só foi possível depois do **R-36**: os capacitores de 100 nF de
+  debounce achatavam as fases de dezenas de milissegundos para ~1 ms e
+  apagavam o `(0,0)` por completo, de modo que nenhum passo era decodificado.
+  O problema nunca foi taxa de amostragem — era o filtro de entrada.

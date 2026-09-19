@@ -55,12 +55,21 @@ constexpr unsigned kBuzzerBase = 5;  // pino físico 7
 //
 // ⚠️ O ânodo comum vai ao `k3V3Out`, e cada cátodo desce por seu resistor até
 // o GPIO: nível BAIXO acende. Ver R-33 e `LedRgbAnodoComum`.
-// Os resistores diferem por canal — 330 Ω no vermelho, 68 Ω no verde e no
-// azul — então a mesma intensidade numérica não dá o mesmo brilho percebido.
+//
+// ⚠️ **Vermelho e azul NÃO seguem a ordem crescente de GPIO.** A ordem das
+// pernas deste LED de 10 mm não é R-G-B, e a fiação foi mantida como está: o
+// mapa abaixo descreve **a placa como construída**, que é o papel deste
+// arquivo. Determinado empiricamente em 2026-09-19 pelo modo de calibração —
+// o firmware acendia um canal por vez e a cor observada não batia, com as
+// compostas confirmando: âmbar saía ciano e rosa saía lilás. Ver R-35.
+//
+// Os resistores foram medidos (R-05) e **acompanham a cor**, não o GPIO:
+// 330 Ω no vermelho, 470 Ω no verde, 150 Ω no azul. A ordem é o inverso da
+// sensibilidade do olho, que tem pico no verde.
 
-constexpr unsigned kLedVermelho = 6;  // pino físico  9; resistor 330 Ω
-constexpr unsigned kLedVerde    = 7;  // pino físico 10; resistor  68 Ω
-constexpr unsigned kLedAzul     = 8;  // pino físico 11; resistor  68 Ω
+constexpr unsigned kLedVermelho = 8;  // pino físico 11; resistor 330 Ω
+constexpr unsigned kLedVerde    = 7;  // pino físico 10; resistor 470 Ω
+constexpr unsigned kLedAzul     = 6;  // pino físico  9; resistor 150 Ω
 
 // ---------------------------------------------------------------------------
 // Cartão microSD

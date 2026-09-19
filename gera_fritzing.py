@@ -209,11 +209,19 @@ NETS = {
     "ENC_DT":      [("PICO", "5"), ("ENC", "DT"), ("C4", "0")],
     "ENC_SW":      [("PICO", "6"), ("ENC", "SW")],
 
-    "LED_R_GPIO6":  [("PICO", "9"), ("R1", "0")],
+    # ATENCAO: vermelho e azul NAO seguem a ordem crescente de GPIO. A ordem
+    # das pernas deste LED de 10 mm nao e R-G-B, e a fiacao foi mantida como
+    # construida -- o mapa descreve a placa real. Determinado no modo de
+    # calibracao em 2026-09-19: o ambar saia ciano e o rosa saia lilas, o que
+    # so acontece com vermelho e azul trocados. Ver R-35.
+    #
+    # Os resistores acompanham a COR, nao o GPIO: R1=330 no vermelho,
+    # R2=470 no verde, R3=150 no azul.
+    "LED_R_GPIO":   [("PICO", "11"), ("R1", "0")],   # GPIO 8
     "LED_R_CATODO": [("R1", "1"), ("LED", "R")],
-    "LED_G_GPIO7":  [("PICO", "10"), ("R2", "0")],
+    "LED_G_GPIO":   [("PICO", "10"), ("R2", "0")],   # GPIO 7
     "LED_G_CATODO": [("R2", "1"), ("LED", "G")],
-    "LED_B_GPIO8":  [("PICO", "11"), ("R3", "0")],
+    "LED_B_GPIO":   [("PICO", "9"), ("R3", "0")],    # GPIO 6
     "LED_B_CATODO": [("R3", "1"), ("LED", "B")],
 
     "BUZZ_GPIO5":   [("PICO", "7"), ("R4", "0")],
@@ -248,9 +256,9 @@ CORES = {
     "TFT_RST":    "#ffe500", "TFT_BL_PWM": "#ffe500",
     "GPS_TX":     "#8c3b00", "GPS_RX": "#8c3b00", "UART_TX_R5": "#8c3b00",
     "ENC_CLK":    "#ff7f00", "ENC_DT": "#ff7f00", "ENC_SW": "#ff7f00",
-    "LED_R_GPIO6": "#8c00ff", "LED_R_CATODO": "#8c00ff",
-    "LED_G_GPIO7": "#8c00ff", "LED_G_CATODO": "#8c00ff",
-    "LED_B_GPIO8": "#8c00ff", "LED_B_CATODO": "#8c00ff",
+    "LED_R_GPIO": "#8c00ff", "LED_R_CATODO": "#8c00ff",
+    "LED_G_GPIO": "#8c00ff", "LED_G_CATODO": "#8c00ff",
+    "LED_B_GPIO": "#8c00ff", "LED_B_CATODO": "#8c00ff",
 }
 COR_PADRAO = "#999999"
 
