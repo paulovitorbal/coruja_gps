@@ -8,3 +8,6 @@ _fzz_tmp/
 firmware/build*/
 coruja.cfg
 firmware/src/nucleo/ConfigCalibracao.h
+
+# .fzz de comparação, gerados por gera_fritzing.py --saida
+coruja_gps_v*.fzz

@@ -9,7 +9,7 @@ mudou a fiação, edite aqui e regenere.
 Os moduleId e os IDs de conector foram VERIFICADOS contra a biblioteca
 instalada em /Applications/Fritzing.app (2.565 peças) em 2026-09-17.
 
-Quatro módulos não têm peça na biblioteca (NEO-M8N, ST7789, breakout microSD
+Quatro módulos não têm peça na biblioteca (NEO-M8N, display, breakout microSD
 Adafruit, KY-040) e são representados por headers fêmea genéricos com a
 contagem correta de pinos e rótulo no título. A peça do microSD que existe na
 biblioteca tem ZERO conectores — é inutilizável.
@@ -32,6 +32,7 @@ desenha o ratsnest nos pinos certos. Use "Rotear" se quiser traços sólidos.
 import os
 import shutil
 import sys
+import argparse
 import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -40,8 +41,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fritzing_geo as geo
 
 AQUI = Path(__file__).resolve().parent
-SAIDA = AQUI / "coruja_gps.fzz"
-SKETCH_COM_PICO = Path.home() / "Documents" / "Fritzing" / "jogo-perguntas.fzz"
+SAIDA_PADRAO = AQUI / "coruja_gps.fzz"
+
+# A peça do Pico 2 W não vem na biblioteca padrão do Fritzing: ela é copiada de
+# um sketch que já a tenha. O .fzz versionado deste projeto já a carrega
+# embutida, então ele serve de fonte e o gerador fica autossuficiente para quem
+# clona o repositório. O sketch externo fica como alternativa.
+FONTES_DA_PECA_PICO = [
+    AQUI / "coruja_gps.fzz",
+    Path.home() / "Documents" / "Fritzing" / "jogo-perguntas.fzz",
+]
 FRITZING_VERSION = "1.0.7.2026-04-14.CD-2576-0-394a8bb4"
 
 # ---------------------------------------------------------------- peças ------
@@ -68,7 +77,12 @@ PECAS = [
 
     ("TFT", "17898e57-1ee0-11de-8283-0019d2b7521e",
      "generic-female-header_8.fzp",
-     "Display ST7789 240x240", {},
+     # 2,4" 320x240 confirmado pelo autor em 2026-09-17. O CONTROLADOR ainda
+     # nao: 2,4" costuma ser ILI9341 e nao ST7789, e a sequencia de
+     # inicializacao difere. A ORDEM DOS PINOS tambem esta a confirmar na
+     # serigrafia -- dos tres modulos ja conferidos fisicamente, dois
+     # divergiam do documentado (ver R-34).
+     'Display 2,4" 320x240 (controlador a confirmar)', {},
      ["GND", "VCC 3V3", "SCL", "SDA", "RES", "DC", "CS", "BL"]),
 
     # Pinagem conferida na placa física (2026-09-17), da esquerda para a
@@ -263,12 +277,51 @@ def liga(nets):
     return pares
 
 
-def main():
-    if not SKETCH_COM_PICO.exists():
+def fonte_da_peca_pico():
+    """Primeiro arquivo disponível que contenha a peça do Pico."""
+    for caminho in FONTES_DA_PECA_PICO:
+        if caminho.exists():
+            with zipfile.ZipFile(caminho) as z:
+                if any("rpi_pico" in n for n in z.namelist()):
+                    return caminho
+    return None
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        description="Gera o .fzz a partir da tabela de ligações deste arquivo.")
+    p.add_argument("--saida", type=Path, default=SAIDA_PADRAO,
+                   help=f"arquivo a escrever; padrão {SAIDA_PADRAO.name}")
+    p.add_argument("--forcar", action="store_true",
+                   help="sobrescreve um arquivo existente; ver o aviso abaixo")
+    args = p.parse_args(argv)
+    SAIDA = args.saida
+
+    # Proteção do R-29: o .fzz versionado foi editado à mão — roteamento de
+    # fios, posicionamento e notas — e regerar por cima DESTRÓI esse trabalho,
+    # que não está em nenhum outro lugar. O gerador é a fonte da NETLIST; o
+    # .fzz é a fonte do LAYOUT. Para comparar visualmente, gere em outro nome.
+    if SAIDA.exists() and not args.forcar:
+        print(f"erro: {SAIDA.name} já existe e não será sobrescrito.\n"
+              f"\n"
+              f"  Esse arquivo pode ter edição manual de layout que o gerador\n"
+              f"  não sabe reproduzir: roteamento de fios, posição das peças e\n"
+              f"  notas. Regerar por cima apaga tudo isso.\n"
+              f"\n"
+              f"  Para comparar visualmente, gere com outro nome:\n"
+              f"      python3 {Path(__file__).name} --saida coruja_gps_v2.fzz\n"
+              f"\n"
+              f"  Se tem certeza de que quer descartar o layout atual:\n"
+              f"      python3 {Path(__file__).name} --forcar\n",
+              file=sys.stderr)
+        return 1
+
+    SKETCH_COM_PICO = fonte_da_peca_pico()
+    if SKETCH_COM_PICO is None:
         raise SystemExit(
-            f"erro: preciso da peça do Pico embutida em {SKETCH_COM_PICO}\n"
-            "       (o sketch jogo-perguntas.fzz traz part.rpi_pico-tht_1.fzp "
-            "e seus 3 SVGs)"
+            "erro: preciso da peça do Pico embutida em algum destes:\n"
+            + "".join(f"  {c}\n" for c in FONTES_DA_PECA_PICO)
+            + "       (part.rpi_pico-tht_1.fzp e seus 3 SVGs)"
         )
 
     idx = {pid: 100 + i for i, (pid, *_r) in enumerate(PECAS)}

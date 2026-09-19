@@ -342,6 +342,14 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
         buzzer. Modo <span class="u">mA</span>, faixa mais alta primeiro.</p></li>
       <li><p>Espere <strong>~10 mA</strong> no SFM-20B, ou 20 a 50 mA no SFM-27. Registre em §04.</p></li>
     </ol>
+    <div class="warn">
+      <span class="wl">Com o SFM-20B o sintoma de C/E trocados é sutil</span>
+      <p>Em modo reverso o coletor entrega ~7,8 mA, e o SFM-20B precisa de ~10 mA: o
+        buzzer sairia <strong>mais fraco, não mudo</strong>. Com o SFM-27 de 50 mA seria
+        evidente. O buzzer escolhido torna esse erro <strong>mais difícil de notar</strong>
+        — teste as duas orientações de propósito e fique com a mais alta.</p>
+    </div>
+
     <div class="note">
       <span class="wl">A leitura é média, não pico</span>
       <p>Buzzer ativo tem oscilador interno, então a corrente é pulsada e o multímetro
@@ -352,9 +360,14 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
     <h3>Pinagem do transistor</h3>
     <div class="warn">
       <span class="wl">Procure o datasheet do modelo exato</span>
-      <p>A ordem E-B-C <strong>difere</strong> entre BC547, BC337 e 2N2222, e varia até
-        com a orientação da marcação do fabricante. Não confie em analogia nem em memória.
-        O multímetro confirma parte disso, não tudo.</p>
+      <p>A ordem E-B-C <strong>difere</strong> entre BC547, BC337 e 2N2222 — e o
+        <strong>mesmo</strong> 2N2222 é vendido em versões espelhadas:
+        <span class="u">P2N2222A</span> e <span class="u">PN2222A</span> têm pinagem
+        invertida uma da outra. Leia a marcação impressa no corpo e puxe o datasheet
+        daquela variante. Não confie em analogia nem em memória.</p>
+      <p><strong>A base é o pino central</strong> em TO-92 nas duas famílias, então o
+        resistor de 1 kΩ vai no meio sem medir. Só <span class="u">C</span> e
+        <span class="u">E</span> podem estar trocados.</p>
     </div>
 
     <p><strong>Identificar a base.</strong> Um NPN são dois diodos com o ânodo comum na
@@ -381,8 +394,7 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
         400 confirma a orientação. Perto de zero significa C e E trocados.</li>
       <li>Sem soquete: confie no datasheet e verifique <strong>funcionalmente</strong>.
         Com C e E invertidos o transistor opera em modo reverso, com ganho de 2 a 5 em vez
-        de ~200 — o buzzer fica <strong>muito baixo ou mudo</strong>. Buzzer fraco com o
-        circuito aparentemente correto é o sintoma clássico de C/E trocados.</li>
+        de ~200. <strong>Não há risco em tentar as duas orientações</strong> a 5 V.</li>
     </ul>
   </section>
 
@@ -570,5 +582,5 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
 
   <p class="fin"><span>Coruja GPS · Roteiro de bancada</span>
     <span>Pendências R-05 · R-17 · R-13 · R-14 · R-32 · display</span>
-    <span>rev. 5 — 2026-09-18</span></p>
+    <span>rev. 6 — 2026-09-19</span></p>
 </div>

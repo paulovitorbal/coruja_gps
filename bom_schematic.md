@@ -210,8 +210,53 @@ reorientar → trocar de modelo.** O R-32 tem a análise de audibilidade.
 
 O BC547 tem corrente de coletor máxima de 100 mA. Um piezo de 95–105 dB pode consumir
 30–50 mA, mais a capacitância do cabo até o painel — margem insuficiente. O BC337
-(500 mA) e o 2N2222 (800 mA) têm o mesmo custo e encapsulamento. **Confirmar a pinagem
-no datasheet**, que difere entre modelos. Medir o consumo real do buzzer adquirido.
+(500 mA) e o 2N2222 (800 mA) têm o mesmo custo e encapsulamento. Medir o consumo real
+do buzzer adquirido.
+
+#### 🆕 🔴 "2N2222" não define uma pinagem só
+
+A peça em mãos é um **2N2222** (item 9). Não basta dizer "confirmar no datasheet": o
+**mesmo nome** é vendido em variantes com pinagens **espelhadas entre si**.
+
+| Marcação | Encapsulamento | |
+| :--- | :--- | :--- |
+| `P2N2222A` | TO-92 plástico | uma ordem |
+| `PN2222A` | TO-92 plástico | **ordem espelhada** da anterior |
+| `2N2222A` | TO-18 metálico | terceira disposição, com aba de referência |
+
+**Leia a marcação impressa no corpo** e puxe o datasheet daquela variante. Não vale
+analogia com o BC337 nem com o que "costuma ser".
+
+**O que é seguro em qualquer caso:** em TO-92, a **base é o pino central** nas duas
+famílias. O resistor de 1 kΩ vai no meio sem precisar medir. O que pode estar trocado
+são **coletor e emissor**, nos dois pinos das pontas.
+
+**Inverter C e E não queima nada** — o transistor opera em modo reverso, com ganho de 2
+a 5 em vez de ~200:
+
+```
+base:  (3,3 − 0,7) / 1 kΩ   ≈  2,6 mA
+modo reverso, ganho ~3      ≈  7,8 mA de coletor
+SFM-20B precisa de          ≈  10 mA
+```
+
+> ⚠️ **No SFM-20B o sintoma é sutil, não óbvio.** Com 10 mA de carga o modo reverso
+> quase dá conta: o buzzer sairia **mais fraco**, não mudo. Com o SFM-27 de 50 mA seria
+> evidente. O buzzer escolhido torna esse erro **mais difícil de notar** — vale o teste
+> deliberado das duas orientações.
+
+Outro motivo para não deixar invertido: em modo reverso quem bloqueia é a junção
+base-emissor, e o `V_EBO` do 2N2222 é **6 V**. Com o trilho de 5 V sobra **1 V de
+margem**, que não existe na orientação correta.
+
+**Como determinar, na bancada (§02 da folha):**
+
+1. **Ache a base.** Modo teste de diodo: o pino que dá ~0,7 V para os **dois** outros é
+   a base. Deve ser o central.
+2. **Distinga C de E.** Com **soquete hFE** (`NPN E-B-C`), insira nas duas orientações:
+   ganho de 100 a 400 é a correta, perto de 3 é a invertida. Teste definitivo.
+3. **Sem soquete**, teste funcionalmente e inverta se sair fraco. **Não há risco** em
+   tentar as duas orientações a 5 V e 10 mA.
 
 ### ⚠️ Nota — diodo do buzzer (item 15)
 
