@@ -14,6 +14,8 @@ add_library(coruja_ihm STATIC
     encoder/AntiRepique.cpp
     encoder/EventoEncoder.cpp
     app/ModoTesteEncoder.cpp
+    app/ItemCalibracao.cpp
+    app/ModoCalibracao.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

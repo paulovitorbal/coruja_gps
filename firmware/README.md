@@ -165,7 +165,7 @@ firmware/src/
 ├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
 ├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
 │                    Encoder (interface), EncoderKy040 (hardware)
-├── app/             ModoTesteEncoder — lógica do teste de bancada
+├── app/             ModoTesteEncoder e ModoCalibracao — lógica de bancada
 ├── buzzer/          a fazer
 ├── armazenamento/   a fazer — cartão SD
 ├── display/         a fazer — módulo ainda não chegou
@@ -205,7 +205,7 @@ que trocar o GPIO 2 pelo 3 falhe dizendo qual periférico mudou de pino.
 | `log` — Logger, console, mock | — | ✅ | ✅ | ✅ |
 | `led` — LED RGB | ✅ | ✅ | ✅ | ✅ |
 | `encoder` — KY-040 | ✅ | ✅ | ✅ | ✅ |
-| `app` — modo de teste de bancada | ✅ | — | ✅ | ✅ |
+| `app` — modos de teste e de calibração | ✅ | — | ✅ | ✅ |
 | `buzzer` — piezo ativo + BC337 | ✅ | ⬜ | ⬜ | ⬜ |
 | `armazenamento` — microSD | ✅ | ⬜ | ⬜ | ⬜ |
 | `display` — 2,4" 320×240 | ❌ Correios | ⬜ | ⬜ | ⬜ |
@@ -216,7 +216,7 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 ### O que está verificado e o que não está
 
-* **Verificado:** a suíte de **98 casos** no host, com cobertura medida — 97,9%
+* **Verificado:** a suíte de **112 casos** no host, com cobertura medida — 97,9%
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
   `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
   `ModoTesteEncoder`.
@@ -227,21 +227,42 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
   mas o comportamento do modo de teste — inclusive se esquerda e direita saem
   na ordem certa — só se confirma na bancada.
 
-## Modo de teste de bancada
+## Modo de calibração
 
-O firmware atual valida a fiação do encoder e do LED sem GPS, cartão nem
-display:
+O firmware atual roda o **modo de calibração**, que fecha a metade pendente do
+**R-05**: as razões de PWM do âmbar e do rosa. Não precisa de GPS, cartão nem
+display.
 
-| Ação | LED |
+| Ação | Efeito |
 | :--- | :--- |
-| Girar à esquerda | vermelho |
-| Girar à direita | azul |
-| Clicar o botão | apaga |
+| **Girar** | ajusta o canal variável do item atual, 5 de duty por detente |
+| **Clicar** | avança: vermelho → verde → azul → âmbar → rosa → volta |
 
-Cada evento também sai no log pelo USB-CDC. Se esquerda e direita saírem
-trocadas, é porque `CLK` e `DT` estão invertidos em relação ao esperado:
-construa o encoder com `EncoderKy040(true, /*invertido=*/true)` em vez de
-mexer na fiação.
+Nas compostas o **vermelho fica fixo em 100%** e o encoder move o outro canal.
+Não é simplificação: é o formato que o `ConfigCalibracao.h` espera, com
+`kDutyAmbarVermelho` em 1,0 e `kDutyAmbarVerde` como a variável.
 
-Este modo serve de passagem ao **R-05**: é com ele que se compara vermelho e
-azul lado a lado, em luz ambiente e sob sol direto.
+Ao dar a volta, o log imprime o bloco pronto para transcrever:
+
+```
+[INFO ] calib: ---- calibracao do R-05, para o gera_config.py ----
+[INFO ] calib:   duty do verde no ambar : 0.45
+[INFO ] calib:   duty do azul no rosa   : 0.60
+[INFO ] calib:   (o vermelho das duas fica em 1,00 por construcao)
+[INFO ] calib:   canais isolados: R=1.00  G=1.00  B=1.00
+```
+
+> ⚠️ **Julgue o rosa ao lado do vermelho, e sob sol direto.** É o item crítico:
+> se os dois se confundirem, a faixa de margem parece Zona de Perigo ao
+> motorista, que é o oposto da intenção do RF03.4.
+
+De passagem ele valida a fiação inteira: os três canais acendem isolados —
+inclusive o **verde**, que o modo de teste anterior nunca acendia — e o giro e
+o clique exercitam o encoder. Se o giro à direita **diminuir** o brilho em vez
+de aumentar, `CLK` e `DT` estão invertidos: construa com
+`EncoderKy040(true, /*invertido=*/true)` em vez de mexer na fiação.
+
+### O modo de teste anterior continua disponível
+
+Esquerda vermelho, direita azul, clique apaga. Troque `ModoCalibracao` por
+`ModoTesteEncoder` no `src/main.cpp` — a classe continua no projeto e testada.

@@ -34,6 +34,7 @@ add_executable(testes
     encoder/AntiRepiqueTest.cpp
     app/ModoTesteEncoderTest.cpp
     placa/PinosTest.cpp
+    app/ModoCalibracaoTest.cpp
 )
 target_include_directories(testes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_dependencies(testes fixture)

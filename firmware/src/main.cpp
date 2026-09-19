@@ -1,10 +1,15 @@
-// Ponto de entrada. Hoje roda o MODO DE TESTE DE BANCADA: valida a fiação e a
-// decodificação do encoder contra o LED RGB, sem depender de GPS, cartão nem
-// display, que ainda não estão implementados.
+// Ponto de entrada. Hoje roda o MODO DE CALIBRAÇÃO, que fecha a metade
+// pendente do R-05: as razões de PWM do âmbar e do rosa.
 //
-//   girar à esquerda  -> vermelho
-//   girar à direita   -> azul
-//   clicar            -> apaga
+//   girar   -> ajusta o canal variável do item atual
+//   clicar  -> avança: vermelho, verde, azul, âmbar, rosa, e volta
+//
+// Ao dar a volta, imprime o bloco pronto para colar no gera_config.py.
+//
+// De passagem valida a fiação inteira do encoder e do LED, inclusive o canal
+// verde, que o modo de teste anterior nunca acendia. Para voltar àquele modo
+// — esquerda vermelho, direita azul, clique apaga — troque ModoCalibracao por
+// ModoTesteEncoder, que continua no projeto e testado.
 //
 // Não é o comportamento de produção: em operação o encoder ajusta o brilho e
 // comanda a atualização OTA, e o LED carrega o estado de via
@@ -13,7 +18,7 @@
 
 #include <cstdio>
 
-#include "app/ModoTesteEncoder.h"
+#include "app/ModoCalibracao.h"
 #include "encoder/EncoderKy040.h"
 #include "led/LedRgbAnodoComum.h"
 #include "log/LoggerConsole.h"
@@ -34,6 +39,31 @@ coruja::Ponto g_pontos[coruja::kCapacidadeFirmware];
 /// Com 1 ms há folga de sobra para os ~20 detentes por volta do KY-040, mesmo
 /// girando depressa.
 constexpr std::uint32_t kPeriodoAmostragemMs = 1;
+
+/// Imprime o bloco pronto para transcrever em `scripts/gera_config.py`.
+///
+/// Sai a cada volta completa do ciclo, que é o momento em que todos os itens
+/// já foram vistos ao menos uma vez.
+void imprime_resumo(coruja::Logger& log, const coruja::ModoCalibracao& modo) {
+    using coruja::ItemCalibracao;
+    char linha[96];
+
+    log.info("calib", "---- calibracao do R-05, para o gera_config.py ----");
+    std::snprintf(linha, sizeof linha, "  duty do verde no ambar : %.2f",
+                  static_cast<double>(modo.razao(ItemCalibracao::Ambar)));
+    log.info("calib", linha);
+    std::snprintf(linha, sizeof linha, "  duty do azul no rosa   : %.2f",
+                  static_cast<double>(modo.razao(ItemCalibracao::Rosa)));
+    log.info("calib", linha);
+    log.info("calib", "  (o vermelho das duas fica em 1,00 por construcao)");
+    std::snprintf(linha, sizeof linha,
+                  "  canais isolados: R=%.2f  G=%.2f  B=%.2f",
+                  static_cast<double>(modo.razao(ItemCalibracao::Vermelho)),
+                  static_cast<double>(modo.razao(ItemCalibracao::Verde)),
+                  static_cast<double>(modo.razao(ItemCalibracao::Azul)));
+    log.info("calib", linha);
+    log.info("calib", "--------------------------------------------------");
+}
 
 }  // namespace
 
@@ -67,20 +97,30 @@ int main() {
     log.warning("boot", "sem base carregada: leitor SD ainda nao implementado");
 
     coruja::LedRgbAnodoComum led;
-    coruja::EncoderKy040   encoder;
-    coruja::ModoTesteEncoder modo;
+    coruja::EncoderKy040     encoder;
+    coruja::ModoCalibracao   modo;
 
-    log.info("teste", "gire p/ esquerda = vermelho, p/ direita = azul, "
-                      "clique = apaga");
+    log.info("calib", "gire = ajusta | clique = proximo item");
+    log.info("calib", "ordem: vermelho, verde, azul, ambar(R+G), rosa(R+B)");
+    log.warning("calib", "julgue o ROSA ao lado do VERMELHO, e sob sol direto");
+    led.define_cor(modo.cor());
 
     while (true) {
         const auto evento = encoder.proximo_evento();
         if (evento != coruja::EventoEncoder::Nenhum) {
             const auto cor = modo.aplica(evento);
             led.define_cor(cor);
-            std::snprintf(msg, sizeof msg, "%s -> r=%u g=%u b=%u",
-                          coruja::nome_evento(evento), cor.r, cor.g, cor.b);
-            log.debug("teste", msg);
+
+            std::snprintf(msg, sizeof msg, "%-14s duty=%3u (%.2f)  rgb=%u,%u,%u",
+                          coruja::nome_item(modo.item()),
+                          modo.duty(modo.item()),
+                          static_cast<double>(modo.razao(modo.item())),
+                          cor.r, cor.g, cor.b);
+            log.info("calib", msg);
+
+            if (modo.completou_ciclo()) {
+                imprime_resumo(log, modo);
+            }
         }
         sleep_ms(kPeriodoAmostragemMs);
     }
