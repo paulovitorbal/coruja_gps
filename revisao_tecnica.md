@@ -14,7 +14,7 @@
 
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
-| 🔴 **Bloqueador** | 8 de 8 | 1 medição (R-05) | Queima componente, ou o requisito não roda no hardware. R-06, R-14 e R-21 fechados. |
+| 🔴 **Bloqueador** | 8 de 8 | — *(R-05 medido em 19/09)* | Queima componente, ou o requisito não roda no hardware. R-05, R-06, R-14 e R-21 fechados. |
 | 🟠 **Relevante** | 25 de 25 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
@@ -25,7 +25,7 @@
 
 | Item | O que medir | Por quê |
 | :--- | :--- | :--- |
-| **R-05** | Vf e corrente reais dos LEDs verde **e azul**, mais **calibração de razão por PWM** | **Pré-requisito do R-19 (amarelo) e do RF03.9 (rosa).** Sem verde não há amarelo; sem azul não há rosa, e o estado de margem apareceria como vermelho piscante — indistinguível do Perigo. Calibrar as razões R:G e R:B e verificar as cores lado a lado, em luz ambiente e sob sol direto. |
+| **R-05** *(parcial)* | ✅ Resistores **medidos em 2026-09-19**: 330 Ω vermelho, 470 Ω verde, 150 Ω azul. ⏳ Falta a **calibração de razão por PWM** do âmbar e do rosa | As cores compostas nascem certas com estes resistores, mas as razões de duty não foram levantadas. O **rosa é o crítico**: precisa ser inconfundível em relação ao vermelho, senão a faixa de margem vira Zona de Perigo aos olhos do motorista (RF03.4). |
 | **R-13** | Corrente agregada no `3V3_OUT` com backlight em 100% | Com o GPS migrado para 5 V (R-14), sobraram display e SD — margem provavelmente confortável, mas não verificada. |
 | **R-17** | Consumo do buzzer e pinagem do BC337/2N2222 | A ordem E-B-C difere da do BC547. ⚠️ **Esperado ~10 mA no SFM-20B**, não 20–50 mA como dizia a rev. 2 da folha de bancada — aquele número era do SFM-27 (R-32). |
 
@@ -271,30 +271,69 @@ ser ignorado". Entre rumo 355° e radar 5° a diferença aritmética é 350° �
 
 ---
 
-## R-05 — 330 Ω deixa o verde e o azul do LED RGB praticamente invisíveis
+## ~~R-05 — 330 Ω deixa o verde e o azul do LED RGB praticamente invisíveis~~ → ✅ **MEDIDO: a previsão estava errada**
 
-- **Onde:** `bom_schematic.md` itens 11 e 8, seção 4
-- **Confiança:** ⚠️ Valor típico (Vf depende do LED adquirido — **medir**). ⚠️ A peça
-  real é **10 mm, ânodo comum** (R-33); a conta de resistor não muda, o arranjo de
-  medição sim.
+- **Onde:** `bom_schematic.md` itens 10 e 11, seção 4
+- **Confiança:** ✅ **Medido na bancada em 2026-09-19**, com fonte de 3,3 V e julgamento
+  sob **luz solar direta**, que é o pior caso de visibilidade
+- **Status:** ✅ **FECHADO** — sem alteração de BOM
 
-**Problema.** LEDs difusos verde e azul têm Vf típico de 3,0–3,2 V. Com GPIO em 3,3 V e
-330 Ω em série, sobram ~0,1–0,3 V no resistor → menos de 1 mA → emissão desprezível.
-Como o LED RGB é o canal de alerta periférico (verde/amarelo/vermelho da matriz IHM),
-dois dos três estados ficariam ilegíveis. O vermelho (Vf ≈ 2,0 V) fica em ~4 mA e funciona.
+**O que este achado afirmava.** Que LEDs difusos verde e azul têm `Vf` de 3,0 a 3,2 V,
+que com 330 Ω sobrariam ~0,1 V no resistor, menos de 1 mA, e que os dois canais ficariam
+**praticamente invisíveis** — tornando o amarelo do R-19 e o rosa do RF03.9 impossíveis.
+A correção proposta era baixar verde e azul para **47 a 100 Ω**.
 
-> 🔗 **O R-19 depende deste item.** A Zona de Semáforo decidida em 2026-09-15 usa
-> alternância **amarelo/vermelho**, e amarelo é mistura de vermelho + verde. Com os
-> 330 Ω atuais o verde não acende, então a alternância apareceria como **vermelho
-> constante** — indistinguível da Zona de Perigo, o oposto exato da intenção. Este item
-> deixa de ser ajuste estético e passa a ser **pré-requisito funcional**.
+**O que a medição encontrou.**
 
-**Correção.**
-- Vermelho: 330 Ω (manter).
-- Verde e azul: 47–100 Ω.
-- Equalizar as três cores por PWM em software depois da troca (o amarelo da Zona de
-  Aproximação depende de mistura calibrada R+G).
-- **Medir Vf e corrente reais** do LED específico antes de fechar o BOM.
+| Canal | Resistor escolhido | O achado previa |
+| :--- | ---: | ---: |
+| Vermelho | 330 Ω | 330 Ω ✅ |
+| **Verde** | **470 Ω** | 47–100 Ω ❌ |
+| **Azul** | **150 Ω** | 47–100 Ω ❌ |
+
+O verde precisou do **maior** resistor dos três, não do menor. A previsão errou o sinal,
+não só a magnitude.
+
+**Por que errou.** O raciocínio olhava exclusivamente o lado **elétrico** — `Vf` contra o
+trilho — e ignorou o lado **fotométrico**. A sensibilidade do olho humano tem pico no
+verde, e a ordem dos resistores medidos é **exatamente o inverso** da ordem de
+sensibilidade:
+
+| Canal | Resistor | Sensibilidade relativa do olho |
+| :--- | ---: | ---: |
+| Verde ~555 nm | **470 Ω** | **1,00** |
+| Vermelho ~630 nm | 330 Ω | 0,27 |
+| Azul ~470 nm | **150 Ω** | **0,09** |
+
+A 1 mA o verde parece cerca de **11× mais brilhante** que o azul de mesma corrente.
+Dimensionar canal de LED colorido só pela corrente supõe que o olho é plano em
+frequência, e ele não é — é a suposição que estava escondida no achado.
+
+**O que se fecha.**
+
+* **Nenhum componente novo.** A contingência — trocar o LED ou acionar verde e azul pelos
+  5 V com um transistor por canal — não é necessária. Era o único item que podia fazer o
+  BOM crescer.
+* **R-19 e RF03.9 destravados.** Há verde suficiente para compor o amarelo da Zona de
+  Semáforo e azul para o rosa da faixa de margem.
+* **Alívio para o R-13.** Somados, os três canais contribuem com poucos miliampères no
+  trilho de 3V3.
+* Os **68 Ω comprados** antes da medição ficam de sobra. Os 150 Ω e 470 Ω saem do estoque.
+
+**O que continua aberto.** A **calibração de PWM** do âmbar e do rosa. O autor ligou as
+cores compostas em brilho máximo e elas nascem certas com estes resistores, mas as razões
+de duty não foram levantadas, e o **rosa é a mais delicada** — ele precisa ser
+inconfundível em relação ao vermelho, sob pena de a faixa de margem virar Zona de Perigo
+aos olhos do motorista (RF03.4). Fica pendente, agora como ajuste fino e não como risco
+de projeto.
+
+**Duas ressalvas sobre a medição.**
+
+1. Foi com **fonte de bancada ligada direto ao LED**, a 3,30 V. No circuito final o ânodo
+   comum fica no `3V3_OUT` e o **GPIO drena**, com `Vol` de ~0,2 V: sobram ~3,10 V, cerca
+   de **7% menos corrente**. Imperceptível, mas os valores não são idênticos.
+2. **`Vf` não foi anotado**, então as correntes por canal são estimativa. Para o R-13
+   basta; se o orçamento do trilho apertar, vale medir.
 
 ---
 
@@ -1392,7 +1431,8 @@ BLOQUEADORES
 [ ] R-04  Diferença circular + porta de velocidade + DirType (0=omni, 2=bi)
 [~] R-19  DECIDIDO: Zona de Semáforo silenciosa, LED amarelo/vermelho 2 Hz
                 └─ implementação pendente; DEPENDE do R-05 (sem verde, não há amarelo)
-[ ] R-05  Resistores do LED RGB recalculados e medidos  <-- pré-requisito do R-19
+[x] R-05  MEDIDO 19/09 — 330R vermelho, 470R verde, 150R azul. A previsao estava
+          errada: verde precisou do MAIOR resistor. Falta so a calibracao de PWM.
 [ ] R-06  Conector do buzzer trocado ou protegido
 [x] R-21  RESOLVIDO — GPS+GLONASS a 4 Hz nominal, piso de 3 Hz
 [ ] R-28  Trecho de 12 V sem conector JST-XH (direto no conversor)

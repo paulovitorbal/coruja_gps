@@ -23,8 +23,8 @@
 | 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. | 🔵 comprado |
 | 8 | ⚠️ **LED RGB 10 mm Difuso** | **Ânodo comum** (terminal mais longo vai ao **3V3**) — **lógica invertida**, ver nota | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. | ⚪ disponível |
 | 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de 5 V com margem de corrente. | ⚪ disponível |
-| 10 | **Resistor de 330 Ω** | 1 unidade | Canal **vermelho** do LED RGB. | ⚪ disponível |
-| 11 | ⚠️ **Resistores de 68 Ω** | 2 unidades (ou 47–100 Ω) | Canais **verde e azul** do LED RGB — ver nota crítica abaixo. | 🔵 comprado |
+| 10 | **Resistor de 330 Ω** | ✅ **Medido na bancada** (2026-09-19) — canal **vermelho** do LED | Limita a corrente do canal vermelho. | ⚪ disponível |
+| 11 | ✅ **Resistores de 150 Ω e 470 Ω** | **Medidos na bancada** (2026-09-19): **150 Ω no azul**, **470 Ω no verde**, um de cada. Os 68 Ω especificados antes **não são usados** | Limitam a corrente dos canais azul e verde. | ⚪ disponível |
 | 12 | ⚠️ **Resistores de 1 kΩ** | **2 unidades** — filme de carbono ou metálico | Base do transistor do buzzer **+ série no `GPIO 0 → GPS RX`** (R-22). | ⚪ disponível |
 | 13 | ⚠️ **Diodo Schottky** | Ou SS34 / 1N5817 — queda direta ≤ 0,45 V | **Novo na rev. 2.** Proteção da entrada de 5 V em `VSYS`. | ⚪ disponível |
 | 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
@@ -126,85 +126,56 @@ duas formas de perder tempo depurando, ao mesmo custo. Vale manter.
 > 🔴 **O perigo real migrou para o trecho de 12 V.** Ver *"O trecho de 12 V NÃO pode
 > usar JST-XH"* na seção 0 — é lá que um plugue errado destrói o aparelho.
 
-### 🆕 Nota — como obter 68 Ω do estoque em casa
+### ✅ Nota — resistores do LED RGB, **medidos** (itens 10 e 11)
 
-O autor **não tem 68 Ω**; tem 10, 22, 47, 100, 150, 200, 220, 270, 330 e 470 Ω.
-Duas saídas, nenhuma exige compra:
+**Valores finais, escolhidos na bancada em 2026-09-19** com fonte de 3,3 V, julgados
+**sob luz solar direta**, que é o pior caso de visibilidade:
 
-| Arranjo | Valor | Erro |
+| Canal | Resistor | GPIO |
+| :--- | ---: | :--- |
+| Vermelho | **330 Ω** | 6 |
+| Verde | **470 Ω** | 7 |
+| Azul | **150 Ω** | 8 |
+
+#### A previsão anterior deste documento estava errada
+
+A revisão 2 afirmava que **330 Ω deixaria verde e azul praticamente invisíveis**, e
+mandava trocá-los por 68 Ω. O raciocínio olhava só o lado **elétrico**: `Vf` de 3,0 a
+3,2 V contra um trilho de 3,3 V deixaria ~0,1 V no resistor, logo menos de 1 mA.
+
+A medição mostrou o contrário. O verde precisou do **maior** resistor dos três, não do
+menor. O que faltava no raciocínio era o lado **fotométrico**:
+
+| Canal | Resistor medido | Sensibilidade do olho |
 | :--- | ---: | ---: |
-| **100 Ω ∥ 220 Ω** | **68,75 Ω** | +1,1% |
-| 100 Ω ∥ 200 Ω | 66,67 Ω | −2,0% |
+| Verde ~555 nm | **470 Ω** | **1,00** — pico da visão |
+| Vermelho ~630 nm | 330 Ω | 0,27 |
+| Azul ~470 nm | **150 Ω** | **0,09** |
 
-Ou valor único, com a corrente que resulta no verde e no azul (ânodo comum em 3V3, então
-a tensão disponível é `3,3 − Vol − Vf ≈ 3,1 − Vf`):
+A ordem dos resistores é **exatamente o inverso** da ordem de sensibilidade, o que é
+coerente: a 1 mA o verde parece cerca de 11× mais brilhante que o azul de mesma
+corrente. Dimensionar canal de LED colorido só pela corrente ignora que o olho não é
+plano em frequência.
 
-| R | `Vf` 2,6 | `Vf` 2,8 | `Vf` 3,0 | `Vf` 3,1 |
-| ---: | ---: | ---: | ---: | ---: |
-| 47 Ω | 10,6 mA | 6,4 mA | 2,1 mA | ~0 |
-| **100 Ω** | **5,0 mA** | **3,0 mA** | 1,0 mA | ~0 |
-| 150 Ω | 3,3 mA | 2,0 mA | 0,7 mA | ~0 |
+#### O que isso fecha
 
-**100 Ω é a melhor escolha de valor único:** seguro em qualquer `Vf` — máximo 5 mA, longe
-do limite confortável de ~12 mA por pino — e suficiente até `Vf` de 2,8 V. Se a medição
-do R-05 der `Vf` alto e os canais ficarem apagados, desça para 47 Ω.
+* **Nenhum componente novo.** A saída de contingência — trocar o LED, ou acionar verde
+  e azul pelos 5 V com um transistor por canal — **não é necessária**. O BOM não cresce.
+* **R-19 e RF03.9 destravados.** Havia dúvida se existiria verde suficiente para compor
+  o amarelo da Zona de Semáforo, e azul para o rosa da faixa de margem. Existe.
+* **Os 68 Ω do item 11 não serão usados.** Foram comprados antes da medição; ficam de
+  sobra. Os 150 Ω e 470 Ω saem do estoque em casa.
+* **Alívio para o R-13.** Somando os três canais no pior caso, o LED contribui com
+  poucos miliampères para o trilho de 3V3 — desprezível perto do display e do cartão.
 
-> ⚠️ Observe a última coluna: **com `Vf` de 3,1 V nenhum resistor salva**, porque sobram
-> 0 V. É o cenário que o R-05 existe para descartar, e nele a saída é trocar o LED ou
-> acionar verde e azul pelos 5 V com um transistor por canal.
+#### Duas ressalvas
 
-### ⚠️ Nota crítica — resistores do LED RGB (itens 11 e 12)
-
-LEDs difusos verde e azul têm tensão direta típica de **3,0 a 3,2 V**. Com o GPIO em
-3,3 V e 330 Ω em série, sobram ~0,1–0,3 V no resistor, ou seja **menos de 1 mA** —
-emissão praticamente invisível. O vermelho (Vf ≈ 2,0 V) fica em ~4 mA e funciona.
-
-Usar 330 Ω nos três canais, como previsto na revisão 1, deixaria **dois dos quatro
-estados de alerta ilegíveis**. Consequência direta: a **Zona de Semáforo** (RF03.3) usa
-alternância **amarelo/vermelho**, e amarelo é mistura de vermelho + verde — sem o canal
-verde a alternância apareceria como vermelho constante, indistinguível da Zona de
-Perigo. Este item é **pré-requisito funcional** daquele requisito, não ajuste estético.
-
-**Medir Vf e corrente reais** dos LEDs adquiridos e ajustar, depois equalizando as
-cores por PWM em software.
-
-### 🆕 ⚠️ Nota — escolha e montagem do buzzer (item 7)
-
-**Ativo, nunca passivo.** Os dois modelos aceitos têm oscilador interno: o firmware só
-liga e desliga, e o tom nasce dentro do componente. Um buzzer **passivo** exigiria o
-firmware sintetizar a frequência, o que é mudança de projeto e não troca de peça.
-
-| | SFM-20B | SFM-27 |
-| :--- | :--- | :--- |
-| SPL | 95 dB | 95 a 105 dB |
-| Corrente | **10 mA** | ~50 mA |
-| Frequência | **3900 ±500 Hz** | não especificada |
-| Tensão | 3–24 V | 5 V |
-| Diâmetro | 22 mm | 27 mm |
-
-**O SFM-20B é o padrão**, por três razões: 10 mA em vez de 50 deixa o BC337 folgado e a
-queda no cabo desprezível; 22 mm facilita a fixação no painel; e os **3,9 kHz caem na
-banda de maior sensibilidade da audição humana** (2 a 5 kHz), enquanto o ruído de
-rodagem é dominado por baixas frequências — a separação espectral vale mais que
-decibéis brutos.
-
-> ⚠️ **As lojas discordam do SPL** do SFM-20B: algumas anunciam 95 dB, outras 85 dB para
-> o mesmo código. Se vier o de 85 dB, a margem sobre o ruído fica curta.
-
-#### 🔴 Posição e orientação valem mais que o modelo
-
-O conector JST-XH de 2 vias (item 18) torna o buzzer **trocável depois do projeto
-fechado**, então a escolha do modelo é reversível. A montagem não é — e é ela que decide:
-
-| Ação | Ganho | Custo |
-| :--- | ---: | ---: |
-| Trocar SFM-20B por SFM-27 | +10 dB | ~R$ 15 |
-| **Apontar para o motorista**, não para dentro do painel | **+6 a +12 dB** | R$ 0 |
-| **Aproximar de 70 cm para 30 cm** — coluna de direção, base do para-brisa | **+7 dB** | R$ 0 |
-
-Reposicionar e reorientar entregam mais decibel de graça do que a troca de modelo
-entrega pagando. **Ordem de tentativa se o volume decepcionar: reposicionar →
-reorientar → trocar de modelo.** O R-32 tem a análise de audibilidade.
+1. **O teste foi com fonte de bancada ligada direto ao LED**, a 3,30 V. No circuito
+   final o ânodo comum fica no `3V3_OUT` e o **GPIO drena**, com `Vol` de ~0,2 V:
+   sobram ~3,10 V, cerca de **7% menos corrente**. Diferença imperceptível, mas os
+   valores não são idênticos.
+2. **`Vf` não foi anotado**, então a corrente de cada canal é estimativa e não medida.
+   Para o R-13 isso basta; se um dia o orçamento do trilho apertar, vale medir.
 
 ### ⚠️ Nota — transistor do buzzer (item 10)
 
@@ -789,12 +760,12 @@ Da esquerda para a direita, olhando de frente:
 
 * ⚠️ **LED RGB Ânodo Comum** (terminal mais longo): direto ao **`3V3_OUT` (pino 36)**.
 * ⚠️ **Cátodo R (Vermelho):** **Resistor de 330 Ω** → **Pico GPIO 6 (Pino 9)**.
-* ⚠️ **Cátodo G (Verde):** **Resistor de 68 Ω** → **Pico GPIO 7 (Pino 10)**.
-* ⚠️ **Cátodo B (Azul):** **Resistor de 68 Ω** → **Pico GPIO 8 (Pino 11)**.
+* ✅ **Cátodo G (Verde):** **Resistor de 470 Ω** → **Pico GPIO 7 (Pino 10)**.
+* ✅ **Cátodo B (Azul):** **Resistor de 150 Ω** → **Pico GPIO 8 (Pino 11)**.
 
-> ⚠️ Os valores de verde e azul mudaram de 330 Ω para 68 Ω. Ver a **nota crítica** do
-> BOM: com 330 Ω esses canais não acendem, e a Zona de Semáforo (RF03.3) depende do
-> canal verde para produzir amarelo.
+> ✅ **Valores medidos na bancada em 2026-09-19**, sob luz solar direta. A previsão
+> anterior — 68 Ω nos dois, por temer que 330 Ω os deixasse invisíveis — estava errada:
+> o verde precisou do **maior** resistor dos três. Ver a nota do BOM para o porquê.
 
 #### 🆕 🔴 Ânodo comum inverte a lógica — corrigido em 2026-09-18
 

@@ -109,12 +109,15 @@ PECAS = [
      "led-rgb-4pin-cathode_v5.fzp",
      "LED RGB 10mm anodo comum", {}, None),
 
-    ("R1", "ResistorModuleID", "resistor.fzp", "R1 330R",
+    ("R1", "ResistorModuleID", "resistor.fzp", "R1 330R (vermelho)",
      {"resistance": "330", "pin spacing": "400 mil"}, None),
-    ("R2", "ResistorModuleID", "resistor.fzp", "R2 68R",
-     {"resistance": "68", "pin spacing": "400 mil"}, None),
-    ("R3", "ResistorModuleID", "resistor.fzp", "R3 68R",
-     {"resistance": "68", "pin spacing": "400 mil"}, None),
+    # Valores MEDIDOS na bancada em 2026-09-19, nao calculados: ver R-05.
+    # A ordem e o inverso da sensibilidade do olho -- verde precisa do maior
+    # resistor porque e o canal mais eficiente por mA.
+    ("R2", "ResistorModuleID", "resistor.fzp", "R2 470R (verde)",
+     {"resistance": "470", "pin spacing": "400 mil"}, None),
+    ("R3", "ResistorModuleID", "resistor.fzp", "R3 150R (azul)",
+     {"resistance": "150", "pin spacing": "400 mil"}, None),
     ("R4", "ResistorModuleID", "resistor.fzp", "R4 1k (base Q1)",
      {"resistance": "1k", "pin spacing": "400 mil"}, None),
     ("R5", "ResistorModuleID", "resistor.fzp", "R5 1k (GPIO0 -> GPS RX)",

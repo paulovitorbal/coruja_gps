@@ -83,8 +83,10 @@ def coleta_runtime() -> dict:
 
 
 def coleta_calibracao() -> dict:
-    print("\n--- calibração do LED RGB (R-05, medida na bancada) ---")
-    print("Deixe em branco para usar os nominais e recompilar depois da bancada.")
+    print("\n--- calibração do LED RGB (R-05) ---")
+    print("Os resistores já foram medidos em 2026-09-19: 330 Ω vermelho,")
+    print("470 Ω verde, 150 Ω azul. O que falta são as razões de PWM do")
+    print("âmbar e do rosa. Deixe em branco para usar os nominais.")
     if not input("Já tem as medidas? [s/N]: ").strip().lower().startswith("s"):
         return {}
     d = {}
@@ -128,10 +130,11 @@ namespace coruja::calibracao {{
 
 constexpr bool kMedido = {"true" if cal else "false"};
 
-// Resistores reais de cada canal, em ohms.
-constexpr float kResistorVermelho = {val("r_vermelho", "68.0F")};
-constexpr float kResistorVerde    = {val("r_verde", "68.0F")};
-constexpr float kResistorAzul     = {val("r_azul", "68.0F")};
+// Resistores de cada canal, em ohms. Os nominais sao os MEDIDOS na bancada
+// em 2026-09-19, sob luz solar direta (R-05).
+constexpr float kResistorVermelho = {val("r_vermelho", "330.0F")};
+constexpr float kResistorVerde    = {val("r_verde", "470.0F")};
+constexpr float kResistorAzul     = {val("r_azul", "150.0F")};
 
 // Razões de PWM que produzem cada cor composta, de 0 a 1.
 constexpr float kDutyAmbarVermelho = {val("duty_ambar_r", "1.0F")};
