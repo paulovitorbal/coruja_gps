@@ -37,8 +37,13 @@ constexpr unsigned kGpsRx = 1;   // pino físico 2
 // bom_schematic tinha a sequência trocada — o que colocaria 3,3 V e GND
 // diretamente em dois GPIO.
 
-constexpr unsigned kEncoderClk = 2;  // pino físico 4; 100 nF para GND
-constexpr unsigned kEncoderDt  = 3;  // pino físico 5; 100 nF para GND
+// ⚠️ **Sem capacitor de debounce em `CLK` e `DT`.** A revisão 2 do
+// `bom_schematic.md` mandava 100 nF, e medido na placa esse valor **impede
+// qualquer decodificação**: ele achata fases de 45 a 128 ms em pulsos de 1 ms
+// e apaga o estado `(0,0)`, que é onde a quadratura codifica direção. O
+// debounce é a máquina de estados do `DecodificadorQuadratura`. Ver R-36.
+constexpr unsigned kEncoderClk = 2;  // pino físico 4
+constexpr unsigned kEncoderDt  = 3;  // pino físico 5
 constexpr unsigned kEncoderSw  = 4;  // pino físico 6
 
 // ---------------------------------------------------------------------------

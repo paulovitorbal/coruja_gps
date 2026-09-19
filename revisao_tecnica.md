@@ -1407,14 +1407,31 @@ torno de zero e nunca atinge ±4.
 `(0,1) → (0,0) → (1,0)` e 12 de `(1,0) → (0,0) → (0,1)`, praticamente simétrico para
 8 detentes em cada sentido.
 
-**Correção proposta: 1 a 10 nF**, não 100 nF. Dá τ de 10 a 100 µs — filtra repique de
-contato, que é da ordem de microssegundos, e não toca nos 5,75 ms do pior caso medido.
-A remoção completa **não** é a saída: o RF04 pede o filtro por uma razão real, e a
-bancada tem fio curto e nenhum alternador por perto.
+**Decisão do autor, em 2026-09-19: montar sem capacitor**, e o RF04 foi revisado para
+acompanhar. É defensável, e por um motivo que estava implícito no projeto sem nunca ter
+sido dito: **a máquina de estados já é o debounce**. Repique de contato é oscilação entre
+dois estados adjacentes, e na tabela isso soma `+1, −1, +1, −1` — zero líquido. É o teste
+`RuidoNaoProduzPassoLiquido`, que alterna 200 vezes numa borda e exige zero passo. Um
+passo só sai com **quatro transições válidas consecutivas na mesma direção**, que ruído
+simétrico não produz.
 
-> ℹ️ Registro de honestidade: medido **parado e sem capacitor nenhum, zero mudanças
-> espúrias em 12 s** nas linhas em repouso. Isso enfraquece a necessidade do filtro *na
-> bancada*, não no veículo.
+E o filtro em software é **independente de frequência**; o RC não é, e foi justamente
+essa dependência que quebrou tudo.
+
+| Evidência a favor | Valor |
+| :--- | :--- |
+| Mudanças espúrias, parado, sem capacitor | **0 em 12 s** |
+| Passos falsos na sessão de calibração | nenhum |
+| Folga do `(0,0)` sobre a amostragem | **5,8×** |
+
+**O que não foi testado, e fica dito:** o ambiente do veículo, com alternador e ignição.
+Dois fatos reduzem o risco — o encoder é **interno ao gabinete**, com fios curtos, ao
+contrário do buzzer, que é remoto com 2 m de cabo; e o modo de falha é **benigno e
+óbvio**, o brilho saltando sozinho, não uma falha silenciosa que engane o motorista.
+
+**Contingência, mantida barata:** o lugar dos capacitores fica na placa. Se o brilho
+oscilar no veículo, soldar **1 a 10 nF** (τ de 10 a 100 µs) resolve sem redesenhar nada.
+**Nunca 100 nF.**
 
 **Como o erro se sustentou.** Duas vezes, e as duas por olhar a variável errada:
 
@@ -1586,7 +1603,8 @@ RELEVANTES
 [x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
 [~] R-34  Tabela de pinagem do GPS criada e gerador corrigido; serigrafia A CONFERIR na placa
 [x] R-35  RESOLVIDO — LED com vermelho no GPIO 8 e azul no 6; o mapa descreve a placa
-[~] R-36  MEDIDO — os 100 nF matavam a quadratura. Trocar por 1-10 nF; valor a comprar
+[x] R-36  RESOLVIDO — monta SEM capacitor; RF04 revisado, maquina de estados e o
+          debounce. RC de 1-10 nF fica como contingencia documentada.
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

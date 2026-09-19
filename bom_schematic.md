@@ -30,7 +30,7 @@
 | 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
 | 15 | ⚠️ **Capacitor Eletrolítico** | ✅ **470 µF / 16 V / 105 °C** confirmado em mãos. Em `VSYS` (~4,7 V) opera a **29% do nominal** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. | ⚪ disponível |
 | 16 | **Capacitor Cerâmico** | **100 nF (0,1 µF)** — código impresso: 104 | Suprimir ruído de alta frequência da ignição. | ⚪ disponível |
-| 17 | 🔴 ⚠️ **Capacitores Cerâmicos 1 a 10 nF** | 2 unidades. **NÃO 100 nF** — o valor anterior matava a quadratura, ver nota | Debounce em hardware do encoder (`CLK` e `DT`). | 🔴 faltante |
+| 17 | **Capacitores Cerâmicos 1 a 10 nF** | 2 unidades. **OPCIONAL** — contingência, não requisito. **Nunca 100 nF** | Filtro RC do encoder, só se o brilho oscilar no veículo. | ⚪ dispensável |
 | 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. | ⚪ disponível |
 | 19 | ⚠️ **Conector JST-XH 3 vias** | Par macho + fêmea. **Pino central sem uso** | **Entrada de 5 V**, depois do conversor. Três vias de propósito, para não encaixar no conector de 2 vias do buzzer. | ⚪ disponível |
 | 20 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. | ⚪ disponível |
@@ -51,13 +51,18 @@ devem chegar na semana de 22/09, junto com o GPS e o display.
 | 🟢 **entregue** | 4 | 1, 3, 4, 6 |
 | 🔵 **comprado** | 8 | 2, 5, 7, 21, 22, 24, 27, 28 |
 | ⚪ **disponível** | 15 | 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 23, 25, 26 |
-| 🔴 **faltante** | 1 | **17** — capacitores de 1 a 10 nF, ver abaixo |
+| ⚪ **dispensável** | 1 | **17** — capacitores de debounce, ver abaixo |
+| 🔴 **faltante** | **0** | — |
 
-#### O único item faltante nasceu de uma medição
+#### Nada faltante: o item 17 saiu do caminho crítico
 
-O item 17 estava como comprado: eram **100 nF**, e com eles **o encoder não decodifica
-giro nenhum** (R-36). O valor correto é **1 a 10 nF**, e esse ainda não foi comprado.
-Os 100 nF ficam de sobra — servem de filtro em outros pontos.
+O item 17 eram **100 nF**, e com eles **o encoder não decodifica giro nenhum** (R-36).
+Em vez de trocar por 1 a 10 nF, o RF04 foi revisado: a **máquina de estados de
+quadratura passou a ser o debounce**, e o filtro RC virou contingência documentada.
+
+A montagem vai **sem capacitor** em `CLK` e `DT`. O lugar deles fica na placa — se o
+brilho oscilar sozinho no veículo, soldar 1 a 10 nF resolve. Os 100 nF comprados ficam
+de sobra e servem de filtro em outros pontos.
 
 #### O que já foi validado na placa em 19/09
 
@@ -86,6 +91,7 @@ Os 100 nF ficam de sobra — servem de filtro em outros pontos.
 | 🔵 **comprado** | pago, em trânsito |
 | ⚪ **disponível** | já tinha em casa; não foi comprado para este projeto |
 | 🔴 **faltante** | ainda não comprado |
+| ⚪ **dispensável** | previsto, mas a montagem decidiu não usar |
 | ❓ | a confirmar |
 
 ### ⚠️ Nota — fiação interna em 22 AWG (item 26)
@@ -773,9 +779,13 @@ Da esquerda para a direita, olhando de frente:
 > Com **1 a 10 nF** a constante cai para 10 a 100 µs: filtra repique de contato, que é
 > da ordem de microssegundos, e não toca nos **5,75 ms** do pior caso medido do `(0,0)`.
 >
-> **Remover o filtro não é a saída.** O RF04 o pede por uma razão real. Medido parado e
-> sem capacitor nenhum, houve zero mudanças espúrias em 12 s — mas isso foi **na
-> bancada**, com fio curto e sem alternador por perto.
+> ✅ **Decisão de 2026-09-19: montar SEM os capacitores.** O RF04 foi revisado e a
+> máquina de estados de quadratura passou a ser o debounce — repique de contato soma
+> zero na tabela de transição, e um passo exige quatro transições válidas consecutivas
+> na mesma direção.
+>
+> **Mantenha o lugar deles na placa.** Se o brilho oscilar sozinho no veículo, solde
+> 1 a 10 nF e resolva. O modo de falha é benigno e óbvio, não silencioso.
 
 * ⚠️ **LED RGB Ânodo Comum** (terminal mais longo): direto ao **`3V3_OUT` (pino 36)**.
 * ✅ **Cátodo R (Vermelho):** **Resistor de 330 Ω** → **Pico GPIO 8 (Pino 11)**.
@@ -897,8 +907,8 @@ Antes de ligar o circuito pela primeira vez:
       da esquerda para a direita. Confirmar **antes** de ligar — a tabela veio da
       foto do anúncio, não da placa, e os outros dois módulos divergiram.
 - [ ] Resistor de 1 kΩ em série no caminho `GPIO 0 → GPS RX`.
-- [ ] 🔴 **Capacitores do encoder são de 1 a 10 nF, não 100 nF.** Com 100 nF o
-      encoder não decodifica giro nenhum (R-36).
+- [ ] **Encoder montado SEM capacitor de debounce** (decisão de 19/09, RF04). Se
+      alguém soldar 100 nF ali, o giro para de funcionar (R-36).
 - [ ] Nenhum módulo de 3,3 V **sem regulador** conectado à linha de 5 V.
 - [ ] Cartão SD formatado em FAT32, com `radares.bin` e `wifi.cfg` presentes.
 - [ ] Medir tensão em `3V3_OUT` com todos os periféricos conectados e backlight em 100%.
@@ -921,7 +931,7 @@ Antes de ligar o circuito pela primeira vez:
 | R-19 — Zona de Semáforo depende do canal verde | Nota crítica do BOM |
 | L-05 — Faixa térmica | BOM item 16 (105 °C) |
 | E-01 — Item numerado 29 em vez de 19 | BOM renumerado 1–20 |
-| RF04 — Debounce do encoder | BOM item 18; seção 4 |
+| RF04 — Debounce por máquina de estados; RC é contingência | Seção 4; item 17 opcional |
 | Pinagens físicas conferidas | Seções 2 e 4 — leitor SD tem 8 pinos; KY-040 estava invertido |
 | Card detect | Seção 2 — `DET` → GPIO 14; distingue cartão ausente de ilegível (RF07) |
 | Instalação no veículo | Seção 0 — pós-chave via piggyback, fusível de 2 A, **conversor externo** |

@@ -11,9 +11,20 @@ namespace coruja {
 /// Usa tabela de transição de 16 entradas em vez de comparar bordas. A
 /// diferença importa: uma transição impossível — os dois canais mudando na
 /// mesma amostra — contribui **zero** em vez de ser contada como meio passo.
-/// O KY-040 é eletricamente ruidoso, e por isso o hardware ainda leva 100 nF
-/// em cada canal (`bom_schematic.md` §4): o filtro e a máquina de estados
-/// resolvem problemas diferentes, e o RF04 precisa dos dois.
+///
+/// **Esta tabela é o debounce do projeto.** Repique de contato é oscilação
+/// entre dois estados adjacentes, e nela isso soma `+1, −1, +1, −1`: zero
+/// líquido. Um passo só sai com **quatro transições válidas consecutivas na
+/// mesma direção**, que ruído simétrico não produz.
+///
+/// Não há filtro RC no hardware. A revisão 2 do `bom_schematic.md` exigia
+/// 100 nF em cada canal, e medido na placa esse filtro **impedia qualquer
+/// decodificação** — τ de 1 ms contra fases de 45 a 128 ms apagava o estado
+/// `(0,0)`. O RF04 foi revisado: o RC virou contingência de 1 a 10 nF, a
+/// soldar só se o brilho oscilar no veículo. Ver R-36.
+///
+/// A vantagem de fundo: o filtro em software é **independente de
+/// frequência**, e o RC não é.
 ///
 /// Num detente os dois canais ficam em nível alto, e cada detente percorre
 /// quatro transições válidas. Daí o passo ser emitido a cada ±4.

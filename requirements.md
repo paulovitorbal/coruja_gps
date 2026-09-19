@@ -641,16 +641,58 @@ periférica. Novos estados devem preferir a tela, não mais cores.
 
 ### [RF04] Ajuste de Luminosidade Dinâmico
 
-O sistema deve ler o encoder rotativo KY-040 por **interrupção de hardware** para
-ajustar o ciclo de trabalho (*duty cycle*) do pino PWM do backlight da tela ST7789 em
-passos de aproximadamente **5% por clique**, permitindo escurecer o visor para condução
-noturna.
+O sistema deve ler o encoder rotativo KY-040 para ajustar o ciclo de trabalho
+(*duty cycle*) do PWM do backlight em passos de aproximadamente **5% por clique**,
+permitindo escurecer o visor para condução noturna.
 
 * **Piso de brilho de 5%:** o ajuste não deve permitir 0% real. Com o visor totalmente
   apagado o usuário perde a referência visual para recuperá-lo.
-* **Debounce obrigatório:** o KY-040 é eletricamente ruidoso. O tratamento deve combinar
-  filtro RC em hardware (100 nF nos pinos CLK e DT) com decodificação por **máquina de
-  estados de quadratura** em software. Sem isso o brilho salta de forma errática.
+
+#### ✅ Debounce: máquina de estados em software, filtro RC como contingência
+
+*Revisado em 2026-09-19, sobre medição na placa. Ver **R-36**.*
+
+A revisão 2 exigia **as duas coisas**: filtro RC de 100 nF em `CLK` e `DT` **mais**
+decodificação por máquina de estados. Medido, o filtro de 100 nF **impedia qualquer
+decodificação** — ele achatava fases de 45 a 128 ms em pulsos de 1 ms e apagava o estado
+`(0,0)`, que é onde a quadratura codifica direção.
+
+**O que o requisito exige agora:**
+
+* **Decodificação por máquina de estados de quadratura, obrigatória.** Ela é o debounce.
+  Repique de contato é oscilação entre dois estados adjacentes, e na tabela de transição
+  isso soma `+1, −1, +1, −1` — **zero líquido**. Um passo só sai com **quatro transições
+  válidas consecutivas na mesma direção**, o que ruído simétrico não produz.
+* **Filtro RC: contingência, não requisito.** Se o brilho oscilar sozinho no veículo,
+  solde **1 a 10 nF** em `CLK` e `DT`. Nunca 100 nF.
+
+**Por que o filtro saiu do caminho crítico.** O filtro em software é **independente de
+frequência**; o RC não é, e essa dependência foi exatamente o que quebrou. Medições que
+sustentam a decisão:
+
+| Evidência | Valor |
+| :--- | :--- |
+| Mudanças espúrias, parado, sem capacitor | **0 em 12 s** |
+| Passos falsos na sessão de calibração | nenhum |
+| Folga do `(0,0)` sobre a amostragem | **5,8×** |
+
+**O que não foi testado:** o ambiente do veículo, com alternador e ignição. Dois fatos
+reduzem o risco — o encoder é **interno ao gabinete**, com fios curtos, ao contrário do
+buzzer, que é remoto; e o modo de falha é **benigno e óbvio**, o brilho saltando sozinho,
+não uma falha silenciosa. **Manter o lugar dos capacitores na placa** é o que torna a
+contingência barata.
+
+#### Leitura por polling, não por interrupção
+
+*Revisado em 2026-09-19. A revisão 2 exigia interrupção de hardware.*
+
+A implementação usa **polling a 1 ms**, e a medição justifica: o estado `(0,0)` dura
+**5,75 ms no pior caso**, já incluindo giro rápido — **5,8× de folga**. Nenhum detente se
+perde.
+
+A interrupção de borda continua sendo a saída caso o laço principal passe a bloquear por
+mais de ~5 ms, e o desenho está pronto para ela: o `DecodificadorQuadratura` é função
+pura que não sabe de onde vem a amostra. Ver `docs/adr/0005`.
 
 ---
 
