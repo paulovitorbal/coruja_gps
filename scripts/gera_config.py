@@ -55,14 +55,23 @@ def valida_rede(ssid: str, senha: str) -> str | None:
     return None
 
 
-def valida_url(url: str) -> str | None:
+def valida_url(url: str, permitir_http: bool = False) -> str | None:
+    """Devolve a mensagem de erro, ou None se estiver válido.
+
+    `permitir_http` existe só para teste em rede local. O padrão recusa HTTP
+    porque o RF05.2 exige HTTPS, e a razão é concreta: em HTTP, quem estiver
+    na mesma rede substitui a base de radares que o aparelho vai baixar — e o
+    aparelho confia nela, porque o CRC-32 do arquivo confere com o cabeçalho
+    do próprio arquivo trocado.
+    """
     if len(url) > MAX_URL:
         return f"URL tem {len(url)} caracteres; o máximo é {MAX_URL}"
     if not url.startswith(("http://", "https://")):
         return "a URL precisa começar com http:// ou https://"
-    if url.startswith("http://"):
+    if url.startswith("http://") and not permitir_http:
         return ("o RF05.2 exige HTTPS: em HTTP, quem estiver na mesma rede "
-                "pode substituir a base de radares")
+                "pode substituir a base de radares. Para testar em rede "
+                "local, use --permitir-http")
     return None
 
 
@@ -97,7 +106,7 @@ def coleta_redes() -> list[Rede]:
     return redes
 
 
-def coleta_urls() -> tuple[str, str]:
+def coleta_urls(permitir_http: bool = False) -> tuple[str, str]:
     print("\n--- origem da base de radares ---")
     print("Duas URLs: uma devolve a versão disponível — uma linha de texto")
     print("qualquer, que o aparelho compara com a que já tem — e a outra")
@@ -106,10 +115,13 @@ def coleta_urls() -> tuple[str, str]:
     def pede(rotulo: str) -> str:
         while True:
             url = pergunta(rotulo)
-            erro = valida_url(url)
+            erro = valida_url(url, permitir_http)
             if erro:
                 print(f"  {erro}", file=sys.stderr)
                 continue
+            if url.startswith("http://"):
+                print("  ⚠️  HTTP sem TLS — só para teste em rede local.",
+                      file=sys.stderr)
             return url
 
     return (pede("URL da versão   (ex.: https://exemplo/radares.versao)"),
@@ -138,12 +150,21 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
     for i, r in enumerate(redes, start=1):
         linhas.append(f"wifi_ssid_{i}={r.ssid if com_segredo else 'troque-me'}")
         linhas.append(f"wifi_senha_{i}={r.senha if com_segredo else 'troque-me'}")
+    if com_segredo and any(u.startswith("http://") for u in (url_versao, url_base)):
+        linhas += [
+            "",
+            "# ⚠️ ATENÇÃO: URL SEM TLS, gerada com --permitir-http.",
+            "# Só para teste em rede local. Em HTTP qualquer um na rede pode",
+            "# substituir a base de radares que este aparelho vai baixar.",
+        ]
     linhas += [
         "",
         "# Devolve a versão disponível: uma linha de texto qualquer, comparada",
         "# como texto com a que o aparelho guardou.",
         f"url_versao={url_versao if com_segredo else 'https://exemplo/radares.versao'}",
-        "# Entrega o radares.bin. O RF05.2 exige HTTPS.",
+        ("# Entrega o radares.bin. Sem TLS, só para teste local."
+         if com_segredo and url_base.startswith("http://")
+         else "# Entrega o radares.bin. O RF05.2 exige HTTPS."),
         f"url_base={url_base if com_segredo else 'https://exemplo/radares.bin'}",
         "",
     ]
@@ -166,7 +187,22 @@ def main(argv: list[str] | None = None) -> int:
                    help="onde gravar o coruja.cfg; aponte para o cartão montado")
     p.add_argument("--so-exemplo", action="store_true",
                    help="gera apenas o coruja.cfg.exemplo, sem pedir segredo")
+    p.add_argument("--permitir-http", action="store_true",
+                   help="aceita URL em http:// — SÓ para teste em rede local; "
+                        "exige confirmação e grava aviso no arquivo")
     args = p.parse_args(argv)
+
+    if args.permitir_http and not args.so_exemplo:
+        # Confirmação explícita: um sinalizador sozinho é fácil demais de
+        # deixar num histórico de shell e reusar sem pensar.
+        print("\n⚠️  --permitir-http aceita URL SEM TLS.\n")
+        print("Em HTTP, quem estiver na mesma rede substitui a base de radares")
+        print("que o aparelho vai baixar, e o aparelho confia nela: o CRC-32")
+        print("confere com o cabeçalho do próprio arquivo trocado.\n")
+        print("Use apenas em rede local de confiança, para teste.")
+        if input("Digite ENTENDI para continuar: ").strip() != "ENTENDI":
+            print("cancelado.", file=sys.stderr)
+            return 1
 
     if args.so_exemplo:
         grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
@@ -178,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nerro: nenhuma rede informada; sem rede não há atualização OTA.",
               file=sys.stderr)
         return 1
-    url_versao, url_base = coleta_urls()
+    url_versao, url_base = coleta_urls(args.permitir_http)
 
     print()
     grava(args.destino / CFG,

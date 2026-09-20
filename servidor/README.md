@@ -60,8 +60,22 @@ radares.seudominio.com {
 }
 ```
 
-O compose publica só em `127.0.0.1:8080` de propósito: expor à rede exige uma
-edição deliberada, não um descuido.
+### Teste em rede local
+
+Para o Pico alcançar o serviço pelo Wi-Fi o compose publica em `0.0.0.0:8080`,
+e o `coruja.cfg` precisa de URLs em `http://`. O gerador recusa HTTP por
+padrão; a saída existe e é deliberadamente incômoda:
+
+```bash
+python3 ../scripts/gera_config.py --permitir-http --destino /Volumes/CARTAO
+```
+
+Ele exige que se digite `ENTENDI`, avisa a cada URL sem TLS e grava um bloco de
+aviso dentro do próprio `coruja.cfg` — de modo que um arquivo de teste não se
+disfarce de definitivo meses depois.
+
+Ao sair da rede local: proxy reverso com TLS na frente e a porta de volta para
+`127.0.0.1:8080`.
 
 ## Decisões que valem conhecer
 

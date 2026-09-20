@@ -15,9 +15,16 @@ services:
     restart: unless-stopped
 
     ports:
-      # Só na interface local por padrão. Para expor à rede, troque por
-      # "8080:8080" — e leia o aviso de HTTPS no README antes.
-      - "127.0.0.1:8080:8080"
+      # Exposto na rede local, para que o Pico alcance o serviço pelo Wi-Fi.
+      #
+      # ⚠️ Isto é HTTP PURO. Qualquer um na mesma rede pode substituir a base
+      # de radares que o aparelho vai baixar, e o aparelho confiaria nela. É
+      # aceitável numa rede doméstica de confiança e para testes; NÃO é
+      # aceitável em rede aberta nem exposto à internet.
+      #
+      # Para sair da rede local, ponha um proxy reverso com TLS na frente e
+      # volte esta linha para "127.0.0.1:8080:8080". Ver o README.
+      - "8080:8080"
 
     volumes:
       # Somente leitura: o serviço nunca escreve. Se ele for comprometido,

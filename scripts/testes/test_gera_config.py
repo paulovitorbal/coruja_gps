@@ -53,6 +53,34 @@ class GeraConfig(unittest.TestCase):
         erro = g.valida_url("http://exemplo/b.bin")
         self.assertTrue(erro)
         self.assertTrue("HTTPS" in erro)
+        # A mensagem precisa dizer qual é a saída, senão quem está testando em
+        # rede local não tem como descobrir que ela existe.
+        self.assertIn("--permitir-http", erro)
+
+    def test_http_e_aceito_com_permitir_http(self):
+        self.assertIsNone(g.valida_url("http://192.168.1.142:8080/b.bin",
+                                       permitir_http=True))
+
+    def test_permitir_http_nao_afrouxa_as_outras_regras(self):
+        # O escape hatch libera só o esquema. Comprimento e ausência de
+        # esquema continuam valendo — senão ele viraria um "aceita tudo".
+        self.assertIsNotNone(g.valida_url("exemplo/b.bin", permitir_http=True))
+        self.assertIsNotNone(
+            g.valida_url("http://" + "x" * g.MAX_URL, permitir_http=True))
+
+    def test_cfg_com_url_http_traz_aviso(self):
+        corpo = g.corpo_cfg([g.Rede("iot", "12345678")],
+                            "http://192.168.1.142:8080/radares.versao",
+                            "http://192.168.1.142:8080/radares.bin",
+                            com_segredo=True)
+        self.assertIn("SEM TLS", corpo)
+
+    def test_cfg_com_url_https_nao_traz_aviso(self):
+        corpo = g.corpo_cfg([g.Rede("iot", "12345678")],
+                            "https://exemplo/radares.versao",
+                            "https://exemplo/radares.bin",
+                            com_segredo=True)
+        self.assertNotIn("SEM TLS", corpo)
     def test_sem_esquema_e_recusado(self):
             self.assertIsNotNone(g.valida_url("exemplo/b.bin"))
     def test_url_longa_demais_e_recusada(self):
@@ -74,19 +102,6 @@ class GeraConfig(unittest.TestCase):
         corpo = g.corpo_cfg([g.Rede("um", "12345678"), g.Rede("dois", "12345678")],
                             "https://v", "https://b", com_segredo=True)
         self.assertTrue(corpo.index("wifi_ssid_1=um") < corpo.index("wifi_ssid_2=dois"))
-    def test_limites_batem_com_o_cabecalho_cpp(self):
-        h = (RAIZ / "firmware/src/nucleo/Configuracao.h").read_text(encoding="utf-8")
-
-        def const(nome: str) -> int:
-            m = re.search(rf"constexpr std::size_t {nome} = (\d+);", h)
-            assert m, f"{nome} não encontrado em Configuracao.h"
-            return int(m.group(1))
-
-        self.assertTrue(g.MAX_REDES == const("kMaxRedes"))
-        self.assertTrue(g.MAX_SSID == const("kMaxSsid"))
-        self.assertTrue(g.MAX_SENHA == const("kMaxSenha"))
-        self.assertTrue(g.MAX_URL == const("kMaxUrl"))
-
     def test_limites_batem_com_o_cabecalho_cpp(self):
         h = (RAIZ / "firmware/src/nucleo/Configuracao.h").read_text(
             encoding="utf-8")
