@@ -1,0 +1,41 @@
+# Sobe a API que o Coruja GPS consome.
+#
+#   docker compose up -d
+#   curl -i http://localhost:8080/radares.versao
+#
+# Publique a base copiando o radares.bin para ./dados/ — o pipeline que gera
+# o arquivo não é assunto deste serviço, e é por isso que ele pode viver no
+# repositório público.
+
+services:
+  coruja-api:
+    build: .
+    image: coruja-gps/api:1.0
+    container_name: coruja-api
+    restart: unless-stopped
+
+    ports:
+      # Só na interface local por padrão. Para expor à rede, troque por
+      # "8080:8080" — e leia o aviso de HTTPS no README antes.
+      - "127.0.0.1:8080:8080"
+
+    volumes:
+      # Somente leitura: o serviço nunca escreve. Se ele for comprometido,
+      # não há como alterar a base que os aparelhos vão baixar.
+      - ./dados:/dados:ro
+
+    environment:
+      CORUJA_PORTA: "8080"
+      CORUJA_ENDERECO: "0.0.0.0"
+
+    # Endurecimento barato: o processo não precisa de nada disso.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

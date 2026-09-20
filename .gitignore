@@ -10,3 +10,7 @@ coruja.cfg
 
 # .fzz de comparação, gerados por gera_fritzing.py --saida
 coruja_gps_v*.fzz
+
+# base servida pela API — derivada, nao versionada
+servidor/dados/*
+!servidor/dados/.gitkeep
