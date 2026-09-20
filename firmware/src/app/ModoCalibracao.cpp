@@ -49,7 +49,7 @@ Cor ModoCalibracao::cor() const {
         case ItemCalibracao::Verde:    return Cor{0, verde_, 0};
         case ItemCalibracao::Azul:     return Cor{0, 0, azul_};
         // Nas compostas o vermelho fica em 100% e o encoder move o outro
-        // canal: é o formato que o ConfigCalibracao.h espera.
+        // canal: é a forma como led/Calibracao.h guarda as cores.
         case ItemCalibracao::Ambar:    return Cor{255, ambar_verde_, 0};
         case ItemCalibracao::Rosa:     return Cor{255, 0, rosa_azul_};
     }

@@ -18,9 +18,9 @@ namespace coruja {
 ///     clicar  -> avança para o próximo item, circularmente
 ///
 /// Nas cores compostas o **vermelho fica fixo em 100%** e o encoder ajusta o
-/// outro canal. Não é simplificação arbitrária: é o formato que o
-/// `ConfigCalibracao.h` espera, com `kDutyAmbarVermelho` em 1,0 e
-/// `kDutyAmbarVerde` como a variável.
+/// outro canal. Não é simplificação arbitrária: é a forma como
+/// `led/Calibracao.h` guarda as cores — `kAmbar` e `kRosa` têm o canal
+/// vermelho em 255 e variam só o secundário.
 ///
 /// **O rosa é o item crítico.** Ele precisa ser inconfundível em relação ao
 /// vermelho, sob pena de a faixa de margem parecer Zona de Perigo ao motorista
@@ -42,7 +42,7 @@ public:
     /// Duty do canal **variável** do item, de 0 a 255.
     std::uint8_t duty(ItemCalibracao item) const;
 
-    /// O mesmo, de 0 a 1 — a forma que vai para o `ConfigCalibracao.h`.
+    /// O mesmo, de 0 a 1 — a forma de ler o resultado da calibração.
     float razao(ItemCalibracao item) const;
 
     /// Verdadeiro no evento em que o ciclo deu a volta e retornou ao primeiro
@@ -61,10 +61,12 @@ private:
     std::uint8_t vermelho_ = 255;
     std::uint8_t verde_    = 255;
     std::uint8_t azul_     = 255;
-    // Iniciais dos compostos vêm dos nominais do ConfigCalibracao.h:
-    // 0,45 e 0,60 de 255.
-    std::uint8_t ambar_verde_ = 115;
-    std::uint8_t rosa_azul_   = 153;
+    // Iniciais dos compostos são os valores MEDIDOS em 2026-09-19, de
+    // `led/Calibracao.h`: recalibrar parte de onde se chegou, não de um
+    // palpite. Os palpites originais eram 115 e 153 — errados por 2,3x e
+    // 3,8x, e teriam feito a busca começar longe do alvo.
+    std::uint8_t ambar_verde_ = 50;
+    std::uint8_t rosa_azul_   = 40;
 };
 
 }  // namespace coruja

@@ -1,9 +1,21 @@
-# Configuração de execução do Coruja GPS.
-# Gerado por scripts/gera_config.py. Vai na raiz do cartão microSD.
+# Configuração do Coruja GPS. Vai na raiz do cartão microSD.
+# Gerado por scripts/gera_config.py.
 #
 # O cartão é removível e legível por qualquer um: use uma rede de
-# convidados ou de IoT, nunca a rede principal da casa.
-wifi_ssid=minha-rede-iot
-wifi_senha=troque-me
-fuso_utc=-3
-brilho_inicial=40
+# convidados ou de IoT, nunca a principal da casa.
+#
+# Só entra aqui o que varia por instalação. Brilho, fuso, tolerâncias
+# e calibração do LED ficam no código (docs/adr/0002).
+
+# Redes em ordem de PRIORIDADE, até 5. Ao clicar no encoder o
+# aparelho varre e conecta na primeira desta lista que estiver visível.
+wifi_ssid_1=troque-me
+wifi_senha_1=troque-me
+wifi_ssid_2=troque-me
+wifi_senha_2=troque-me
+
+# Devolve a versão disponível: uma linha de texto qualquer, comparada
+# como texto com a que o aparelho guardou.
+url_versao=https://exemplo/radares.versao
+# Entrega o radares.bin. O RF05.2 exige HTTPS.
+url_base=https://exemplo/radares.bin

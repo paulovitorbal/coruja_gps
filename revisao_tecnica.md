@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | — *(R-05 medido em 19/09)* | Queima componente, ou o requisito não roda no hardware. R-05, R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 27 de 27 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 28 de 28 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -1449,6 +1449,52 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-37 — O RF05 mandava baixar a base e nunca dizia de onde
+
+- **Onde:** `requirements.md` RF05 · `docs/adr/0002`
+- **Confiança:** ✅ Verificado por varredura: não havia URL em nenhum arquivo
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — duas URLs em `coruja.cfg`
+
+**Problema.** O RF05 exigia que o aparelho *"conecte ao ponto de acesso
+configurado e baixe a versão atualizada da base de radares"*. **Origem nenhuma
+era especificada** — nem URL, nem servidor, nem protocolo de consulta. Uma
+varredura por `url`, `servidor`, `http` e `endpoint` nos documentos só
+encontrava o RF05.2 exigindo HTTPS para um download cuja origem não existia.
+
+A lacuna nasceu quando o repositório virou público: a origem dos dados é do
+pipeline privado, e o repositório público **não pode** conhecê-la. Mas em vez
+de virar configuração, ela simplesmente sumiu do texto.
+
+**Correção.** Duas chaves em `coruja.cfg`:
+
+| Chave | Papel |
+| :--- | :--- |
+| `url_versao` | devolve **uma linha de texto qualquer** — data, número, hash. O firmware guarda ao lado do `radares.bin` e compara como texto |
+| `url_base` | entrega o `radares.bin`. O RF05.2 exige HTTPS |
+
+A resposta da versão ser texto livre é deliberado: **não impõe formato ao
+servidor**, e quem clonar o projeto escolhe o dele sem tocar no firmware.
+
+**Duas decisões que vieram junto**, ambas do autor:
+
+1. **Até 5 redes Wi-Fi, em ordem de prioridade.** Ao clicar no encoder o
+   aparelho varre e conecta na primeira da lista que estiver visível. A
+   prioridade é a **ordem do arquivo**, não o sinal mais forte — explícita,
+   previsível, e o log consegue dizer por que escolheu.
+2. **Todo o resto sai da configuração.** Brilho, fuso, tolerâncias e
+   calibração passam a viver no código. Ver o ADR 0002 para o critério.
+
+**O que o gerador escondia.** Ao revisar, apareceu que o `ConfigCalibracao.h`
+gerado **não era incluído por nenhum arquivo do firmware** — seis menções, todas
+em comentário. Os valores medidos no R-05 estavam num header que ninguém lia. É
+pior que um valor errado, porque não há sintoma. A calibração foi para
+`led/Calibracao.h`, versionada e com teste.
+
+**Formato numerado em vez de `ssid:senha`.** Senha de Wi-Fi pode conter
+qualquer caractere, inclusive o separador. O parser divide no **primeiro `=`**,
+e há teste com `senha=a=b=c`.
+
 ---
 
 # 🟡 Lacunas de requisitos
@@ -1605,6 +1651,8 @@ RELEVANTES
 [x] R-35  RESOLVIDO — LED com vermelho no GPIO 8 e azul no 6; o mapa descreve a placa
 [x] R-36  RESOLVIDO — monta SEM capacitor; RF04 revisado, maquina de estados e o
           debounce. RC de 1-10 nF fica como contingencia documentada.
+[x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
+          por ordem de prioridade. LeitorConfig com 26 testes.
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 

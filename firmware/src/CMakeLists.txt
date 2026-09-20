@@ -3,6 +3,7 @@ add_library(coruja_nucleo STATIC
     nucleo/Geo.cpp
     nucleo/LimiarInfracao.cpp
     nucleo/BaseRadares.cpp
+    nucleo/LeitorConfig.cpp
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

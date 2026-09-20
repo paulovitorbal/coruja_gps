@@ -23,7 +23,7 @@ const char* nome_item(ItemCalibracao item);
 ItemCalibracao proximo(ItemCalibracao item);
 
 /// Verdadeiro nos itens em que o vermelho fica fixo em 100% e o encoder ajusta
-/// o **outro** canal. É essa razão que vai para o `ConfigCalibracao.h`.
+/// o **outro** canal. É essa razão que vai para o `led/Calibracao.h`.
 constexpr bool e_composta(ItemCalibracao item) {
     return item == ItemCalibracao::Ambar || item == ItemCalibracao::Rosa;
 }

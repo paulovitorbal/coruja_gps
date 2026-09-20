@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Gera os arquivos de configuração do firmware, perguntando ao usuário.
+"""Gera o coruja.cfg do firmware, perguntando ao usuário.
 
-Regra 8 do coding_rules.md. Produz três arquivos, conforme docs/adr/0002:
+Regra 8 do coding_rules.md. Produz dois arquivos:
 
-  coruja.cfg          -> raiz do cartão SD, lido em tempo de execução
+  coruja.cfg          -> raiz do cartão microSD, lido em tempo de execução
   coruja.cfg.exemplo  -> versionado, sem nenhum segredo
-  ConfigCalibracao.h  -> compilado no firmware
 
-A senha do Wi-Fi é pedida sem eco e o .cfg é gravado com permissão 600.
-Mesmo assim: o cartão é removível e legível por qualquer um, então use uma
-rede de convidados ou de IoT para o OTA, nunca a rede principal.
+CONTÉM APENAS O QUE VARIA POR INSTALAÇÃO: as redes Wi-Fi e as duas URLs.
+Brilho, fuso, tolerâncias de velocidade, raio de alerta e calibração do LED
+ficam no código, por decisão do autor em 2026-09-20 — se mudar o valor muda o
+comportamento de segurança, é especificação e não configuração. Ver
+docs/adr/0002.
+
+A senha é pedida sem eco e o .cfg é gravado com permissão 600. Ainda assim:
+o cartão é removível e legível por qualquer um, então use uma rede de
+convidados ou de IoT, nunca a principal.
 """
 
 from __future__ import annotations
@@ -19,142 +24,130 @@ import getpass
 import os
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 RAIZ = Path(__file__).resolve().parent.parent
 CFG = "coruja.cfg"
 EXEMPLO = "coruja.cfg.exemplo"
-HEADER = RAIZ / "firmware" / "src" / "nucleo" / "ConfigCalibracao.h"
 
-# Valores que o firmware assume se o .cfg faltar (ADR 0002).
-PADRAO_FUSO = -3           # Brasil não tem horário de verão desde 2019
-PADRAO_BRILHO = 40         # por cento
-BRILHO_MIN, BRILHO_MAX = 5, 100
+# Espelham as constantes de firmware/src/nucleo/Configuracao.h. Divergir aqui
+# produz um arquivo que o firmware recusa em silêncio, então o teste compara
+# os dois.
+MAX_REDES = 5
+MAX_SSID = 32
+MAX_SENHA = 63
+MAX_URL = 160
 
 
-def pergunta(rotulo: str, padrao: str = "", obrigatorio: bool = True) -> str:
-    sufixo = f" [{padrao}]" if padrao else ""
+class Rede(NamedTuple):
+    ssid: str
+    senha: str
+
+
+def valida_rede(ssid: str, senha: str) -> str | None:
+    """Devolve a mensagem de erro, ou None se estiver válido."""
+    if len(ssid) > MAX_SSID:
+        return f"SSID tem {len(ssid)} caracteres; o máximo é {MAX_SSID}"
+    if senha and len(senha) > MAX_SENHA:
+        return f"senha tem {len(senha)} caracteres; o máximo é {MAX_SENHA}"
+    if senha and len(senha) < 8:
+        return "senha de WPA2 precisa de pelo menos 8 caracteres"
+    return None
+
+
+def valida_url(url: str) -> str | None:
+    if len(url) > MAX_URL:
+        return f"URL tem {len(url)} caracteres; o máximo é {MAX_URL}"
+    if not url.startswith(("http://", "https://")):
+        return "a URL precisa começar com http:// ou https://"
+    if url.startswith("http://"):
+        return ("o RF05.2 exige HTTPS: em HTTP, quem estiver na mesma rede "
+                "pode substituir a base de radares")
+    return None
+
+
+def pergunta(rotulo: str, obrigatorio: bool = True) -> str:
     while True:
-        r = input(f"{rotulo}{sufixo}: ").strip() or padrao
+        r = input(f"{rotulo}: ").strip()
         if r or not obrigatorio:
             return r
         print("  valor obrigatório.", file=sys.stderr)
 
 
-def pergunta_int(rotulo: str, padrao: int, minimo: int, maximo: int) -> int:
-    while True:
-        bruto = input(f"{rotulo} [{padrao}]: ").strip()
-        if not bruto:
-            return padrao
-        try:
-            v = int(bruto)
-        except ValueError:
-            print("  informe um número inteiro.", file=sys.stderr)
+def coleta_redes() -> list[Rede]:
+    print(f"\n--- redes Wi-Fi (até {MAX_REDES}) ---")
+    print("A ordem é a PRIORIDADE: ao clicar no encoder o aparelho varre as")
+    print("redes e conecta na primeira desta lista que estiver visível.")
+    print("Deixe a SSID em branco para terminar.\n")
+
+    redes: list[Rede] = []
+    while len(redes) < MAX_REDES:
+        ssid = pergunta(f"SSID da rede {len(redes) + 1}", obrigatorio=False)
+        if not ssid:
+            break
+        senha = getpass.getpass("  senha (vazia = rede aberta, não aparece): ")
+        erro = valida_rede(ssid, senha)
+        if erro:
+            print(f"  {erro}", file=sys.stderr)
             continue
-        if not minimo <= v <= maximo:
-            print(f"  fora da faixa {minimo} a {maximo}.", file=sys.stderr)
-            continue
-        return v
+        redes.append(Rede(ssid, senha))
+        if not senha:
+            print("  aviso: rede sem senha; qualquer um na área pode ver o "
+                  "tráfego.", file=sys.stderr)
+    return redes
 
 
-def pergunta_float(rotulo: str, minimo: float, maximo: float) -> float:
-    while True:
-        try:
-            v = float(input(f"{rotulo}: ").strip().replace(",", "."))
-        except ValueError:
-            print("  informe um número.", file=sys.stderr)
-            continue
-        if not minimo <= v <= maximo:
-            print(f"  fora da faixa {minimo} a {maximo}.", file=sys.stderr)
-            continue
-        return v
+def coleta_urls() -> tuple[str, str]:
+    print("\n--- origem da base de radares ---")
+    print("Duas URLs: uma devolve a versão disponível — uma linha de texto")
+    print("qualquer, que o aparelho compara com a que já tem — e a outra")
+    print("entrega o radares.bin.\n")
+
+    def pede(rotulo: str) -> str:
+        while True:
+            url = pergunta(rotulo)
+            erro = valida_url(url)
+            if erro:
+                print(f"  {erro}", file=sys.stderr)
+                continue
+            return url
+
+    return (pede("URL da versão   (ex.: https://exemplo/radares.versao)"),
+            pede("URL do download (ex.: https://exemplo/radares.bin)"))
 
 
-def coleta_runtime() -> dict:
-    print("\n--- configuração de execução (vai para o cartão) ---")
-    ssid = pergunta("SSID do Wi-Fi para o OTA")
-    senha = getpass.getpass("Senha do Wi-Fi (não aparece na tela): ")
-    if not senha:
-        print("  aviso: senha vazia; a rede será tratada como aberta.",
-              file=sys.stderr)
-    fuso = pergunta_int("Fuso horário (UTC+N)", PADRAO_FUSO, -12, 14)
-    brilho = pergunta_int("Brilho inicial em %", PADRAO_BRILHO,
-                          BRILHO_MIN, BRILHO_MAX)
-    return {"ssid": ssid, "senha": senha, "fuso": fuso, "brilho": brilho}
-
-
-def coleta_calibracao() -> dict:
-    print("\n--- calibração do LED RGB (R-05) ---")
-    print("Tudo já foi medido na placa em 2026-09-19:")
-    print("  resistores: 330 Ω vermelho, 470 Ω verde, 150 Ω azul")
-    print("  âmbar: 19,6% de verde   rosa: 15,7% de azul")
-    print("Deixe em branco para usar esses valores.")
-    if not input("Já tem as medidas? [s/N]: ").strip().lower().startswith("s"):
-        return {}
-    d = {}
-    for canal in ("vermelho", "verde", "azul"):
-        d[f"r_{canal}"] = pergunta_float(f"  resistor real do {canal} (ohms)",
-                                         1.0, 10000.0)
-    d["duty_ambar_r"] = pergunta_float("  duty do vermelho no âmbar (0 a 1)", 0.0, 1.0)
-    d["duty_ambar_g"] = pergunta_float("  duty do verde no âmbar (0 a 1)", 0.0, 1.0)
-    d["duty_rosa_r"] = pergunta_float("  duty do vermelho no rosa (0 a 1)", 0.0, 1.0)
-    d["duty_rosa_b"] = pergunta_float("  duty do azul no rosa (0 a 1)", 0.0, 1.0)
-    return d
-
-
-def corpo_cfg(c: dict, com_segredo: bool) -> str:
-    senha = c["senha"] if com_segredo else "troque-me"
-    ssid = c["ssid"] if com_segredo else "minha-rede-iot"
-    return (
-        "# Configuração de execução do Coruja GPS.\n"
-        "# Gerado por scripts/gera_config.py. Vai na raiz do cartão microSD.\n"
-        "#\n"
-        "# O cartão é removível e legível por qualquer um: use uma rede de\n"
-        "# convidados ou de IoT, nunca a rede principal da casa.\n"
-        f"wifi_ssid={ssid}\n"
-        f"wifi_senha={senha}\n"
-        f"fuso_utc={c['fuso']}\n"
-        f"brilho_inicial={c['brilho']}\n"
-    )
-
-
-def corpo_header(cal: dict) -> str:
-    def val(chave: str, nominal: str) -> str:
-        return f"{cal[chave]:.4f}F" if chave in cal else nominal
-
-    medido = "medidos na bancada" if cal else "NOMINAIS — ainda não medidos"
-    return f"""#pragma once
-
-// Gerado por scripts/gera_config.py. Não edite à mão.
-// Valores {medido} (R-05).
-
-namespace coruja::calibracao {{
-
-// Os resistores e as razões de PWM já vêm dos valores medidos; este
-// sinalizador diz se ESTA instalação rodou o script com valores próprios.
-constexpr bool kMedido = {"true" if cal else "false"};
-
-// Resistores de cada canal, em ohms. Os nominais sao os MEDIDOS na bancada
-// em 2026-09-19, sob luz solar direta (R-05).
-constexpr float kResistorVermelho = {val("r_vermelho", "330.0F")};
-constexpr float kResistorVerde    = {val("r_verde", "470.0F")};
-constexpr float kResistorAzul     = {val("r_azul", "150.0F")};
-
-// Razões de PWM que produzem cada cor composta, de 0 a 1.
-//
-// MEDIDAS na placa em 2026-09-19 com o modo de calibração, e não estimadas.
-// Os nominais anteriores eram 0,45 e 0,60 — errados por 2,3x e 3,8x, o que
-// teria dado um amarelo esverdeado e um rosa lavado. Ambos os canais
-// secundários precisam de muito pouco: 20% de verde já faz âmbar e 16% de
-// azul já faz rosa.
-//
-//   âmbar = rgb(255, 50, 0)     rosa = rgb(255, 0, 40)
-constexpr float kDutyAmbarVermelho = {val("duty_ambar_r", "1.0F")};
-constexpr float kDutyAmbarVerde    = {val("duty_ambar_g", "0.196F")};
-constexpr float kDutyRosaVermelho  = {val("duty_rosa_r", "1.0F")};
-constexpr float kDutyRosaAzul      = {val("duty_rosa_b", "0.157F")};
-
-}}  // namespace coruja::calibracao
-"""
+def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
+              com_segredo: bool) -> str:
+    linhas = [
+        "# Configuração do Coruja GPS. Vai na raiz do cartão microSD.",
+        "# Gerado por scripts/gera_config.py.",
+        "#",
+        "# O cartão é removível e legível por qualquer um: use uma rede de",
+        "# convidados ou de IoT, nunca a principal da casa.",
+        "#",
+        "# Só entra aqui o que varia por instalação. Brilho, fuso, tolerâncias",
+        "# e calibração do LED ficam no código (docs/adr/0002).",
+        "",
+        f"# Redes em ordem de PRIORIDADE, até {MAX_REDES}. Ao clicar no encoder o",
+        "# aparelho varre e conecta na primeira desta lista que estiver visível.",
+    ]
+    if not redes:
+        redes = [Rede("minha-rede-iot", "troque-me"),
+                 Rede("celular", "troque-me")]
+        com_segredo = False
+    for i, r in enumerate(redes, start=1):
+        linhas.append(f"wifi_ssid_{i}={r.ssid if com_segredo else 'troque-me'}")
+        linhas.append(f"wifi_senha_{i}={r.senha if com_segredo else 'troque-me'}")
+    linhas += [
+        "",
+        "# Devolve a versão disponível: uma linha de texto qualquer, comparada",
+        "# como texto com a que o aparelho guardou.",
+        f"url_versao={url_versao if com_segredo else 'https://exemplo/radares.versao'}",
+        "# Entrega o radares.bin. O RF05.2 exige HTTPS.",
+        f"url_base={url_base if com_segredo else 'https://exemplo/radares.bin'}",
+        "",
+    ]
+    return "\n".join(linhas)
 
 
 def grava(caminho: Path, conteudo: str, modo: int | None = None) -> None:
@@ -165,37 +158,37 @@ def grava(caminho: Path, conteudo: str, modo: int | None = None) -> None:
     print(f"  escrito: {caminho}")
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--destino", type=Path, default=RAIZ,
                    help="onde gravar o coruja.cfg; aponte para o cartão montado")
     p.add_argument("--so-exemplo", action="store_true",
                    help="gera apenas o coruja.cfg.exemplo, sem pedir segredo")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     if args.so_exemplo:
-        grava(RAIZ / EXEMPLO, corpo_cfg(
-            {"ssid": "", "senha": "", "fuso": PADRAO_FUSO,
-             "blank": 0, "brilho": PADRAO_BRILHO}, com_segredo=False))
+        grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
         return 0
 
     print("Configuração do Coruja GPS")
-    runtime = coleta_runtime()
-    calibracao = coleta_calibracao()
+    redes = coleta_redes()
+    if not redes:
+        print("\nerro: nenhuma rede informada; sem rede não há atualização OTA.",
+              file=sys.stderr)
+        return 1
+    url_versao, url_base = coleta_urls()
 
     print()
-    grava(args.destino / CFG, corpo_cfg(runtime, com_segredo=True), modo=0o600)
-    grava(RAIZ / EXEMPLO, corpo_cfg(runtime, com_segredo=False))
-    grava(HEADER, corpo_header(calibracao))
+    grava(args.destino / CFG,
+          corpo_cfg(redes, url_versao, url_base, com_segredo=True), modo=0o600)
+    grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
 
-    if args.destino == RAIZ:
+    if args.destino.resolve() == RAIZ:
         print(f"\n  atenção: o {CFG} ficou no repositório, não no cartão.")
-        print(f"  Copie-o para a raiz do microSD e apague daqui, ou rode de novo")
-        print(f"  com --destino /Volumes/NOME_DO_CARTAO")
-    if not calibracao:
-        print("\n  a calibração saiu com valores NOMINAIS. Rode de novo depois")
-        print("  do R-05: sem ela o rosa pode ficar indistinguível do vermelho.")
+        print("  Copie-o para a raiz do microSD e apague daqui, ou rode de novo")
+        print("  com --destino /Volumes/NOME_DO_CARTAO")
     return 0
 
 

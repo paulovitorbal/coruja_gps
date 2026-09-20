@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "apoio/EncoderMock.h"
+#include "led/Calibracao.h"
 #include "apoio/LedRgbMock.h"
 
 namespace {
@@ -118,8 +119,8 @@ TEST(ModoCalibracao, EventoNenhumNaoMexeEmNada) {
 // --- as compostas ---
 
 TEST(ModoCalibracao, NasCompostasOVermelhoFicaEmCemPorCento) {
-    // É o formato que o ConfigCalibracao.h espera: kDutyAmbarVermelho = 1,0 e
-    // kDutyAmbarVerde como variável.
+    // É a forma como led/Calibracao.h guarda as cores: canal vermelho em 255
+    // e só o secundário variando.
     ModoCalibracao m;
     vai_para(m, ItemCalibracao::Ambar);
     repete(m, kEsq, 5);
@@ -134,11 +135,12 @@ TEST(ModoCalibracao, NasCompostasOVermelhoFicaEmCemPorCento) {
     EXPECT_EQ(m.cor().b, m.duty(ItemCalibracao::Rosa));
 }
 
-TEST(ModoCalibracao, OsIniciaisDasCompostasSaoOsNominaisDoConfig) {
-    // 0,45 no verde do âmbar e 0,60 no azul do rosa.
+TEST(ModoCalibracao, OsIniciaisSaoOsValoresMedidos) {
+    // Recalibrar parte de onde se chegou, não de um palpite. Os valores vêm
+    // de led/Calibracao.h, medidos em 2026-09-19.
     ModoCalibracao m;
-    EXPECT_NEAR(m.razao(ItemCalibracao::Ambar), 0.45F, 0.01F);
-    EXPECT_NEAR(m.razao(ItemCalibracao::Rosa), 0.60F, 0.01F);
+    EXPECT_EQ(m.duty(ItemCalibracao::Ambar), calibracao::kAmbar.g);
+    EXPECT_EQ(m.duty(ItemCalibracao::Rosa), calibracao::kRosa.b);
 }
 
 TEST(ModoCalibracao, RazaoAcompanhaODuty) {

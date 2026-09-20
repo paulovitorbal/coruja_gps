@@ -25,7 +25,7 @@ namespace coruja {
 /// Pinos conforme `bom_schematic.md` §4. Os resistores diferem por canal
 /// (330 Ω no vermelho, 68 Ω no verde e no azul), então a mesma intensidade
 /// numérica **não** produz o mesmo brilho percebido nos três — é o que o R-05
-/// vai medir e o que `ConfigCalibracao.h` vai corrigir.
+/// mediu, e o que `led/Calibracao.h` registra.
 class LedRgbAnodoComum final : public LedRgb {
 public:
     /// 1 kHz é folgado para um LED: acima de ~200 Hz não há cintilação

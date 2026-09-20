@@ -699,8 +699,39 @@ pura que não sabe de onde vem a amostra. Ver `docs/adr/0005`.
 ### [RF05] Atualização Sem Fio (Over-The-Air)
 
 Ao detectar o clique no eixo do encoder, o sistema deve ativar a interface de rede do
-Pico 2 W, conectar ao ponto de acesso configurado e baixar a versão atualizada da base
-de radares, salvando-a no cartão SD.
+Pico 2 W, **varrer as redes disponíveis**, conectar à primeira rede configurada que
+estiver visível, consultar se há versão nova e, havendo, baixá-la e salvá-la no cartão.
+
+#### 🆕 [RF05.0] Origem e redes vêm da configuração
+
+*Acrescentado em 2026-09-20. Ver **R-37** e `docs/adr/0002`.*
+
+Até esta revisão o requisito mandava "baixar a versão atualizada" e **não dizia de
+onde**. Não havia URL em nenhum arquivo do projeto — e num repositório público não
+poderia haver: a origem dos dados é de quem monta o aparelho.
+
+**No `coruja.cfg`, na raiz do cartão:**
+
+| Chave | Papel |
+| :--- | :--- |
+| `wifi_ssid_N` / `wifi_senha_N` | até **5** redes, `N` de 1 a 5 |
+| `url_versao` | devolve **uma linha de texto qualquer** — data, número, hash |
+| `url_base` | entrega o `radares.bin`; HTTPS obrigatório (RF05.2) |
+
+**Escolha da rede:** varrer, e conectar na primeira da lista **em ordem do arquivo** que
+estiver visível. A ordem é a prioridade — não o sinal mais forte. Explícita, previsível,
+e o log consegue dizer por que escolheu.
+
+**Decisão de baixar ou não:** o aparelho guarda no cartão a linha devolvida pelo
+`url_versao` da última atualização bem-sucedida e **compara como texto**. Diferente,
+baixa; igual, não. O firmware não interpreta o conteúdo, o que deixa o formato inteiramente
+a cargo de quem serve os dados.
+
+**Sem rede configurada, sem URL, ou cartão ilegível:** o aparelho **opera normalmente** e
+apenas não atualiza. O ADR 0002 é explícito, e o RF07 trata o estado de base ausente.
+
+> ⚠️ **A senha fica no cartão, que é removível e legível.** Não é mitigável por software.
+> Use uma rede de convidados ou de IoT, nunca a principal.
 
 #### [RF05.1] Pré-condição de segurança
 

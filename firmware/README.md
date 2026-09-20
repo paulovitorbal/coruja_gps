@@ -148,19 +148,40 @@ ler o log: `screen /dev/tty.usbmodem* 115200`.
 python3 scripts/gera_config.py --destino /Volumes/NOME_DO_CARTAO
 ```
 
-Gera o `coruja.cfg` no cartão e o `ConfigCalibracao.h` no firmware. Ver
-`docs/adr/0002` para a divisão entre os dois.
+Gera o `coruja.cfg` no cartão. **Só entra nele o que varia por instalação:**
+
+| Chave | |
+| :--- | :--- |
+| `wifi_ssid_N` / `wifi_senha_N` | até 5 redes, **em ordem de prioridade** |
+| `url_versao` | devolve uma linha de texto qualquer, comparada como texto |
+| `url_base` | entrega o `radares.bin`, em HTTPS |
+
+Brilho, fuso, tolerâncias e calibração do LED ficam **no código**. O critério está no
+`docs/adr/0002`: se mudar o valor muda o comportamento de segurança, é especificação e
+não configuração.
 
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.
+
+### Testes do gerador
+
+```sh
+python3 -m unittest discover -s scripts/testes
+```
+
+Usa `unittest` e não pytest: todo o Python deste projeto é **stdlib-only** por escolha.
+
+Dois testes amarram o gerador ao parser em C++, que estão em linguagens diferentes: o
+C++ lê o `coruja.cfg.exemplo` versionado e falha se o formato divergir, e o Python
+compara suas constantes de limite com as do `Configuracao.h`.
 
 ## Organização
 
 ```
 firmware/src/
 ├── placa/           Pinos.h — mapa único de GPIO, com invariantes em static_assert
-├── nucleo/          lógica pura — compila e é testada no host
+├── nucleo/          lógica pura — tipos, Geo, base de radares, config
 ├── log/             Logger (interface) + LoggerConsole
 ├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
 ├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
@@ -201,7 +222,7 @@ que trocar o GPIO 2 pelo 3 falhe dizendo qual periférico mudou de pino.
 | Componente | Peça em mãos | Interface | Implementação | Testes |
 | :--- | :---: | :---: | :---: | :---: |
 | `placa` — mapa de pinos | — | — | ✅ | ✅ |
-| `nucleo` — tipos, Geo, LimiarInfracao, BaseRadares | — | — | ✅ | ✅ |
+| `nucleo` — tipos, Geo, LimiarInfracao, BaseRadares, LeitorConfig | — | — | ✅ | ✅ |
 | `log` — Logger, console, mock | — | ✅ | ✅ | ✅ |
 | `led` — LED RGB | ✅ | ✅ | ✅ | ✅ |
 | `encoder` — KY-040 | ✅ | ✅ | ✅ | ✅ |
@@ -216,7 +237,7 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 ### O que está verificado e o que não está
 
-* **Verificado:** a suíte de **112 casos** no host, com cobertura medida — 97,9%
+* **Verificado:** a suíte de **143 casos** no host, com cobertura medida — 97,9%
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
   `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
   `ModoTesteEncoder`.
@@ -239,8 +260,8 @@ display.
 | **Clicar** | avança: vermelho → verde → azul → âmbar → rosa → volta |
 
 Nas compostas o **vermelho fica fixo em 100%** e o encoder move o outro canal.
-Não é simplificação: é o formato que o `ConfigCalibracao.h` espera, com
-`kDutyAmbarVermelho` em 1,0 e `kDutyAmbarVerde` como a variável.
+Não é simplificação: é a forma como `led/Calibracao.h` guarda as cores, com o
+canal vermelho em 255 e só o secundário variando.
 
 Ao dar a volta, o log imprime o bloco pronto para transcrever:
 
