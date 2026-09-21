@@ -63,6 +63,7 @@ led --> ledrgb
 
 app --> arm : lê o coruja.cfg\n**a cada clique**
 arm --> sd : FAT32, sonda até\n4 partições
+arm ..> sd : grava a base baixada\n//RF05.2, ainda não feito//
 arm --> nucleo : entrega os bytes\n//le_config, carrega_base//
 
 app --> rede : o clique dispara o OTA
@@ -93,9 +94,14 @@ note bottom of logm
 end note
 
 note bottom of rede
-  O `radares.bin` é verificado **enquanto chega**
-  e descartado: 214 KB não cabem ao lado dos
-  281 KB que a base já reserva.
+  O `radares.bin` é verificado **enquanto chega**:
+  214 KB não cabem ao lado dos 281 KB que a base
+  já reserva, então o arquivo nunca existe inteiro
+  em RAM.
+
+  O destino é o **cartão**, com a escrita atômica
+  do RF05.2 — `.tmp`, valida, `.bak`, `.bin`. Hoje
+  ele ainda é descartado: falta essa gravação.
 end note
 
 legend bottom

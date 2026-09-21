@@ -67,13 +67,16 @@ PECAS = [
      # como foi feito com o KY-040 e o leitor SD, que ambos divergiam. Ver R-34.
      "GPS NEO-M8N (GY-GPSV3)", {}, ["VCC 5V", "RX", "TX", "GND"]),
 
-    # Pinagem conferida na placa física (2026-09-17), da esquerda para a
-    # direita olhando de frente. DAT2 e DET não são usados em modo SPI.
-    ("SD", "17898e57-1ee0-11de-8283-0019d2b7521e",
-     "generic-female-header_8.fzp",
-     "Leitor microSD (8 pinos)", {},
-     ["3V", "GND", "CLK", "DO/SO", "CMD/SI", "D3/CS", "DAT2", "DET"]),
-    # DAT2 permanece desconectado: não é usado em modo SPI.
+    # Pinagem RELIDA na placa física em 2026-09-20: são **9 pinos**, da
+    # esquerda para a direita olhando de frente. A revisão anterior listava 8
+    # e omitia o `D1`, o que deslocava as duas últimas posições — quem contasse
+    # posições pela tabela poria o fio do `DET` em `DAT2`. Ver R-40.
+    #
+    # `D1` e `DAT2` permanecem desconectados: não são usados em modo SPI.
+    ("SD", "1d2d699b-1ee0-11de-8283-0019d2b7521e",
+     "generic-female-header_9.fzp",
+     "Leitor microSD (9 pinos)", {},
+     ["3V", "GND", "CLK", "D0", "CMD", "D3", "D1", "DAT2", "DET"]),
 
     ("TFT", "17898e57-1ee0-11de-8283-0019d2b7521e",
      "generic-female-header_8.fzp",
@@ -189,9 +192,9 @@ NETS = {
                     ("ENC", "+ 3V3"), ("LED", "K")],
 
     "SPI0_SCK":    [("PICO", "24"), ("SD", "CLK"), ("TFT", "SCL")],
-    "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD/SI"), ("TFT", "SDA")],
-    "SPI0_MISO":   [("PICO", "21"), ("SD", "DO/SO")],
-    "SD_CS":       [("PICO", "22"), ("SD", "D3/CS")],
+    "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD"), ("TFT", "SDA")],
+    "SPI0_MISO":   [("PICO", "21"), ("SD", "D0")],
+    "SD_CS":       [("PICO", "22"), ("SD", "D3")],
     # Card detect: chave mecânica do soquete. Usa pull-up interno do Pico,
     # sem componente extra. GPIO 14 ficou livre quando o LED de Wi-Fi saiu.
     # A POLARIDADE varia por placa e deve ser medida na bancada.

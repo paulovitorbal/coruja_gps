@@ -12,7 +12,18 @@ Lê telemetria de um GPS NEO-M8N por UART, confronta a posição com uma base lo
 
 Quatro subsistemas, e o dado atravessa todos eles. Um CSV vira `radares.bin` na
 estação de trabalho; o binário é publicado por um servidor mínimo; a configuração vai
-para o cartão à mão; o aparelho lê o cartão no clique e busca a base pela rede.
+para o cartão à mão; e o aparelho, ao clique, lê o cartão, busca a base pela rede e
+**a grava de volta no cartão**.
+
+Essa última parte é o RF05: *"baixá-la e salvá-la no cartão"*, com a troca atômica do
+RF05.2 — baixa para `radares.tmp`, valida, renomeia a atual para `radares.bak` e só
+então promove a nova. Queda de energia no meio de uma atualização não pode deixar o
+aparelho sem base, porque a tela voltaria ao velocímetro normalmente e nada indicaria
+a perda.
+
+A cópia do `radares.bin` para o cartão à mão é só a **carga inicial** — e hoje é o
+único caminho, porque a gravação ainda não foi implementada: o firmware baixa,
+verifica em fluxo e descarta.
 
 **De onde vem o CSV é problema de quem monta** — o projeto não presume fonte nenhuma,
 e por isso ela aparece no diagrama como uma nuvem anônima.

@@ -9,6 +9,10 @@
 ' onde vem a base é problema de quem monta.
 '
 ' O interior do firmware está em firmware.puml.
+'
+' ⚠️ O `radares.bin` chega ao cartão PELO OTA — é o RF05 ("baixá-la e salvá-la
+' no cartão") com a escrita atômica do RF05.2. A cópia à mão é só a carga
+' inicial, e hoje é o único caminho porque a gravação ainda não existe.
 
 title Coruja GPS — subsistemas e o caminho do dado
 
@@ -54,7 +58,7 @@ package "Servidor da base  //(Docker)//" as srv {
 
 package "Cartão microSD  //(FAT32, MBR)//" as cartao {
   artifact "coruja.cfg" as cfg_cartao
-  artifact "radares.bin" as bin_cartao #E4E4E4
+  artifact "radares.bin\n//+ .tmp e .bak durante a troca//" as bin_cartao #E4E4E4
 }
 
 package "Aparelho — Raspberry Pi Pico 2 W" as aparelho {
@@ -71,11 +75,12 @@ geracfg --> cfg : escreve //(0600)//
 
 binario --> api : publicado em\nservidor/dados/
 cfg --> cfg_cartao : copiado à mão
-binario ..> bin_cartao : ainda à mão
+binario ..> bin_cartao : carga inicial, à mão —\n//hoje é o único caminho//
 
 api <--> fw : **HTTP sobre Wi-Fi**\n//conexão episódica: sobe no//\n//clique, atualiza, e cai//
 cfg_cartao --> fw : lido **a cada clique**
-bin_cartao ..> fw
+fw ..> bin_cartao : **gravado pelo OTA** (RF05.2)\n//.tmp → valida → .bak → .bin//
+bin_cartao ..> fw : base lida no boot
 fw <--> perif : GPIO, SPI, UART, PWM
 
 legend bottom
