@@ -1449,6 +1449,229 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-38 — Cartão com mais de uma partição: o firmware montaria a errada, em silêncio
+
+- **Onde:** `requirements.md` RNF03 · camada de cartão (ainda não escrita)
+- **Confiança:** ✅ Verificado na documentação do FatFs (elm-chan.org), não de memória
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — sondagem implementada no `CartaoSd` (ADR 0007)
+
+**Problema.** O RNF03 exige cartão *"formatado estritamente em FAT32"* e não diz
+uma palavra sobre partições. O caminho padrão no Pico é o FatFs, e com
+`FF_MULTI_PARTITION = 0` — que é o padrão — ele procura o volume assim:
+
+> reads boot sectors and checks if it is an FAT VBR in order of LBA 0 as SFD
+> format, 1st partition, 2nd partition, 3rd partition, ...
+
+Ele percorre as partições, mas **para na primeira que for FAT válida**. O
+critério é *"isto é FAT?"*, nunca *"isto contém o `coruja.cfg`?"*.
+
+| Cartão | O que acontece |
+|---|---|
+| 1 partição FAT32 | funciona |
+| 2 partições FAT, config na **segunda** | monta a primeira; `f_open` devolve `FR_NO_FILE` |
+| config em partição **lógica** (dentro de estendida) | nunca encontrada: só as 4 primárias da MBR são olhadas |
+| cartão GPT | não monta: exige `FF_LBA64=1`, que por sua vez exige exFAT |
+
+A segunda linha é a pior. O `DET` do GPIO 14 diz "cartão presente", o mount diz
+"ok", e só o `open` falha — o aparelho reporta **sem configuração** com o
+arquivo fisicamente no cartão. O RF07 hoje distingue *ausente* de *ilegível*, e
+este terceiro caso não tem para onde ir: ele se disfarça de um dos dois.
+
+**Decisão.** Sondar **pelo arquivo, não pelo tipo**: `FF_MULTI_PARTITION = 1`,
+`VolToPart[]` estática de 4 entradas, e no boot montar `0:` a `3:` em
+sequência, ficando na primeira que contenha o `coruja.cfg`. Custa até quatro
+tentativas de mount, uma vez, no boot; reaproveitando o mesmo objeto `FATFS`
+entre as tentativas não custa RAM nenhuma.
+
+Se nenhuma partição tiver o arquivo, a mensagem diz **quantas partições FAT
+foram vistas** — que é o que transforma "sem configuração" de beco em
+diagnóstico.
+
+**Regra que vem junto:** o `radares.bin` tem de estar na **mesma partição** do
+`coruja.cfg`. Dois critérios de seleção brigando dariam um empate silencioso.
+
+---
+
+## R-42 — O fio do `DET` não chega a pino nenhum: o GPIO 14 está flutuando
+
+- **Onde:** fiação de bancada · `armazenamento/CartaoSd.cpp`
+- **Confiança:** ✅ Medido sob os três pulls internos na mesma inicialização
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — pino reassentado; polaridade medida nos dois estados
+
+**Medição.** Com o cartão **inserido**:
+
+```
+DET (GPIO 14): pull-down=BAIXO  pull-up=ALTO  sem pull=ALTO
+```
+
+O nível acompanha o pull interno. O pino está **flutuando** — nada o aciona.
+
+**O que isso invalida.** Todas as leituras anteriores do `DET` mediam o pull configurado
+no firmware, não o cartão. Inclusive a que gerou o R-41.
+
+**O que isso NÃO invalida.** A primeira leitura de todas — fiação original, sem cartão,
+pull-down, resultado ALTO — continua sendo um pino **acionado em alto**, porque um pino
+flutuante com pull-down leria baixo. Ou seja: na fiação original o `DET` chegava a algum
+pino com pull-up, e depois da refiação passou a não chegar a nada.
+
+**Instrumento que resolveu.** Ler o mesmo pino sob pull-down, pull-up e sem pull, na
+mesma inicialização. Nenhuma leitura isolada distingue flutuante de acionado, e todas
+as leituras isoladas *parecem* conclusivas — foi o que sustentou dois diagnósticos
+errados seguidos.
+
+O diagnóstico passou a rodar **a cada clique**, não só no boot, para que mover o fio de
+pino em pino não exija reiniciar nem regravar.
+
+**Resolvido na bancada.** Com o fio reassentado, o pino saiu de flutuante para
+acionado, e os dois estados foram medidos sob os três pulls:
+
+| Cartão | pull-down | pull-up | sem pull |
+| :--- | :---: | :---: | :---: |
+| dentro | ALTO | ALTO | ALTO |
+| fora | BAIXO | BAIXO | BAIXO |
+
+**Cartão dentro = ALTO**, que é a polaridade documentada pela Adafruit e a que estava
+configurada originalmente. `card_detected_true` de volta a 1, com pull-down interno.
+
+**Consequência para o R-40.** No R-41 eu também desacreditei a explicação do R-40 —
+"o fio teria ido para um pino de dados com pull-up" — argumentando que um pino de
+dados não ficaria baixo ao inserir o cartão. Aquele "baixo" era o artefato do pino
+flutuante. Como agora se sabe que a fiação correta dá **BAIXO com slot vazio**, e a
+leitura original deu **ALTO com slot vazio**, o fio de fato não estava no `DET`: a
+explicação do R-40 volta a ser a melhor disponível.
+
+---
+
+## R-41 — RETRATADO: eu "medi" uma polaridade que era o meu próprio pull interno
+
+> ⚠️ **Esta conclusão estava errada e foi publicada num commit.** O que segue é o
+> registro do erro; a correção de fato está no R-42.
+>
+> Eu concluí que o card detect tinha polaridade invertida a partir de duas leituras:
+> slot vazio deu ALTO, cartão dentro deu BAIXO. O que eu não considerei é que as duas
+> foram feitas com **pull-down interno habilitado** e o pino **flutuando** — então a
+> leitura BAIXO não media o cartão, media a minha própria configuração.
+>
+> Provado depois lendo o mesmo pino sob os três pulls na mesma inicialização:
+> `pull-down=BAIXO  pull-up=ALTO  sem pull=ALTO`. O nível **acompanha o pull**, com o
+> cartão inserido. Nada aciona o GPIO 14.
+>
+> **A lição:** eu já sabia que duas leituras não determinam uma polaridade — escrevi
+> isso no próprio R-41. E então fiz exatamente o mesmo erro uma camada acima: troquei
+> "duas leituras" por "duas leituras com a variável errada fixa". A pergunta que
+> faltava não era *"quantas medições?"*, era **"o que mais poderia produzir este
+> número?"** — e a resposta, o pull que eu mesmo tinha ligado, estava no meu código.
+>
+> O texto original segue abaixo, sem edição, porque uma conclusão errada apagada não
+> ensina nada.
+
+### (texto original, incorreto)
+
+## R-41 — A polaridade do card detect era o inverso da documentada, e eu expliquei o sintoma errado
+
+- **Onde:** `bom_schematic.md` §2 · `armazenamento/hw_config.cpp`
+- **Confiança:** ✅ Três leituras na bancada, com o firmware relatando o nível
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — `card_detected_true = 0`, pull-up interno
+
+**Problema.** O módulo deste projeto tem pull-up no `DET` e uma chave que o aterra
+**quando o cartão entra**. O documento citava a Adafruit dizendo o contrário — citação
+correta para o breakout 4682, errada para este módulo.
+
+Medido:
+
+| Estado | GPIO 14 |
+| :--- | :--- |
+| módulo desconectado | ALTO (pull-up interno) |
+| ligado, slot vazio | ALTO (pull-up do módulo) |
+| ligado, cartão dentro | **BAIXO** (chave ao GND) |
+
+O firmware relatava **"cartão presente" com o slot vazio** e **"sem cartão" com o
+cartão dentro** — e, por causa do primeiro, seguia para o `f_mount` e falhava com uma
+mensagem sobre partições. O sintoma apontava para longe da causa.
+
+**O erro de raciocínio, que é o que vale registrar.** Ao ver "cartão presente" com o
+slot vazio, montei uma explicação: o fio do `DET` teria ido parar no `DAT2` por causa
+de um pino faltando na tabela (R-40), e `DAT2` tem pull-up. A explicação era coerente,
+citava fonte do fabricante e estava **errada** — um pino de dados não ficaria baixo ao
+inserir o cartão.
+
+A tabela de fato estava errada e a correção do R-40 continua valendo. Mas eu usei um
+defeito verdadeiro para explicar um sintoma que ele não causava, e isso é pior do que
+não ter explicação: fechou a investigação cedo. O que resolveu foi a terceira leitura
+— com cartão —, que ninguém tinha feito ainda. **Duas leituras não determinam uma
+polaridade.**
+
+**Correção.** `card_detected_true = 0` e pull-up interno, que cobre os três estados
+inclusive o de módulo ausente. O comentário no `hw_config.cpp` traz a tabela das três
+leituras, e manda medir em vez de adotar a folha de dados de um módulo parecido.
+
+---
+
+## R-40 — A tabela do leitor SD tinha 8 pinos; a placa tem 9, e o `DET` saía errado
+
+- **Onde:** `bom_schematic.md` §2 · fiação de bancada
+- **Confiança:** ✅ Pinos contados na placa física pelo autor em 2026-09-20
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — tabela relida e substituída
+
+**Problema.** A tabela listava `3V, GND, CLK, DO/SO, CMD/SI, D3/CS, DAT2, DET` — oito
+posições. A placa tem **nove**: falta o `D1`, entre `D3` e `DAT2`.
+
+O erro não é de nome, é de **posição**. Quem contasse pela tabela poria o fio do `DET`
+na posição 8, que na placa real é o `DAT2`.
+
+**Por que isso não falha de forma visível.** A Adafruit documenta *"pull ups are
+provided on all SDIO logic pins"*. `DAT2` fica **alto por construção**. O firmware,
+lendo o GPIO 14, relata **"cartão presente"** para sempre — com cartão, sem cartão,
+com o slot vazio. Depois falha na montagem, e a mensagem que sobra fala de partição,
+não de fiação.
+
+Foi exatamente a sequência observada: `DET` em alto com o slot vazio, e nenhum dos
+cinco volumes montando no clique.
+
+**O que levou ao erro.** A revisão 3 marcava a tabela como *"conferida na placa,
+2026-09-17"*, e ela estava errada — a revisão 2 já tinha errado antes, de outro jeito
+(`VCC/GND/CLK/DI/DO/CS`, por inferência). **Duas conferências seguidas, dois erros.**
+
+A lição não é "conferir na placa", que já estava escrito. É que um pino **ausente** de
+uma tabela não tem como ser notado ao comparar rótulo por rótulo: a leitura casa até
+o ponto em que diverge, e as posições seguintes parecem certas porque os nomes ainda
+existem, só que deslocados. A defesa é **contar os pinos** antes de comparar os nomes.
+
+**Correção.** Tabela substituída pelos nove pinos. O aviso no documento agora manda
+contar antes de fiar.
+
+---
+
+## R-39 — `__has_include` de um arquivo ausente não deixa rastro, e o build mente
+
+- **Onde:** `firmware/src/main.cpp` · `scripts/gera_config_bancada.py`
+- **Confiança:** ✅ Reproduzido: o binário não continha o SSID após gerar e recompilar
+- **Registrado em:** 2026-09-20
+- **Status:** ✅ **CORRIGIDO** — o gerador toca no `main.cpp`
+
+**Problema.** A configuração de bancada entra por
+`#if __has_include("placa/ConfigBancada.h")`. Quando o arquivo **não existe**, o
+compilador não o abre — e portanto não o registra como dependência. O CMake
+passa a considerar o `main.cpp` em dia.
+
+O resultado: gerar a configuração e recompilar produz um firmware que **continua
+dizendo "sem configuração"**, com o arquivo ali, recém-criado. Nada falha, nada
+avisa, e a hipótese natural passa a ser "o script não funcionou" — que é onde se
+perde a tarde.
+
+Medido: após gerar o cabeçalho e rodar o build, `strings` no ELF não encontrava
+o SSID. Só depois de um `touch src/main.cpp` ele aparecia.
+
+**Correção.** O gerador toca no `main.cpp` depois de escrever, e diz o comando
+de recompilação. A alternativa — declarar a dependência no CMake — não resolve
+o caso que importa, que é justamente o do arquivo que ainda não existe.
+
+---
+
 ## R-37 — O RF05 mandava baixar a base e nunca dizia de onde
 
 - **Onde:** `requirements.md` RF05 · `docs/adr/0002`
@@ -1653,13 +1876,26 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
+          procurando o arquivo. static_assert quebra o build se o override do
+          ffconf.h se perder; verificado por teste negativo. ADR 0007.
+[x] R-42  RESOLVIDO — fio reassentado; medido nos dois estados sob os tres
+          pulls: cartao dentro=ALTO, slot vazio=BAIXO. card_detected_true=1,
+          como estava antes do R-41. Diagnostico dos tres pulls fica no codigo
+[!] R-41  RETRATADO — a "polaridade invertida" era o meu proprio pull-down num
+          pino flutuante. Conclusao errada, publicada em commit. Ver R-42
+[x] R-40  RESOLVIDO — leitor SD tem 9 pinos, nao 8; faltava o D1 e o DET saia
+          deslocado para DAT2, que tem pull-up e mentia "cartao presente"
+[x] R-39  RESOLVIDO — o gera_config_bancada.py toca no main.cpp; sem isso o
+          build ficava em dia com uma configuracao que ele nunca leu
 [ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 
 LACUNAS
 [ ] L-01  Comportamento sem fix de GPS
 [ ] L-02  Orçamentos de memória, corrente e tempo de boot
-[ ] L-03  Falha ou ausência do cartão SD
+[~] L-03  Cartão ausente agora é detectado pelo DET e logado no boot e no
+          clique; cartão ilegível e base ausente ainda sem tratamento de IHM
 [ ] L-04  Watchdog e recuperação
 [ ] L-05  Faixa térmica (capacitor 105 °C)
 [ ] L-06  Conversão e suavização da velocidade

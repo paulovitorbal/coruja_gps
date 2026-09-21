@@ -248,6 +248,94 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
   mas o comportamento do modo de teste — inclusive se esquerda e direita saem
   na ordem certa — só se confirma na bancada.
 
+## Modo de bancada de rede — o que o `main.cpp` roda hoje
+
+Exercita o caminho de atualização OTA de ponta a ponta, com tudo saindo no
+console USB.
+
+| Gesto | O que acontece |
+|---|---|
+| girar à **direita** | agrava o estado de via: segura → âmbar → rosa → perigo |
+| girar à **esquerda** | alivia, no sentido inverso |
+| **clicar** | conecta no Wi-Fi, consulta a versão, baixa se mudou, verifica, desconecta |
+
+As quatro cores são as medidas no R-05, não valores nominais. O ciclo **satura
+nas pontas** em vez de dar a volta: numa tela de diagnóstico, voltar sozinho ao
+verde depois do vermelho esconde justamente que se chegou ao fim.
+
+### A configuração vem do cartão, lida no clique
+
+Nada de credencial embutida no firmware — o RNF03 é explícito, e ler no clique
+tem uma consequência prática boa: **trocar o cartão passa a valer sem
+reiniciar** o aparelho, e a configuração nunca fica velha em RAM.
+
+Ponha na raiz do cartão o `coruja.cfg` gerado por:
+
+```bash
+python3 scripts/gera_config.py --permitir-http --destino /Volumes/NOME_DO_CARTAO
+```
+
+No boot o cartão é só **inspecionado** pelo pino `DET` (GPIO 14), e o estado
+sai no console — presente ou ausente. Era o que faltava: sem essa linha, os
+dois casos davam exatamente o mesmo console, e a diferença só aparecia depois,
+disfarçada de outro erro.
+
+#### Qual partição
+
+A que **contém o arquivo**, não a primeira que for FAT. Num cartão de duas
+partições com a configuração na segunda, o padrão do FatFs diria "sem
+configuração" com o arquivo no cartão. Ver ADR 0007 e R-38.
+
+Partição lógica dentro de estendida continua fora do alcance, e o log diz
+quantas partições FAT foram montadas — é essa a pista quando o arquivo está no
+lugar errado.
+
+### O que sai no console
+
+Na varredura, cada rede vista com canal e RSSI, e quais são da lista. Depois o
+IP obtido, o `GET`, e — no download — os seis campos do cabeçalho do
+`radares.bin` ao lado do que de fato chegou:
+
+```
+[base] ---- cabecalho do radares.bin recebido ----
+[base]   magic        : 'RDR1' (0x31524452)
+[base]   versao       : 1
+[base]   exp_escala   : 5  (coordenadas x10^5)
+[base]   tam_registro : 12 B
+[base]   n_pontos     : 18294  (declarados)
+[base]   crc32        : 0xD290D536  (do cabecalho)
+[base] ---- e o que de fato chegou ----
+[base]   bytes        : 219544  (219528 de dados)
+[base]   pontos       : 18294  (confere)
+[base]   crc32        : 0xD290D536  (confere)
+```
+
+### O que ainda não acontece
+
+**Nada é gravado.** O destino do `radares.bin` é o cartão, e o leitor não
+existe — o arquivo é verificado *em fluxo* e descartado. A versão confirmada
+vive em RAM, então reiniciar faz o próximo clique baixar de novo.
+
+A verificação em fluxo é obrigatória, não uma escolha: o arquivo tem 214 KB e
+a base já reserva 281 KB dos 520 KB da placa. Guardar o download inteiro para
+só então validá-lo não cabe — e não vai caber nem com o cartão, porque aí o
+destino é o cartão.
+
+O `VerificadorDownload` confere cabeçalho, contagem e CRC-32, **na mesma ordem**
+do `carrega_base`. Ordenação por latitude e domínio de cada registro exigem os
+bytes na mão e continuam com a carga. Um arquivo aprovado no download ainda
+pode ser recusado na carga, e isso é correto: são perguntas diferentes.
+
+### Limites conhecidos
+
+- **Sem TLS.** Uma URL `https` é recusada com mensagem própria, não baixada em
+  claro: baixar em claro o que diz `https` seria mentir sobre o RF05.2 no ponto
+  exato em que ele importa. Ver o README do `servidor/`.
+- **Sem IPv6.** `http://[::1]:8080/x` é recusado com motivo próprio, em vez de
+  ir falhar no DNS com uma mensagem que não explica nada.
+- **Conexão episódica.** O rádio sobe no clique e cai ao fim, sempre — inclusive
+  nos caminhos de erro.
+
 ## Modo de calibração
 
 O firmware atual roda o **modo de calibração**, que fecha a metade pendente do

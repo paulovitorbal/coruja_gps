@@ -30,6 +30,9 @@ add_executable(testes
     nucleo/LimiarInfracaoTest.cpp
     nucleo/BaseRadaresTest.cpp
     nucleo/LeitorConfigTest.cpp
+    nucleo/TextoTest.cpp
+    nucleo/UrlTest.cpp
+    nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
     encoder/AntiRepiqueTest.cpp
@@ -37,6 +40,7 @@ add_executable(testes
     placa/PinosTest.cpp
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
+    app/CicloCoresTest.cpp
 )
 target_include_directories(testes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_dependencies(testes fixture)

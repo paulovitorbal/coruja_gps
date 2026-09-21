@@ -22,6 +22,18 @@ else()
     include(pico_sdk_import.cmake)
     project(coruja_gps C CXX ASM)
     pico_sdk_init()
+
+    # FAT32 no cartao. Biblioteca adotada em vez de escrita: e a implementacao
+    # de referencia para SD por SPI no Pico, Apache-2.0, com suporte a RP2350.
+    # Ver docs/adr/0007.
+    include(FetchContent)
+    FetchContent_Declare(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
+        GIT_REPOSITORY https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico.git
+        GIT_TAG        v3.6.2
+        GIT_SHALLOW    TRUE
+        # O repositorio nao tem CMakeLists na raiz: o alvo vive em src/.
+        SOURCE_SUBDIR  src)
+    FetchContent_MakeAvailable(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico)
     add_subdirectory(src)
     # -DCORUJA_DIAGNOSTICO=ON troca o firmware pelo diagnostico de pinos.
     option(CORUJA_DIAGNOSTICO "Compila o diagnostico de pinos do encoder" OFF)
@@ -31,7 +43,11 @@ else()
         add_executable(coruja_gps src/main.cpp)
     endif()
     target_link_libraries(coruja_gps PRIVATE
-        coruja_nucleo coruja_log coruja_ihm coruja_portes pico_stdlib)
+        coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
+        coruja_armazenamento
+        pico_stdlib)
+    # O lwipopts.h e o cyw43 procuram cabecalhos na raiz do firmware.
+    target_include_directories(coruja_gps PRIVATE ${CMAKE_CURRENT_LIST_DIR})
     pico_enable_stdio_usb(coruja_gps 1)
     pico_enable_stdio_uart(coruja_gps 0)
     pico_add_extra_outputs(coruja_gps)

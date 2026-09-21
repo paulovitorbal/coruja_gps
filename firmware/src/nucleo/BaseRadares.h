@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "nucleo/Crc32.h"
 #include "nucleo/Ponto.h"
 
 namespace coruja {
@@ -91,9 +92,5 @@ static_assert(kCapacidadeFirmware * sizeof(Ponto) < 355u * 1024u,
 ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
                             Ponto* destino, std::size_t capacidade,
                             Logger* logger = nullptr);
-
-/// CRC-32 (polinomio IEEE 802.3 refletido, 0xEDB88320), identico ao
-/// `zlib.crc32` usado pelo conversor.
-std::uint32_t crc32(const std::uint8_t* bytes, std::size_t tamanho);
 
 }  // namespace coruja

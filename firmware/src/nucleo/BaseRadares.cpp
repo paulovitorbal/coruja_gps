@@ -58,18 +58,6 @@ const char* descreve(ErroBase erro) {
     return "erro desconhecido";
 }
 
-std::uint32_t crc32(const std::uint8_t* bytes, std::size_t tamanho) {
-    std::uint32_t crc = 0xFFFFFFFFU;
-    for (std::size_t i = 0; i < tamanho; ++i) {
-        crc ^= bytes[i];
-        for (int bit = 0; bit < 8; ++bit) {
-            const std::uint32_t mascara = -(crc & 1U);
-            crc = (crc >> 1) ^ (0xEDB88320U & mascara);
-        }
-    }
-    return ~crc;
-}
-
 ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
                             Ponto* destino, std::size_t capacidade,
                             Logger* logger) {

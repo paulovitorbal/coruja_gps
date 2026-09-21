@@ -554,24 +554,30 @@ isso que é ruim:
   em efeito estroboscópico; entre 1 e 20 kHz alguns módulos assobiam. Ver §8 do
   `formato_dados.md` para a curva de brilho.
 
-#### ⚠️ Pinagem física do leitor microSD (conferida na placa, 2026-09-17)
+#### ⚠️ Pinagem física do leitor microSD (relida na placa, 2026-09-20)
 
-O leitor tem **8 pinos**, não 6, e a serigrafia usa nomes duplos (modo SD / modo SPI).
-Da esquerda para a direita, olhando de frente:
+O leitor tem **9 pinos**. Da esquerda para a direita, olhando de frente:
 
 | # | Serigrafia | Liga em | Função em modo SPI |
 | :---: | :--- | :--- | :--- |
 | 1 | `3V` | `3V3_OUT` (pino 36) | alimentação |
 | 2 | `GND` | GND comum | terra |
 | 3 | `CLK` | GPIO 18 (pino 24) | clock do SPI0 |
-| 4 | `DO/SO` | GPIO 16 (pino 21) | saída do cartão → MISO |
-| 5 | `CMD/SI` | GPIO 19 (pino 25) | entrada do cartão → MOSI |
-| 6 | `D3/CS` | GPIO 17 (pino 22) | chip select |
-| 7 | `DAT2` | **desconectado** | não usado em modo SPI |
-| 8 | `DET` | GPIO 14 (pino 19) | card detect — ver abaixo |
+| 4 | `D0` | GPIO 16 (pino 21) | saída do cartão → MISO |
+| 5 | `CMD` | GPIO 19 (pino 25) | entrada do cartão → MOSI |
+| 6 | `D3` | GPIO 17 (pino 22) | chip select |
+| 7 | `D1` | **desconectado** | não usado em modo SPI |
+| 8 | `DAT2` | **desconectado** | não usado em modo SPI |
+| 9 | `DET` | GPIO 14 (pino 19) | card detect — ver abaixo |
 
-> ⚠️ **Use os rótulos da serigrafia, não nomes genéricos.** A revisão 2 deste documento
-> descrevia `VCC/GND/CLK/DI/DO/CS`, que eram inferência e não conferiam com a placa.
+> ⚠️ **A revisão 3 listava 8 pinos e omitia o `D1`**, o que deslocava as duas últimas
+> posições: quem contasse posições pela tabela poria o fio do `DET` em `DAT2`. E isso
+> não falha de forma visível — a Adafruit documenta *"pull ups are provided on all
+> SDIO logic pins"*, então `DAT2` fica **alto por construção** e o firmware passa a
+> relatar "cartão presente" para sempre, com ou sem cartão. Ver R-40.
+
+> ⚠️ **Conte os pinos na placa antes de fiar.** Duas revisões seguidas deste documento
+> erraram esta tabela, cada uma de um jeito.
 
 #### 🆕 Card detect (`DET` → GPIO 14)
 
@@ -579,22 +585,27 @@ O `DET` permite ao firmware distinguir **"cartão ausente"** — que o motorista
 inserindo o cartão — de **"cartão ilegível"**, que ele não resolve. Sem isso, o RF07
 trata os dois como a mesma falha.
 
-**Polaridade e pull-up — documentados pelo fabricante** (guia da Adafruit para este
-breakout, `adafruit-microsd-spi-sdio.pdf`, pág. 8):
+**Polaridade — MEDIDA na placa em 2026-09-20**, lendo o pino sob os **três** pulls
+internos em cada estado. Coincide com o que a Adafruit documenta:
 
-> *"DET — Detect whether a microSD card is inserted. This pin is connected to GND
-> internally when there's no card, but when one is inserted it is pulled up to 3V with
-> a 4.7 kΩ resistor. That means that when the pin's logic level is False there's no
-> card and when it's True there is."*
+| Estado | pull-down | pull-up | sem pull | Conclusão |
+| :--- | :---: | :---: | :---: | :--- |
+| **Cartão inserido** | ALTO | ALTO | ALTO | acionado em ALTO (pull-up) |
+| **Slot vazio** | BAIXO | BAIXO | BAIXO | acionado em BAIXO (chave ao GND) |
+| Módulo desconectado | BAIXO | ALTO | ALTO | **flutuante** — segue o pull |
 
-| Estado | Nível em GPIO 14 |
-| :--- | :--- |
-| **Cartão inserido** | **ALTO** — 3 V através do pull-up de 4,7 kΩ da placa |
-| **Sem cartão** | **BAIXO** — ligado ao GND internamente |
+> ⚠️ **Meça sob os três pulls, não sob um.** A terceira linha é a razão: um pino
+> flutuante produz leituras que parecem perfeitamente conclusivas, e mudam conforme o
+> pull que o firmware configurou. Duas leituras assim levaram a inverter esta
+> polaridade por engano e a publicar a inversão (R-41, retratado). A medição sob os
+> três pulls foi o que resolveu, e está em `CartaoSd::diagnostica_det()`, rodando a
+> cada clique.
 
-* ⚠️ **Não habilitar o pull-up interno do Pico.** A placa já traz 4,7 kΩ para 3 V.
-  Configure o GPIO 14 como entrada simples, sem pull. O interno (~50–80 kΩ) seria
-  redundante e mais fraco que o da placa.
+* **Habilitar o pull-down interno do Pico.** Ele é irrelevante com o módulo ligado,
+  onde perde de longe para o pull-up da placa e para a chave ao GND. Serve para o
+  módulo **ausente**: sem pull nenhum o GPIO 14 flutua e a presença do cartão vira
+  sorteio. Com pull-down, módulo ausente lê BAIXO — nesta polaridade, "sem cartão",
+  que é a resposta conservadora.
 * **Nenhum componente novo.**
 * **GPIO 14 estava livre** desde que o LED verde de Wi-Fi saiu do projeto (R-25).
 
