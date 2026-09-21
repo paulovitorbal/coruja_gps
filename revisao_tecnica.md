@@ -1493,6 +1493,36 @@ diagnóstico.
 
 ---
 
+## R-44 — O gerador do Fritzing continuou fiando os capacitores que o R-36 proibiu
+
+- **Onde:** `gera_fritzing.py` · `coruja_gps.fzz`
+- **Confiança:** ✅ Lido no `NETS`, e confirmado no diff do commit do R-36
+- **Registrado em:** 2026-09-21
+- **Status:** ✅ **CORRIGIDO** — `C3` e `C4` removidos das peças, das redes e das posições
+
+**Problema.** O R-36 concluiu, com medição, que os 100 nF em `CLK` e `DT` **impedem
+qualquer decodificação** de quadratura, e a montagem passou a ser sem eles. O commit
+que registrou isso se chama *"os 100 nF de debounce matavam a quadratura"*.
+
+Mas ele **não tocou nos capacitores no gerador**. Conferido no diff: as únicas
+mudanças foram o `LED_R/G/B_GPIO` do R-35. O `C3` e o `C4` continuaram na lista de
+peças e ligados às redes `ENC_CLK` e `ENC_DT` por mais dois dias.
+
+Ou seja: o esquemático que o projeto publica mandava instalar exatamente os
+componentes que o projeto já sabia que quebram o encoder.
+
+**Por que passou.** A mensagem do commit descrevia a conclusão, não o escopo da
+mudança — ela falava dos capacitores porque *o achado* era sobre eles, enquanto o
+*diff* tratava do LED. Quem lesse a mensagem concluiria que o gerador estava
+atualizado. Eu escrevi esse commit.
+
+**A defesa que faltava.** Nenhuma: o `bom_schematic.md` e o gerador não têm
+verificação cruzada automática, e é a segunda vez que divergem (a primeira foi o
+R-40, com o leitor SD). Vale considerar um teste que compare as tabelas do documento
+com o `NETS`, como já existe entre o `gera_config.py` e o `Configuracao.h`.
+
+---
+
 ## R-43 — O fio do `DET` tem contato intermitente
 
 - **Onde:** fiação de bancada (protoboard)
@@ -1912,6 +1942,9 @@ RELEVANTES
 [x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
           procurando o arquivo. static_assert quebra o build se o override do
           ffconf.h se perder; verificado por teste negativo. ADR 0007.
+[x] R-44  RESOLVIDO — C3/C4 saíram do gerador. O commit do R-36 falava deles na
+          mensagem e mexia so no LED; o .fzz mandou instalar por 2 dias os
+          capacitores que matam a quadratura
 [ ] R-43  DET com contato intermitente: flutuante no boot e acionado no clique,
           mesma alimentacao. Num carro, vibracao. Reassentar ou soldar
 [x] R-42  RESOLVIDO — fio reassentado; medido nos dois estados sob os tres

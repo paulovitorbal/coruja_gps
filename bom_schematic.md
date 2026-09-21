@@ -22,7 +22,7 @@
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. | 🟢 entregue |
 | 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. | 🔵 comprado |
 | 8 | ⚠️ **LED RGB 10 mm Difuso** | **Ânodo comum** (terminal mais longo vai ao **3V3**) — **lógica invertida**, ver nota | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. | ⚪ disponível |
-| 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de 5 V com margem de corrente. | ⚪ disponível |
+| 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de **12 V** com margem de corrente. `Vceo` de 45 V no BC337 e 30 V no 2N2222 — ambos com folga. | ⚪ disponível |
 | 10 | **Resistor de 330 Ω** | ✅ **Medido na bancada** (2026-09-19) — canal **vermelho** do LED | Limita a corrente do canal vermelho. | ⚪ disponível |
 | 11 | ✅ **Resistores de 150 Ω e 470 Ω** | **Medidos na bancada** (2026-09-19): **150 Ω no azul**, **470 Ω no verde**, um de cada. Os 68 Ω especificados antes **não são usados** | Limitam a corrente dos canais azul e verde. | ⚪ disponível |
 | 12 | ⚠️ **Resistores de 1 kΩ** | **2 unidades** — filme de carbono ou metálico | Base do transistor do buzzer **+ série no `GPIO 0 → GPS RX`** (R-22). | ⚪ disponível |
@@ -112,29 +112,48 @@ ramo interno — margem de 10× no pior caso. A queda de tensão é desprezível
 contra oxidação, o que importa num ambiente com variação térmica e umidade como o
 interior de um painel.
 
-> 💡 **Convenção de cor sugerida**, espelhando as cores dos fios no Fritzing: preto para
-> GND, vermelho para 5 V e 12 V, azul para 3V3. Nos sinais, qualquer cor — mas manter a
+> 💡 **Convenção de cor**, espelhando as cores dos fios no Fritzing: preto para GND,
+> vermelho para 5 V, **magenta para 12 V** e azul para 3V3.
+>
+> ⚠️ A revisão anterior mandava vermelho para 5 V **e** 12 V. Não serve mais: desde que
+> o conversor veio para dentro do gabinete, as duas tensões convivem a centímetros uma
+> da outra, e 12 V no trilho de 5 V destrói Pico, GPS, display e cartão juntos. Cor
+> igual para tensões incompatíveis é um erro esperando acontecer.
+>
+> Nos sinais, qualquer cor — mas manter a
 > mesma do esquemático poupa conferência durante a montagem.
 
 ### ⚠️ Nota — os dois conectores do aparelho
 
-O gabinete tem **dois conectores externos**, ambos em ~5 V:
+O gabinete tem **dois conectores externos**, ambos em **12 V** (ADR 0009):
 
 | Conector | Vias | Pino A | Pino B |
 | :--- | :---: | :--- | :--- |
-| **Entrada** (item 19) | **3** (central sem uso) | +5 V do conversor | GND |
-| **Buzzer** (item 18) | **2** | +5 V do trilho `VSYS` | Coletor do transistor |
+| **Entrada** (item 19) | **3** (central sem uso) | **+12 V** do pós-chave | GND |
+| **Buzzer** (item 18) | **2** | **+12 V** protegido | Coletor do transistor |
 
-Contagens diferentes impedem a troca. Com o conversor **fora** do gabinete, a troca
-deixou de ser destrutiva — é o que mudou em relação à revisão anterior:
+Contagens diferentes impedem a troca, e **isso voltou a ser medida de segurança**.
 
-* Plugue do buzzer na entrada → buzzer recebe 5 V e GND e **toca continuamente**.
-  Irritante, não destrutivo.
-* Plugue da entrada no buzzer → o GND da alimentação encosta no coletor; o aparelho
-  **não liga**. Sem dano.
+> ⚠️ A revisão anterior dizia que, com o conversor fora do gabinete, trocar os dois
+> "deixou de ser destrutivo", e rebaixava as 3 vias a medida de robustez. **Não vale
+> mais.** O conversor veio para dentro e agora há 12 V nos dois conectores, a
+> centímetros de um trilho cujo máximo absoluto é 5,5 V.
 
-Então as 3 vias passaram de **medida de segurança** a **medida de robustez**: evita
-duas formas de perder tempo depurando, ao mesmo custo. Vale manter.
+O que acontece hoje em cada troca:
+
+* Plugue do buzzer na entrada → `+12 V` no pino A e o coletor onde deveria estar o
+  GND. O aparelho não liga e o buzzer não toca; sem dano, porque as duas vias já são
+  do domínio de 12 V.
+* Plugue da entrada no buzzer → o GND da alimentação encosta no coletor. O transistor
+  fica com o coletor aterrado; sem dano.
+
+O dano real não está entre esses dois conectores — está em **qualquer caminho que leve
+os 12 V ao trilho de 5 V**. Daí a cor distinta do fio (magenta, não vermelho) e a
+contagem diferente de vias.
+
+⚠️ O conector do buzzer passou a ser um **header genérico**, por padronização visual
+com os demais módulos. Ele **não é polarizado**, ao contrário do JST que substituiu:
+a contagem de pinos é a única proteção que sobrou contra a troca.
 
 > 🔴 **O perigo real migrou para o trecho de 12 V.** Ver *"O trecho de 12 V NÃO pode
 > usar JST-XH"* na seção 0 — é lá que um plugue errado destrói o aparelho.
@@ -331,9 +350,9 @@ Mapeamento de nós para interligar os componentes na aba "Esquemático" ou "Prot
 
 ### 🆕 0. Instalação no veículo
 
-A alimentação vem do **pós-chave**, derivada na caixa de fusíveis. O conversor CC fica
-**fora do gabinete** — ocupa espaço demais dentro — e o conector de entrada do aparelho
-vem **depois** dele. O que entra no gabinete é **5 V**.
+A alimentação vem do **pós-chave**, derivada na caixa de fusíveis. Desde 2026-09-21 o
+conversor CC fica **dentro do gabinete**, e o que entra é **12 V** — o buzzer passou a
+ser alimentado em 12 V e isso exige o 12 V lá dentro de qualquer forma. Ver ADR 0009.
 
 ```
 bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
@@ -904,7 +923,8 @@ Antes de ligar o circuito pela primeira vez:
       antes de energizar. O TVS bidirecional **não** protege contra inversão, e o
       conversor não tem proteção de polaridade reversa.
 - [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
-- [ ] Polaridade da entrada de 5 V conferida no JST, com o cabo já crimpado.
+- [ ] Polaridade da entrada de **12 V** conferida no conector, com o cabo já crimpado.
+- [ ] Fio de 12 V em cor distinta do de 5 V (magenta no `.fzz`), dentro e fora.
 - [ ] 🆕 **Tudo que é 3,3 V está no pino 36 (`3V3_OUT`), não no 37 (`3V3_EN`).**
       São pinos adjacentes; o 37 desliga o regulador da placa. Confira o leitor SD,
       o encoder, o ânodo comum do LED e o VCC do display se ele for de 3,3 V.

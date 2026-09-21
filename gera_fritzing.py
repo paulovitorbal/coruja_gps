@@ -95,18 +95,53 @@ PECAS = [
      "generic-female-header-rounded_5.fzp",
      "Encoder KY-040", {}, ["GND", "+ 3V3", "SW", "DT", "CLK"]),
 
-    # Entrada de 5 V, DEPOIS do conversor CC — que fica FORA do gabinete.
-    # Três vias de propósito: XH de 2 e de 3 vias não encaixam, o que evita
-    # plugar a entrada no soquete do buzzer. Pino central sem uso.
-    # O conversor não é representado aqui: o esquemático começa no 5 V.
-    ("J5V", "b13c0353-1ee1-11de-8283-0019d2b7521e",
+    # ENTRADA DE 12 V, do pós-chave. O que entra no aparelho passou a ser 12 V
+    # e não mais 5 V: o buzzer agora é alimentado em 12 V (SFM-20B é 3-24 V),
+    # o que exige 12 V dentro do gabinete de qualquer forma. Com o 12 V já
+    # dentro, o conversor vem junto e o cabo externo de 5 V desaparece.
+    #
+    # Três vias, pino central sem uso: mantém a contagem diferente da do
+    # conector do buzzer, que é de 2. Ver a nota de segurança no README.
+    ("J12V", "b13c0353-1ee1-11de-8283-0019d2b7521e",
      "generic-female-header-rounded_3.fzp",
-     "Entrada 5V (do conversor 12V->5V externo)", {},
-     ["+5V", "n/c", "GND"]),
+     "Entrada 12V (pos-chave)", {},
+     ["+12V", "n/c", "GND"]),
 
-    ("JBZ", "SparkFun-Connectors-M02-JST-PTH-2-KIT",
-     "sparkfun-connectors-m02-jst-pth-2-kit.fzp",
-     "JST-XH buzzer (painel)", {}, ["+5V", "Coletor"]),
+    # Fusível de 2 A. Protege o FIO, não a carga — por isso acompanha a
+    # corrente do aparelho e não a capacidade do cabo. Fica no chicote, antes
+    # da proteção, porque o modo de falha desejável de um TVS é curto.
+    ("F1", "SparkFun-Passives-FUSE-X20MM",
+     "sparkfun-passives-fuse-x20mm.fzp",
+     "F1 2 A (no chicote)", {}, ["0", "1"]),
+
+    # TVS BIDIRECIONAL de 24 V. O sufixo CA é o que o torna bidirecional; a
+    # versão A montada ao contrário fica em curto permanente. Clampa em
+    # 33,2 V: acima dos 14,4 V da rede com motor ligado, abaixo dos 40 V do
+    # conversor. Não cobre load dump real (>1 kW) -- ver README.
+    ("TVS1", "SparkFun-DiscreteSemi-TVS-",
+     "sparkfun-discretesemi-tvs-.fzp",
+     "TVS1 P6KE24CA bidirecional", {}, ["0", "1"]),
+
+    # Conversor step-down. Entrada >= 40 V é requisito, não preferência: o
+    # transiente que destrói eletrônica automotiva é o load dump, não a
+    # partida. NÃO pode ser isolado -- o retorno do buzzer em 12 V passa pelo
+    # emissor do Q1, que está no GND do aparelho.
+    ("CONV", "b799cea1-1ee1-11de-8283-0019d2b7521e",
+     "generic-female-header-rounded_4.fzp",
+     "Conversor step-down 12V->5V (LM2596, nao isolado)", {},
+     ["IN+", "IN-", "OUT+", "OUT-"]),
+
+    # Conector do buzzer. Header genérico, para manter o padrão visual dos
+    # demais módulos.
+    #
+    # ⚠️ Agora carrega **12 V**. A proteção contra troca com a entrada é a
+    # contagem de pinos (2 contra 3) -- e voltou a ser medida de SEGURANÇA, e
+    # não de robustez: 12 V no trilho de 5 V destrói Pico, GPS, display e
+    # cartão juntos. Um header genérico também não é polarizado, ao contrário
+    # do JST que ele substitui.
+    ("JBZ", "ab8b0927-1ee1-11de-8283-0019d2b7521e",
+     "generic-female-header-rounded_2.fzp",
+     "Conector do buzzer (painel) - 12 V", {}, ["+12V", "Coletor"]),
 
     ("LED", "d4d5af9700923b8a114f57961f29a8a0ColorLEDModuleID",
      "led-rgb-4pin-cathode_v5.fzp",
@@ -139,12 +174,14 @@ PECAS = [
     ("C1", "MediumElectrolyticCapacitorModuleID",
      "capacitor_electrolytic_medium.fzp",
      "C1 470uF 25V 105C", {"capacitance": "470µF"}, None),
+    # Entrada de 12 V, junto ao conversor. 50 V porque a rede automotiva tem
+    # transientes; 105 C porque sob o painel se chega a 50-60 C e a vida de um
+    # eletrolítico cai pela metade a cada 10 C. Ver L-05.
+    ("C5", "MediumElectrolyticCapacitorModuleID",
+     "capacitor_electrolytic_medium.fzp",
+     "C5 470uF 50V 105C (entrada 12V)", {"capacitance": "470µF"}, None),
     ("C2", "100milCeramicCapacitorModuleID", "capacitor_ceramic_100mil.fzp",
      "C2 100nF (filtro VSYS)", {"capacitance": "100nF"}, None),
-    ("C3", "100milCeramicCapacitorModuleID", "capacitor_ceramic_100mil.fzp",
-     "C3 100nF (debounce CLK)", {"capacitance": "100nF"}, None),
-    ("C4", "100milCeramicCapacitorModuleID", "capacitor_ceramic_100mil.fzp",
-     "C4 100nF (debounce DT)", {"capacitance": "100nF"}, None),
 
     ("BZ", "8abf6496b5d466c7a1893c17a296a676", "piezo sensor.fzp",
      "BZ1 SFM-27 (remoto)", {}, None),
@@ -160,6 +197,10 @@ CONN = {
     "D1": {"K": "connector0", "A": "connector1"},      # cathode, anode
     "D2": {"A": "connector0", "K": "connector1"},
     "C1": {"-": "connector0", "+": "connector1"},
+    "C5": {"-": "connector0", "+": "connector1"},
+    # O fusivel da biblioteca pula o connector1: os terminais sao 0 e 2.
+    "F1": {"0": "connector0", "1": "connector2"},
+    "TVS1": {"0": "connector0", "1": "connector1"},
 }
 
 
@@ -178,13 +219,28 @@ def pino(peca, nome):
 # ------------------------------------------------------------------ redes ----
 # Cada rede é uma lista de (peça, pino). Transcrito de bom_schematic.md rev.2.
 NETS = {
-    "5V_ENTRADA":  [("J5V", "+5V"), ("D1", "A")],
+    # --- 12 V, do pos-chave ate o conversor e ate o buzzer ------------------
+    "12V_ENTRADA":  [("J12V", "+12V"), ("F1", "0")],
+    # Depois do fusivel: protecao, conversor e o ramo do buzzer. O D2 tem o
+    # catodo AQUI, e nao no 5 V: ele so faria sentido como roda-livre para um
+    # buzzer eletromagnetico, e a roda-livre tem de referenciar a alimentacao
+    # do buzzer, que agora e 12 V.
+    "12V_PROTEGIDO": [("F1", "1"), ("TVS1", "0"), ("C5", "+"),
+                      ("CONV", "IN+"), ("JBZ", "+12V"), ("D2", "K")],
+
+    # --- 5 V, gerado dentro do aparelho -------------------------------------
+    "5V_CONV":     [("CONV", "OUT+"), ("D1", "A")],
     "VSYS_5V":     [("D1", "K"), ("PICO", "39"), ("C1", "+"), ("C2", "0"),
-                    ("GPS", "VCC 5V"), ("JBZ", "+5V"), ("D2", "K")],
-    "GND":         [("J5V", "GND"), ("PICO", "38"), ("PICO", "3"), ("C1", "-"),
+                    ("GPS", "VCC 5V")],
+
+    # GND comum. O conversor NAO pode ser isolado: sem continuidade entre o
+    # negativo de 12 V e o do aparelho, a corrente do buzzer nao fecha pelo
+    # emissor do Q1 e ele simplesmente nao toca.
+    "GND":         [("J12V", "GND"), ("TVS1", "1"), ("C5", "-"),
+                    ("CONV", "IN-"), ("CONV", "OUT-"),
+                    ("PICO", "38"), ("PICO", "3"), ("C1", "-"),
                     ("C2", "1"), ("Q1", "E"), ("GPS", "GND"),
-                    ("SD", "GND"), ("TFT", "GND"), ("ENC", "GND"),
-                    ("C3", "1"), ("C4", "1")],
+                    ("SD", "GND"), ("TFT", "GND"), ("ENC", "GND")],
     # O LED e de ANODO comum (BOM item 8, corrigido em 2026-09-18): o terminal
     # comum vai ao 3V3, nao ao GND, e cada catodo desce por seu resistor ate um
     # GPIO. Ver R-33 -- isso inverte a logica de acionamento no firmware.
@@ -208,8 +264,12 @@ NETS = {
     "UART_TX_R5":  [("PICO", "1"), ("R5", "0")],
     "GPS_RX":      [("R5", "1"), ("GPS", "RX")],
 
-    "ENC_CLK":     [("PICO", "4"), ("ENC", "CLK"), ("C3", "0")],
-    "ENC_DT":      [("PICO", "5"), ("ENC", "DT"), ("C4", "0")],
+    # SEM capacitor de debounce. Os 100 nF que a revisao 2 mandava instalar
+    # IMPEDEM qualquer decodificacao: achatam fases de 45-128 ms em pulsos de
+    # 1 ms e apagam o estado (0,0), que e onde a quadratura codifica direcao.
+    # Medido na placa. O debounce e a maquina de estados do firmware. R-36.
+    "ENC_CLK":     [("PICO", "4"), ("ENC", "CLK")],
+    "ENC_DT":      [("PICO", "5"), ("ENC", "DT")],
     "ENC_SW":      [("PICO", "6"), ("ENC", "SW")],
 
     # ATENCAO: vermelho e azul NAO seguem a ordem crescente de GPIO. A ordem
@@ -230,7 +290,7 @@ NETS = {
     "BUZZ_GPIO5":   [("PICO", "7"), ("R4", "0")],
     "BUZZ_BASE":    [("R4", "1"), ("Q1", "B")],
     "BUZZ_COLETOR": [("Q1", "C"), ("JBZ", "Coletor"), ("D2", "A")],
-    "BUZZER":       [("BZ", "0"), ("JBZ", "+5V")],
+    "BUZZER":       [("BZ", "0"), ("JBZ", "+12V")],
     "BUZZER_RET":   [("BZ", "1"), ("JBZ", "Coletor")],
 }
 
@@ -239,24 +299,39 @@ NETS = {
 POS = {
     "PICO": (600, 300),
     "GPS": (1100, 180), "SD": (1100, 380), "TFT": (1100, 600), "ENC": (1100, 840),
-    "J5V": (120, 120), "D1": (300, 120), "C1": (420, 200), "C2": (500, 200),
+    "J12V": (60, 60), "F1": (170, 60), "TVS1": (260, 140), "C5": (330, 140),
+    "CONV": (120, 240), "D1": (300, 120), "C1": (420, 200), "C2": (500, 200),
     "R1": (250, 560), "R2": (250, 640), "R3": (250, 720), "LED": (80, 640),
     "R4": (250, 900), "Q1": (120, 960), "JBZ": (380, 1020), "BZ": (560, 1080),
     "D2": (460, 960), "R5": (380, 60),
-    "C3": (900, 900), "C4": (900, 980),
 }
 
 # Paleta padrão do Fritzing. GND/5V/3V3 conforme pedido; o resto por grupo de
 # sinal, para dar rastreabilidade visual na perfboard.
 CORES = {
     "GND":        "#000000",   # preto
-    "5V_ENTRADA":  "#ff1a1a",   # vermelho
+    # ⚠️ 12 V NAO e vermelho, de proposito. A convencao antiga mandava
+    # vermelho para 5 V "e 12 V" -- com o 12 V dentro do gabinete, duas
+    # tensoes com a mesma cor a 3 cm uma da outra e convite a erro, e o erro
+    # destroi Pico, GPS, display e cartao juntos.
+    "12V_ENTRADA":   "#ff33cc",  # magenta
+    "12V_PROTEGIDO": "#ff33cc",  # magenta
+    "5V_CONV":    "#ff1a1a",   # vermelho
     "VSYS_5V":    "#ff1a1a",   # vermelho
     "3V3":        "#418dd9",   # azul
+    # BARRAMENTO SPI EM COR ÚNICA, incluindo os dois chip-selects. O
+    # barramento é compartilhado entre cartão e display (RNF06), e na
+    # perfboard o que se quer enxergar de relance é "isto é SPI" — separar o
+    # CS por cor sugeria que ele fosse outro grupo, quando ele é o que
+    # distingue quem fala no mesmo barramento.
     "SPI0_SCK":   "#4faf4e", "SPI0_MOSI": "#4faf4e", "SPI0_MISO": "#4faf4e",
+    "SD_CS":      "#4faf4e", "TFT_CS":    "#4faf4e",
+    # O DET acompanha o chicote do cartão, mas NÃO é do barramento: é uma
+    # chave mecânica lida como GPIO.
     "SD_DET":     "#4faf4e",
-    "SD_CS":      "#ffe500", "TFT_CS": "#ffe500", "TFT_DC": "#ffe500",
-    "TFT_RST":    "#ffe500", "TFT_BL_PWM": "#ffe500",
+    # Controle do display, fora do barramento: DC escolhe comando ou dado,
+    # RES é reset e BL é o PWM do backlight.
+    "TFT_DC":     "#ffe500", "TFT_RST": "#ffe500", "TFT_BL_PWM": "#ffe500",
     "GPS_TX":     "#8c3b00", "GPS_RX": "#8c3b00", "UART_TX_R5": "#8c3b00",
     "ENC_CLK":    "#ff7f00", "ENC_DT": "#ff7f00", "ENC_SW": "#ff7f00",
     "LED_R_GPIO": "#8c00ff", "LED_R_CATODO": "#8c00ff",
@@ -270,11 +345,11 @@ COR_PADRAO = "#999999"
 POS_BB = {
     "PICO": (300, 120),
     "GPS": (620, 60), "SD": (620, 150), "TFT": (620, 240), "ENC": (620, 330),
-    "J5V": (60, 60), "D1": (170, 60), "C1": (150, 150), "C2": (230, 150),
+    "J12V": (40, 40), "F1": (120, 40), "TVS1": (180, 100), "C5": (230, 100),
+    "CONV": (60, 170), "D1": (170, 60), "C1": (150, 150), "C2": (230, 150),
     "R1": (60, 380), "R2": (60, 420), "R3": (60, 460),
     "LED": (60, 520), "R4": (60, 600), "Q1": (180, 620),
     "JBZ": (300, 620), "BZ": (400, 660), "D2": (240, 700), "R5": (430, 60),
-    "C3": (620, 430), "C4": (620, 470),
 }
 
 VISTAS = [("breadboardView", "breadboard"),
@@ -482,6 +557,7 @@ def main(argv=None):
     porcor = collections.Counter(c for _m, c, *_r in fios)
     print(f"{SAIDA.name}: {len(PECAS)} peças, {len(NETS)} redes, {len(fios)} fios")
     nomes_cor = {"#000000": "preto (GND)", "#ff1a1a": "vermelho (5V)",
+                 "#ff33cc": "magenta (12V)",
                  "#418dd9": "azul (3V3)", "#4faf4e": "verde (SPI)",
                  "#ffe500": "amarelo (display)", "#8c3b00": "marrom (GPS/UART)",
                  "#ff7f00": "laranja (encoder)", "#8c00ff": "violeta (LED RGB)",

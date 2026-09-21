@@ -91,41 +91,77 @@ Obter a base é problema de quem monta: o projeto não presume fonte nenhuma.
 
 ## Alimentação e instalação no veículo
 
-Alimentado pelo **pós-chave**, derivado na caixa de fusíveis. O conversor CC fica **fora
-do gabinete** — ocupa espaço demais dentro — então o que entra no aparelho é **5 V**.
+Alimentado pelo **pós-chave**, derivado na caixa de fusíveis. **O que entra no aparelho
+é 12 V** — o conversor CC ficou para dentro.
+
+Essa topologia mudou em 2026-09-21, e o motivo foi o buzzer. Ver `docs/adr/0009`.
 
 ```
-bateria ─ caixa de fusíveis ─ piggyback ─ fusível 2 A ─ 1,5 mm² (12 V)
-                                                             │
-                                          ┌──────────────────▼─────────┐
-                                          │ TVS 24 V  ┬  470 µF / 50 V │ proteção da
-                                          │  (bidir.) │               │ entrada
-                                          └──────────────────┬─────────┘
-                                          ┌──────────────────▼─────────┐
-                                          │ conversor 12 V → 5 V       │ fora,
-                                          │ ajustável, entrada ≥ 40 V  │ sob o painel
-                                          └──────────────────┬─────────┘
-                                                             │ 22 AWG (5 V)
-                                          ┌──────────────────▼─────────┐
-                                          │ JST 3 vias → Schottky      │ gabinete
-                                          │   → VSYS (pino 39)         │
-                                          └────────────────────────────┘
+bateria ─ caixa de fusíveis ─ piggyback ─ fusível 2 A ─ 1,5 mm² trançado (12 V)
+                                                               │
+                                              ┌────────────────▼──────────────┐
+                                              │  conector de entrada, 3 vias  │
+                                              └────────────────┬──────────────┘
+                                                               │  dentro do gabinete
+                                     ┌─────────────────────────┼───────────────┐
+                                     │                         │               │
+                          ┌──────────▼──────────┐   ┌──────────▼─────────┐     │
+                          │ TVS 24 V ┬ 470 µF   │   │ conversor 12 V→5 V │     │
+                          │ (bidir.) │ 50 V     │   │ NÃO isolado, ≥40 V │     │
+                          └──────────┴──────────┘   └──────────┬─────────┘     │
+                                                               │ 5 V           │ 12 V
+                                                    ┌──────────▼─────────┐  ┌──▼──────────┐
+                                                    │ Schottky → VSYS 39 │  │ buzzer, 2 v.│
+                                                    └────────────────────┘  └─────────────┘
 ```
 
 Consumo: **~145 mA em 12 V** (≈1,6 W) em condução normal, com pico de ~200 mA quando a
 tensão cai a 9 V durante a partida. No lado de 5 V são ~162 mA normais e ~310 mA no
 pior caso sustentado.
 
+### O buzzer é alimentado em 12 V
+
+O **SFM-20B é especificado para 3–24 V**. Em 5 V ele opera perto do mínimo da faixa; em
+12 V, perto do meio — e para um piezo ativo a pressão sonora sobe bastante com a
+tensão. O **R-32** registra a audibilidade com janelas abertas a 80 km/h como a
+incerteza que sobrou do projeto, e nenhuma mudança de firmware a resolve. Esta resolve,
+ou pelo menos ataca a causa certa.
+
+O circuito não muda: o `BC337` tem `Vceo` de 45 V, a corrente é a mesma, e o
+acionamento pela base continua em 3,3 V através de 1 kΩ. Não há roda-livre a
+acrescentar — o buzzer é piezoelétrico, carga capacitiva.
+
+**O `D2` mudou de referência.** Ele só faria sentido como roda-livre caso o buzzer
+fosse trocado por um eletromagnético, e roda-livre referencia a alimentação do buzzer:
+o catodo saiu do trilho de 5 V e foi para o de 12 V.
+
+### 🔴 O 12 V agora está dentro do gabinete
+
+Essa é a contrapartida, e é séria.
+
+Antes, com o conversor do lado de fora, nada acima de 5 V entrava na caixa. Agora
+entram 12 V, e eles convivem a centímetros de um trilho cujo máximo absoluto é 5,5 V.
+**12 V no nó `VSYS` destrói Pico, GPS, display e cartão juntos.**
+
+Três consequências práticas:
+
+* **O conector de entrada tem 3 vias e o do buzzer tem 2**, e isso voltou a ser medida
+  de **segurança**, não de robustez. A revisão anterior deste documento dizia que
+  trocá-los "deixou de ser destrutivo" — aquilo valia enquanto só havia 5 V; não vale
+  mais.
+* **O fio de 12 V não é vermelho.** A convenção antiga mandava vermelho para 5 V *e*
+  12 V; duas tensões com a mesma cor a três centímetros uma da outra é convite a erro.
+  No `.fzz` o 12 V é **magenta**.
+* **O fio do coletor também está em 12 V** sempre que o transistor está cortado, ou
+  seja, na maior parte do tempo. Não é só o `+12 V` que precisa de cuidado.
+
 ### Proteção da entrada de 12 V
 
-O fusível protege o **fio** contra curto; ele não reage a sobretensão. E os capacitores
-de filtro ficam em `VSYS`, **depois** do conversor — protegem o Pico, não a fonte dele.
-Sem mais nada, o conversor é o único componente exposto direto à rede do carro.
-
-Daí o **TVS bidirecional de 24 V** (`P6KE24CA` ou `1.5KE24CA`) e um **eletrolítico de
-470 µF / 50 V** em paralelo na entrada, junto ao conversor. O clamp de 24 V cai numa
-janela estreita: tem de ficar acima de 16 V, porque a rede é 13,8 a 14,4 V com o motor
-ligado, e abaixo de 40 V, porque é o máximo do conversor. O `24CA` clampa em 33,2 V.
+O fusível protege o **fio** contra curto; ele não reage a sobretensão. Daí o **TVS
+bidirecional de 24 V** (`P6KE24CA` ou `1.5KE24CA`) e um **eletrolítico de 470 µF /
+50 V** em paralelo na entrada. O clamp de 24 V cai numa janela estreita: tem de ficar
+acima de 16 V, porque a rede é 13,8 a 14,4 V com o motor ligado, e abaixo de 40 V,
+porque é o máximo do conversor. O `24CA` clampa em 33,2 V.
 
 **O que isso não resolve:** um *load dump* real chega a 60–120 V por até 400 ms, o que
 contra um clamp de 33 V significa mais de 1 kW sustentado — nenhum TVS axial pequeno
@@ -138,17 +174,6 @@ Dois detalhes que estragam tudo se errados: o sufixo **`CA`** significa bidireci
 a versão `A` montada ao contrário fica em curto permanente; e o **fusível vai antes** da
 proteção no percurso do cabo, porque o modo de falha desejável de um TVS é curto.
 
-### 🔴 O trecho de 12 V não pode usar o mesmo conector do aparelho
-
-Com o conversor fora, há **dois cabos externos**: 12 V (piggyback → conversor) e 5 V
-(conversor → gabinete). Se ambos usarem JST-XH, o de 12 V encaixa na entrada do
-aparelho e injeta **12 V no nó `VSYS`** — máximo absoluto 5,5 V. Pico, GPS, display e
-cartão destruídos juntos.
-
-**Ligue o 12 V direto aos terminais do conversor, sem conector.** Não existindo plugue
-de 12 V, não há o que trocar. Se quiser conector ali, use família diferente (VH,
-faston) — nunca XH.
-
 ### Três decisões que não são óbvias
 
 **Pós-chave em vez de bateria direta com relé.** O pós-chave permanece energizado
@@ -160,28 +185,37 @@ quanto liga — e o benefício dele (consumo parasita zero) já vem da chave de 
 intermediária de 6 A não abriria o fusível mas aqueceria o condutor. O cabo de 1,5 mm²
 suporta ~15 A e está sobredimensionado de propósito — mas o fusível acompanha a carga.
 
-**Conversor com entrada ≥ 40 V.** O transiente que destrói eletrônica automotiva não é
-a partida, é o *load dump*: 60–120 V por dezenas de milissegundos quando a carga do
-alternador sai. Módulos comuns de 35 V podem não sobreviver.
+**Conversor não isolado, com entrada ≥ 40 V.** As duas condições importam por motivos
+diferentes. A entrada ampla é pelo *load dump*: 60–120 V por dezenas de milissegundos
+quando a carga do alternador sai, e módulos comuns de 35 V podem não sobreviver. O
+**não isolado** é pelo buzzer: sem continuidade entre o negativo de 12 V e o do
+aparelho, a corrente do buzzer não fecha pelo emissor do `Q1` e ele simplesmente não
+toca. Um conversor isolado — que parece melhor no anúncio — quebraria o circuito.
+
+E há um mínimo tão importante quanto o máximo: **a entrada tem de aceitar ~9 V**,
+porque é onde o trilho cai durante a partida. Módulo com mínimo de 12 V reinicia o
+aparelho a cada vez que se dá a chave.
 
 ### Ajuste opcional da saída do conversor
 
 O Schottky derruba 0,3–0,45 V, então 5,00 V na saída deixam o `VSYS` em ~4,6 V. Se o
-módulo for ajustável, regule para **5,35–5,45 V** e o `VSYS` chega a ~5,0 V, com o
-buzzer na tensão nominal. **Nunca acima de 5,8 V** — o `VSYS` aceita no máximo 5,5 V.
-Meça antes de conectar.
+módulo for ajustável, regule para **5,35–5,45 V** e o `VSYS` chega a ~5,0 V. **Nunca
+acima de 5,8 V** — o `VSYS` aceita no máximo 5,5 V. Meça antes de conectar.
+
+Com o buzzer em 12 V isso deixou de ser crítico: o que dependia de tensão nominal saiu
+do trilho de 5 V.
 
 ### Conectores do aparelho
 
 | Conector | Vias | Pino A | Pino B |
 | :--- | :---: | :--- | :--- |
-| Entrada | **3** (central sem uso) | +5 V | GND |
-| Buzzer | **2** | +5 V (`VSYS`) | Coletor |
+| Entrada | **3** (central sem uso) | **+12 V** | GND |
+| Buzzer | **2** | **+12 V** | Coletor |
 
-Contagens diferentes impedem a troca. Com o conversor fora, trocá-los deixou de ser
-destrutivo — o pior caso é o buzzer tocar sozinho ou o aparelho não ligar — então as
-3 vias são medida de **robustez**, não de segurança. O perigo real está no trecho de
-12 V, acima.
+Contagens diferentes impedem a troca, e **isso é proteção, não conveniência** — ver a
+seção vermelha acima. O conector do buzzer é um header genérico, para manter o padrão
+visual dos demais módulos; note que, ao contrário do JST que ele substitui, ele **não
+é polarizado**.
 
 ## Documentos
 
