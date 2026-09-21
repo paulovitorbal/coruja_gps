@@ -1493,6 +1493,39 @@ diagnóstico.
 
 ---
 
+## R-43 — O fio do `DET` tem contato intermitente
+
+- **Onde:** fiação de bancada (protoboard)
+- **Confiança:** ✅ Observado duas vezes na mesma alimentação
+- **Registrado em:** 2026-09-20
+- **Status:** 🔴 **ABERTO**
+
+**Observação.** Numa única inicialização, com o cartão inserido e sem ninguém tocar
+em nada:
+
+```
+boot   -> DET: pull-down=BAIXO  pull-up=ALTO  sem pull=ALTO   (FLUTUANDO)
+clique -> DET: pull-down=ALTO   pull-up=ALTO  sem pull=ALTO   (acionado)
+```
+
+Segundos de diferença, mesma alimentação, mesma fiação. O contato abre e fecha.
+
+**Por que importa mais do que parece.** O aparelho vai num carro, e vibração é o
+ambiente em que contato marginal falha. Um `DET` intermitente não produz erro claro:
+produz "cartão ausente" esporádico, e o RF07 reagiria a isso como se o motorista
+tivesse tirado o cartão — enquanto dirige.
+
+Também é uma armadilha de diagnóstico. Uma leitura flutuante **parece conclusiva**, e
+já sustentou dois diagnósticos errados nesta mesma investigação (R-41, R-42). Com
+contato intermitente, o mesmo teste dá respostas diferentes em execuções seguidas, e a
+tentação é explicar a diferença por software.
+
+**Encaminhamento.** Reassentar com firmeza ou soldar, e confirmar com o
+`diagnostica_det()` em várias inicializações seguidas — uma só não basta, que é
+precisamente a lição do R-42.
+
+---
+
 ## R-42 — O fio do `DET` não chega a pino nenhum: o GPIO 14 está flutuando
 
 - **Onde:** fiação de bancada · `armazenamento/CartaoSd.cpp`
@@ -1879,6 +1912,8 @@ RELEVANTES
 [x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
           procurando o arquivo. static_assert quebra o build se o override do
           ffconf.h se perder; verificado por teste negativo. ADR 0007.
+[ ] R-43  DET com contato intermitente: flutuante no boot e acionado no clique,
+          mesma alimentacao. Num carro, vibracao. Reassentar ou soldar
 [x] R-42  RESOLVIDO — fio reassentado; medido nos dois estados sob os tres
           pulls: cartao dentro=ALTO, slot vazio=BAIXO. card_detected_true=1,
           como estava antes do R-41. Diagnostico dos tres pulls fica no codigo
