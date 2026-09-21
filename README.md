@@ -263,15 +263,20 @@ python3 gera_fritzing.py    # ⚠️ sobrescreve o .fzz e DESCARTA o ajuste manu
 > fiação, o caminho é editar `NETS`, regerar num arquivo temporário, comparar as redes
 > e então aplicar a mudança à mão no Fritzing — não sobrescrever.
 >
-> **Divergências conhecidas entre o gerador e o `.fzz` versionado.** O `.fzz` é editado à
-> mão e **não é regerado** (R-29), então ele acumula atrasos em relação à netlist. O
-> documento de referência para montagem é sempre o `bom_schematic.md`.
+> **Sem divergências conhecidas** (2026-09-21). O `.fzz` foi regerado a partir da
+> netlist atual e depois roteado à mão, fechando o **R-29**.
 >
-> | O gerador tem | O `.fzz` ainda tem | Correção manual |
-> | :--- | :--- | :--- |
-> | Entrada do gabinete com 3 vias (`J5V`) | Entrada de 2 vias, "carregador veicular" | trocar a peça |
-> | LED de **ânodo comum**, comum no `3V3` (R-33) | Peça de cátodo comum, comum no `GND` | mover um fio |
-> | GPS em `VCC RX TX GND` (R-34) | `VCC GND TX RX` — pinos 2 e 4 trocados | trocar dois fios |
+> O anterior tinha acumulado cinco atrasos, e o pior era silencioso: ele trazia o LED
+> como **cátodo comum**, que se liga de forma oposta ao ânodo comum real (R-33). Quem
+> montasse por ele teria um LED que não acende, sem pista do motivo. Os outros quatro
+> eram os GPIO de vermelho e azul trocados (R-35), resistores de 68 Ω onde as medições
+> pediam 470 e 150 (R-05), leitor SD com 8 pinos em vez de 9 (R-40) e o display como
+> ST7789 240×240.
+>
+> A lição que fica: um `.fzz` editado à mão **não avisa quando envelhece**. A defesa
+> aqui foi comparar netlists entre o gerado e o versionado — vale repetir isso antes de
+> cada montagem, e não confiar na memória de quantas correções entraram desde a última
+> vez. O documento de referência para montagem continua sendo o `bom_schematic.md`.
 
 A netlist vive em `NETS`, dentro de `gera_fritzing.py`, transcrita do
 `bom_schematic.md`. Mudou a fiação? Edite ali e regenere.

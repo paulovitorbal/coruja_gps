@@ -398,7 +398,7 @@ def main(argv=None):
               f"  notas. Regerar por cima apaga tudo isso.\n"
               f"\n"
               f"  Para comparar visualmente, gere com outro nome:\n"
-              f"      python3 {Path(__file__).name} --saida coruja_gps_v2.fzz\n"
+              f"      python3 {Path(__file__).name} --saida coruja_gps_v4.fzz\n"
               f"\n"
               f"  Se tem certeza de que quer descartar o layout atual:\n"
               f"      python3 {Path(__file__).name} --forcar\n",

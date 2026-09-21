@@ -1956,7 +1956,9 @@ RELEVANTES
           deslocado para DAT2, que tem pull-up e mentia "cartao presente"
 [x] R-39  RESOLVIDO — o gera_config_bancada.py toca no main.cpp; sem isso o
           build ficava em dia com uma configuracao que ele nunca leu
-[ ] R-29  Fechar a divergência do .fzz à mão, ou aceitar a convenção
+[x] R-29  RESOLVIDO — o .fzz gerado com o circuito de alimentacao foi ajustado
+          a mao e promovido a canonico. O antigo estava defasado em cinco
+          pontos, inclusive LED como catodo comum, e ficou no historico
 [x] R-20  RESOLVIDO — TYPE=5 é Radar Móvel; hipótese de trecho controlado descartada
 
 LACUNAS
