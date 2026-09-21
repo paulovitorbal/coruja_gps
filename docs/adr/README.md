@@ -12,6 +12,8 @@ anterior, e o antigo fica marcado como superado em vez de ser editado.
 | [0004](0004-testes-contra-a-base-real.md) | Fixture sintética versionada, em vez de pular testes | 2026-09-17 | aceita |
 | [0005](0005-taxa-de-amostragem-do-encoder.md) | Encoder amostrado a 1 ms, não no laço de 4 Hz | 2026-09-17 | aceita |
 | [0006](0006-orcamento-de-memoria-verificado-pelo-compilador.md) | `Ponto` em 12 B e capacidade separada do teto de formato, com `static_assert` | 2026-09-17 | aceita |
+| [0007](0007-fatfs-adotado-em-vez-de-escrito.md) | FAT32 por biblioteca adotada, e a partição escolhida pelo arquivo | 2026-09-20 | aceita |
+| [0008](0008-formato-do-cartao.md) | Cartão em FAT32 com MBR, pela compatibilidade entre os três sistemas | 2026-09-20 | aceita |
 
 ## Decisões anteriores a este diretório
 
