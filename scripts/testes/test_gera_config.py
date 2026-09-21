@@ -3,9 +3,8 @@
 Rode com:  python3 -m unittest discover -s scripts/testes -v
 
 Usa `unittest` e não pytest, ao contrário da regra global de Python. O motivo
-é local: todo o código Python deste projeto é **stdlib-only** por escolha — o
-`baixa_maparadar.py` declara isso no topo — e exigir uma dependência só para
-testar contrariaria a razão original. A troca custa pouco: `unittest` roda em
+é local: todo o código Python deste projeto é **stdlib-only** por escolha, e
+exigir uma dependência só para testar contrariaria a razão original. A troca custa pouco: `unittest` roda em
 qualquer Python.
 
 A concordância entre este gerador e o parser em C++ é verificada do outro

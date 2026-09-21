@@ -6,6 +6,41 @@ sobre **Raspberry Pi Pico 2 W**, com firmware em **C++17 / Pico SDK**.
 Lê telemetria de um GPS NEO-M8N por UART, confronta a posição com uma base local de
 18.294 pontos e sinaliza em quatro zonas por display, LED RGB periférico e buzzer.
 
+## Arquitetura
+
+![Subsistemas do Coruja GPS e o caminho do dado](docs/arquitetura.svg)
+
+Quatro subsistemas, e o dado atravessa todos eles. Um CSV vira `radares.bin` na
+estação de trabalho; o binário é publicado por um servidor mínimo; a configuração vai
+para o cartão à mão; o aparelho lê o cartão no clique e busca a base pela rede.
+
+**De onde vem o CSV é problema de quem monta** — o projeto não presume fonte nenhuma,
+e por isso ela aparece no diagrama como uma nuvem anônima.
+
+O que ainda não existe está tracejado e em cinza: gravar no cartão o que foi baixado,
+o GPS, o display e o buzzer.
+
+### Dentro do firmware
+
+![Módulos do firmware e a fronteira do hardware](docs/firmware.svg)
+
+A divisão que mais importa é a **fronteira do hardware**. Em verde, o que compila e é
+testado no host — validação de formato, decodificação de quadratura, verificação de
+download, análise de URL. São 180 testes que rodam sem placa nenhuma, e é o que torna
+possível trabalhar neste projeto enquanto um módulo não chegou pelo correio.
+
+Em laranja, o que só existe no Pico. Esses módulos são finos de propósito: o
+`ClienteHttp` entrega pedaços a quem chamou em vez de acumular, e quem verifica é o
+`nucleo`.
+
+### Como regerar os diagramas
+
+As fontes são versionadas em `docs/*.puml`; os SVG são gerados.
+
+```bash
+plantuml -tsvg docs/arquitetura.puml docs/firmware.puml
+```
+
 ## Base de pontos
 
 O firmware carrega `radares.bin`, um binário compacto de 12 bytes por ponto,

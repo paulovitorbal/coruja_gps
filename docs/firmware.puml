@@ -1,0 +1,106 @@
+@startuml firmware
+' Interior do firmware do coruja_gps: módulos, o que cada um encapsula, e a
+' fronteira entre o que compila no host e o que só compila no Pico.
+'
+' Fonte versionada. O SVG ao lado é gerado por:
+'     plantuml -tsvg docs/firmware.puml
+'
+' A visão de subsistemas está em arquitetura.puml.
+
+title Dentro do firmware — módulos e a fronteira do hardware
+
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #666666
+skinparam ArrowFontSize 11
+skinparam nodesep 40
+skinparam ranksep 45
+skinparam package {
+  BorderColor #909090
+  BackgroundColor #FCFCFC
+  FontStyle bold
+}
+skinparam component {
+  FontSize 12
+  BorderColor #4A7BA7
+  BackgroundColor #EAF2F8
+}
+
+package "Portável — compila e é testado no host" as portavel #F2F8F2 {
+  component "**app**\nModoCalibracao · CicloCores\nModoTesteEncoder" as app
+  component "**nucleo**\nPonto · BaseRadares · LeitorConfig\nGeo · LimiarInfracao · Url\nCrc32 · Texto · VerificadorDownload" as nucleo
+  component "**encoder**\nDecodificadorQuadratura\nAntiRepique" as enc
+  component "**log**\nLogger (interface)" as logm
+}
+
+package "Só no Pico — toca hardware" as pico #FDF6F0 {
+  component "**rede**\nRedeWifi · ClienteHttp\nAtualizadorOta" as rede
+  component "**armazenamento**\nCartaoSd + FatFs" as arm
+  component "**led**\nLedRgbAnodoComum (PWM)" as led
+  component "**encoder**/EncoderKy040\n//amostragem de 1 ms//" as enchw
+  component "**placa**/Pinos.h\n//mapa único dos 18 GPIO//" as pinos
+}
+
+package "Mundo físico" as hw #F5F5F5 {
+  component "KY-040" as ky
+  component "LED RGB 10 mm\n//ânodo comum//" as ledrgb
+  component "cartão microSD\n//SPI0//" as sd
+  component "CYW43 + lwIP\n//Wi-Fi, modo poll//" as wifi
+  component "GPS NEO-M8N //(UART0)//" as gps #E4E4E4
+  component "display 320×240 //(SPI0)//" as disp #E4E4E4
+  component "buzzer //(PWM)//" as buz #E4E4E4
+}
+
+' ------------------------------------------------------------- fluxo
+ky --> enchw
+enchw --> enc : níveis crus
+enc --> app : giro e clique
+
+app --> led : cor do estado
+led --> ledrgb
+
+app --> arm : lê o coruja.cfg\n**a cada clique**
+arm --> sd : FAT32, sonda até\n4 partições
+arm --> nucleo : entrega os bytes\n//le_config, carrega_base//
+
+app --> rede : o clique dispara o OTA
+rede --> wifi
+rede --> nucleo : analisa_url\nverifica **em fluxo**
+
+app ..> disp
+app ..> buz
+gps ..> nucleo : NMEA
+
+pinos ..> arm
+pinos ..> led
+pinos ..> enchw
+
+note bottom of nucleo
+  Nenhuma linha de hardware. É por isso que
+  a validação do formato, a decodificação de
+  quadratura e o verificador de download são
+  testados sem placa — 180 testes no host.
+end note
+
+note bottom of logm
+  Interface, não função livre: os testes
+  observam o que foi registrado sem escrever
+  em lugar nenhum, e o destino — USB, cartão,
+  nada — troca sem tocar em quem registra.
+  **Todos** os módulos registram por aqui.
+end note
+
+note bottom of rede
+  O `radares.bin` é verificado **enquanto chega**
+  e descartado: 214 KB não cabem ao lado dos
+  281 KB que a base já reserva.
+end note
+
+legend bottom
+  Verde: portável, coberto pela suíte do host.  Laranja: depende do Pico SDK.
+  Cinza e tracejado: previsto, ainda não implementado.
+endlegend
+
+@enduml

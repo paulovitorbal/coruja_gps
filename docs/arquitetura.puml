@@ -1,0 +1,86 @@
+@startuml arquitetura
+' Subsistemas do coruja_gps e o caminho do dado entre eles.
+'
+' Fonte versionada. O SVG ao lado é gerado por:
+'     plantuml -tsvg docs/arquitetura.puml
+'
+' ⚠️ Este diagrama descreve APENAS o que está neste repositório. A origem do
+' CSV é deliberadamente anônima: o projeto não presume fonte nenhuma, e de
+' onde vem a base é problema de quem monta.
+'
+' O interior do firmware está em firmware.puml.
+
+title Coruja GPS — subsistemas e o caminho do dado
+
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Helvetica
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam ArrowColor #666666
+skinparam ArrowFontSize 11
+skinparam nodesep 45
+skinparam ranksep 45
+skinparam package {
+  BorderColor #909090
+  BackgroundColor #FBFBFB
+  FontStyle bold
+}
+skinparam component {
+  BorderColor #4A7BA7
+  BackgroundColor #EAF2F8
+  FontSize 12
+}
+skinparam artifact {
+  BorderColor #A0803A
+  BackgroundColor #FBF3E0
+  FontSize 12
+}
+
+cloud "fonte da base\n//externa, não presumida//" as fonte #F0F0F0
+
+package "Estação de trabalho  //(Python, stdlib)//" as host {
+  artifact "CSV padrão iGO8" as csv
+  component "converte.py" as converte
+  component "formato_radares.py\n//escritor e leitor do formato//" as formato
+  component "gera_config.py" as geracfg
+  component "suíte no host\n//GoogleTest, 180 testes//" as testes
+  artifact "**radares.bin**\n//16 B de cabeçalho + 12 B por ponto//" as binario
+  artifact "**coruja.cfg**\n//redes Wi-Fi e as duas URLs//" as cfg
+}
+
+package "Servidor da base  //(Docker)//" as srv {
+  component "servidor.py\n//stdlib, duas rotas fixas//\n\n/radares.versao → uma linha\n/radares.bin → o binário" as api
+}
+
+package "Cartão microSD  //(FAT32, MBR)//" as cartao {
+  artifact "coruja.cfg" as cfg_cartao
+  artifact "radares.bin" as bin_cartao #E4E4E4
+}
+
+package "Aparelho — Raspberry Pi Pico 2 W" as aparelho {
+  component "**firmware**  //(C++17, Pico SDK)//\n\napp · rede · armazenamento\nnucleo · encoder · led · log\n\n//detalhe em firmware.puml//" as fw
+  component "periféricos\n\nencoder KY-040 · LED RGB\n//GPS · display · buzzer//" as perif
+}
+
+fonte ..> csv : quem monta providencia
+csv --> converte
+converte --> formato : usa
+testes ..> formato : valida o **mesmo** formato
+formato --> binario : escreve\n//quantiza, ordena, CRC-32//
+geracfg --> cfg : escreve //(0600)//
+
+binario --> api : publicado em\nservidor/dados/
+cfg --> cfg_cartao : copiado à mão
+binario ..> bin_cartao : ainda à mão
+
+api <--> fw : **HTTP sobre Wi-Fi**\n//conexão episódica: sobe no//\n//clique, atualiza, e cai//
+cfg_cartao --> fw : lido **a cada clique**
+bin_cartao ..> fw
+fw <--> perif : GPIO, SPI, UART, PWM
+
+legend bottom
+  Linha contínua: implementado e exercitado na bancada.
+  Tracejada e cinza: previsto, ainda não implementado.
+endlegend
+
+@enduml
