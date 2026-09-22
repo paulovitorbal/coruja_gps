@@ -20,6 +20,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #include "app/CicloCores.h"
 #include "encoder/EncoderKy040.h"
@@ -27,6 +28,7 @@
 #include "log/LoggerConsole.h"
 #include "armazenamento/CartaoSd.h"
 #include "nucleo/BaseRadares.h"
+#include "nucleo/CarregadorFluxo.h"
 #include "nucleo/LeitorConfig.h"
 #include "rede/AtualizadorOta.h"
 #include "rede/RedeWifi.h"
@@ -44,6 +46,64 @@ constexpr std::uint32_t kPeriodoAmostragemMs = 1;
 /// `gera_config.py` produz (985 B hoje, teto de ~1,2 KiB com cinco redes).
 constexpr std::size_t kTamBufferConfig = 2048;
 char g_texto_config[kTamBufferConfig];
+
+void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
+                           std::size_t tamanho) {
+    static_cast<coruja::CarregadorFluxo*>(contexto)->alimenta(bytes, tamanho);
+}
+
+/// Carrega a base do cartão, com o recuo do RF05.2 passo 6.
+///
+/// Tenta o `radares.bin`. Se ele não validar — corrompido, truncado, ou de um
+/// formato que este firmware não aceita — cai para o `radares.bak`, que é a
+/// base que funcionava antes da última atualização.
+///
+/// Sem esse recuo, uma atualização que passasse na verificação e mesmo assim
+/// produzisse um arquivo ruim deixaria o aparelho sem base **e sem caminho de
+/// volta**, e o motorista descobriria dirigindo.
+std::size_t carrega_base_do_cartao(coruja::CartaoSd& cartao,
+                                   coruja::Logger& log) {
+    coruja::CarregadorFluxo carregador(g_pontos, coruja::kCapacidadeFirmware);
+    char msg[128];
+
+    for (const char* nome : {coruja::kArquivoBase, coruja::kArquivoBak}) {
+        carregador.reinicia();
+        std::size_t lidos = 0;
+        const auto leitura = cartao.le_em_fluxo(nome, ao_ler_pedaco_da_base,
+                                                &carregador, &lidos, log);
+        if (leitura == coruja::ErroCartao::ArquivoAusente) {
+            std::snprintf(msg, sizeof msg, "'%s' nao existe no cartao", nome);
+            log.info("base", msg);
+            continue;
+        }
+        if (leitura != coruja::ErroCartao::Nenhum) {
+            std::snprintf(msg, sizeof msg, "'%s': %s", nome, descreve(leitura));
+            log.error("base", msg);
+            continue;
+        }
+
+        const auto veredito = carregador.conclui();
+        if (veredito != coruja::ErroBase::Nenhum) {
+            std::snprintf(msg, sizeof msg, "'%s' RECUSADA: %s", nome,
+                          descreve(veredito));
+            log.error("base", msg);
+            continue;
+        }
+
+        std::snprintf(msg, sizeof msg, "%u pontos carregados de '%s'",
+                      static_cast<unsigned>(carregador.pontos()), nome);
+        log.info("base", msg);
+        if (nome == coruja::kArquivoBak) {
+            log.warning("base", "operando pela RESERVA: a base vigente nao "
+                                "validou. Atualize quando puder");
+        }
+        return carregador.pontos();
+    }
+
+    // RF07: sem base o aparelho opera, e precisa deixar isso evidente.
+    log.error("base", "NENHUMA base carregada: nem a vigente nem a reserva");
+    return 0;
+}
 
 /// Lê e interpreta a configuração **do cartão, na hora do clique**.
 ///
@@ -101,12 +161,6 @@ int main() {
                   static_cast<unsigned>(sizeof g_pontos / 1024));
     log.info("mem", msg);
 
-    // Referencia g_pontos de verdade: se só `sizeof` fosse usado, o linker
-    // eliminaria o array e a reserva de memória não existiria de fato.
-    const auto carga = coruja::carrega_base(nullptr, 0, g_pontos,
-                                            coruja::kCapacidadeFirmware, &log);
-    std::snprintf(msg, sizeof msg, "carga sem cartao: %s", descreve(carga.erro));
-    log.info("base", msg);
 
     coruja::LedRgbAnodoComum led;
     coruja::EncoderKy040     encoder;
@@ -116,6 +170,11 @@ int main() {
     coruja::AtualizadorOta   ota;
 
     cartao.inicia(log);
+    const std::size_t pontos = carrega_base_do_cartao(cartao, log);
+    std::snprintf(msg, sizeof msg, "base em memoria: %u de %u pontos possiveis",
+                  static_cast<unsigned>(pontos),
+                  static_cast<unsigned>(coruja::kCapacidadeFirmware));
+    log.info("base", msg);
 
     log.info("ihm", "girar = cor do estado de via | clicar = atualizar base");
     log.info("ihm", "ordem: segura(verde) -> ambar -> rosa -> perigo(vermelho)");
@@ -138,7 +197,7 @@ int main() {
             // nunca fica velha.
             coruja::Configuracao config;
             if (carrega_configuracao(cartao, &config, log)) {
-                ota.executa(config, rede, log);
+                ota.executa(config, cartao, rede, log);
             } else {
                 log.error("ota", "sem configuracao utilizavel: nada a fazer");
             }

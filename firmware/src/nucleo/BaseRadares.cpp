@@ -58,6 +58,28 @@ const char* descreve(ErroBase erro) {
     return "erro desconhecido";
 }
 
+bool decodifica_registro(const std::uint8_t* registro, Ponto* destino,
+                         std::int32_t* lat_bruta) {
+    const std::uint8_t flags   = registro[10];
+    const auto         sentido = static_cast<std::uint8_t>(flags & 0x03U);
+    const auto         tipo    = static_cast<std::uint8_t>((flags >> 2) & 0x07U);
+    if (!tipo_valido(tipo) || !sentido_valido(sentido)) {
+        return false;
+    }
+
+    const std::int32_t lat_e = le_i32(registro);
+    *lat_bruta = lat_e;
+    *destino = Ponto{
+        static_cast<float>(lat_e) / kEscala,
+        static_cast<float>(le_i32(registro + 4)) / kEscala,
+        registro[8],
+        registro[9],  // rumo ja vem quantizado no arquivo; nao expandir
+        static_cast<TipoPonto>(tipo),
+        static_cast<Sentido>(sentido),
+    };
+    return true;
+}
+
 ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
                             Ponto* destino, std::size_t capacidade,
                             Logger* logger) {
@@ -103,28 +125,14 @@ ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
     std::int32_t lat_anterior = -2147483647 - 1;
     for (std::size_t i = 0; i < reais; ++i) {
         const std::uint8_t* r = bytes + kTamCabecalho + i * kTamRegistro;
-
-        const std::int32_t lat_e = le_i32(r);
+        std::int32_t lat_e = 0;
+        if (!decodifica_registro(r, &destino[i], &lat_e)) {
+            return falha(logger, ErroBase::RegistroInvalido);
+        }
         if (lat_e < lat_anterior) {
             return falha(logger, ErroBase::ForaDeOrdem);
         }
         lat_anterior = lat_e;
-
-        const std::uint8_t flags   = r[10];
-        const auto         sentido = static_cast<std::uint8_t>(flags & 0x03U);
-        const auto         tipo    = static_cast<std::uint8_t>((flags >> 2) & 0x07U);
-        if (!tipo_valido(tipo) || !sentido_valido(sentido)) {
-            return falha(logger, ErroBase::RegistroInvalido);
-        }
-
-        destino[i] = Ponto{
-            static_cast<float>(lat_e) / kEscala,
-            static_cast<float>(le_i32(r + 4)) / kEscala,
-            r[8],
-            r[9],  // rumo ja vem quantizado no arquivo; nao expandir
-            static_cast<TipoPonto>(tipo),
-            static_cast<Sentido>(sentido),
-        };
     }
 
     if (logger != nullptr) {

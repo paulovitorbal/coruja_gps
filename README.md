@@ -21,9 +21,13 @@ então promove a nova. Queda de energia no meio de uma atualização não pode d
 aparelho sem base, porque a tela voltaria ao velocímetro normalmente e nada indicaria
 a perda.
 
-A cópia do `radares.bin` para o cartão à mão é só a **carga inicial** — e hoje é o
-único caminho, porque a gravação ainda não foi implementada: o firmware baixa,
-verifica em fluxo e descarta.
+A cópia do `radares.bin` para o cartão à mão é só a **carga inicial**, e é opcional:
+sem base o aparelho sobe, avisa, e o primeiro clique busca tudo pela rede.
+
+No boot a base é lida **em fluxo** do cartão, decodificando direto no vetor de pontos.
+Não é preferência de estilo: o arquivo tem 214 KB e o vetor ocupa 281 KB, e não existe
+instante em que os dois caibam nos 181 KiB livres. Se o `radares.bin` não validar, o
+firmware cai para o `radares.bak` — e avisa que está operando pela reserva.
 
 **De onde vem o CSV é problema de quem monta** — o projeto não presume fonte nenhuma,
 e por isso ela aparece no diagrama como uma nuvem anônima.

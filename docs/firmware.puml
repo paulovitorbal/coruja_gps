@@ -30,7 +30,7 @@ skinparam component {
 
 package "Portável — compila e é testado no host" as portavel #F2F8F2 {
   component "**app**\nModoCalibracao · CicloCores\nModoTesteEncoder" as app
-  component "**nucleo**\nPonto · BaseRadares · LeitorConfig\nGeo · LimiarInfracao · Url\nCrc32 · Texto · VerificadorDownload" as nucleo
+  component "**nucleo**\nPonto · BaseRadares · LeitorConfig\nGeo · LimiarInfracao · Url · Crc32\nTexto · VerificadorDownload\nCarregadorFluxo" as nucleo
   component "**encoder**\nDecodificadorQuadratura\nAntiRepique" as enc
   component "**log**\nLogger (interface)" as logm
 }
@@ -63,7 +63,7 @@ led --> ledrgb
 
 app --> arm : lê o coruja.cfg\n**a cada clique**
 arm --> sd : FAT32, sonda até\n4 partições
-arm ..> sd : grava a base baixada\n//RF05.2, ainda não feito//
+arm --> sd : grava a base baixada\n//RF05.2, troca atômica//
 arm --> nucleo : entrega os bytes\n//le_config, carrega_base//
 
 app --> rede : o clique dispara o OTA
@@ -99,9 +99,10 @@ note bottom of rede
   já reserva, então o arquivo nunca existe inteiro
   em RAM.
 
-  O destino é o **cartão**, com a escrita atômica
-  do RF05.2 — `.tmp`, valida, `.bak`, `.bin`. Hoje
-  ele ainda é descartado: falta essa gravação.
+  Os bytes vão para o **cartão enquanto chegam**,
+  com a troca atômica do RF05.2 — `.tmp`, valida,
+  `.bak`, `.bin`. Falha em qualquer etapa descarta
+  o temporário e mantém a base vigente.
 end note
 
 legend bottom

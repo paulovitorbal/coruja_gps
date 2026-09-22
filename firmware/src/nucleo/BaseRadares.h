@@ -89,6 +89,19 @@ static_assert(kCapacidadeFirmware * sizeof(Ponto) < 355u * 1024u,
 /// Valida, na ordem: tamanho, magic, versao, escala, contagem, capacidade,
 /// CRC-32, ordenacao por latitude e o dominio de cada registro. Mesma ordem e
 /// mesmos critérios do `formato_radares.py`, que e o contrato compartilhado.
+/// Decodifica **um** registro de 12 B e valida o domínio de `TipoPonto` e
+/// `Sentido`. Devolve `false` se algum estiver fora — o registro não é escrito.
+///
+/// `lat_bruta` recebe a latitude ainda em inteiro escalado, que é como a
+/// ordenação tem de ser comparada: converter para `float` antes de comparar
+/// introduziria empates que o arquivo não tem.
+///
+/// Existe extraída porque **dois** caminhos decodificam registros: a carga a
+/// partir de um buffer e a carga em fluxo do cartão. Duplicar isto seria
+/// duplicar a validação de domínio, e um dos dois envelheceria.
+bool decodifica_registro(const std::uint8_t* registro, Ponto* destino,
+                         std::int32_t* lat_bruta);
+
 ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
                             Ponto* destino, std::size_t capacidade,
                             Logger* logger = nullptr);

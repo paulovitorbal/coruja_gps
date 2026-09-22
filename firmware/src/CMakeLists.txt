@@ -8,6 +8,7 @@ add_library(coruja_nucleo STATIC
     nucleo/Texto.cpp
     nucleo/Url.cpp
     nucleo/VerificadorDownload.cpp
+    nucleo/CarregadorFluxo.cpp
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -73,6 +74,6 @@ if(NOT CORUJA_TESTES)
     target_include_directories(coruja_rede PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
     target_link_libraries(coruja_rede PUBLIC
-        coruja_nucleo coruja_log pico_stdlib
+        coruja_nucleo coruja_log coruja_armazenamento pico_stdlib
         pico_cyw43_arch_lwip_poll pico_lwip_http)
 endif()

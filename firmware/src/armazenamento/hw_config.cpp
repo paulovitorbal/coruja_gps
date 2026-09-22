@@ -15,26 +15,29 @@ extern "C" {
 
 namespace {
 
-/// 1 MHz — **baixado de 12 MHz em 2026-09-22**, por medição.
+/// 12 MHz — **escolhido por medição**, não copiado do exemplo da biblioteca.
 ///
-/// A 12 MHz um cartão de 32 GB inicializava e depois falhava em toda leitura
-/// de setor com `FR_DISK_ERR`, enquanto outro cartão no mesmo soquete
-/// funcionava. A assimetria é a pista: a inicialização roda a 400 kHz e
-/// passava; a leitura roda neste valor e não passava.
+/// A varredura de 2026-09-22 leu 128 KiB de setores por velocidade, em cinco
+/// inicializações, comparando o CRC-32 contra a leitura mais lenta:
 ///
-/// 12 MHz era o número do exemplo da biblioteca, e o comentário anterior o
-/// chamava de "conservador para fio de protoboard" — não era. Protoboard não
-/// tem plano de terra e cada jumper é uma ponta sem terminação.
+///   1, 2, 4, 6, 8, 10, 12, 16 MHz e 18,75 MHz ... CRC idêntico em todas
 ///
-/// A conta que justifica não ter pressa: a base tem 214 KB e é lida uma vez
-/// no boot. A 1 MHz são ~1,8 s; a 12 MHz, ~0,15 s. O tempo de boot não é o
-/// gargalo deste aparelho, e leitura que falha custa infinitamente mais que
-/// leitura lenta.
+/// Foram 6,4 MB sem uma divergência. O teto é 18,75 MHz, imposto pelo divisor
+/// do RP2350 — pedir 20 ou 24 devolve o mesmo valor.
 ///
-/// ⚠️ O barramento é **compartilhado com o display** (RNF06). Quando o driver
-/// do display entrar, a velocidade terá de ser reconfigurada por dispositivo,
-/// antes de cada transação, e as duas metades precisarão de exclusão mútua.
-constexpr unsigned kBaudRateHz = 1 * 1000 * 1000;
+/// 12 MHz fica a dois degraus do teto medido, o que dá margem sem penalizar:
+/// os 214 KB da base saem em ~0,15 s.
+///
+/// ⚠️ **Este teto é da PROTOBOARD, não do projeto.** Fio sem plano de terra e
+/// ponta sem terminação é outro barramento; na perfboard, remeça.
+///
+/// Histórico que vale conhecer antes de mexer: este valor esteve em 1 MHz por
+/// algumas horas, baixado a partir de uma falha que eu atribuí a velocidade e
+/// que era outra coisa — a protoboard não estava entregando 3,3 V. O critério
+/// da varredura não é "montou", é **CRC igual**: em velocidade marginal o
+/// cartão devolve dados corrompidos sem erro nenhum, e uma base de radares
+/// silenciosamente errada é o pior desfecho possível aqui.
+constexpr unsigned kBaudRateHz = 12 * 1000 * 1000;
 
 spi_t g_spi = {
     .hw_inst   = spi0,

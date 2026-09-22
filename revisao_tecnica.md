@@ -1967,7 +1967,9 @@ RELEVANTES
 [ ] R-07  Sequência de configuração UBX especificada no RF01
 [ ] R-08  Parser aceita $GNRMC e $GPRMC + valida checksum
 [ ] R-09  Condição de aproximação + histerese nas zonas
-[ ] R-10  OTA com validação, escrita atômica e rollback
+[x] R-10  RESOLVIDO — RF05.2 implementado e verificado na bancada: baixa para
+          .tmp gravando enquanto chega, valida, roda .bak e promove. Boot
+          carrega em fluxo do cartao com recuo para o .bak  OTA com validação, escrita atômica e rollback
                 └─ validação de integridade já especificada em formato_dados.md §2
 [ ] R-11  Credenciais de Wi-Fi fora do firmware
 [ ] R-12  OTA condicionado a veículo parado

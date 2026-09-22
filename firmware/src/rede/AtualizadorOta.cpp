@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include <pico/stdlib.h>
+
 #include "log/Logger.h"
 #include "nucleo/Texto.h"
 #include "nucleo/Url.h"
@@ -31,9 +33,26 @@ void ao_receber_versao(void* contexto, const std::uint8_t* bytes,
     }
 }
 
+/// O download tem dois destinos ao mesmo tempo: o verificador e o cartão. Não
+/// há etapa intermediária em RAM — 214 KB não cabem ao lado dos 281 KB que a
+/// base reserva.
+struct DestinoDownload {
+    VerificadorDownload* verificador = nullptr;
+    CartaoSd*            cartao = nullptr;
+    bool                 falhou_a_escrita = false;
+};
+
 void ao_receber_base(void* contexto, const std::uint8_t* bytes,
                      std::size_t tamanho) {
-    static_cast<VerificadorDownload*>(contexto)->alimenta(bytes, tamanho);
+    auto* destino = static_cast<DestinoDownload*>(contexto);
+    destino->verificador->alimenta(bytes, tamanho);
+
+    // Depois da primeira falha de escrita, para de tentar: insistir encheria o
+    // log com uma linha por pacote e não mudaria o desfecho.
+    if (!destino->falhou_a_escrita &&
+        !destino->cartao->escreve(bytes, tamanho)) {
+        destino->falhou_a_escrita = true;
+    }
 }
 
 void imprime_cabecalho(const VerificadorDownload& v, Logger& log) {
@@ -101,12 +120,13 @@ const char* descreve(ResultadoOta resultado) {
         case ResultadoOta::FalhaAoConsultar: return "nao conseguiu consultar a versao";
         case ResultadoOta::FalhaAoBaixar:    return "o download nao completou";
         case ResultadoOta::BaseRecusada:     return "base recusada na verificacao";
+        case ResultadoOta::FalhaAoGravar:    return "chegou integra, mas o cartao nao aceitou";
     }
     return "resultado desconhecido";
 }
 
-ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, RedeWifi& rede,
-                                     Logger& log) {
+ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, CartaoSd& cartao,
+                                     RedeWifi& rede, Logger& log) {
     char msg[224];
 
     if (!cfg.ota_possivel()) {
@@ -123,6 +143,23 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, RedeWifi& rede,
     }
 
     log.info("ota", "==== atualizacao solicitada ====");
+
+    // A versão local vem do CARTÃO. Guardá-la só em RAM fazia o primeiro
+    // clique depois de cada boot rebaixar 214 KB sem necessidade.
+    std::size_t lidos = 0;
+    versao_local_[0] = '\0';
+    const auto leitura_versao = cartao.le_arquivo(kArquivoVersao, versao_local_,
+                                                  kMaxVersao, &lidos, log);
+    if (leitura_versao == ErroCartao::Nenhum) {
+        apara_branco(versao_local_, &lidos);
+    } else if (leitura_versao == ErroCartao::ArquivoAusente) {
+        // Normal na primeira atualização. Não é erro, e não deve soar como um.
+        log.info("ota", "sem versao registrada no cartao: primeira atualizacao");
+    } else {
+        std::snprintf(msg, sizeof msg, "versao local ilegivel (%s): vai rebaixar",
+                      descreve(leitura_versao));
+        log.warning("ota", msg);
+    }
 
     const auto erro_rede = rede.conecta(cfg, log);
     if (erro_rede != ErroWifi::Nenhum) {
@@ -172,40 +209,102 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, RedeWifi& rede,
         return encerra(ResultadoOta::JaEstavaEmDia);
     }
 
-    // ---- 2. baixar e verificar em fluxo ----------------------------------
+    // ---- 2. baixar, gravando e verificando ao mesmo tempo ----------------
     log.info("ota", "versao diferente: baixando a base");
-    verificador_.reinicia();
-    const auto download = http_.baixa(url_base, ao_receber_base, &verificador_,
-                                      log, 120'000);
-    if (!download.ok()) {
-        std::snprintf(msg, sizeof msg, "download: %s (%lu B chegaram)",
-                      descreve(download.erro),
+
+    ResultadoOta ultimo_erro = ResultadoOta::FalhaAoBaixar;
+    for (unsigned tentativa = 1; tentativa <= kTentativas; ++tentativa) {
+        if (tentativa > 1) {
+            std::snprintf(msg, sizeof msg, "tentativa %u de %u, apos %lu ms",
+                          tentativa, kTentativas,
+                          static_cast<unsigned long>(kEsperaEntreTentativasMs));
+            log.warning("ota", msg);
+            sleep_ms(kEsperaEntreTentativasMs);
+        }
+
+        verificador_.reinicia();
+        const auto abertura = cartao.abre_para_escrita(kArquivoTmp, log);
+        if (abertura != ErroCartao::Nenhum) {
+            std::snprintf(msg, sizeof msg, "nao deu para abrir '%s': %s",
+                          kArquivoTmp, descreve(abertura));
+            log.error("ota", msg);
+            ultimo_erro = ResultadoOta::FalhaAoGravar;
+            continue;
+        }
+
+        DestinoDownload destino;
+        destino.verificador = &verificador_;
+        destino.cartao = &cartao;
+
+        const auto download = http_.baixa(url_base, ao_receber_base, &destino,
+                                          log, 120'000);
+
+        if (!download.ok()) {
+            std::snprintf(msg, sizeof msg, "download: %s (%lu B chegaram)",
+                          descreve(download.erro),
+                          static_cast<unsigned long>(verificador_.bytes_recebidos()));
+            log.error("ota", msg);
+            cartao.descarta_escrita(kArquivoTmp, log);
+            ultimo_erro = ResultadoOta::FalhaAoBaixar;
+            continue;
+        }
+        if (destino.falhou_a_escrita) {
+            log.error("ota", "o cartao recusou a escrita no meio do download");
+            cartao.descarta_escrita(kArquivoTmp, log);
+            ultimo_erro = ResultadoOta::FalhaAoGravar;
+            continue;
+        }
+
+        imprime_cabecalho(verificador_, log);
+
+        // Passo 2 do RF05.2. Valida ANTES de mexer na base vigente: é o que
+        // garante que um arquivo remoto corrompido não derrube a que funciona.
+        const auto veredito = verificador_.conclui(kCapacidadeFirmware);
+        if (veredito != ErroBase::Nenhum) {
+            std::snprintf(msg, sizeof msg, "base RECUSADA: %s", descreve(veredito));
+            log.error("ota", msg);
+            cartao.descarta_escrita(kArquivoTmp, log);
+            ultimo_erro = ResultadoOta::BaseRecusada;
+            continue;
+        }
+
+        if (cartao.conclui_escrita(log) != ErroCartao::Nenhum) {
+            cartao.descarta_escrita(kArquivoTmp, log);
+            ultimo_erro = ResultadoOta::FalhaAoGravar;
+            continue;
+        }
+
+        // ---- 3 e 4. a troca atômica --------------------------------------
+        const auto troca = cartao.promove(kArquivoTmp, kArquivoBase,
+                                          kArquivoBak, log);
+        if (troca != ErroCartao::Nenhum) {
+            std::snprintf(msg, sizeof msg, "troca atomica: %s", descreve(troca));
+            log.error("ota", msg);
+            return encerra(ResultadoOta::FalhaAoGravar);
+        }
+
+        // ---- 5. a versão, por último -------------------------------------
+        //
+        // Depois da base estar no lugar, de propósito. Se o aparelho desligar
+        // entre as duas, sobra a versão antiga e o próximo clique rebaixa:
+        // desperdício de rede, que é o modo de falha certo para escolher.
+        std::memcpy(versao_local_, versao_remota_, versao_remota_tam_ + 1);
+        const auto gravou_versao = cartao.grava_arquivo(
+            kArquivoVersao, versao_remota_, versao_remota_tam_, log);
+        if (gravou_versao != ErroCartao::Nenhum) {
+            log.warning("ota", "base gravada, mas a versao nao: vai rebaixar "
+                               "no proximo clique");
+        }
+
+        std::snprintf(msg, sizeof msg, "base gravada em '%s' (%lu bytes)",
+                      kArquivoBase,
                       static_cast<unsigned long>(verificador_.bytes_recebidos()));
-        log.error("ota", msg);
-        return encerra(ResultadoOta::FalhaAoBaixar);
+        log.info("ota", msg);
+        return encerra(ResultadoOta::Atualizada);
     }
 
-    imprime_cabecalho(verificador_, log);
-
-    const auto veredito = verificador_.conclui(kCapacidadeFirmware);
-    if (veredito != ErroBase::Nenhum) {
-        std::snprintf(msg, sizeof msg, "base RECUSADA: %s", descreve(veredito));
-        log.error("ota", msg);
-        return encerra(ResultadoOta::BaseRecusada);
-    }
-
-    std::memcpy(versao_local_, versao_remota_, versao_remota_tam_ + 1);
-    log.info("ota", "base aceita e verificada");
-    // ⚠️ Não confunda com "não deu para ler o cartão": o cartão é lido, e foi
-    // de lá que veio a configuração. O que falta é a ESCRITA do RF05.2 —
-    // `.tmp`, valida, `.bak`, `.bin`.
-    //
-    // A versão anterior deste aviso dizia "o leitor de cartao ainda nao
-    // existe", escrito quando era verdade. Envelheceu sem avisar, e ficou
-    // afirmando o contrário do que o log da mesma execução mostrava.
-    log.warning("ota",
-                "NAO gravada no cartao: falta a escrita atomica do RF05.2");
-    return encerra(ResultadoOta::Atualizada);
+    log.error("ota", "as tentativas se esgotaram; a base vigente segue intacta");
+    return encerra(ultimo_erro);
 }
 
 }  // namespace coruja
