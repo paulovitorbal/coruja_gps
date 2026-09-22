@@ -861,8 +861,9 @@ Comportamento obrigatório nas condições de falha:
   **FAT32**, e a comunicação SPI com o leitor deve operar em lógica nativa de **3,3 V**.
   Cartão com formatação diferente, ausente ou ilegível cai no RF07.
 
-  **Detecção de presença:** o pino `DET` do leitor é ligado ao **GPIO 14**, permitindo
-  distinguir cartão ausente de cartão ilegível (RF07).
+  **Sem detecção de presença.** O pino `DET` foi removido em 2026-09-22 (ADR 0010):
+  cartão ausente e cartão ilegível são tratados como **o mesmo caso**, porque a reação
+  do aparelho é a mesma. A presença é inferida da montagem — se monta, existe.
 
   | Estado | Nível em GPIO 14 |
   | :--- | :--- |

@@ -15,14 +15,26 @@ extern "C" {
 
 namespace {
 
-/// 12 MHz é o valor do exemplo da própria biblioteca e é conservador para fio
-/// de protoboard, onde o barramento SPI não tem terminação nenhuma. A
-/// inicialização do cartão acontece a 400 kHz; quem cuida disso é o driver.
+/// 1 MHz — **baixado de 12 MHz em 2026-09-22**, por medição.
+///
+/// A 12 MHz um cartão de 32 GB inicializava e depois falhava em toda leitura
+/// de setor com `FR_DISK_ERR`, enquanto outro cartão no mesmo soquete
+/// funcionava. A assimetria é a pista: a inicialização roda a 400 kHz e
+/// passava; a leitura roda neste valor e não passava.
+///
+/// 12 MHz era o número do exemplo da biblioteca, e o comentário anterior o
+/// chamava de "conservador para fio de protoboard" — não era. Protoboard não
+/// tem plano de terra e cada jumper é uma ponta sem terminação.
+///
+/// A conta que justifica não ter pressa: a base tem 214 KB e é lida uma vez
+/// no boot. A 1 MHz são ~1,8 s; a 12 MHz, ~0,15 s. O tempo de boot não é o
+/// gargalo deste aparelho, e leitura que falha custa infinitamente mais que
+/// leitura lenta.
 ///
 /// ⚠️ O barramento é **compartilhado com o display** (RNF06). Quando o driver
 /// do display entrar, a velocidade terá de ser reconfigurada por dispositivo,
 /// antes de cada transação, e as duas metades precisarão de exclusão mútua.
-constexpr unsigned kBaudRateHz = 12 * 1000 * 1000;
+constexpr unsigned kBaudRateHz = 1 * 1000 * 1000;
 
 spi_t g_spi = {
     .hw_inst   = spi0,
@@ -41,30 +53,17 @@ sd_card_t g_cartao = {
     .type     = SD_IF_SPI,
     .spi_if_p = &g_interface,
 
-    // **Cartão inserido = nível ALTO.** MEDIDO sob os três pulls internos, nos
-    // dois estados, em 2026-09-20:
+    // **Sem card detect.** Removido em 2026-09-22 (ADR 0010): o projeto reage
+    // igual a cartão ausente e a cartão ilegível, então a distinção não pagava
+    // o GPIO nem o fio.
     //
-    //   cartão dentro .... ALTO nos três  -> acionado em alto (pull-up)
-    //   slot vazio ....... BAIXO nos três -> acionado em baixo (chave ao GND)
-    //
-    // Coincide com o que a Adafruit documenta. Mas o caminho até aqui passou
-    // por uma inversão errada desta constante (R-41): duas leituras isoladas,
-    // feitas com pull-down num pino que na época estava FLUTUANDO, mediram a
-    // configuração do firmware em vez do cartão — e pareciam conclusivas.
-    //
-    // Se algum dia esta linha precisar mudar, meça sob os três pulls antes.
-    // `CartaoSd::diagnostica_det()` existe exatamente para isso, e roda a cada
-    // clique. Uma leitura só não distingue pino flutuante de pino acionado.
-    .use_card_detect = true,
-    .card_detect_gpio = coruja::pinos::kSdDet,
-    .card_detected_true = 1,
-
-    // Pull-DOWN interno, coerente com a polaridade acima: se o módulo estiver
-    // desconectado, o pino lê BAIXO, que aqui significa "sem cartão" — a
-    // resposta conservadora. Com o módulo ligado ele é irrelevante, perdendo
-    // de longe para o pull-up da placa e para a chave ao GND.
-    .card_detect_use_pull = true,
-    .card_detect_pull_hi = false,
+    // E a chave do soquete não era confiável: com o cartão inserido ela não
+    // abria por completo, deixando ~2,5 kΩ para o GND. Contra o pull-up de
+    // 4,82 kΩ isso põe o pino em 1,13 V — medido —, dentro da zona
+    // indeterminada da lógica de 3,3 V. O firmware lia ora alto, ora baixo,
+    // com o mesmo código, e o pino existia para *aumentar* a confiança no
+    // diagnóstico.
+    .use_card_detect = false,
 };
 
 }  // namespace

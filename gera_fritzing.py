@@ -72,10 +72,12 @@ PECAS = [
     # e omitia o `D1`, o que deslocava as duas últimas posições — quem contasse
     # posições pela tabela poria o fio do `DET` em `DAT2`. Ver R-40.
     #
-    # `D1` e `DAT2` permanecem desconectados: não são usados em modo SPI.
+    # Três pinos ficam sem ligação — ver a nota junto aos nomes.
     ("SD", "1d2d699b-1ee0-11de-8283-0019d2b7521e",
      "generic-female-header_9.fzp",
      "Leitor microSD (9 pinos)", {},
+     # `D1`, `DAT2` e `DET` ficam desconectados. O DET saiu com o card
+     # detect (ADR 0010); os outros dois nunca foram usados em modo SPI.
      ["3V", "GND", "CLK", "D0", "CMD", "D3", "D1", "DAT2", "DET"]),
 
     ("TFT", "17898e57-1ee0-11de-8283-0019d2b7521e",
@@ -251,10 +253,11 @@ NETS = {
     "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD"), ("TFT", "SDA")],
     "SPI0_MISO":   [("PICO", "21"), ("SD", "D0")],
     "SD_CS":       [("PICO", "22"), ("SD", "D3")],
-    # Card detect: chave mecânica do soquete. Usa pull-up interno do Pico,
-    # sem componente extra. GPIO 14 ficou livre quando o LED de Wi-Fi saiu.
-    # A POLARIDADE varia por placa e deve ser medida na bancada.
-    "SD_DET":      [("PICO", "19"), ("SD", "DET")],
+    # SEM card detect. O pino DET do modulo fica DESCONECTADO desde
+    # 2026-09-22 (ADR 0010): o projeto reage igual a cartao ausente e a cartao
+    # ilegivel, e a chave do soquete nao abria por completo -- deixava o GPIO
+    # 14 em 1,13 V, na zona indeterminada da logica de 3,3 V. O GPIO 14 esta
+    # LIVRE.
     "TFT_CS":      [("PICO", "26"), ("TFT", "CS")],
     "TFT_DC":      [("PICO", "27"), ("TFT", "DC")],
     "TFT_RST":     [("PICO", "29"), ("TFT", "RES")],
@@ -326,9 +329,6 @@ CORES = {
     # distingue quem fala no mesmo barramento.
     "SPI0_SCK":   "#4faf4e", "SPI0_MOSI": "#4faf4e", "SPI0_MISO": "#4faf4e",
     "SD_CS":      "#4faf4e", "TFT_CS":    "#4faf4e",
-    # O DET acompanha o chicote do cartão, mas NÃO é do barramento: é uma
-    # chave mecânica lida como GPIO.
-    "SD_DET":     "#4faf4e",
     # Controle do display, fora do barramento: DC escolhe comando ou dado,
     # RES é reset e BL é o PWM do backlight.
     "TFT_DC":     "#ffe500", "TFT_RST": "#ffe500", "TFT_BL_PWM": "#ffe500",

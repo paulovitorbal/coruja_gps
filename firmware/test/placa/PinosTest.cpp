@@ -18,6 +18,14 @@ using namespace coruja::pinos;
 // funcionar sem ninguém saber por quê. Um teste que falha dizendo "o encoder
 // CLK mudou de pino" é a mensagem que se quer receber.
 
+// O GPIO 14 saiu do projeto com o card detect (ADR 0010). Este teste existe
+// para que reocupá-lo seja uma decisão consciente: ele quebra se alguém o
+// acrescentar sem atualizar a contagem.
+TEST(Pinos, GpioQuatorzeEstaLivre) {
+    const std::set<unsigned> usados(kTodosOsGpio, kTodosOsGpio + kQuantosGpio);
+    EXPECT_EQ(usados.count(14), 0u) << "GPIO 14 voltou a ser usado";
+}
+
 TEST(Pinos, ValoresBatemComOBomSchematic) {
     EXPECT_EQ(kGpsTx, 0u);
     EXPECT_EQ(kGpsRx, 1u);
@@ -30,7 +38,6 @@ TEST(Pinos, ValoresBatemComOBomSchematic) {
     EXPECT_EQ(kLedVermelho, 8u);
     EXPECT_EQ(kLedVerde, 7u);
     EXPECT_EQ(kLedAzul, 6u);
-    EXPECT_EQ(kSdDet, 14u);
     EXPECT_EQ(kDisplayBacklight, 15u);
     EXPECT_EQ(kSpiMiso, 16u);
     EXPECT_EQ(kSdCs, 17u);
@@ -47,7 +54,7 @@ TEST(Pinos, AListaCobreTodosOsPinosDeclarados) {
     // erro volta a ser silencioso.
     const std::set<unsigned> na_lista(kTodosOsGpio, kTodosOsGpio + kQuantosGpio);
     for (unsigned g : {kGpsTx, kGpsRx, kEncoderClk, kEncoderDt, kEncoderSw,
-                       kBuzzerBase, kLedVermelho, kLedVerde, kLedAzul, kSdDet,
+                       kBuzzerBase, kLedVermelho, kLedVerde, kLedAzul,
                        kSdCs, kSpiMiso, kSpiSck, kSpiMosi, kDisplayCs,
                        kDisplayDc, kDisplayRst, kDisplayBacklight}) {
         EXPECT_EQ(na_lista.count(g), 1u) << "GPIO " << g << " fora de kTodosOsGpio";

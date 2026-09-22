@@ -433,6 +433,8 @@ real em cidade, e compra 20% de folga trocando 1,3 m de granularidade que o raio
 
 ---
 
+> ℹ️ **Não existe R-27.** O número foi pulado na numeração original e nunca ocupado.
+
 ## R-28 — Conector permutável com 12 V destrói o aparelho
 
 - **Onde:** `bom_schematic.md` seção 0; BOM itens 18, 19 e 22
@@ -991,7 +993,8 @@ O canal **azul** deixa de ser usado isoladamente e serve apenas à mistura do ro
 
 **Pendência que este achado gerou, já resolvida:** o LED verde dedicado ao status de
 Wi-Fi ficou redundante e **saiu do projeto** em 2026-09-15, liberando o **GPIO 14** —
-que passou a ser usado pelo card detect do leitor SD (2026-09-17).
+que foi usado pelo card detect do leitor SD entre 2026-09-17 e 2026-09-22, e voltou a
+ficar livre com a remoção dele (ADR 0010).
 
 ---
 
@@ -1152,7 +1155,9 @@ a montante ele vira aquecedor ligado na bateria.
 - **Onde:** `requirements.md` RF03.7 · `bom_schematic.md` item 7 e RNF05
 - **Confiança:** ⚠️ Estimativa acústica, **não medida** — ver ressalva
 - **Registrado em:** 2026-09-18
-- **Status:** ✅ **CORRIGIDO** — faixa 3 virou pulso de 10 Hz; montagem documentada
+- **Status:** ⏳ **PARCIAL** — a faixa 3 virou pulso de 10 Hz, e em 2026-09-21 o buzzer
+  passou a ser alimentado em 12 V em vez de 5 V (ADR 0009), o que ataca a mesma causa
+  pelo lado elétrico. **A audibilidade em campo segue sem medição.**; montagem documentada
 
 **Contexto que faltava.** O veículo é um **Uno Mille 2009 sem ar-condicionado**, e o
 autor roda normalmente **com as janelas abertas**, em vias de ~80 km/h. Isso não é uma
@@ -1277,7 +1282,7 @@ manual: mover o fio do terminal comum do GND para o `3V3`.
 - **Confiança:** ⚠️ Ordem vinda da **foto do anúncio** do módulo comprado — a confirmar
   na serigrafia
 - **Registrado em:** 2026-09-18
-- **Status:** ✅ **CORRIGIDO** na mesma data; confirmação física pendente
+- **Status:** ⏳ **PARCIAL** — tabela corrigida na mesma data; confirmação física pendente
 
 **Problema.** Três módulos deste projeto têm pinagem que não se adivinha, e **dois deles
 divergiram do documentado** quando o autor conferiu a peça física:
@@ -1379,7 +1384,9 @@ estivesse errada, os canais apareceriam complementados.
 - **Onde:** `bom_schematic.md` item 17 e §4 · `requirements.md` RF04
 - **Confiança:** ✅ **Medido na placa** em 2026-09-19, com e sem os capacitores
 - **Registrado em:** 2026-09-19
-- **Status:** ⏳ valor novo a especificar e comprar
+- **Status:** ✅ **RESOLVIDO** — monta **sem capacitor**. Não há valor novo a comprar:
+  o debounce é a máquina de estados do `DecodificadorQuadratura`. Um RC de 1 a 10 nF
+  fica registrado como contingência, caso a montagem definitiva exija.
 
 **Problema.** A revisão 2 deste documento mandou soldar **100 nF entre `CLK` e GND** e
 outro entre `DT` e GND, com a justificativa de que "o KY-040 é eletricamente ruidoso;
@@ -1493,6 +1500,45 @@ diagnóstico.
 
 ---
 
+## R-45 — Um aviso do OTA afirmava o contrário do que o log da mesma execução mostrava
+
+- **Onde:** `rede/AtualizadorOta.cpp`
+- **Confiança:** ✅ Visto no log de bancada de 2026-09-22
+- **Registrado em:** 2026-09-22
+- **Status:** ✅ **CORRIGIDO**
+
+**Problema.** Ao fim de cada atualização o firmware registrava:
+
+```
+[WARN ] ota: nao foi gravada: o leitor de cartao ainda nao existe (R-38)
+```
+
+Duas coisas erradas. O leitor **existe** — quatro linhas acima, no mesmo log, ele
+tinha lido o `coruja.cfg`. E o R-38 é a referência errada: aquele achado era sobre
+sondagem de partições. O que falta é a **escrita** do RF05.2.
+
+**Como envelheceu.** O texto era verdadeiro quando foi escrito, no dia em que o leitor
+de fato não existia. Quando o leitor entrou, ninguém releu a mensagem — ela não faz
+parte de nenhum teste, não quebra build, e só aparece no fim de uma execução bem
+sucedida, que é justamente quando não se lê o log com atenção.
+
+**O padrão, que já apareceu quatro vezes neste projeto.** Texto que descreve o estado
+do sistema envelhece em silêncio:
+
+| Onde | O que afirmava | Quando deixou de valer |
+| :--- | :--- | :--- |
+| `.fzz` versionado | LED de cátodo comum | R-33, e só foi notado 4 dias depois |
+| Mensagem do boot | "DET em nível baixo" | ao inverter a polaridade (R-41) |
+| `descreve(Ausente)` | "(pelo DET)" | mesma correção |
+| Aviso do OTA | "o leitor não existe" | ao implementar o leitor |
+
+A defesa que funcionou nos dois casos de nível elétrico foi **medir em vez de
+afirmar** — a mensagem passou a imprimir o valor lido. Aqui não há valor a medir, e a
+única defesa real é reler as mensagens quando a funcionalidade que elas descrevem
+muda. Vale procurar as demais antes de cada entrega.
+
+---
+
 ## R-44 — O gerador do Fritzing continuou fiando os capacitores que o R-36 proibiu
 
 - **Onde:** `gera_fritzing.py` · `coruja_gps.fzz`
@@ -1528,7 +1574,10 @@ com o `NETS`, como já existe entre o `gera_config.py` e o `Configuracao.h`.
 - **Onde:** fiação de bancada (protoboard)
 - **Confiança:** ✅ Observado duas vezes na mesma alimentação
 - **Registrado em:** 2026-09-20
-- **Status:** 🔴 **ABERTO**
+- **Status:** ✅ **ENCERRADO por remoção** — o card detect saiu do projeto (ADR 0010).
+  A causa raiz acabou sendo outra: a chave do soquete não abre por completo e deixa o
+  pino em 1,13 V, na zona indeterminada. "Contato intermitente" era a leitura errada de
+  um pino que nunca esteve em nível lógico definido.
 
 **Observação.** Numa única inicialização, com o cartão inserido e sem ninguém tocar
 em nada:
@@ -1561,7 +1610,10 @@ precisamente a lição do R-42.
 - **Onde:** fiação de bancada · `armazenamento/CartaoSd.cpp`
 - **Confiança:** ✅ Medido sob os três pulls internos na mesma inicialização
 - **Registrado em:** 2026-09-20
-- **Status:** ✅ **CORRIGIDO** — pino reassentado; polaridade medida nos dois estados
+- **Status:** ✅ **CORRIGIDO na época**, e **sem objeto** desde 2026-09-22: o card
+  detect saiu do projeto (ADR 0010). A medição continua válida como registro — o pino
+  era mesmo acionado nos dois estados — mas a chave do soquete nunca foi confiável, e é
+  isso que o R-43 acabou revelando.
 
 **Medição.** Com o cartão **inserido**:
 
@@ -1637,7 +1689,8 @@ explicação do R-40 volta a ser a melhor disponível.
 - **Onde:** `bom_schematic.md` §2 · `armazenamento/hw_config.cpp`
 - **Confiança:** ✅ Três leituras na bancada, com o firmware relatando o nível
 - **Registrado em:** 2026-09-20
-- **Status:** ✅ **CORRIGIDO** — `card_detected_true = 0`, pull-up interno
+- **Status:** ❌ **RETRATADO** — a conclusão estava errada; ver o aviso acima e o R-42.
+  O assunto ficou sem objeto em 2026-09-22, com a remoção do card detect (ADR 0010).
 
 **Problema.** O módulo deste projeto tem pull-up no `DET` e uma chave que o aterra
 **quando o cartão entra**. O documento citava a Adafruit dizendo o contrário — citação
@@ -1942,11 +1995,15 @@ RELEVANTES
 [x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
           procurando o arquivo. static_assert quebra o build se o override do
           ffconf.h se perder; verificado por teste negativo. ADR 0007.
+[x] R-45  RESOLVIDO — aviso do OTA dizia "o leitor de cartao nao existe" com o
+          cartao recem-lido no mesmo log. Texto que descreve estado envelhece
+          em silencio; e a quarta ocorrencia registrada
 [x] R-44  RESOLVIDO — C3/C4 saíram do gerador. O commit do R-36 falava deles na
           mensagem e mexia so no LED; o .fzz mandou instalar por 2 dias os
           capacitores que matam a quadratura
-[ ] R-43  DET com contato intermitente: flutuante no boot e acionado no clique,
-          mesma alimentacao. Num carro, vibracao. Reassentar ou soldar
+[x] R-43  ENCERRADO por remocao — nao era contato intermitente: a chave do
+          soquete nao abre por completo e deixa 1,13 V, na zona indeterminada.
+          Card detect saiu do projeto (ADR 0010); GPIO 14 livre
 [x] R-42  RESOLVIDO — fio reassentado; medido nos dois estados sob os tres
           pulls: cartao dentro=ALTO, slot vazio=BAIXO. card_detected_true=1,
           como estava antes do R-41. Diagnostico dos tres pulls fica no codigo
@@ -1964,8 +2021,9 @@ RELEVANTES
 LACUNAS
 [ ] L-01  Comportamento sem fix de GPS
 [ ] L-02  Orçamentos de memória, corrente e tempo de boot
-[~] L-03  Cartão ausente agora é detectado pelo DET e logado no boot e no
-          clique; cartão ilegível e base ausente ainda sem tratamento de IHM
+[~] L-03  Cartao ausente e cartao ilegivel sao UM caso so desde 2026-09-22
+          (ADR 0010), reportado como "cartao ausente ou ilegivel". Falta o
+          tratamento de IHM para base ausente
 [ ] L-04  Watchdog e recuperação
 [ ] L-05  Faixa térmica (capacitor 105 °C)
 [ ] L-06  Conversão e suavização da velocidade

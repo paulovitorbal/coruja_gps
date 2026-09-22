@@ -27,7 +27,6 @@
 #include "log/LoggerConsole.h"
 #include "armazenamento/CartaoSd.h"
 #include "nucleo/BaseRadares.h"
-#include "placa/Pinos.h"
 #include "nucleo/LeitorConfig.h"
 #include "rede/AtualizadorOta.h"
 #include "rede/RedeWifi.h"
@@ -116,25 +115,7 @@ int main() {
     coruja::RedeWifi         rede;
     coruja::AtualizadorOta   ota;
 
-    // No boot o cartão é só INSPECIONADO, não lido. O estado dele é a primeira
-    // coisa que quem está na bancada precisa saber, e era o que faltava: sem
-    // esta linha, cartão ausente e cartão presente davam exatamente o mesmo
-    // console, e a diferença só aparecia depois, disfarçada de outro erro.
-    // Antes de o driver configurar o pino: ele impõe o pull dele.
-    cartao.diagnostica_det(log);
     cartao.inicia(log);
-    // O nível vem MEDIDO, não deduzido do significado: um texto que afirmava
-    // "(DET em nivel baixo)" já saiu com o pino em alto, depois que a
-    // polaridade foi corrigida. Ver R-41.
-    std::snprintf(msg, sizeof msg, "DET (GPIO %u) em nivel %s",
-                  coruja::pinos::kSdDet, cartao.nivel_bruto() ? "ALTO" : "BAIXO");
-    log.info("sd", msg);
-    if (cartao.presente()) {
-        log.info("sd", "cartao presente no slot");
-    } else {
-        log.warning("sd", "SEM CARTAO no slot");
-        log.warning("sd", "o clique nao vai atualizar: o coruja.cfg vive no cartao");
-    }
 
     log.info("ihm", "girar = cor do estado de via | clicar = atualizar base");
     log.info("ihm", "ordem: segura(verde) -> ambar -> rosa -> perigo(vermelho)");
@@ -155,11 +136,6 @@ int main() {
             // A configuração é lida AQUI, a cada clique, e não guardada do
             // boot: trocar o cartão passa a valer sem reiniciar, e a leitura
             // nunca fica velha.
-            // O diagnóstico do DET roda a CADA clique, não só no boot: é o
-            // que permite mover o fio de pino em pino e conferir sem
-            // reiniciar nem regravar.
-            cartao.diagnostica_det(log);
-
             coruja::Configuracao config;
             if (carrega_configuracao(cartao, &config, log)) {
                 ota.executa(config, rede, log);

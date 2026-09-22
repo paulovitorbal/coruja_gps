@@ -80,11 +80,14 @@ constexpr unsigned kLedAzul     = 6;  // pino físico  9; resistor 150 Ω
 // Cartão microSD
 // ---------------------------------------------------------------------------
 
-/// Card detect. Entrada **sem pull interno**: a placa Adafruit já traz pull-up
-/// de 4,7 kΩ para 3 V, e cartão presente = nível **ALTO**. Permite ao RF07
-/// distinguir cartão ausente, que o motorista resolve, de cartão ilegível,
-/// que ele não resolve dirigindo.
-constexpr unsigned kSdDet = 14;  // pino físico 19
+// ⚠️ **O GPIO 14 está LIVRE.** Ele era o card detect, removido em 2026-09-22
+// (ADR 0010): o projeto reage igual a cartão ausente e a cartão ilegível, e a
+// chave do soquete não abria por completo — deixava o pino em 1,13 V, dentro
+// da zona indeterminada da lógica de 3,3 V.
+//
+// É a **segunda** vez que este pino é liberado; antes ele era o LED de Wi-Fi
+// (R-25). Quem for ocupá-lo, confira que nada ficou ligado nele na placa.
+
 constexpr unsigned kSdCs  = 17;  // pino físico 22
 
 // ---------------------------------------------------------------------------
@@ -145,8 +148,8 @@ constexpr unsigned kPinoFisicoGnd = 38;
 /// é esta lista que as verificações abaixo enxergam.
 constexpr unsigned kTodosOsGpio[] = {
     kGpsTx,     kGpsRx,      kEncoderClk, kEncoderDt,  kEncoderSw,
-    kBuzzerBase, kLedVermelho, kLedVerde,  kLedAzul,   kSdDet,
-    kSdCs,      kSpiMiso,    kSpiSck,     kSpiMosi,    kDisplayCs,
+    kBuzzerBase, kLedVermelho, kLedVerde, kLedAzul,   kSdCs,
+    kSpiMiso,   kSpiSck,     kSpiMosi,    kDisplayCs,
     kDisplayDc, kDisplayRst, kDisplayBacklight,
 };
 constexpr std::size_t kQuantosGpio =
@@ -193,7 +196,7 @@ static_assert(detalhe::todos_disponiveis(kTodosOsGpio, kQuantosGpio),
               "algum GPIO não existe no cabeçalho do Pico, ou pertence ao "
               "módulo Wi-Fi CYW43 (23, 24, 25, 29)");
 
-static_assert(kQuantosGpio == 18,
+static_assert(kQuantosGpio == 17,
               "a contagem de GPIO mudou: confira o bom_schematic.md e a "
               "netlist do gera_fritzing.py antes de ajustar este número");
 

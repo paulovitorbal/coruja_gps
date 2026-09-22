@@ -558,8 +558,8 @@ isso que é ruim:
   pino **SDA** do Display TFT.
 * **Pico GPIO 16 (Pino 21 / MISO):** conecta **apenas** ao pino **`DO/SO`** do leitor SD.
 * **Pico GPIO 17 (Pino 22 / SD_CS):** conecta ao pino **`D3/CS`** do leitor SD.
-* ⚠️ **Pico GPIO 14 (Pino 19 / SD_DET):** conecta ao pino **`DET`** do leitor SD.
-  **Novo na rev. 3** — ver nota de card detect abaixo.
+* ⚠️ **Pico GPIO 14 (Pino 19): LIVRE.** Era o card detect, removido em 2026-09-22 —
+  ver a nota abaixo e a ADR 0010.
 * **Pico GPIO 20 (Pino 26 / TFT_CS):** conecta ao pino **CS** do Display TFT.
 * **Pico GPIO 21 (Pino 27 / TFT_DC):** conecta ao pino **DC/RS** do Display TFT.
 * **Pico GPIO 22 (Pino 29 / TFT_RST):** conecta ao pino **RES/RESET** do Display TFT.
@@ -587,7 +587,7 @@ O leitor tem **9 pinos**. Da esquerda para a direita, olhando de frente:
 | 6 | `D3` | GPIO 17 (pino 22) | chip select |
 | 7 | `D1` | **desconectado** | não usado em modo SPI |
 | 8 | `DAT2` | **desconectado** | não usado em modo SPI |
-| 9 | `DET` | GPIO 14 (pino 19) | card detect — ver abaixo |
+| 9 | `DET` | **desconectado** | card detect removido — ver abaixo |
 
 > ⚠️ **A revisão 3 listava 8 pinos e omitia o `D1`**, o que deslocava as duas últimas
 > posições: quem contasse posições pela tabela poria o fio do `DET` em `DAT2`. E isso
@@ -598,39 +598,50 @@ O leitor tem **9 pinos**. Da esquerda para a direita, olhando de frente:
 > ⚠️ **Conte os pinos na placa antes de fiar.** Duas revisões seguidas deste documento
 > erraram esta tabela, cada uma de um jeito.
 
-#### 🆕 Card detect (`DET` → GPIO 14)
+#### ❌ Card detect — REMOVIDO em 2026-09-22
 
-O `DET` permite ao firmware distinguir **"cartão ausente"** — que o motorista resolve
-inserindo o cartão — de **"cartão ilegível"**, que ele não resolve. Sem isso, o RF07
-trata os dois como a mesma falha.
+O `DET` era ligado ao **GPIO 14** para o RF07 distinguir cartão ausente de cartão
+ilegível. **Saiu do projeto** (ADR 0010), por duas razões:
 
-**Polaridade — MEDIDA na placa em 2026-09-20**, lendo o pino sob os **três** pulls
-internos em cada estado. Coincide com o que a Adafruit documenta:
+* A distinção não é usada — a reação do aparelho é a mesma nos dois casos.
+* A chave do soquete **não abre por completo** com o cartão inserido. Medido: ~2,5 kΩ
+  residuais para o GND, que contra o pull-up de 4,82 kΩ põem o pino em **1,13 V** —
+  dentro da zona indeterminada da lógica de 3,3 V. O firmware lia ora alto, ora baixo,
+  com o mesmo código.
 
-| Estado | pull-down | pull-up | sem pull | Conclusão |
-| :--- | :---: | :---: | :---: | :--- |
-| **Cartão inserido** | ALTO | ALTO | ALTO | acionado em ALTO (pull-up) |
-| **Slot vazio** | BAIXO | BAIXO | BAIXO | acionado em BAIXO (chave ao GND) |
-| Módulo desconectado | BAIXO | ALTO | ALTO | **flutuante** — segue o pull |
+**O pino `DET` do módulo fica desconectado, e o GPIO 14 está livre** — pela segunda
+vez, já que antes era o LED de Wi-Fi (R-25). Quem for ocupá-lo, confira que nada ficou
+ligado nele na placa.
 
-> ⚠️ **Meça sob os três pulls, não sob um.** A terceira linha é a razão: um pino
-> flutuante produz leituras que parecem perfeitamente conclusivas, e mudam conforme o
-> pull que o firmware configurou. Duas leituras assim levaram a inverter esta
-> polaridade por engano e a publicar a inversão (R-41, retratado). A medição sob os
-> três pulls foi o que resolveu, e está em `CartaoSd::diagnostica_det()`, rodando a
-> cada clique.
+#### ⚠️ Pinagem física do leitor microSD (relida na placa, 2026-09-20)
 
-* **Habilitar o pull-down interno do Pico.** Ele é irrelevante com o módulo ligado,
-  onde perde de longe para o pull-up da placa e para a chave ao GND. Serve para o
-  módulo **ausente**: sem pull nenhum o GPIO 14 flutua e a presença do cartão vira
-  sorteio. Com pull-down, módulo ausente lê BAIXO — nesta polaridade, "sem cartão",
-  que é a resposta conservadora.
-* **Nenhum componente novo.**
-* **GPIO 14 estava livre** desde que o LED verde de Wi-Fi saiu do projeto (R-25).
+O leitor tem **9 pinos**. Da esquerda para a direita, olhando de frente:
 
-> 📄 O mesmo guia confirma que **há pull-up em todos os pinos de lógica SPI** da placa
-> (`CLK`, `SO`, `SI`, `CS`), então não são necessários pull-ups externos. E reforça que
-> o pino `3V` aceita **somente 3,3 V** — 5 V danifica o cartão.
+| # | Serigrafia | Liga em | Função em modo SPI |
+| :---: | :--- | :--- | :--- |
+| 1 | `3V` | `3V3_OUT` (pino 36) | alimentação |
+| 2 | `GND` | GND comum | terra |
+| 3 | `CLK` | GPIO 18 (pino 24) | clock do SPI0 |
+| 4 | `D0` | GPIO 16 (pino 21) | saída do cartão → MISO |
+| 5 | `CMD` | GPIO 19 (pino 25) | entrada do cartão → MOSI |
+| 6 | `D3` | GPIO 17 (pino 22) | chip select |
+| 7 | `D1` | **desconectado** | não usado em modo SPI |
+| 8 | `DAT2` | **desconectado** | não usado em modo SPI |
+| 9 | `DET` | **desconectado** | card detect removido — ver abaixo |
+
+> ⚠️ **A revisão 3 listava 8 pinos e omitia o `D1`**, o que deslocava as duas últimas
+> posições: quem contasse posições pela tabela poria o fio do `DET` em `DAT2`. E isso
+> não falha de forma visível — a Adafruit documenta *"pull ups are provided on all
+> SDIO logic pins"*, então `DAT2` fica **alto por construção** e o firmware passa a
+> relatar "cartão presente" para sempre, com ou sem cartão. Ver R-40.
+
+> ⚠️ **Conte os pinos na placa antes de fiar.** Duas revisões seguidas deste documento
+> erraram esta tabela, cada uma de um jeito.
+
+#### ❌ Card detect — REMOVIDO
+
+Descrito acima, na tabela de pinagem. O `DET` fica desconectado e o GPIO 14 está
+livre desde 2026-09-22. Ver ADR 0010.
 
 ### ⚠️ 3. Módulo GPS NEO-M8N (UART0)
 
@@ -964,7 +975,7 @@ Antes de ligar o circuito pela primeira vez:
 | E-01 — Item numerado 29 em vez de 19 | BOM renumerado 1–20 |
 | RF04 — Debounce por máquina de estados; RC é contingência | Seção 4; item 17 opcional |
 | Pinagens físicas conferidas | Seções 2 e 4 — leitor SD tem 8 pinos; KY-040 estava invertido |
-| Card detect | Seção 2 — `DET` → GPIO 14; distingue cartão ausente de ilegível (RF07) |
+| ~~Card detect~~ | REMOVIDO em 2026-09-22 — ver ADR 0010 |
 | Instalação no veículo | Seção 0 — pós-chave via piggyback, fusível de 2 A, **conversor externo** |
 | Conectores permutáveis | Seção 0 (12 V, crítico) e nota dos conectores do aparelho (5 V, robustez) |
 | Fiação interna | BOM item 26 — 22 AWG estanhado, margem de 10× e quedas < 11 mV |
@@ -972,8 +983,8 @@ Antes de ligar o circuito pela primeira vez:
 **Confirmado pelo autor (2026-09-15):** conector **JST-XH** no lugar do Jack P2 (seção 5).
 
 **Removido do projeto (2026-09-15):** LED verde de status de Wi-Fi e seu resistor de
-330 Ω. O `GPIO 14` liberado passou a ser usado pelo **card detect** do leitor SD
-(2026-09-17).
+330 Ω. O `GPIO 14` liberado foi usado pelo **card detect** do leitor SD entre
+2026-09-17 e 2026-09-22, e com a remoção dele (ADR 0010) **voltou a ficar livre**.
 
 Pendente na seção 3: **confirmar visualmente que a placa GY-GPSV3 tem regulador de
 3 pinos junto ao VCC** antes de aplicar os 5 V. Verificação de 30 segundos; errar custa

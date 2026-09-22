@@ -196,8 +196,15 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, RedeWifi& rede,
 
     std::memcpy(versao_local_, versao_remota_, versao_remota_tam_ + 1);
     log.info("ota", "base aceita e verificada");
+    // ⚠️ Não confunda com "não deu para ler o cartão": o cartão é lido, e foi
+    // de lá que veio a configuração. O que falta é a ESCRITA do RF05.2 —
+    // `.tmp`, valida, `.bak`, `.bin`.
+    //
+    // A versão anterior deste aviso dizia "o leitor de cartao ainda nao
+    // existe", escrito quando era verdade. Envelheceu sem avisar, e ficou
+    // afirmando o contrário do que o log da mesma execução mostrava.
     log.warning("ota",
-                "nao foi gravada: o leitor de cartao ainda nao existe (R-38)");
+                "NAO gravada no cartao: falta a escrita atomica do RF05.2");
     return encerra(ResultadoOta::Atualizada);
 }
 

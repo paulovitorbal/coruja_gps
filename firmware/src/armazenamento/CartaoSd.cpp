@@ -9,11 +9,7 @@ extern "C" {
 #include "hw_config.h"
 }
 
-#include <hardware/gpio.h>
-#include <pico/stdlib.h>
-
 #include "log/Logger.h"
-#include "placa/Pinos.h"
 
 // Se o nosso ffconf.h perder a disputa de caminho de include, a sondagem de
 // partições deixa de existir — silenciosamente, porque o código compila e só
@@ -58,11 +54,8 @@ FIL   g_arquivo;
 const char* descreve(ErroCartao erro) {
     switch (erro) {
         case ErroCartao::Nenhum:         return "ok";
-        // Sem afirmar nível: este texto já saiu dizendo "nivel baixo" com o
-        // pino em alto, depois que a polaridade mudou. Quem quiser o nível
-        // medido tem o `diagnostica_det`.
-        case ErroCartao::Ausente:        return "nenhum cartao no slot (pelo DET)";
-        case ErroCartao::NaoMontou:      return "cartao presente, sem particao FAT legivel";
+        case ErroCartao::SemCartaoLegivel:
+            return "cartao ausente ou ilegivel";
         case ErroCartao::ArquivoAusente: return "arquivo nao encontrado em nenhuma particao";
         case ErroCartao::ArquivoGrande:  return "arquivo maior que o buffer";
         case ErroCartao::FalhaDeLeitura: return "falha de leitura";
@@ -84,61 +77,6 @@ void CartaoSd::inicia(Logger& log) {
     log.info("sd", "driver do cartao iniciado");
 }
 
-bool CartaoSd::presente() const {
-    sd_card_t* cartao = sd_get_by_num(0);
-    if (cartao == nullptr) {
-        return false;
-    }
-    // Lido AGORA, do pino. O cartão pode sair entre duas chamadas, e um valor
-    // guardado mentiria justamente no momento em que a verdade importa.
-    return sd_card_detect(cartao);
-}
-
-void CartaoSd::diagnostica_det(Logger& log) {
-    gpio_init(pinos::kSdDet);
-    gpio_set_dir(pinos::kSdDet, GPIO_IN);
-
-    // 5 ms é folga enorme para um pull de ~50 kΩ carregar a capacitância de
-    // um pino e de alguns centímetros de fio. Medir cedo demais leria o
-    // estado anterior e daria um "flutuante" falso.
-    gpio_pull_down(pinos::kSdDet);
-    sleep_ms(5);
-    const bool com_pull_down = gpio_get(pinos::kSdDet);
-
-    gpio_pull_up(pinos::kSdDet);
-    sleep_ms(5);
-    const bool com_pull_up = gpio_get(pinos::kSdDet);
-
-    gpio_disable_pulls(pinos::kSdDet);
-    sleep_ms(5);
-    const bool sem_pull = gpio_get(pinos::kSdDet);
-
-    // Devolve o pino ao pull que o `hw_config.cpp` declara — hoje pull-DOWN.
-    // Sem isto, chamar o diagnóstico depois do boot deixaria o pino sem pull
-    // e as leituras seguintes passariam a depender de acaso.
-    gpio_pull_down(pinos::kSdDet);
-
-    char msg[128];
-    std::snprintf(msg, sizeof msg,
-                  "DET (GPIO %u): pull-down=%s  pull-up=%s  sem pull=%s",
-                  pinos::kSdDet, com_pull_down ? "ALTO" : "BAIXO",
-                  com_pull_up ? "ALTO" : "BAIXO", sem_pull ? "ALTO" : "BAIXO");
-    log.info("det", msg);
-
-    if (com_pull_down != com_pull_up) {
-        log.warning("det", "o pino SEGUE o pull -> esta FLUTUANDO, nada o aciona");
-        log.warning("det", "o fio do DET nao chega ao pino certo, ou nao chega");
-    } else if (com_pull_down) {
-        log.info("det", "acionado em ALTO -> ha pull-up externo neste pino");
-    } else {
-        log.info("det", "acionado em BAIXO -> ha chave ao GND neste pino");
-    }
-}
-
-bool CartaoSd::nivel_bruto() const {
-    return gpio_get(pinos::kSdDet);
-}
-
 ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
                                 std::size_t capacidade, std::size_t* lidos,
                                 Logger& log) {
@@ -148,10 +86,6 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
     if (!iniciado_) {
         inicia(log);
     }
-    if (!presente()) {
-        return ErroCartao::Ausente;
-    }
-
     char msg[128];
     int  montadas = 0;
 
@@ -167,7 +101,7 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
             // A causa PRECISA sair no log. A primeira versão fazia `continue`
             // em silêncio, e o resultado era "nenhuma particao FAT montou" —
             // verdadeiro, inútil e indistinguível entre cartão mal fiado,
-            // cartão não-FAT e cartão ausente com DET preso em alto.
+            // cartão não-FAT e cartão ausente.
             //
             // `FR_NOT_READY` aponta para o barramento ou a alimentação;
             // `FR_NO_FILESYSTEM`, para a formatação; `FR_DISK_ERR`, para
@@ -226,8 +160,10 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
     }
 
     if (montadas == 0) {
-        log.error("sd", "cartao presente, nenhuma particao FAT montou");
-        return ErroCartao::NaoMontou;
+        // Sem pino de card detect, ausente e ilegível chegam aqui iguais — e
+        // é assim que o projeto quer (ADR 0010).
+        log.error("sd", "nenhuma particao FAT montou: cartao ausente ou ilegivel");
+        return ErroCartao::SemCartaoLegivel;
     }
     // A mensagem diz QUANTAS partições foram vistas. É o que separa um beco
     // sem saída de um diagnóstico: com o arquivo na partição errada, este

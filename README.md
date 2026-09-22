@@ -243,7 +243,6 @@ LED RGB exclusivo de estado de via.
 | R-13 | Tensão do trilho 3V3 sob carga, com backlight em 100% |
 | R-17 | Consumo do buzzer e pinagem do transistor |
 | R-14 | Inspeção: regulador de 3 pinos na placa GPS — **sem ele, 5 V destroem o módulo** |
-| SD `DET` | Polaridade do card detect, com e sem cartão |
 
 **Escopo futuro:** desenho de telas e interfaces visuais.
 
