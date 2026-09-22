@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
 
+#include "log/Logger.h"
+
 namespace coruja {
 
 /// Limites de tamanho. Fixos e sem alocação dinâmica: a configuração vive em
@@ -47,6 +49,19 @@ struct Configuracao {
     char url_versao[kMaxUrl + 1] = {};
     /// Onde baixar o `radares.bin`. O RF05.2 exige HTTPS.
     char url_base[kMaxUrl + 1] = {};
+
+    /// Escrever todas as mensagens de log também no cartão.
+    ///
+    /// Desligado por padrão, e a razão não é economia de código: gravar log a
+    /// cada mensagem gasta escrita de cartão, e cartão tem número finito de
+    /// ciclos. É recurso de diagnóstico, para ficar ligado enquanto se procura
+    /// um defeito e desligado depois.
+    bool log_para_cartao = false;
+
+    /// Abaixo deste nível as mensagens são descartadas, no console e no
+    /// cartão. `Info` por padrão — `Debug` inclui a varredura de Wi-Fi inteira
+    /// e cada volume sondado, que é muito para uso normal.
+    Nivel nivel_log = Nivel::Info;
 
     bool tem_rede() const { return n_redes > 0; }
     bool tem_urls() const {

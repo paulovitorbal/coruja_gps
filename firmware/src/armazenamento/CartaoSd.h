@@ -57,6 +57,14 @@ public:
     ErroCartao le_em_fluxo(const char* nome, AoLerPedaco ao_ler, void* contexto,
                            std::size_t* lidos, Logger& log);
 
+    /// Acrescenta bytes ao fim de um arquivo, criando-o se não existir.
+    ///
+    /// Usado pelo log. Abre e fecha a cada chamada de propósito: o cartão é
+    /// removível, e manter um arquivo de log aberto indefinidamente é como se
+    /// perde um sistema de arquivos ao puxar o cartão.
+    ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
+                                  std::size_t tamanho, Logger& log);
+
     /// Grava um arquivo pequeno inteiro, de uma vez. Para a linha de versão.
     ErroCartao grava_arquivo(const char* nome, const char* conteudo,
                              std::size_t tamanho, Logger& log);

@@ -1,3 +1,7 @@
+# coruja_log: interface + implementacao de console. Portavel.
+add_library(coruja_log STATIC log/LoggerConsole.cpp)
+target_include_directories(coruja_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 # coruja_nucleo: logica pura, sem uma linha de hardware. Compila no host e no Pico.
 add_library(coruja_nucleo STATIC
     nucleo/Geo.cpp
@@ -11,6 +15,8 @@ add_library(coruja_nucleo STATIC
     nucleo/CarregadorFluxo.cpp
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# A configuracao carrega um Nivel de log, e o parser usa nivel_de_texto().
+target_link_libraries(coruja_nucleo PUBLIC coruja_log)
 
 # coruja_ihm: logica de interface de usuario. Portavel, sem hardware: o
 # decodificador de quadratura, o anti-repique e o modo de teste sao funcoes
@@ -25,10 +31,6 @@ add_library(coruja_ihm STATIC
     app/CicloCores.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-# coruja_log: interface + implementacao de console. Portavel.
-add_library(coruja_log STATIC log/LoggerConsole.cpp)
-target_include_directories(coruja_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # coruja_portes: implementacoes que tocam hardware. So no alvo Pico.
 if(NOT CORUJA_TESTES)
@@ -49,6 +51,9 @@ if(NOT CORUJA_TESTES)
     add_library(coruja_armazenamento STATIC
         armazenamento/CartaoSd.cpp
         armazenamento/hw_config.cpp
+        # O logger de cartao vive aqui, e nao em coruja_log, porque depende do
+        # CartaoSd -- e coruja_log e portavel, compila no host.
+        log/LoggerCartao.cpp
     )
     target_include_directories(coruja_armazenamento PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/armazenamento)

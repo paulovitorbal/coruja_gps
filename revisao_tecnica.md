@@ -1500,6 +1500,42 @@ diagnóstico.
 
 ---
 
+## R-46 — O logger de cartão trocava "buffer preso" por "linhas perdidas em silêncio"
+
+- **Onde:** `log/LoggerCartao.cpp`
+- **Confiança:** ✅ Medido: 14 linhas sumiram de uma execução real, comparando o
+  `coruja.log` com a captura da serial
+- **Registrado em:** 2026-09-22
+- **Status:** ✅ **CORRIGIDO** antes de ser publicado
+
+**Problema.** O `descarrega()` zerava o buffer **antes** de tentar gravar, com o
+raciocínio de que assim ele não ficaria preso se a gravação falhasse. Mas durante o
+download da base a gravação falha **sempre**, de propósito — uma escrita em fluxo está
+em curso e as duas usariam o mesmo descritor. Cada tentativa jogava fora 1 KiB de log
+acumulado, inclusive linhas de **antes** do download começar.
+
+Medido comparando o arquivo com a serial: sumiram 14 linhas — o fim da varredura de
+Wi-Fi, a conexão, o IP, os dois `GET`, a decisão de baixar e metade do cabeçalho.
+
+**O que a correção mudou, e não é só o tamanho.** Três coisas:
+
+1. O buffer **não é mais zerado** quando a gravação falha. O conteúdo fica e sai na
+   próxima descarga, que o `main` dispara logo após o OTA.
+2. Foi de 1 KiB para **4 KiB**, dimensionado pela janela medida: as 14 linhas ocupam
+   ~900 bytes, e 4 KiB dão folga de quatro vezes.
+3. Se ainda assim algo for descartado, o arquivo ganha
+   `[AVISO] log: N linha(s) perdida(s) por buffer cheio`.
+
+A terceira é a que importa mais. **Buraco declarado é diagnóstico; buraco silencioso é
+armadilha** — ele faz quem lê concluir que o evento não aconteceu. Foi o que quase
+aconteceu comigo: a primeira leitura do arquivo me pareceu normal até eu comparar linha
+a linha com a serial.
+
+Verificado depois da correção: o trecho do download aparece **inteiro** no `coruja.log`,
+e nenhum aviso de perda.
+
+---
+
 ## R-45 — Um aviso do OTA afirmava o contrário do que o log da mesma execução mostrava
 
 - **Onde:** `rede/AtualizadorOta.cpp`
@@ -1997,6 +2033,9 @@ RELEVANTES
 [x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
           procurando o arquivo. static_assert quebra o build se o override do
           ffconf.h se perder; verificado por teste negativo. ADR 0007.
+[x] R-46  RESOLVIDO — logger de cartao perdia 1 KiB por descarga falha durante
+          o download. Buffer 4 KiB, conteudo preservado na falha, e buraco
+          declarado no arquivo em vez de silencioso
 [x] R-45  RESOLVIDO — aviso do OTA dizia "o leitor de cartao nao existe" com o
           cartao recem-lido no mesmo log. Texto que descreve estado envelhece
           em silencio; e a quarta ocorrencia registrada

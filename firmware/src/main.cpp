@@ -25,6 +25,7 @@
 #include "app/CicloCores.h"
 #include "encoder/EncoderKy040.h"
 #include "led/LedRgbAnodoComum.h"
+#include "log/LoggerCartao.h"
 #include "log/LoggerConsole.h"
 #include "armazenamento/CartaoSd.h"
 #include "nucleo/BaseRadares.h"
@@ -45,6 +46,11 @@ constexpr std::uint32_t kPeriodoAmostragemMs = 1;
 /// não há heap no caminho crítico. 2 KiB cobre com folga o arquivo que o
 /// `gera_config.py` produz (985 B hoje, teto de ~1,2 KiB com cinco redes).
 constexpr std::size_t kTamBufferConfig = 2048;
+
+/// Onde o log vai parar quando `log_to_sd=true`. Em modo de acréscimo, então
+/// ele atravessa reinicializações — o que é o ponto: um travamento que o
+/// console não pegou fica gravado para a próxima vez.
+constexpr const char* kArquivoLog = "coruja.log";
 char g_texto_config[kTamBufferConfig];
 
 void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
@@ -149,7 +155,13 @@ bool carrega_configuracao(coruja::CartaoSd& cartao, coruja::Configuracao* destin
 
 int main() {
     stdio_init_all();
-    coruja::LoggerConsole log(nullptr, coruja::Nivel::Debug);
+    coruja::LoggerConsole console(nullptr, coruja::Nivel::Debug);
+    coruja::CartaoSd     cartao;
+
+    // O logger de cartão encadeia no console: nada deixa de aparecer na
+    // serial por estar sendo gravado. Começa desligado — quem liga é a
+    // configuração, alguns passos abaixo.
+    coruja::LoggerCartao log(console, cartao, kArquivoLog);
 
     sleep_ms(2000);
     log.info("boot", "Coruja GPS — bancada de rede");
@@ -165,11 +177,28 @@ int main() {
     coruja::LedRgbAnodoComum led;
     coruja::EncoderKy040     encoder;
     coruja::CicloCores       ciclo;
-    coruja::CartaoSd         cartao;
     coruja::RedeWifi         rede;
     coruja::AtualizadorOta   ota;
 
     cartao.inicia(log);
+
+    // A configuração é lida AQUI, antes de tudo, só para aplicar as
+    // preferências de log — e relida a cada clique, que é o que vale para o
+    // Wi-Fi e as URLs. Sem esta leitura, `log_to_sd` só entraria em vigor no
+    // primeiro clique e o boot inteiro ficaria de fora do arquivo. O boot é
+    // justamente onde o diagnóstico rende mais.
+    {
+        coruja::Configuracao inicial;
+        if (carrega_configuracao(cartao, &inicial, log)) {
+            // ignorado: aqui só interessam as preferências de log
+        }
+        log.define_nivel_minimo(inicial.nivel_log);
+        log.grava_no_cartao(inicial.log_para_cartao);
+        std::snprintf(msg, sizeof msg, "nivel %s, gravacao no cartao %s",
+                      coruja::nome_nivel(inicial.nivel_log),
+                      inicial.log_para_cartao ? "LIGADA" : "desligada");
+        log.info("log", msg);
+    }
     const std::size_t pontos = carrega_base_do_cartao(cartao, log);
     std::snprintf(msg, sizeof msg, "base em memoria: %u de %u pontos possiveis",
                   static_cast<unsigned>(pontos),
@@ -192,6 +221,11 @@ int main() {
             // está acontecendo. Ao fim, volta à cor onde o encoder estava.
             led.define_cor(coruja::cores::kApagado);
 
+            // O OTA vai mexer no cartão por bastante tempo. Descarrega o que
+            // está acumulado antes: se algo travar no meio, o que já
+            // aconteceu estará gravado.
+            log.descarrega();
+
             // A configuração é lida AQUI, a cada clique, e não guardada do
             // boot: trocar o cartão passa a valer sem reiniciar, e a leitura
             // nunca fica velha.
@@ -201,6 +235,10 @@ int main() {
             } else {
                 log.error("ota", "sem configuracao utilizavel: nada a fazer");
             }
+            // As preferências de log podem ter mudado com o cartão.
+            log.define_nivel_minimo(config.nivel_log);
+            log.grava_no_cartao(config.log_para_cartao);
+            log.descarrega();
             led.define_cor(ciclo.cor());
             std::snprintf(msg, sizeof msg, "de volta ao estado %s",
                           coruja::nome_estado(ciclo.estado()));

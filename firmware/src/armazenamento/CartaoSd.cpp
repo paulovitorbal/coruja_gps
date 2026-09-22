@@ -385,6 +385,39 @@ ErroCartao CartaoSd::promove(const char* temporario, const char* base,
     return ErroCartao::Nenhum;
 }
 
+ErroCartao CartaoSd::acrescenta_arquivo(const char* nome, const char* conteudo,
+                                        std::size_t tamanho, Logger& log) {
+    if (escrevendo_) {
+        // Uma escrita em fluxo está em curso — tipicamente o download da base.
+        // Acrescentar log no meio dela usaria o mesmo `FIL` e corromperia os
+        // dois arquivos. Silenciosamente pular é o certo aqui: perder linhas
+        // de log é muito melhor que perder a base.
+        return ErroCartao::FalhaDeEscrita;
+    }
+    char raiz[4];
+    const auto erro = monta_volume(raiz, sizeof raiz, log);
+    if (erro != ErroCartao::Nenhum) {
+        return erro;
+    }
+
+    char caminho[64];
+    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    FIL arquivo;
+    const FRESULT abertura = f_open(&arquivo, caminho,
+                                    FA_WRITE | FA_OPEN_APPEND);
+    if (abertura != FR_OK) {
+        f_unmount(raiz);
+        return ErroCartao::FalhaDeEscrita;
+    }
+    UINT gravados = 0;
+    const FRESULT r = f_write(&arquivo, conteudo,
+                              static_cast<UINT>(tamanho), &gravados);
+    f_close(&arquivo);
+    f_unmount(raiz);
+    return (r == FR_OK && gravados == tamanho) ? ErroCartao::Nenhum
+                                               : ErroCartao::FalhaDeEscrita;
+}
+
 ErroCartao CartaoSd::grava_arquivo(const char* nome, const char* conteudo,
                                    std::size_t tamanho, Logger& log) {
     const auto erro = abre_para_escrita(nome, log);

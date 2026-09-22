@@ -26,6 +26,25 @@ void apara(const char*& ini, std::size_t& n) {
     }
 }
 
+/// `true`/`false` ou `1`/`0`, sem diferenciar maiúsculas. Qualquer outra
+/// coisa é recusada em vez de interpretada: aceitar "sim" e não "yes", ou o
+/// contrário, seria uma regra que ninguém adivinha.
+bool booleano(const char* ini, std::size_t n, bool* destino) {
+    const auto casa = [&](const char* literal) {
+        const std::size_t tam = std::strlen(literal);
+        if (tam != n) return false;
+        for (std::size_t i = 0; i < n; ++i) {
+            char c = ini[i];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            if (c != literal[i]) return false;
+        }
+        return true;
+    };
+    if (casa("true") || casa("1"))  { *destino = true;  return true; }
+    if (casa("false") || casa("0")) { *destino = false; return true; }
+    return false;
+}
+
 bool igual(const char* ini, std::size_t n, const char* literal) {
     return std::strlen(literal) == n && std::strncmp(ini, literal, n) == 0;
 }
@@ -143,6 +162,26 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
             }
             continue;
         }
+        if (igual(chave, nc, "log_to_sd")) {
+            bool valor_lido = false;
+            if (booleano(valor, nv, &valor_lido)) {
+                r.config.log_para_cartao = valor_lido;
+            } else {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+
+        if (igual(chave, nc, "log_level")) {
+            char texto[16] = {};
+            if (nv < sizeof texto && nivel_de_texto(
+                    (std::memcpy(texto, valor, nv), texto), &r.config.nivel_log)) {
+                continue;
+            }
+            ++r.diagnostico.valores_invalidos;
+            continue;
+        }
+
         if (igual(chave, nc, "url_base")) {
             if (!copia(r.config.url_base, kMaxUrl, valor, nv)) {
                 ++r.diagnostico.valores_longos;
@@ -170,7 +209,9 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
         char msg[96];
         std::snprintf(msg, sizeof msg, "%u rede(s) configurada(s)",
                       static_cast<unsigned>(r.config.n_redes));
-        logger->info(kOrigem, msg);
+        // Em `debug`: quem chama já registra o mesmo em `info`, e duas linhas
+        // dizendo a mesma coisa treinam o leitor a ignorar o log.
+        logger->debug(kOrigem, msg);
         if (!r.config.ota_possivel()) {
             logger->warning(kOrigem,
                             "sem rede ou sem URL: atualizacao OTA indisponivel");
@@ -178,12 +219,14 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
         if (!r.diagnostico.limpo()) {
             std::snprintf(msg, sizeof msg,
                           "ignorado: %u sem '=', %u chave(s) desconhecida(s), "
-                          "%u longo(s), %u indice(s) fora, %u incompleta(s)",
+                          "%u longo(s), %u indice(s) fora, %u incompleta(s), "
+                          "%u valor(es) invalido(s)",
                           static_cast<unsigned>(r.diagnostico.linhas_sem_igual),
                           static_cast<unsigned>(r.diagnostico.chaves_desconhecidas),
                           static_cast<unsigned>(r.diagnostico.valores_longos),
                           static_cast<unsigned>(r.diagnostico.indices_fora),
-                          static_cast<unsigned>(r.diagnostico.redes_incompletas));
+                          static_cast<unsigned>(r.diagnostico.redes_incompletas),
+                          static_cast<unsigned>(r.diagnostico.valores_invalidos));
             logger->warning(kOrigem, msg);
         }
     }

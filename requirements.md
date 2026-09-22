@@ -717,6 +717,16 @@ poderia haver: a origem dos dados é de quem monta o aparelho.
 | `wifi_ssid_N` / `wifi_senha_N` | até **5** redes, `N` de 1 a 5 |
 | `url_versao` | devolve **uma linha de texto qualquer** — data, número, hash |
 | `url_base` | entrega o `radares.bin`; HTTPS obrigatório (RF05.2) |
+| `log_to_sd` | grava o log em `coruja.log` no cartão. `true`/`false` ou `1`/`0`. **Padrão: desligado** |
+| `log_level` | `debug`, `info`, `warning` (ou `warn`), `error`. **Padrão: `info`** |
+
+As duas últimas são **diagnóstico**, não operação, e entram na configuração
+pelo mesmo critério das demais: variam por situação e não alteram
+comportamento de segurança. `log_to_sd` fica desligado por padrão porque
+escrita de cartão consome ciclos finitos — liga-se para caçar um defeito e
+desliga-se depois. Valor não reconhecido **mantém o padrão** e é contabilizado
+no diagnóstico do leitor; um `log_level` digitado errado não impede o aparelho
+de operar.
 
 **Escolha da rede:** varrer, e conectar na primeira da lista **em ordem do arquivo** que
 estiver visível. A ordem é a prioridade — não o sinal mais forte. Explícita, previsível,

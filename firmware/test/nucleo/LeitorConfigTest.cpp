@@ -274,4 +274,93 @@ TEST(LeitorConfigExemplo, OExemploNaoCarregaSegredo) {
         << "URL real vazou para o exemplo versionado";
 }
 
+
+// --------------------------------------------------------------- log ------
+
+TEST(LeitorConfig, LogToSdAceitaAsQuatroFormas) {
+    for (const char* texto : {"log_to_sd=true", "log_to_sd=TRUE",
+                              "log_to_sd=1", "log_to_sd=True"}) {
+        const auto r = coruja::le_config(texto, std::strlen(texto));
+        EXPECT_TRUE(r.config.log_para_cartao) << texto;
+        EXPECT_EQ(r.diagnostico.valores_invalidos, 0u) << texto;
+    }
+    for (const char* texto : {"log_to_sd=false", "log_to_sd=0", "log_to_sd=FALSE"}) {
+        const auto r = coruja::le_config(texto, std::strlen(texto));
+        EXPECT_FALSE(r.config.log_para_cartao) << texto;
+        EXPECT_EQ(r.diagnostico.valores_invalidos, 0u) << texto;
+    }
+}
+
+TEST(LeitorConfig, LogToSdDesligadoPorPadrao) {
+    // Gravar log gasta ciclos de escrita do cartão. O padrão tem de ser o que
+    // não desgasta nada.
+    const auto r = coruja::le_config("", 0);
+    EXPECT_FALSE(r.config.log_para_cartao);
+}
+
+TEST(LeitorConfig, LogToSdComValorEstranhoMantemOPadraoEContabiliza) {
+    // Não é erro fatal: o aparelho tem de subir mesmo com o arquivo torto.
+    // Mas tem de aparecer, senão o usuário jura que ligou e não ligou.
+    const char* texto = "log_to_sd=sim";
+    const auto r = coruja::le_config(texto, std::strlen(texto));
+    EXPECT_FALSE(r.config.log_para_cartao);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1u);
+    EXPECT_FALSE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, LogLevelAceitaOsQuatroNiveis) {
+    struct { const char* texto; coruja::Nivel esperado; } casos[] = {
+        {"log_level=debug",   coruja::Nivel::Debug},
+        {"log_level=INFO",    coruja::Nivel::Info},
+        {"log_level=warning", coruja::Nivel::Warning},
+        {"log_level=warn",    coruja::Nivel::Warning},
+        {"log_level=Error",   coruja::Nivel::Error},
+    };
+    for (const auto& c : casos) {
+        const auto r = coruja::le_config(c.texto, std::strlen(c.texto));
+        EXPECT_EQ(r.config.nivel_log, c.esperado) << c.texto;
+        EXPECT_EQ(r.diagnostico.valores_invalidos, 0u) << c.texto;
+    }
+}
+
+TEST(LeitorConfig, LogLevelPadraoEInfo) {
+    // Debug inclui a varredura de Wi-Fi inteira e cada volume sondado — bom
+    // para caçar defeito, ruim para uso normal.
+    const auto r = coruja::le_config("", 0);
+    EXPECT_EQ(r.config.nivel_log, coruja::Nivel::Info);
+}
+
+TEST(LeitorConfig, LogLevelInvalidoMantemOPadrao) {
+    const char* texto = "log_level=verboso";
+    const auto r = coruja::le_config(texto, std::strlen(texto));
+    EXPECT_EQ(r.config.nivel_log, coruja::Nivel::Info);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1u);
+}
+
+TEST(LeitorConfig, LogLevelAbsurdamenteLongoNaoEstoura) {
+    // O valor entra num buffer de 16 bytes. Um valor maior tem de ser
+    // recusado, e não truncado nem copiado por cima da pilha.
+    std::string texto = "log_level=";
+    texto.append(200, 'x');
+    const auto r = coruja::le_config(texto.c_str(), texto.size());
+    EXPECT_EQ(r.config.nivel_log, coruja::Nivel::Info);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1u);
+}
+
+TEST(LeitorConfig, AsChavesDeLogConvivemComOResto) {
+    const char* texto =
+        "wifi_ssid_1=rede\n"
+        "wifi_senha_1=segredo123\n"
+        "url_versao=http://h/v\n"
+        "url_base=http://h/b\n"
+        "log_to_sd=true\n"
+        "log_level=debug\n";
+    const auto r = coruja::le_config(texto, std::strlen(texto));
+    EXPECT_EQ(r.config.n_redes, 1u);
+    EXPECT_TRUE(r.config.tem_urls());
+    EXPECT_TRUE(r.config.log_para_cartao);
+    EXPECT_EQ(r.config.nivel_log, coruja::Nivel::Debug);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
 }  // namespace

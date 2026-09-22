@@ -17,11 +17,12 @@ struct DiagnosticoConfig {
     std::size_t valores_longos     = 0;  ///< **rejeitados**, nunca truncados
     std::size_t indices_fora       = 0;  ///< `wifi_ssid_9` com teto de 5 redes
     std::size_t redes_incompletas  = 0;  ///< senha sem SSID correspondente
+    std::size_t valores_invalidos  = 0;  ///< chave conhecida, valor não
 
     bool limpo() const {
         return linhas_sem_igual == 0 && chaves_desconhecidas == 0 &&
                valores_longos == 0 && indices_fora == 0 &&
-               redes_incompletas == 0;
+               redes_incompletas == 0 && valores_invalidos == 0;
     }
 };
 
@@ -43,6 +44,12 @@ struct ResultadoConfig {
 /// Chaves reconhecidas:
 /// - `wifi_ssid_N` e `wifi_senha_N`, com `N` de 1 a `kMaxRedes`
 /// - `url_versao`, `url_base`
+/// - `log_to_sd` — `true`/`false` ou `1`/`0`, sem diferenciar maiúsculas
+/// - `log_level` — `debug`, `info`, `warning` (ou `warn`), `error`
+///
+/// **Valor não reconhecido em chave conhecida mantém o padrão** e conta em
+/// `valores_invalidos`. Não é erro fatal: um `log_level` digitado errado não
+/// deve impedir o aparelho de funcionar, mas tem de aparecer no log.
 ///
 /// **Valor longo demais é rejeitado, nunca truncado.** Truncar uma URL ou uma
 /// senha produz um valor que parece válido e falha em campo com sintoma

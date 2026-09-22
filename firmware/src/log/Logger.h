@@ -27,4 +27,11 @@ public:
 
 const char* nome_nivel(Nivel nivel);
 
+/// Converte o nome de um nível para o valor, sem diferenciar maiúsculas.
+///
+/// Aceita `debug`, `info`, `warning` (ou `warn`) e `error`. Devolve `false`
+/// se não reconhecer, **sem tocar em `destino`** — quem chama decide se isso
+/// é erro ou se mantém o padrão.
+bool nivel_de_texto(const char* texto, Nivel* destino);
+
 }  // namespace coruja
