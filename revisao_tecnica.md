@@ -1456,6 +1456,82 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-47 — A suíte da máquina de zonas passou 53/53 de primeira, e 4 de 14 mutantes sobreviveram
+
+- **Onde:** `nucleo/Zonamento.{h,cpp}`, `test/nucleo/ZonamentoTest.cpp`
+- **Confiança:** ✅ Medido por teste de mutação: 14 defeitos injetados um a um,
+  recompilando e rodando a suíte a cada um
+- **Registrado em:** 2026-09-24
+- **Status:** ✅ **CORRIGIDO** — 14/14 mortos depois dos ajustes
+
+**Problema.** A suíte nova passou inteira na primeira execução. Isso não é notícia boa:
+teste que nunca falhou não provou que falha quando devia. Injetando 14 defeitos
+deliberados na implementação, **quatro passaram despercebidos** — e um deles era coberto
+por um teste cujo comentário afirmava, em letras próprias, que ele pegaria exatamente
+aquele defeito.
+
+| Mutante | Por que escapou |
+|---|---|
+| Guarda de `kSemLimite` em `e_perigo` removida | A classificação testava `limite == 0` **antes** de chamar `e_perigo`. A guarda era código morto; o teste media a ordem do `if`, não a guarda |
+| Janela de longitude com o raio de entrada no lugar do de saída | Toda a histerese era exercitada no eixo norte–sul, onde a longitude nunca aperta |
+| Guarda de índice após troca de base | A base menor do teste caía fora do raio de qualquer jeito. O teste passava pelo motivo errado |
+| Faixa sonora não zerada ao sair da zona | O teste usava 67 km/h, que dá `Lenta` **com ou sem** o defeito. Só uma velocidade dentro da janela de histerese distingue |
+
+**O que mudou no código, não só nos testes.** Dois dos quatro apontaram defeito real:
+
+1. `e_perigo` passou a ser consultado **primeiro**, e a guarda de `kSemLimite` dentro
+   dele virou o único ponto que separa semáforo de perigo. Antes a regra estava escrita
+   em dois lugares, e o segundo não era executado nunca.
+2. O alvo passou a ser identificado por índice **e coordenadas**. Só o índice deixava
+   uma base recarregada pôr outro radar na mesma posição do array e herdar a retenção de
+   340 m que ele nunca conquistou — e `reinicia()`, que é o caminho certo, depende de o
+   chamador lembrar.
+
+**A lição.** É a mesma do R-41, por outro caminho. Lá eu medi a minha própria
+configuração e li como se fosse o mundo; aqui eu escrevi um teste, li o comentário que
+eu mesmo tinha escrito e tomei a afirmação como verificação. **Um teste verde só
+informa alguma coisa se existir uma versão do código em que ele fica vermelho** — e
+isso não se deduz olhando o teste, se mede quebrando o código de propósito. O script
+que faz isso está descartado, mas reproduzir custa vinte linhas.
+
+---
+
+## R-48 — Decisões tomadas onde o RF03 é omisso (máquina de zonas)
+
+- **Onde:** `nucleo/Zonamento.{h,cpp}`
+- **Confiança:** ⚠️ Leitura minha do requisito, não ratificada
+- **Registrado em:** 2026-09-24
+- **Status:** ⚠️ **ABERTO** — em uso, sujeito a revisão
+
+Seis pontos em que o requisito não fecha e eu escolhi. Ficam aqui para poderem ser
+derrubados sem arqueologia:
+
+1. **Histerese de 2 km/h na fronteira Aproximação/Perigo.** O RF03.2 diz que existe uma
+   segunda histerese nas fronteiras de velocidade e manda "ver RF03.7", que só especifica
+   o valor para as faixas sonoras. Adotei o mesmo 2 km/h por essa referência.
+2. **Nenhuma histerese na fronteira Conforme/Margem.** Não é especificada, e as duas são
+   silenciosas — o efeito de uma oscilação é a cor do LED tremular entre amarelo e rosa.
+   YAGNI até isso incomodar de verdade na estrada.
+3. **"À frente" por azimute, não por distância decrescente.** O RF03.1 permite os dois.
+   O azimute funciona na primeira amostra e não quebra com o veículo parado; a distância
+   decrescente precisa de duas amostras e mente no semáforo fechado.
+4. **A histerese de velocidade erra para o lado mais grave.** Estando em Perigo, o
+   limiar rebaixado vale para **todos** os pontos da janela, não só para o alvo vigente.
+   É uma simplificação: o estado é um só. O erro possível é manter Perigo um pouco
+   além do devido, que é o lado seguro.
+5. **`SemSinal` é uma zona própria, não `Segura`.** O §4.1 pede LED apagado sem fix, e
+   Segura é verde. Confundir as duas acenderia verde dentro de um túnel.
+6. **O filtro de rumo abre abaixo de 5 km/h em ambos os usos** — sentido (RF02.3, que
+   manda) e "à frente" (RF03.1, que não fala). Parado, o azimute do NEO-M8N é ruído, e
+   a razão vale igual nos dois.
+
+**Custo medido.** Contra a base real (18.304 pontos), 2.615 avaliações completas com o
+veículo sobre a área de maior densidade: **0,90 µs por ciclo no host**. O orçamento a
+4 Hz é de 250.000 µs. Mesmo com uma penalidade pessimista de 100× no RP2350 sobram três
+ordens de grandeza — mas o número do Pico ainda **não foi medido**, e é ele que vale.
+
+---
+
 ## R-38 — Cartão com mais de uma partição: o firmware montaria a errada, em silêncio
 
 - **Onde:** `requirements.md` RNF03 · camada de cartão (ainda não escrita)
@@ -2030,6 +2106,11 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[~] R-48  ABERTO — seis decisoes minhas onde o RF03 e omisso (histerese de
+          2 km/h em Aproximacao/Perigo, "a frente" por azimute, SemSinal como
+          zona propria). Em uso, sujeitas a revisao
+[x] R-47  RESOLVIDO — 4 de 14 mutantes sobreviveram a uma suite que passou
+          53/53 de primeira, um deles coberto por comentario falso. 14/14 apos
 [x] R-38  RESOLVIDO — FF_MULTI_PARTITION=1 e sondagem das 4 particoes primarias
           procurando o arquivo. static_assert quebra o build se o override do
           ffconf.h se perder; verificado por teste negativo. ADR 0007.

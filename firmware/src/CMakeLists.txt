@@ -14,6 +14,7 @@ add_library(coruja_nucleo STATIC
     nucleo/Url.cpp
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
+    nucleo/Zonamento.cpp
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A configuracao carrega um Nivel de log, e o parser usa nivel_de_texto().
