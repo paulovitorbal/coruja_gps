@@ -202,7 +202,7 @@ def main(argv: list[str]) -> int:
     print(f"  taxa  : {1/PERIODO_S:.0f} Hz")
     print("  teclas: a acelera · d desacelera · 0 para · q sai")
     print()
-
+    input("Pressione qualquer tecla para iniciar.")
     kmh = max(0.0, args.velocidade)
     rodado = 0.0
     descartadas = 0
