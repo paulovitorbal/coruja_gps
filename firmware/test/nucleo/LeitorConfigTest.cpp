@@ -211,7 +211,10 @@ TEST(LeitorConfig, ASenhaNuncaAparaceNoLog) {
 TEST(LeitorConfig, OLogRelataAContagemMasNaoOConteudo) {
     teste::LoggerMock log;
     le("wifi_ssid_1=casa\nwifi_senha_1=abc\nurl_versao=a\nurl_base=b\n", &log);
-    EXPECT_TRUE(log.contem(Nivel::Info, "1 rede"));
+    // Em `debug`, não `info`: quem chama registra a mesma contagem em `info`,
+    // e duas linhas dizendo o mesmo treinam o leitor a ignorar o log.
+    EXPECT_TRUE(log.contem(Nivel::Debug, "1 rede"));
+    EXPECT_FALSE(log.contem(Nivel::Info, "1 rede"));
     for (const auto& e : log.entradas()) {
         EXPECT_EQ(e.mensagem.find("casa"), std::string::npos)
             << "o SSID vazou; nao e segredo, mas o log nao precisa dele";

@@ -31,6 +31,7 @@ add_executable(testes
     nucleo/BaseRadaresTest.cpp
     nucleo/LeitorConfigTest.cpp
     nucleo/CarregadorFluxoTest.cpp
+    nucleo/NmeaTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/VerificadorDownloadTest.cpp

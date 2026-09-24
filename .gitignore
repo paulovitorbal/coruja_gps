@@ -14,3 +14,6 @@ coruja_gps_v*.fzz
 # base servida pela API — derivada, nao versionada
 servidor/dados/*
 !servidor/dados/.gitkeep
+
+# Atalho para a pty do simulador, recriado a cada execucao.
+simulador/serial

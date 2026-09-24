@@ -10,6 +10,7 @@ add_library(coruja_nucleo STATIC
     nucleo/LeitorConfig.cpp
     nucleo/Crc32.cpp
     nucleo/Texto.cpp
+    nucleo/Nmea.cpp
     nucleo/Url.cpp
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp

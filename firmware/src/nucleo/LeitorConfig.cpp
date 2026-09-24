@@ -206,7 +206,7 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
     }
 
     if (logger != nullptr) {
-        char msg[96];
+        char msg[160];  // 96 truncava desde que entrou o contador de valores invalidos
         std::snprintf(msg, sizeof msg, "%u rede(s) configurada(s)",
                       static_cast<unsigned>(r.config.n_redes));
         // Em `debug`: quem chama já registra o mesmo em `info`, e duas linhas
