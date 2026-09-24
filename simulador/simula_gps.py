@@ -202,20 +202,43 @@ def main(argv: list[str]) -> int:
     print(f"  taxa  : {1/PERIODO_S:.0f} Hz")
     print("  teclas: a acelera · d desacelera · 0 para · q sai")
     print()
-    input("Pressione qualquer tecla para iniciar.")
     kmh = max(0.0, args.velocidade)
     rodado = 0.0
     descartadas = 0
     entrada = sys.stdin.fileno()
     anterior = termios.tcgetattr(entrada) if os.isatty(entrada) else None
-    if anterior is not None:
-        tty.setcbreak(entrada)
 
     try:
+        # A pausa fica **dentro** do try, e o cbreak vem antes dela: se algo
+        # estourar durante a espera, o `finally` devolve o terminal ao modo
+        # anterior. Ligar o cbreak fora do try deixaria o shell do operador
+        # sem eco caso a espera falhasse.
+        if anterior is not None:
+            # Em modo canônico o kernel só entrega a linha no Enter — ele
+            # ainda está montando ela, com direito a backspace. Por isso
+            # `input()` (e `scanf()`, e `getchar()`) esperam Enter **por
+            # construção**: trocar a função não muda nada, quem segura os
+            # bytes é o modo do terminal. É a mesma disciplina de linha do
+            # `setraw` da pty lá em cima, aqui do lado do teclado.
+            tty.setcbreak(entrada)
+            print("  qualquer tecla para iniciar · q sai... ",
+                  end="", flush=True)
+            if os.read(entrada, 1).decode(errors="ignore").lower() == "q":
+                return 0
+            print()
+        # Sem tty (saída em pipe) não há tecla a esperar, e pausar travaria
+        # um uso perfeitamente válido: `simula_gps.py | tee captura.nmea`.
+
         proximo = time.monotonic()
         while True:
             # --- teclado, sem bloquear ---
-            while select.select([entrada], [], [], 0)[0]:
+            # `anterior is not None` significa "stdin é um terminal". Sem
+            # isso o laço gira para sempre quando stdin não é tty: `select`
+            # reporta /dev/null (ou um pipe fechado) como sempre legível, o
+            # `os.read` devolve b"" de EOF, nenhum ramo casa, e a condição
+            # continua verdadeira. Fica em espera ocupada e nunca emite uma
+            # sentença — sem erro, sem saída, só um processo a 100% de CPU.
+            while anterior is not None and select.select([entrada], [], [], 0)[0]:
                 tecla = os.read(entrada, 1).decode(errors="ignore").lower()
                 if tecla == "a":
                     kmh = min(VELOCIDADE_MAXIMA_KMH, kmh + PASSO_KMH)
