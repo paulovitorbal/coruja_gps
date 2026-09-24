@@ -167,6 +167,8 @@ def main(argv: list[str]) -> int:
                    help="km/h iniciais")
     p.add_argument("--sem-link", action="store_true",
                    help=f"nao cria o atalho {LINK.name}")
+    p.add_argument("--sem-pausa", action="store_true",
+                   help="comeca a emitir na hora, sem esperar tecla")
     args = p.parse_args(argv[1:])
 
     percurso = Percurso(carrega_rota(args.rota))
@@ -213,7 +215,7 @@ def main(argv: list[str]) -> int:
         # estourar durante a espera, o `finally` devolve o terminal ao modo
         # anterior. Ligar o cbreak fora do try deixaria o shell do operador
         # sem eco caso a espera falhasse.
-        if anterior is not None:
+        if anterior is not None and not args.sem_pausa:
             # Em modo canônico o kernel só entrega a linha no Enter — ele
             # ainda está montando ela, com direito a backspace. Por isso
             # `input()` (e `scanf()`, e `getchar()`) esperam Enter **por
@@ -221,6 +223,7 @@ def main(argv: list[str]) -> int:
             # bytes é o modo do terminal. É a mesma disciplina de linha do
             # `setraw` da pty lá em cima, aqui do lado do teclado.
             tty.setcbreak(entrada)
+            termios.tcflush(entrada, termios.TCIFLUSH)
             print("  qualquer tecla para iniciar · q sai... ",
                   end="", flush=True)
             if os.read(entrada, 1).decode(errors="ignore").lower() == "q":

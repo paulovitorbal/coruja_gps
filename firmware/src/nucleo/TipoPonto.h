@@ -25,6 +25,17 @@ constexpr bool e_semaforo(TipoPonto t) {
     return t == TipoPonto::SemaforoComRadar || t == TipoPonto::SemaforoCamera;
 }
 
+/// Nome curto para console e visor.
+constexpr const char* descreve(TipoPonto t) {
+    switch (t) {
+        case TipoPonto::RadarFixo:        return "radar fixo";
+        case TipoPonto::SemaforoComRadar: return "semaforo c/ radar";
+        case TipoPonto::SemaforoCamera:   return "semaforo camera";
+        case TipoPonto::RadarMovel:       return "radar movel";
+    }
+    return "?";
+}
+
 constexpr bool tipo_valido(std::uint8_t bruto) {
     return bruto == 1 || bruto == 2 || bruto == 3 || bruto == 5;
 }
