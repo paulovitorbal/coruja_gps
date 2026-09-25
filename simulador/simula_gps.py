@@ -211,19 +211,26 @@ def main(argv: list[str]) -> int:
     anterior = termios.tcgetattr(entrada) if os.isatty(entrada) else None
 
     try:
-        # A pausa fica **dentro** do try, e o cbreak vem antes dela: se algo
-        # estourar durante a espera, o `finally` devolve o terminal ao modo
-        # anterior. Ligar o cbreak fora do try deixaria o shell do operador
-        # sem eco caso a espera falhasse.
-        if anterior is not None and not args.sem_pausa:
-            # Em modo canônico o kernel só entrega a linha no Enter — ele
-            # ainda está montando ela, com direito a backspace. Por isso
-            # `input()` (e `scanf()`, e `getchar()`) esperam Enter **por
-            # construção**: trocar a função não muda nada, quem segura os
-            # bytes é o modo do terminal. É a mesma disciplina de linha do
-            # `setraw` da pty lá em cima, aqui do lado do teclado.
+        # O cbreak fica **dentro** do try: se algo estourar adiante, o
+        # `finally` devolve o terminal ao modo anterior. Ligá-lo fora
+        # deixaria o shell do operador sem eco em caso de falha.
+        #
+        # Em modo canônico o kernel só entrega a linha no Enter — ele ainda
+        # está montando ela, com direito a backspace. Por isso `input()` (e
+        # `scanf()`, e `getchar()`) esperam Enter **por construção**: trocar
+        # a função não muda nada, quem segura os bytes é o modo do terminal.
+        # É a mesma disciplina de linha do `setraw` da pty lá em cima, aqui
+        # do lado do teclado.
+        #
+        # ⚠️ Isto vale para as teclas de pilotagem (a/d/0/q) e **não** só
+        # para a pausa. Amarrar o cbreak ao `--sem-pausa`, como esteve por
+        # algumas horas, desliga o teclado inteiro nesse modo: as teclas
+        # ficam na fila de edição de linha esperando um Enter que não vem.
+        if anterior is not None:
             tty.setcbreak(entrada)
             termios.tcflush(entrada, termios.TCIFLUSH)
+
+        if anterior is not None and not args.sem_pausa:
             print("  qualquer tecla para iniciar · q sai... ",
                   end="", flush=True)
             if os.read(entrada, 1).decode(errors="ignore").lower() == "q":
