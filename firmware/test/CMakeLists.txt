@@ -33,6 +33,8 @@ add_executable(testes
     nucleo/CarregadorFluxoTest.cpp
     nucleo/NmeaTest.cpp
     nucleo/ZonamentoTest.cpp
+    nucleo/MonitorTaxaTest.cpp
+    nucleo/UbxTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/VerificadorDownloadTest.cpp

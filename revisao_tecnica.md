@@ -1456,6 +1456,34 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-53 — As constantes de payload do UBX não estão medidas, e o ACK é quem julga
+
+- **Onde:** `nucleo/Ubx.cpp`, `monta_cfg_prt_uart()`
+- **Confiança:** ⚠️ Vindas da especificação do protocolo, **não de bancada**
+- **Registrado em:** 2026-09-25
+- **Status:** ⚠️ **ABERTO** — fecha quando o ACK for observado com o módulo
+
+O montador de quadros UBX está testado contra quadros de referência calculados por uma
+implementação independente em Python, então a **estrutura** — sincronismo, ordem dos
+campos, tamanho em little-endian, faixa do checksum — está verificada. O que **não**
+está é a **semântica dos bitmasks** do `CFG-PRT`:
+
+| Campo | Valor usado | De onde vem |
+| :--- | :--- | :--- |
+| `mode` | `0x000008D0` | 8N1 da especificação: charLen=3 nos bits 6-7, parity=100b nos 9-11, 1 stop bit. O bit 4 vem ligado no padrão de fábrica |
+| `inProtoMask` / `outProtoMask` | `0x0003` | UBX + NMEA. A saída precisa dos dois: NMEA pela RMC do RF01.1, UBX pelo ACK desta própria configuração |
+
+**O juiz não sou eu, é o módulo.** Se ele responder `ACK`, aceitou; se responder `NAK`,
+algum campo está errado — e é por isso que o parser de ACK e o montador nasceram
+juntos, na mesma tarefa. Um montador sem quem leia a resposta seria escrever no escuro.
+
+**Uma armadilha de bancada registrada antes de cair nela:** a resposta ao `CFG-PRT`
+chega no **baud novo**. Quem enviar tem de reconfigurar a própria UART antes de esperar
+o ACK, ou vai concluir que o módulo não respondeu quando ele respondeu — em 115200
+contra uma porta ainda em 9600.
+
+---
+
 ## R-52 — A máquina de zonas validada contra o simulador, e o monitor que escondia um estado
 
 - **Onde:** `firmware/ferramentas/monitor_alertas.cpp`, `nucleo/Zonamento`
@@ -2337,6 +2365,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[~] R-53  ABERTO — bitmasks do CFG-PRT vem da especificacao, nao de
+          bancada. Fecha quando o ACK for observado com o modulo
 [x] R-52  VALIDADO — sequencia APROX/MARGEM/PERIGO/segura no mesmo alvo
           contra o simulador, com as 3 faixas sonoras e as duas
           histereses observadas de forma discriminante
