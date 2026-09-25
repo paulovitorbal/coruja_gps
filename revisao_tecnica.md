@@ -1456,6 +1456,54 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-52 — A máquina de zonas validada contra o simulador, e o monitor que escondia um estado
+
+- **Onde:** `firmware/ferramentas/monitor_alertas.cpp`, `nucleo/Zonamento`
+- **Confiança:** ✅ Medido: 630 sentenças da base real, transições registradas
+- **Registrado em:** 2026-09-25
+- **Status:** ✅ **VALIDADO**
+
+**A sequência completa, num trecho só e no mesmo alvo:**
+
+| tempo | zona | dist | vel | buzzer |
+| :--- | :--- | ---: | ---: | :--- |
+| 1:57.8 | APROX | 297 m | 55,0 | silêncio |
+| 2:01.1 | MARGEM | 249 m | 63,0 | silêncio |
+| 2:04.1 | PERIGO | 200 m | 70,0 | lenta |
+| 2:06.1 | PERIGO | 164 m | 74,0 | rápida |
+| 2:08.1 | PERIGO | 129 m | 80,0 | **pulso** |
+| 2:10.1 | PERIGO | 97 m | 72,0 | rápida |
+| 2:12.1 | MARGEM | 79 m | 62,0 | silêncio |
+| 2:13.1 | segura | — | 62,0 | silêncio |
+
+630 sentenças RMC, **zero erros de parsing**, distância fechando monotonicamente.
+
+**Duas linhas valem por todo o resto, porque são discriminantes e não
+confirmatórias** — só a histerese as explica, e a hipótese contrária prevê outra coisa:
+
+* **72 km/h em `rápida`.** O limiar da faixa rápida é 72,6. Sem histerese, 72 cairia
+  para `lenta`. Com os 2 km/h de rebaixamento na descida o limiar efetivo é 70,6, e 72
+  fica. Observado vindo de `pulso`.
+* **62 km/h saindo de Perigo.** `V_infra` é 66. Sem histerese teria saído já a 65; saiu
+  a 62, que é abaixo dos 64 previstos.
+
+**O defeito que a validação encontrou, no instrumento.** A primeira corrida com a
+escada completa **não mostrou o degrau dos 80 km/h**. A máquina estava certa: o monitor
+é que só emitia evento na troca de zona ou de alvo, e subir de 70 para 80 mantém a zona
+`PERIGO` — muda só a faixa sonora, que é precisamente o que o motorista ouve. Em pipe,
+onde a linha de status viva é desligada, a passagem para `pulso` era invisível.
+
+Corrigido: evento também na troca de faixa. Sem isso, a validação teria concluído
+"tudo certo" sem nunca ter visto um dos três estados sonoros do RF03.7.
+
+**O padrão, que já é o terceiro nesta sessão.** A malha completa no `.fzz`, o
+`--sem-pausa` matando o teclado e este monitor sub-reportando não apareceram em teste
+automático nenhum. Apareceram quando alguém olhou a saída e perguntou por que faltava
+alguma coisa. Teste automático confirma o que se pensou em verificar; **ausência só se
+nota olhando**.
+
+---
+
 ## R-51 — O `D2` saiu do projeto, três revisões depois de ser declarado desnecessário
 
 - **Onde:** `gera_fritzing.py`, `coruja_gps.fzz`, `bom_schematic.md`, `README.md`,
@@ -2282,6 +2330,9 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-52  VALIDADO — sequencia APROX/MARGEM/PERIGO/segura no mesmo alvo
+          contra o simulador, com as 3 faixas sonoras e as duas
+          histereses observadas de forma discriminante
 [x] R-51  REMOVIDO — D2 fora do projeto; fecha o R-16, aberto desde a rev.1
 [x] R-50  RESOLVIDO — 3 trechos do bom_schematic ainda descreviam a
           arquitetura anterior ao ADR 0009, e a minha propria correcao do

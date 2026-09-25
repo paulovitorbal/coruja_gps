@@ -353,13 +353,19 @@ int main(int argc, char** argv) {
             ja_teve_fix = true;
             const Veredito v = maquina.avalia(tel, base.data(), base.size(), t);
 
-            // Evento quando muda a zona **ou** o alvo: trocar de radar dentro
-            // da mesma zona é informação, não ruído.
+            // Evento quando muda a zona, o alvo **ou a faixa sonora**. Trocar
+            // de radar dentro da mesma zona é informação, não ruído — e a
+            // faixa também: ela é o que o motorista de fato ouve, e dentro
+            // da Zona de Perigo ela muda sem a zona mudar. Sem esta terceira
+            // condição, subir de 70 para 80 km/h em cima de um radar não
+            // produz linha nenhuma, e a validação não enxerga a passagem de
+            // `lenta` para `pulso`.
             const bool trocou_alvo =
                 v.tem_alvo != anterior.tem_alvo ||
                 (v.tem_alvo && (v.alvo.lat != anterior.alvo.lat ||
                                 v.alvo.lon != anterior.alvo.lon));
-            if (!teve_anterior || v.zona != anterior.zona || trocou_alvo) {
+            if (!teve_anterior || v.zona != anterior.zona || trocou_alvo ||
+                v.faixa != anterior.faixa) {
                 tela.evento(t, v, velocidade);
                 ++conta.eventos;
             }
