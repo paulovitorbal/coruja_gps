@@ -1487,6 +1487,13 @@ confirmatórias** — só a histerese as explica, e a hipótese contrária prev�
 * **62 km/h saindo de Perigo.** `V_infra` é 66. Sem histerese teria saído já a 65; saiu
   a 62, que é abaixo dos 64 previstos.
 
+**Reprodutibilidade.** A corrida foi repetida e os **10 eventos saíram idênticos** —
+mesma zona, mesmo alvo, mesma distância ao metro (297, 249, 200, 164, 129, 97, 79) e
+mesma faixa sonora. Só os carimbos de tempo variaram, em até 0,4 s, que é o arranque
+do processo. Distância idêntica ao metro entre execuções diz que não há ruído no
+caminho: a rota é determinística, o parser não perde amostra e a máquina não depende
+de relógio de parede.
+
 **O defeito que a validação encontrou, no instrumento.** A primeira corrida com a
 escada completa **não mostrou o degrau dos 80 km/h**. A máquina estava certa: o monitor
 é que só emitia evento na troca de zona ou de alvo, e subir de 70 para 80 mantém a zona
