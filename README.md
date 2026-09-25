@@ -135,9 +135,14 @@ O circuito não muda: o `BC337` tem `Vceo` de 45 V, a corrente é a mesma, e o
 acionamento pela base continua em 3,3 V através de 1 kΩ. Não há roda-livre a
 acrescentar — o buzzer é piezoelétrico, carga capacitiva.
 
-**O `D2` mudou de referência.** Ele só faria sentido como roda-livre caso o buzzer
-fosse trocado por um eletromagnético, e roda-livre referencia a alimentação do buzzer:
-o catodo saiu do trilho de 5 V e foi para o de 12 V.
+**O `D2` foi removido em 2026-09-25**, justamente por isso: em antiparalelo com carga
+capacitiva ele fica reversamente polarizado nos dois estados e nunca conduz. Fecha o
+R-16.
+
+O retorno do buzzer não vai ao GND por fio — vai **pelo transistor**. É chaveamento
+pelo lado baixo: `+12 V → buzzer → coletor`, `emissor → GND`. Com o `Q1` cortado o
+coletor sobe a ~12 V pelo próprio buzzer, que é por que, lendo a netlist parada, as
+duas pernas parecem estar no mesmo potencial.
 
 ### 🔴 O 12 V agora está dentro do gabinete
 
@@ -213,13 +218,12 @@ do trilho de 5 V.
 
 | Conector | Vias | Pino A | Pino B |
 | :--- | :---: | :--- | :--- |
-| Entrada | **3** (central sem uso) | **+12 V** | GND |
-| Buzzer | **2** | **+12 V** | Coletor |
+| Entrada (único) | **3** (central sem uso) | **+12 V** | GND |
 
-Contagens diferentes impedem a troca, e **isso é proteção, não conveniência** — ver a
-seção vermelha acima. O conector do buzzer é um header genérico, para manter o padrão
-visual dos demais módulos; note que, ao contrário do JST que ele substitui, ele **não
-é polarizado**.
+Desde 2026-09-25 o **buzzer é soldado direto**, sem conector: os dois fios saem da
+placa e vão ao SFM-27 no painel da caixa. Com isso o aparelho tem **um só conector
+externo**, e o risco de trocar um pelo outro — que a contagem de vias apenas
+administrava — deixa de existir. O preço é serviço: separar a tampa exige dessoldar.
 
 ## Documentos
 

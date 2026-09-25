@@ -1456,6 +1456,180 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-51 — O `D2` saiu do projeto, três revisões depois de ser declarado desnecessário
+
+- **Onde:** `gera_fritzing.py`, `coruja_gps.fzz`, `bom_schematic.md`, `README.md`,
+  `docs/adr/0009`
+- **Confiança:** ✅ Verificado: netlist das três vistas antes e depois, e contra o
+  gerador
+- **Registrado em:** 2026-09-25
+- **Status:** ✅ **REMOVIDO** — fecha o **R-16**
+
+**O que aconteceu.** O autor perguntou se o `1N4148` era necessário, observando que ele
+"não parecia estar fazendo muita coisa". Estava certo — e o projeto **já sabia**: o
+R-16 registrou em revisão 1 que a justificativa ("roda-livre para o pico de retorno
+magnético") estava incorreta, porque o SFM-27 é piezo ativo, carga capacitiva.
+
+**E mesmo assim o componente ficou.** Foi rebaixado a "opcional" e sobreviveu a três
+revisões: seguiu no BOM, no gerador, no `.fzz` e nos passos de montagem. Rebaixar a
+opcional é o que se faz quando não se quer decidir — e o custo não é o diodo, é que
+cada revisão seguinte teve de continuar explicando por que ele estava ali. A nota do
+R-50 tinha três erros, e ela só existia para justificar um componente que não devia
+existir.
+
+**O último argumento caiu sozinho.** Mantê-lo se justificava como seguro contra uma
+troca futura por buzzer eletromagnético. O R-49 soldou o buzzer; a troca passou a
+exigir dessoldar, e nesse momento se solda o diodo junto. O seguro deixou de ter
+quando ser útil — uma consequência da mudança anterior que ninguém tinha ido buscar.
+
+**A pergunta que o autor fez e que eu não tinha feito.** *"Onde está a ligação de GND
+do buzzer?"* O retorno não vai ao GND por fio: vai pelo transistor, em chaveamento de
+lado baixo. Lendo a netlist parada, com o `Q1` cortado, o coletor sobe a ~12 V pelo
+próprio buzzer e as duas pernas parecem no mesmo potencial. Isso agora está escrito no
+gerador, junto da rede `BUZZ_COLETOR`, porque é exatamente a leitura que confunde quem
+olha a lista de redes em vez do circuito.
+
+**Um recado para a próxima vez que alguém mexer no `.fzz`.** Ao rotear a protoboard
+depois desta remoção, o autor apagou os fios que ainda seguravam as ligações do buzzer
+no **esquemático** e no **PCB** — vistas que o Fritzing rotea separadamente. A
+protoboard ficou correta e completa; as outras duas ficaram com `BZ1:connector0` e
+`Q1:connector2` isolados, e ninguém veria isso abrindo o arquivo, porque a vista que
+se olha para montar é a que estava certa.
+
+Pegou o verificador de netlist, não o olho. Vale a regra: **depois de mexer no layout,
+conferir as três vistas contra o gerador antes de publicar** — são segundos, e é o
+único jeito de saber que as vistas não divergiram entre si.
+
+**Verificação.** 21 peças (eram 22), 163 fios preservados, 29 redes nas três vistas
+sem alteração além dos dois pinos do diodo, zero ligações peça-a-peça inventadas, e
+netlist idêntica à do gerador. O ramo do buzzer ficou com quatro nós: `+12 V → BZ`,
+`BZ → coletor`, `emissor → GND`, `base → R4 → GPIO 5`.
+
+---
+
+## R-50 — A mudança do ADR 0009 não alcançou três trechos, e a minha correção do buzzer parou no meio
+
+- **Onde:** `bom_schematic.md` (itens 19, seção dos conectores, nota do JST-XH, nota
+  de exposição do conversor)
+- **Confiança:** ✅ Lido no arquivo; o usuário apontou o item 19
+- **Registrado em:** 2026-09-25
+- **Status:** ✅ **CORRIGIDO**
+
+**Primeira camada, anterior a mim.** O ADR 0009 trouxe o conversor para dentro do
+gabinete e trocou a entrada de 5 V por 12 V. Três trechos do `bom_schematic.md`
+ficaram para trás e continuaram afirmando a arquitetura antiga:
+
+1. **Item 19** do BOM: *"Entrada de 5 V, depois do conversor"* — e ainda justificava as
+   3 vias por não encaixarem no conector de 2 vias do buzzer.
+2. **Nota "o trecho de 12 V NÃO pode usar JST-XH"**: partia de *"com o conversor fora,
+   existem agora dois cabos externos"*. Com o conversor dentro, há um só.
+3. **Nota de exposição**: *"com o conversor fora do gabinete, ele fica exposto a
+   vibração e umidade"*.
+
+O item 19 era o mais grave porque **contradizia uma nota vermelha do próprio
+documento**: mandava usar JST-XH numa linha que a seção 0 proibia para JST-XH.
+
+**Segunda camada, minha.** Ao remover o conector do buzzer (R-49), eu anexei ao fim da
+seção dos conectores um parágrafo dizendo que ele deixou de existir — e deixei intactos
+o **título** ("os dois conectores do aparelho"), a **tabela** com os dois, e a análise
+de *"o que acontece hoje em cada troca"* entre eles. A seção passou a se contradizer
+dentro de si mesma. É o R-44 de novo, em escala menor: mudei a coisa e não fui atrás
+de tudo que a descrevia.
+
+**Terceira camada, achada por uma pergunta.** Ao perguntar se o `1N4148` servia para
+alguma coisa, o autor levou à nota *"diodo do buzzer"*, que tinha **três** erros ao
+mesmo tempo: dizia **item 15** quando o `1N4148` é o item 14 (o 15 é o eletrolítico);
+mandava pôr o **catodo no 5 V**, quando o ADR 0009 moveu a referência da roda-livre
+para 12 V; e a linha do buzzer no BOM ainda o dizia *"trocável sem desmontar nada,
+pelo JST de 2 vias"*. As três corrigidas.
+
+Vale o registro de **como** apareceram: não por varredura, mas porque alguém leu o
+esquema e perguntou por que uma peça estava ali. A deriva de documento não se acha
+relendo o documento — quem o releu escreveu-o e lê o que quis dizer.
+
+**Correção.** A seção foi reescrita para um conector só, com a progressão histórica
+(Jack P2 → JST → header genérico → soldado) numa tabela, porque ela explica por que
+cada passo intermediário não bastava. A nota do JST-XH foi marcada como **caduca** com
+o texto original preservado num bloco recolhível — a regra não estava errada, a
+premissa dela é que sumiu.
+
+**A conclusão que se inverteu.** Sem um segundo conector, a troca entre soquetes deixa
+de ser modo de falha, e o que sobra na entrada é a **inversão de polaridade** (o TVS é
+bidirecional e não protege contra ela — já registrado na análise de falhas). A
+propriedade que importa no conector deixou de ser a contagem de vias e passou a ser o
+**chaveamento mecânico**. Ou seja: o JST-XH, antes proibido ali, passa a ser adequado
+pelo motivo oposto ao que o proibia. A família fica em aberto no item 19; o requisito
+é ser chaveado.
+
+---
+
+## R-49 — O conector do buzzer foi removido, e o `.fzz` foi editado sem regerar
+
+- **Onde:** `gera_fritzing.py`, `coruja_gps.fzz`, `bom_schematic.md`, `README.md`,
+  `docs/adr/0009`
+- **Confiança:** ✅ Verificado: netlist derivada do `.fzz` antes e depois, nas três
+  vistas, e comparada com a do gerador
+- **Registrado em:** 2026-09-25
+- **Status:** ✅ **APLICADO** — fecha o R-06 em definitivo
+
+**Mudança.** Com a caixa Patola em mãos, o buzzer passou a ser **soldado direto**, sem
+conector. Os dois fios saem da placa e vão ao SFM-27 no painel.
+
+**Por que isso é melhor do que o que havia.** O R-06 trocou o Jack P2 por um JST, e o
+ADR 0009 trocou o JST por um header genérico. Cada passo administrou melhor o mesmo
+risco — plugar a coisa errada no soquete errado — sem eliminá-lo, e o header genérico
+até piorou, porque não é polarizado. Soldar **apaga** o risco: o aparelho passa a ter
+um único conector externo, e não existe par para trocar. O preço é serviço, e é uma
+escolha de primeira montagem, revisível.
+
+**O método, que é o que vale registrar.** O R-29 fixou que o gerador é fonte da
+*netlist* e o `.fzz` é fonte do *layout*, porque regerar descarta 155 fios roteados à
+mão, 16 orientações e 4 notas. Regerar por cima teria custado esse trabalho de novo.
+Em vez disso, o `.fzz` foi **editado cirurgicamente**: remover uma peça *passa-fio* é
+apagá-la e unir entre si tudo que chegava a cada pino dela.
+
+Isso rende um invariante que se verifica por máquina, e não por inspeção visual:
+
+> **Remover um passa-fio não pode mudar rede nenhuma.**
+
+Medido: 29 redes antes, 29 depois, idênticas nas três vistas depois de descontar os
+dois pinos do conector; 163 fios preservados; 23 peças viraram 22. E a netlist do
+`.fzz` editado foi comparada com a do gerador atualizado — **idênticas**, o que fecha
+a convergência que o R-29 exigia manter à mão.
+
+Um achado de passagem: o `.fzz` na árvore de trabalho **estava modificado e não
+commitado**. A edição partiu dessa versão, então nada se perdeu, mas a comparação de
+redes mostrou que a alteração pendente era cosmética.
+
+### O invariante estava certo e mesmo assim passou um defeito
+
+A primeira versão desta edição uniu os pontos de cada pino em **malha completa** —
+todos com todos. Isso preserva a netlist, e o invariante passou. Só que malha completa
+**inventa ligações diretas peça-a-peça que não existiam**, e o Fritzing as desenha:
+apareceram seis, entre elas `BZ1:connector1 — Q1:connector2` e
+`BZ1:connector0 — Conversor:connector0`. O autor abriu o arquivo e disse, com razão,
+que o positivo e o negativo do buzzer pareciam ambos no coletor.
+
+A substituição certa de um cubo é **outro cubo**, não uma malha: eleger um dos fios e
+pendurar os demais nele, n−1 ligações, a mesma topologia que o pino do conector tinha.
+Refeito assim: 40 ligações em vez de 92, todas envolvendo um fio, e **zero** ligações
+peça-a-peça inventadas.
+
+**A lição, que é sobre verificação e não sobre Fritzing.** "Remover um passa-fio não
+pode mudar rede nenhuma" é um invariante **necessário e insuficiente**. Ele olha a
+partição do grafo e é cego para as arestas que produzem essa partição — e as arestas
+são o que se desenha. Faltava o segundo invariante, que agora existe e é igualmente
+barato de checar:
+
+> **Nenhuma ligação direta peça-a-peça pode surgir que já não existisse.**
+
+É o mesmo erro de forma do R-47: o teste passou porque media a coisa certa pela metade,
+e só um segundo ângulo mostrou o que o primeiro não alcançava. Lá o segundo ângulo foi
+mutação; aqui foi um olho humano no desenho — o que é pior, porque significa que a
+verificação automática não bastou e o autor teve de ser o revisor.
+
+---
+
 ## R-47 — A suíte da máquina de zonas passou 53/53 de primeira, e 4 de 14 mutantes sobreviveram
 
 - **Onde:** `nucleo/Zonamento.{h,cpp}`, `test/nucleo/ZonamentoTest.cpp`
@@ -2071,7 +2245,8 @@ BLOQUEADORES
 [x] R-05  CONCLUIDO 19/09 — 330R/470R/150R e PWM ambar 19,6% / rosa 15,7%.
           Duas previsoes erradas: verde precisou do MAIOR resistor, e os
           nominais de PWM erravam por 2,3x e 3,8x.
-[ ] R-06  Conector do buzzer trocado ou protegido
+[x] R-06  RESOLVIDO — o conector do buzzer foi REMOVIDO (2026-09-25): fios
+          soldados direto. Sobra um unico conector externo. Ver R-49
 [x] R-21  RESOLVIDO — GPS+GLONASS a 4 Hz nominal, piso de 3 Hz
 [ ] R-28  Trecho de 12 V sem conector JST-XH (direto no conversor)
 
@@ -2088,7 +2263,8 @@ RELEVANTES
 [ ] R-13  Orçamento de corrente do 3V3_OUT medido
 [ ] R-14  Alimentação do GPS definida (5V ou 3V3)
 [ ] R-15  Exclusão mútua no SPI0 + divisão entre cores no RNF04
-[ ] R-16  Justificativa do diodo corrigida
+[x] R-16  RESOLVIDO — o diodo foi REMOVIDO (2026-09-25), nao so a
+          justificativa corrigida. Ver R-51
 [ ] R-17  Transistor com margem de corrente (BC337 / 2N2222)
 [x] R-18  RESOLVIDO — cabeçalho explícito + DirType confirmado; converte.py verificado
 [ ] R-22  Resistor de 1 kΩ em série no `GPIO 0 → GPS RX`
@@ -2106,6 +2282,12 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-51  REMOVIDO — D2 fora do projeto; fecha o R-16, aberto desde a rev.1
+[x] R-50  RESOLVIDO — 3 trechos do bom_schematic ainda descreviam a
+          arquitetura anterior ao ADR 0009, e a minha propria correcao do
+          buzzer deixou a secao dos conectores contradizendo a si mesma
+[x] R-49  APLICADO — buzzer soldado direto; .fzz editado cirurgicamente em
+          vez de regerado, com a netlist verificada nas 3 vistas
 [~] R-48  ABERTO — seis decisoes minhas onde o RF03 e omisso (histerese de
           2 km/h em Aproximacao/Perigo, "a frente" por azimute, SemSinal como
           zona propria). Em uso, sujeitas a revisao

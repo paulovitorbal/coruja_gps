@@ -20,19 +20,19 @@
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. | 🟢 entregue |
 | 5 | ⚠️ **Display IPS TFT 2,4"** | Colorido, **320×240 pixels**, interface SPI com pino de Backlight (BL). **Controlador a confirmar:** 2,4" costuma ser ILI9341, não ST7789 — a sequência de inicialização difere | Exibir velocidade, limites e alertas visuais. | 🔵 comprado |
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. | 🟢 entregue |
-| 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. Trocável sem desmontar nada, pelo JST de 2 vias. | 🔵 comprado |
+| 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. **Soldado direto** desde 2026-09-25 — trocá-lo exige dessoldar. | 🔵 comprado |
 | 8 | ⚠️ **LED RGB 10 mm Difuso** | **Ânodo comum** (terminal mais longo vai ao **3V3**) — **lógica invertida**, ver nota | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. | ⚪ disponível |
 | 9 | ⚠️ **Transistor NPN BC337** | TO-92 — ou **2N2222**. **Não usar BC547** | Chave eletrônica para acionar o buzzer de **12 V** com margem de corrente. `Vceo` de 45 V no BC337 e 30 V no 2N2222 — ambos com folga. | ⚪ disponível |
 | 10 | **Resistor de 330 Ω** | ✅ **Medido na bancada** (2026-09-19) — canal **vermelho** do LED | Limita a corrente do canal vermelho. | ⚪ disponível |
 | 11 | ✅ **Resistores de 150 Ω e 470 Ω** | **Medidos na bancada** (2026-09-19): **150 Ω no azul**, **470 Ω no verde**, um de cada. Os 68 Ω especificados antes **não são usados** | Limitam a corrente dos canais azul e verde. | ⚪ disponível |
 | 12 | ⚠️ **Resistores de 1 kΩ** | **2 unidades** — filme de carbono ou metálico | Base do transistor do buzzer **+ série no `GPIO 0 → GPS RX`** (R-22). | ⚪ disponível |
 | 13 | ⚠️ **Diodo Schottky** | Ou SS34 / 1N5817 — queda direta ≤ 0,45 V | **Novo na rev. 2.** Proteção da entrada de 5 V em `VSYS`. | ⚪ disponível |
-| 14 | **Diodo 1N4148** | Comutação rápida | Proteção opcional no conector do buzzer — ver nota. | ⚪ disponível |
+| 14 | ~~**Diodo 1N4148**~~ | **Removido do projeto** (2026-09-25) | Era roda-livre para carga indutiva; o buzzer é piezo, capacitivo. Nunca conduziria. Ver nota. | ⛔ dispensado |
 | 15 | ⚠️ **Capacitor Eletrolítico** | ✅ **470 µF / 16 V / 105 °C** confirmado em mãos. Em `VSYS` (~4,7 V) opera a **29% do nominal** — atenção à polaridade | Filtrar quedas de tensão e ruído de baixa frequência do alternador. | ⚪ disponível |
 | 16 | **Capacitor Cerâmico** | **100 nF (0,1 µF)** — código impresso: 104 | Suprimir ruído de alta frequência da ignição. | ⚪ disponível |
 | 17 | **Capacitores Cerâmicos 1 a 10 nF** | 2 unidades. **OPCIONAL** — contingência, não requisito. **Nunca 100 nF** | Filtro RC do encoder, só se o brilho oscilar no veículo. | ⚪ dispensável |
-| 18 | ⚠️ **Conector JST-XH 2 vias** | Par macho + fêmea, com cabo | **Saída do buzzer.** Substitui o Jack P2: polarizado e sem contato deslizante. | ⚪ disponível |
-| 19 | ⚠️ **Conector JST-XH 3 vias** | Par macho + fêmea. **Pino central sem uso** | **Entrada de 5 V**, depois do conversor. Três vias de propósito, para não encaixar no conector de 2 vias do buzzer. | ⚪ disponível |
+| 18 | ~~**Conector do buzzer**~~ | **Não é mais usado** (2026-09-25) | Os dois fios do buzzer saem da placa **soldados direto**. Ver seção 5. | ⛔ dispensado |
+| 19 | ⚠️ **Conector de entrada, 3 vias** | Par macho + fêmea. **Pino central sem uso**. Família a confirmar — ver nota | 🔌 **ÚNICO conector externo do aparelho.** Traz os **12 V do pós-chave** (não 5 V: o conversor está dentro do gabinete desde o ADR 0009). | ⚪ disponível |
 | 20 | **Placa Perfurada (Perfboard)** | Fenolite ou fibra com furos metalizados (pitch 2,54 mm) | Base de montagem do circuito. | ⚪ disponível |
 | 21 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. | 🔵 comprado |
 | 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. | 🔵 comprado |
@@ -123,40 +123,46 @@ interior de um painel.
 > Nos sinais, qualquer cor — mas manter a
 > mesma do esquemático poupa conferência durante a montagem.
 
-### ⚠️ Nota — os dois conectores do aparelho
+### ✅ Nota — o conector externo do aparelho
 
-O gabinete tem **dois conectores externos**, ambos em **12 V** (ADR 0009):
+Desde 2026-09-25 o gabinete tem **um único conector externo**, e ele é de **12 V**:
 
 | Conector | Vias | Pino A | Pino B |
 | :--- | :---: | :--- | :--- |
 | **Entrada** (item 19) | **3** (central sem uso) | **+12 V** do pós-chave | GND |
-| **Buzzer** (item 18) | **2** | **+12 V** protegido | Coletor do transistor |
 
-Contagens diferentes impedem a troca, e **isso voltou a ser medida de segurança**.
+O buzzer saía por um segundo conector e agora é **soldado direto** (seção 5). Isso
+**apaga** um risco em vez de administrá-lo — não existe par para trocar.
 
-> ⚠️ A revisão anterior dizia que, com o conversor fora do gabinete, trocar os dois
-> "deixou de ser destrutivo", e rebaixava as 3 vias a medida de robustez. **Não vale
-> mais.** O conversor veio para dentro e agora há 12 V nos dois conectores, a
-> centímetros de um trilho cujo máximo absoluto é 5,5 V.
+#### Como se chegou aqui, e por que os passos anteriores não bastavam
 
-O que acontece hoje em cada troca:
+| Quando | Saída do buzzer | O que o passo resolvia |
+| :--- | :--- | :--- |
+| rev. 1 | Jack P2 3,5 mm | — |
+| 2026-09-15 (R-06) | JST-XH 2 vias | tira o curto do sleeve varrendo o tip na inserção |
+| ADR 0009 | header genérico 2 vias | padronização visual; **perdeu a polarização** |
+| 2026-09-25 (R-49) | **soldado, sem conector** | remove o risco em vez de administrá-lo |
 
-* Plugue do buzzer na entrada → `+12 V` no pino A e o coletor onde deveria estar o
-  GND. O aparelho não liga e o buzzer não toca; sem dano, porque as duas vias já são
-  do domínio de 12 V.
-* Plugue da entrada no buzzer → o GND da alimentação encosta no coletor. O transistor
-  fica com o coletor aterrado; sem dano.
+Cada passo intermediário administrou melhor a **mesma** falha — plugar a coisa errada
+no soquete errado — e o header genérico até piorou, por não ser polarizado. A
+contagem diferente de vias (3 contra 2) era a última proteção que restava, e era
+fraca: protege contra encaixe, não contra teimosia.
 
-O dano real não está entre esses dois conectores — está em **qualquer caminho que leve
-os 12 V ao trilho de 5 V**. Daí a cor distinta do fio (magenta, não vermelho) e a
-contagem diferente de vias.
+#### O que passou a importar
 
-⚠️ O conector do buzzer passou a ser um **header genérico**, por padronização visual
-com os demais módulos. Ele **não é polarizado**, ao contrário do JST que substituiu:
-a contagem de pinos é a única proteção que sobrou contra a troca.
+Sem um segundo conector, a troca entre conectores deixou de ser um modo de falha. O
+que sobra na entrada é a **inversão de polaridade**: com o TVS bidirecional, uma
+inversão chega direta ao conversor, e não há proteção nesse trecho — ver
+*"Polaridade reversa"* na análise de falhas. A propriedade que importa no conector de
+entrada, portanto, **deixou de ser a contagem de vias e passou a ser o chaveamento
+mecânico** (o encaixe só entrar de um jeito).
 
-> 🔴 **O perigo real migrou para o trecho de 12 V.** Ver *"O trecho de 12 V NÃO pode
-> usar JST-XH"* na seção 0 — é lá que um plugue errado destrói o aparelho.
+As 3 vias com o pino central sem uso são **herança**: existiam para não encaixar no
+conector de 2 vias do buzzer. Sem o buzzer, não fazem mal e não fazem falta — mantê-las
+ou passar a 2 vias é indiferente do ponto de vista elétrico.
+
+> 🔴 **O dano real continua sendo qualquer caminho que leve os 12 V ao trilho de 5 V**,
+> cujo máximo absoluto é 5,5 V. Daí a cor distinta do fio: magenta, não vermelho.
 
 ### ✅ Nota — resistores do LED RGB, **medidos** (itens 10 e 11)
 
@@ -261,16 +267,36 @@ margem**, que não existe na orientação correta.
 3. **Sem soquete**, teste funcionalmente e inverta se sair fraco. **Não há risco** em
    tentar as duas orientações a 5 V e 10 mA.
 
-### ⚠️ Nota — diodo do buzzer (item 15)
+### ⛔ Nota — o diodo do buzzer foi REMOVIDO (item 14)
 
-A revisão 1 justificava este diodo como "roda livre para absorver o pico de retorno
-magnético do buzzer". **A justificativa estava incorreta:** o SFM-27 é piezoelétrico
-ativo, uma carga capacitiva com oscilador interno, sem indutância significativa. Não há
-pico de retorno magnético a absorver.
+**Removido em 2026-09-25.** Fecha o **R-16**, aberto desde a revisão 1.
 
-O componente pode ser mantido (é inofensivo e protege caso o buzzer seja trocado por um
-modelo eletromagnético no futuro), mas **não** deve ser considerado proteção necessária.
-Se mantido, a orientação está correta: catodo no 5 V, anodo no coletor.
+A revisão 1 justificava o diodo como *"roda livre para absorver o pico de retorno
+magnético do buzzer"*. A justificativa estava incorreta: o SFM-27 é **piezo ativo**,
+carga capacitiva com oscilador interno, sem indutância significativa. Não há pico
+magnético a absorver. O R-16 registrou isso, mas o componente ficou como "opcional" e
+sobreviveu no esquema por mais de uma revisão.
+
+**Por que ele não fazia nada.** Em antiparalelo com o buzzer, ficava reversamente
+polarizado nos dois estados estáticos:
+
+| Estado | Coletor | Sobre o diodo | Conduz? |
+| :--- | :--- | :--- | :---: |
+| `Q1` cortado | ≈ +12 V (sobe pelo buzzer) | ≈ 0 V | não |
+| `Q1` saturado | ≈ 0,2 V | 12 V reverso | não |
+
+Só conduziria no **transitório de desligamento de uma bobina**, quando a indutância
+empurra o coletor acima do +12 V; aí ele grampearia em ~12,7 V em vez de deixar o pico
+passar dos 45 V de `Vceo` do `BC337`. Carga capacitiva não produz esse transitório.
+
+**O que derrubou o último argumento.** Mantê-lo se justificava como seguro contra uma
+troca futura por buzzer eletromagnético. Com o buzzer **soldado** (R-49), essa troca
+passou a exigir dessoldar — e nesse momento se solda o diodo junto. O seguro deixou de
+ter quando ser útil.
+
+> **Se um dia entrar um buzzer eletromagnético:** `1N4148` em antiparalelo com ele,
+> **catodo no +12 V protegido**, anodo no coletor. Não no 5 V — a roda-livre
+> referencia a alimentação do buzzer, e ela é 12 V desde o ADR 0009.
 
 ---
 
@@ -377,23 +403,42 @@ bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
                           Schottky ─ VSYS (pino 39)      ← seção 1
 ```
 
-#### 🔴 O trecho de 12 V NÃO pode usar JST-XH
+#### ⚪ CADUCA — "o trecho de 12 V não pode usar JST-XH"
 
-Com o conversor fora, existem agora **dois cabos externos**: um de 12 V (piggyback →
-conversor) e um de 5 V (conversor → gabinete). Se os dois usarem JST-XH, o de 12 V
-encaixa no conector do gabinete e injeta **12 V no nó `VSYS`**, cujo máximo absoluto é
-5,5 V — Pico, GPS, display e cartão destruídos juntos.
+> **A premissa desta regra deixou de existir em 2026-09-25.** O texto original fica
+> abaixo, não apagado, porque o raciocínio continua válido — só não se aplica mais a
+> esta montagem.
 
-Duas formas de impedir, escolha uma:
+A proibição valia contra **dois cabos externos da mesma família**: um de 12 V e um de
+5 V, em que o de 12 V encaixaria no soquete do de 5 V. Hoje **há um cabo externo só**
+— o conversor entrou no gabinete (ADR 0009) e o buzzer passou a ser soldado (R-49).
+Sem um segundo soquete, não existe o encaixe errado que a regra impedia.
 
-* **Ligue o 12 V direto aos terminais do conversor**, sem conector. É o mais simples:
-  não existindo plugue de 12 V, não há o que trocar.
-* Se quiser conector no 12 V, use **família diferente** — JST-VH (passo 3,96 mm) ou
-  faston. Nunca XH.
+O que sobra na entrada é a **inversão de polaridade**, e aí a conclusão se inverte: um
+conector **chaveado** passa a ser desejável justamente por só entrar de um jeito. O
+JST-XH é chaveado. A escolha da família fica em aberto (item 19) — o que importa é que
+**seja chaveado**, não qual é.
 
+<details>
+<summary>Texto original, de quando havia dois cabos externos</summary>
+
+> Com o conversor fora, existem agora **dois cabos externos**: um de 12 V (piggyback →
+> conversor) e um de 5 V (conversor → gabinete). Se os dois usarem JST-XH, o de 12 V
+> encaixa no conector do gabinete e injeta **12 V no nó `VSYS`**, cujo máximo absoluto é
+> 5,5 V — Pico, GPS, display e cartão destruídos juntos.
+>
+> Duas formas de impedir, escolha uma:
+>
+> * **Ligue o 12 V direto aos terminais do conversor**, sem conector. É o mais simples:
+>   não existindo plugue de 12 V, não há o que trocar.
+> * Se quiser conector no 12 V, use **família diferente** — JST-VH (passo 3,96 mm) ou
+>   faston. Nunca XH.
+>
 > O risco mudou de lugar, não desapareceu. Antes o 12 V entrava no gabinete e o perigo
 > estava nos dois conectores do aparelho; agora o 12 V para no conversor e o perigo
 > está entre os dois cabos externos.
+
+</details>
 
 #### Por que pós-chave e não bateria direta com relé
 
@@ -448,9 +493,10 @@ não sobreviver.
 * **Polaridade reversa:** o Schottky protege o lado de 5 V. No 12 V não há proteção —
   uma inversão chega direta ao conversor. Um diodo em série ou TVS resolve.
 
-Com o conversor fora do gabinete, ele fica exposto a vibração e umidade: proteja com
-termorretrátil ou uma caixinha própria. Dissipação não é preocupação — a ~85% de
-eficiência são ~0,25 W.
+O conversor está **dentro** do gabinete desde o ADR 0009, então vibração e umidade
+deixaram de ser problema dele — a recomendação anterior de termorretrátil ou caixinha
+própria valia para o arranjo em que ele ficava no chicote. Dissipação continua sem ser
+preocupação: a ~85% de eficiência são ~0,25 W.
 
 ---
 
@@ -878,7 +924,7 @@ justamente para que a escolha errada seja visível onde se escolhe. Ver **R-33**
 > * O LED RGB é o **único** indicador luminoso do projeto, e sinaliza exclusivamente
 >   estado de via.
 
-### ⚠️ 5. Circuito de Potência do Buzzer Remoto
+### ⚠️ 5. Circuito de Potência do Buzzer (soldado, sem conector)
 
 > **Correção da revisão 1 — ✅ confirmada pelo autor em 2026-09-15:** o Jack P2 (3,5 mm)
 > foi **substituído por conector JST-XH de 2 vias**. No arranjo anterior (tip = 5 V, sleeve = coletor), inserir ou remover o
@@ -891,18 +937,19 @@ justamente para que a escolha errada seja visível onde se escolhe. Ver **R-33**
 * Outro lado do **Resistor de 1 kΩ** → perna **BASE** do transistor (pino central do
   TO-92).
 * Pino **EMISSOR** do transistor → **GND comum**.
-* Pino **COLETOR** do transistor → terminal **negativo** do **conector JST-XH fêmea**
-  montado no gabinete.
-* Linha de **5 V** (nó `VSYS` filtrado, após o Schottky) → terminal **positivo** do
-  conector JST-XH fêmea **de 2 vias** (item 18).
+* Pino **COLETOR** do transistor → fio até o terminal **negativo** do buzzer,
+  **soldado direto**, sem conector.
+* Linha de **12 V protegido** (após o fusível e o TVS) → fio até o terminal
+  **positivo** do buzzer, também soldado direto.
 
-> 🔴 **O conector do buzzer tem 2 vias e o da entrada de 12 V tem 3, de propósito.**
-> Se ambos fossem de 2 vias, plugar a entrada de 12 V no soquete do buzzer injetaria
-> 12 V no nó `VSYS` — máximo 5,5 V — destruindo Pico, GPS, display e cartão de uma vez.
-> Ver a nota crítica dos conectores no início deste documento.
-* **Diodo 1N4148 (opcional):** se mantido, solde em paralelo nos terminais do conector,
-  com a listra (catodo) no terminal de 5 V e o lado sem listra (anodo) no terminal do
-  coletor. Ver nota do BOM: não é necessário para buzzer piezoelétrico.
+> ⚠️ **É 12 V, não 5 V.** O SFM-27 aceita 3–24 V e rende muito mais volume em 12 V;
+> foi por causa dele que os 12 V entraram no gabinete. Ver ADR 0009.
+
+> ✅ **Não há mais dois soquetes para confundir.** O aviso anterior — o do buzzer com
+> 2 vias contra os 3 da entrada — deixou de se aplicar quando o buzzer passou a ser
+> soldado. Resta um conector externo só, o de entrada.
+> **Não há diodo neste ramo.** O `1N4148` foi removido em 2026-09-25 — ver a nota do
+> item 14. Ele nunca conduziria com um buzzer piezo.
 * **Extensão do Painel:** fio **positivo (+)** do buzzer no pino positivo do
   **JST-XH macho**, fio **negativo (−)** no pino negativo. Ver o RNF05 e o R-32 para
   posição e orientação, que são requisito acústico e não acabamento.

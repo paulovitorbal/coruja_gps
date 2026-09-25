@@ -53,12 +53,19 @@ centímetros de um trilho cujo máximo absoluto é 5,5 V. Três medidas acompanh
    segurança" enquanto só havia 5 V; voltou a ser **segurança**.
 2. **12 V não é vermelho.** A convenção antiga usava vermelho para 5 V e 12 V; agora o
    12 V é magenta no `.fzz` e no `bom_schematic.md`.
-3. O **`D2`** mudou de referência: roda-livre referencia a alimentação do buzzer, então
+3. ~~O **`D2`** mudou de referência~~ *(o `D2` foi **removido** em 2026-09-25 — ver
+   R-51; o texto abaixo descreve o que valia enquanto ele existia)*: roda-livre referencia a alimentação do buzzer, então
    o catodo saiu do 5 V e foi para o 12 V.
 
 **O conector do buzzer deixou de ser JST**, por padronização visual com os demais
 módulos. Ele não é polarizado, ao contrário do JST — o que torna a diferença de
 contagem de pinos a única proteção contra troca.
+
+> **Atualização de 2026-09-25:** com a caixa Patola em mãos, o buzzer passou a ser
+> **soldado direto**, sem conector nenhum. A preocupação acima deixa de existir em vez
+> de ser administrada: sobra um único conector externo, e não há par para trocar.
+
+
 
 ## Alternativas consideradas
 

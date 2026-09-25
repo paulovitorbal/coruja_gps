@@ -133,17 +133,16 @@ PECAS = [
      "Conversor step-down 12V->5V (LM2596, nao isolado)", {},
      ["IN+", "IN-", "OUT+", "OUT-"]),
 
-    # Conector do buzzer. Header genérico, para manter o padrão visual dos
-    # demais módulos.
+    # NÃO HÁ CONECTOR DO BUZZER. Os dois fios saem da placa e vão soldados
+    # direto ao SFM-27, montado no painel da caixa (2026-09-25).
     #
-    # ⚠️ Agora carrega **12 V**. A proteção contra troca com a entrada é a
-    # contagem de pinos (2 contra 3) -- e voltou a ser medida de SEGURANÇA, e
-    # não de robustez: 12 V no trilho de 5 V destrói Pico, GPS, display e
-    # cartão juntos. Um header genérico também não é polarizado, ao contrário
-    # do JST que ele substitui.
-    ("JBZ", "ab8b0927-1ee1-11de-8283-0019d2b7521e",
-     "generic-female-header-rounded_2.fzp",
-     "Conector do buzzer (painel) - 12 V", {}, ["+12V", "Coletor"]),
+    # Isso apaga um risco em vez de administrá-lo. Enquanto existia um header
+    # de 2 vias com 12 V, a única proteção contra encaixá-lo na entrada era a
+    # contagem de pinos, e header genérico não é polarizado. Agora o aparelho
+    # tem **um único conector externo** (J12V), e não há par para trocar.
+    #
+    # O preço é servico: para separar a tampa da placa é preciso dessoldar.
+    # Ver a nota de montagem no bom_schematic.md.
 
     ("LED", "d4d5af9700923b8a114f57961f29a8a0ColorLEDModuleID",
      "led-rgb-4pin-cathode_v5.fzp",
@@ -169,9 +168,14 @@ PECAS = [
 
     ("D1", "145554CBFC44diode", "diode_schottky_1N5817_300mil.fzp",
      "D1 Schottky 1N5817/1N5819", {}, None),
-    ("D2", "SparkFun-DiscreteSemi-DIODE-1N4148_v2",
-     "sparkfun-discretesemi-diode-1n4148_v2.fzp",
-     "D2 1N4148 (opcional)", {}, None),
+    # NÃO HÁ D2. A roda-livre foi removida em 2026-09-25: o SFM-27 é piezo
+    # ativo, carga capacitiva, e um diodo em antiparalelo com carga
+    # capacitiva fica reversamente polarizado nos dois estados e nunca
+    # conduz. Só serviria contra o pico de desligamento de uma BOBINA.
+    #
+    # O argumento que restava — proteger uma troca futura por buzzer
+    # eletromagnético — caiu junto com o conector: agora a troca exige
+    # dessoldar, e o diodo entra nessa hora. Ver R-51.
 
     ("C1", "MediumElectrolyticCapacitorModuleID",
      "capacitor_electrolytic_medium.fzp",
@@ -186,7 +190,7 @@ PECAS = [
      "C2 100nF (filtro VSYS)", {"capacitance": "100nF"}, None),
 
     ("BZ", "8abf6496b5d466c7a1893c17a296a676", "piezo sensor.fzp",
-     "BZ1 SFM-27 (remoto)", {}, None),
+     "BZ1 SFM-27 (fios diretos)", {}, None),
 ]
 
 # Conectores nomeados por peça. Pico: pino fisico N -> connector(N-1).
@@ -197,7 +201,6 @@ CONN = {
     "LED": {"R": "connector0", "K": "connector1", "G": "connector2", "B": "connector3"},
     "Q1": {"E": "connector0", "B": "connector1", "C": "connector2"},
     "D1": {"K": "connector0", "A": "connector1"},      # cathode, anode
-    "D2": {"A": "connector0", "K": "connector1"},
     "C1": {"-": "connector0", "+": "connector1"},
     "C5": {"-": "connector0", "+": "connector1"},
     # O fusivel da biblioteca pula o connector1: os terminais sao 0 e 2.
@@ -223,12 +226,9 @@ def pino(peca, nome):
 NETS = {
     # --- 12 V, do pos-chave ate o conversor e ate o buzzer ------------------
     "12V_ENTRADA":  [("J12V", "+12V"), ("F1", "0")],
-    # Depois do fusivel: protecao, conversor e o ramo do buzzer. O D2 tem o
-    # catodo AQUI, e nao no 5 V: ele so faria sentido como roda-livre para um
-    # buzzer eletromagnetico, e a roda-livre tem de referenciar a alimentacao
-    # do buzzer, que agora e 12 V.
+    # Depois do fusivel: protecao, conversor e o positivo do buzzer.
     "12V_PROTEGIDO": [("F1", "1"), ("TVS1", "0"), ("C5", "+"),
-                      ("CONV", "IN+"), ("JBZ", "+12V"), ("D2", "K")],
+                      ("CONV", "IN+"), ("BZ", "0")],
 
     # --- 5 V, gerado dentro do aparelho -------------------------------------
     "5V_CONV":     [("CONV", "OUT+"), ("D1", "A")],
@@ -292,9 +292,14 @@ NETS = {
 
     "BUZZ_GPIO5":   [("PICO", "7"), ("R4", "0")],
     "BUZZ_BASE":    [("R4", "1"), ("Q1", "B")],
-    "BUZZ_COLETOR": [("Q1", "C"), ("JBZ", "Coletor"), ("D2", "A")],
-    "BUZZER":       [("BZ", "0"), ("JBZ", "+12V")],
-    "BUZZER_RET":   [("BZ", "1"), ("JBZ", "Coletor")],
+    # O buzzer entra direto nas duas redes. Antes havia um conector no meio,
+    # mas ele era passa-fio: nao mudava rede nenhuma, so acrescentava dois
+    # pinos e um ponto de falha mecanico.
+    # Chaveamento pelo lado baixo: o retorno do buzzer NAO vai ao GND por
+    # fio, vai pelo transistor. Com o Q1 cortado este no sobe a ~12 V pelo
+    # proprio buzzer -- e por isso que, lendo a netlist parada, as duas
+    # pernas do buzzer parecem estar no mesmo potencial.
+    "BUZZ_COLETOR": [("Q1", "C"), ("BZ", "1")],
 }
 
 # Posição no esquemático (unidades internas do Fritzing). Layout em colunas
@@ -305,8 +310,8 @@ POS = {
     "J12V": (60, 60), "F1": (170, 60), "TVS1": (260, 140), "C5": (330, 140),
     "CONV": (120, 240), "D1": (300, 120), "C1": (420, 200), "C2": (500, 200),
     "R1": (250, 560), "R2": (250, 640), "R3": (250, 720), "LED": (80, 640),
-    "R4": (250, 900), "Q1": (120, 960), "JBZ": (380, 1020), "BZ": (560, 1080),
-    "D2": (460, 960), "R5": (380, 60),
+    "R4": (250, 900), "Q1": (120, 960), "BZ": (400, 1020),
+    "R5": (380, 60),
 }
 
 # Paleta padrão do Fritzing. GND/5V/3V3 conforme pedido; o resto por grupo de
@@ -349,7 +354,7 @@ POS_BB = {
     "CONV": (60, 170), "D1": (170, 60), "C1": (150, 150), "C2": (230, 150),
     "R1": (60, 380), "R2": (60, 420), "R3": (60, 460),
     "LED": (60, 520), "R4": (60, 600), "Q1": (180, 620),
-    "JBZ": (300, 620), "BZ": (400, 660), "D2": (240, 700), "R5": (430, 60),
+    "BZ": (320, 640), "R5": (430, 60),
 }
 
 VISTAS = [("breadboardView", "breadboard"),
