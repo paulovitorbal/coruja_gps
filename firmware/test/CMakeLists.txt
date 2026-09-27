@@ -35,6 +35,7 @@ add_executable(testes
     nucleo/ZonamentoTest.cpp
     nucleo/MonitorTaxaTest.cpp
     nucleo/UbxTest.cpp
+    buzzer/CadenciaBuzzerTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/VerificadorDownloadTest.cpp

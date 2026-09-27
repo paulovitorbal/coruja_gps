@@ -67,6 +67,17 @@ contagem de pinos a única proteção contra troca.
 
 
 
+## ✅ Confirmado por medição (2026-09-27)
+
+O SFM-27 foi medido em bancada nas duas alimentações: **52 dB em 5 V** e **75 dB em
+12 V**. Os 23 dB de diferença são ~14× em pressão sonora e algo perto de cinco vezes
+em sonoridade percebida.
+
+A decisão deste ADR foi tomada por raciocínio sobre a faixa de 3–24 V do módulo, com a
+hipótese de que 5 V o deixaria operando junto ao mínimo. A medição confirma a hipótese
+com folga. Ver R-32, que também registra o que falta: a distância da medição, sem a
+qual o valor absoluto não se compara ao ruído de cabine.
+
 ## Alternativas consideradas
 
 | Alternativa | Por que não |

@@ -1152,6 +1152,37 @@ a montante ele vira aquecedor ligado na bateria.
 
 ## R-32 — Audibilidade com janela aberta, e a faixa 3 era o padrão menos detectável
 
+### ✅ Medição de bancada, 2026-09-27: 52 dB em 5 V contra 75 dB em 12 V
+
+O autor mediu o SFM-27 nas duas alimentações:
+
+| Alimentação | Nível medido |
+| :--- | ---: |
+| 5 V | **52 dB** |
+| 12 V | **75 dB** |
+
+**23 dB de diferença.** Não é um ganho marginal: em pressão sonora são ~14×
+(10^(23/20)), e em sonoridade percebida, à regra de +10 dB ≈ "duas vezes mais alto",
+algo perto de **cinco vezes**. É a justificativa do ADR 0009 confirmada por medição, e
+não por raciocínio: os 12 V entraram no gabinete por causa do buzzer, e o buzzer era o
+único componente que pedia isso.
+
+Também explica por que a especificação de 3–24 V do módulo não é uma faixa onde tanto
+faz. Em 5 V ele opera junto ao mínimo, e o rendimento acústico despenca ali.
+
+**O que esta medição NÃO fecha.** Faltam registrados a **distância** e o **instrumento**.
+Sem a distância o valor absoluto não se compara com o ruído de cabine, que é
+exatamente a pergunta do R-32: a 80 km/h com janela aberta a cabine fica na casa dos
+75–85 dB, e 75 dB medidos a 10 cm significam uma coisa, a 1 m significam outra bem
+diferente. A folha do SFM-27 promete até 105 dB, tipicamente a 10 cm — a distância do
+ponto de 75 dB diria quanta margem sobrou.
+
+O **delta** está estabelecido e basta para a decisão de alimentação. O **absoluto**
+continua pendente, e o julgamento final segue sendo no veículo, em movimento, com a
+janela aberta — que nenhuma bancada substitui.
+
+
+
 - **Onde:** `requirements.md` RF03.7 · `bom_schematic.md` item 7 e RNF05
 - **Confiança:** ⚠️ Estimativa acústica, **não medida** — ver ressalva
 - **Registrado em:** 2026-09-18
@@ -2357,7 +2388,10 @@ RELEVANTES
 [x] R-26  RESOLVIDO — ícone 🚦+🏎 composto nos 2.994 pontos de TYPE=2 (requirements.md §4.1)
 [x] R-30  RESOLVIDO — BASE INDISPONÍVEL persistente na faixa inferior (requirements.md §4.1)
 [x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
-[~] R-32  Faixa 3 virou pulso de 10 Hz; audibilidade com janela aberta PENDENTE de julgamento em campo
+[~] R-32  Faixa 3 virou pulso de 10 Hz. MEDIDO em bancada (27/09): 52 dB em
+          5 V contra 75 dB em 12 V -- 23 dB, ~14x em pressao, confirma o
+          ADR 0009. Falta a distancia da medicao; audibilidade com janela
+          aberta PENDENTE de julgamento em campo
 [x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
 [~] R-34  Tabela de pinagem do GPS criada e gerador corrigido; serigrafia A CONFERIR na placa
 [x] R-35  RESOLVIDO — LED com vermelho no GPIO 8 e azul no 6; o mapa descreve a placa
