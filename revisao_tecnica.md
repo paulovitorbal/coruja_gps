@@ -1170,16 +1170,51 @@ não por raciocínio: os 12 V entraram no gabinete por causa do buzzer, e o buzz
 Também explica por que a especificação de 3–24 V do módulo não é uma faixa onde tanto
 faz. Em 5 V ele opera junto ao mínimo, e o rendimento acústico despenca ali.
 
-**O que esta medição NÃO fecha.** Faltam registrados a **distância** e o **instrumento**.
-Sem a distância o valor absoluto não se compara com o ruído de cabine, que é
-exatamente a pergunta do R-32: a 80 km/h com janela aberta a cabine fica na casa dos
-75–85 dB, e 75 dB medidos a 10 cm significam uma coisa, a 1 m significam outra bem
-diferente. A folha do SFM-27 promete até 105 dB, tipicamente a 10 cm — a distância do
-ponto de 75 dB diria quanta margem sobrou.
+**Condições, completadas em 2026-09-27:** medido a **~5 cm** com o telefone do autor
+(Blackview BV9300 Pro). Instrumento não calibrado.
 
-O **delta** está estabelecido e basta para a decisão de alimentação. O **absoluto**
-continua pendente, e o julgamento final segue sendo no veículo, em movimento, com a
-janela aberta — que nenhuma bancada substitui.
+### A extrapolação para a posição do ouvido, e por que ela preocupa
+
+Em campo livre a pressão cai 6 dB a cada dobro de distância:
+
+| Distância | Nível estimado |
+| ---: | ---: |
+| 5 cm *(medido)* | **75 dB** |
+| 10 cm | 69 dB |
+| 40 cm | 57 dB |
+| **80 cm** *(ouvido do motorista)* | **~51 dB** |
+
+Contra uma cabine que a 80 km/h com janela aberta fica em **75–85 dB**, isso é um
+déficit de **25 a 35 dB** — o alerta não apenas ficaria baixo, ficaria abaixo do ruído.
+
+**As ressalvas são grandes e vão todas na mesma direção de incerteza, não de conforto:**
+a cabine é reverberante e cai menos que campo livre; medidor de telefone não é
+calibrado e erra mais em 4 kHz; e 5 cm é campo próximo para um transdutor de 22 mm, o
+que torna a extrapolação frágil. Fácil errar ±10 dB. Mas o sinal do resultado não muda.
+
+### A discrepância que precisa ser resolvida antes de mexer em hardware
+
+O BOM registra **"até 105 dB"** para o SFM-27. A extrapolação da medição dá **69 dB a
+10 cm**. São ~36 dB de diferença, demais para erro de instrumento sozinho.
+
+Hipóteses, e a primeira é a que muda a decisão:
+
+1. **Os 105 dB podem ser especificados em 24 V**, o topo da faixa de 3–24 V. Se for
+   isso, o número da folha pressupõe uma alimentação que o projeto não fornece.
+2. Medidor de telefone lendo baixo.
+3. Campo próximo num transdutor de 22 mm.
+4. A peça em mãos não ser a que se supõe (o BOM aceita SFM-20B **ou** SFM-27, e são
+   bem diferentes: 95 dB/10 mA contra 105 dB/~50 mA).
+
+### O experimento que responde de verdade
+
+Medir com **o mesmo telefone** o buzzer na posição de montagem e o ruído de cabine a
+80 km/h com janela aberta. Sendo o mesmo instrumento não calibrado nos dois, o erro
+sistemático se cancela na **diferença** — que é o que interessa. Isso responde o R-32
+com um número em vez de estimativa, e custa uma volta de carro.
+
+O **delta entre 5 V e 12 V** está estabelecido e basta para a decisão de alimentação.
+A **audibilidade** continua pendente, e agora com indício desfavorável.
 
 
 
@@ -2390,8 +2425,9 @@ RELEVANTES
 [x] R-31  RESOLVIDO — TVS 24 V + 470 uF/50 V na entrada de 12 V (bom_schematic.md itens 27-28)
 [~] R-32  Faixa 3 virou pulso de 10 Hz. MEDIDO em bancada (27/09): 52 dB em
           5 V contra 75 dB em 12 V -- 23 dB, ~14x em pressao, confirma o
-          ADR 0009. Falta a distancia da medicao; audibilidade com janela
-          aberta PENDENTE de julgamento em campo
+          ADR 0009. Medido a ~5 cm com telefone. Extrapolado para 80 cm da
+          ~51 dB contra 75-85 dB de cabine: indicio DESFAVORAVEL. Resolver
+          antes a discrepancia com os 105 dB da folha (em que tensao?)
 [x] R-33  RESOLVIDO — LED e de ANODO comum; logica invertida no firmware e na netlist
 [~] R-34  Tabela de pinagem do GPS criada e gerador corrigido; serigrafia A CONFERIR na placa
 [x] R-35  RESOLVIDO — LED com vermelho no GPIO 8 e azul no 6; o mapa descreve a placa
