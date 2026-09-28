@@ -159,8 +159,10 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
         "# aparelho varre e conecta na primeira desta lista que estiver visível.",
     ]
     if not redes:
-        redes = [Rede("minha-rede-iot", "troque-me"),
-                 Rede("celular", "troque-me")]
+        # Sem redes sai o gabarito. Duas entradas so para mostrar a
+        # numeracao; o conteudo delas nao importa, porque com_segredo
+        # falso troca ssid e senha por 'troque-me' logo abaixo.
+        redes = [Rede("", "")] * 2
         com_segredo = False
     for i, r in enumerate(redes, start=1):
         linhas.append(f"wifi_ssid_{i}={r.ssid if com_segredo else 'troque-me'}")
