@@ -2,6 +2,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "nucleo/PeriodoDoDia.h"
+
 namespace coruja {
 
 /// Passos de ~5% do RF04: 20 posições, de 5% a 100%.
@@ -29,6 +31,11 @@ public:
     void aumenta();
     void diminui();
 
+    /// Informa dia ou noite. Troca o preset vigente; `Desconhecido` **não
+    /// muda nada** — sem data o aparelho não sabe, e mexer no brilho por
+    /// palpite seria pior que deixar como está.
+    void define_periodo(PeriodoDoDia periodo);
+
     /// O que o usuário vê na barra: 5 a 100.
     std::uint8_t percentual() const;
 
@@ -36,10 +43,24 @@ public:
     std::uint16_t duty() const;
 
     /// Posição do passo, 1 a 20. Para a barra de ajuste da faixa superior.
-    std::size_t passo() const { return passo_; }
+    std::size_t passo() const;
+
+    PeriodoDoDia periodo() const { return periodo_; }
 
 private:
-    std::size_t passo_ = kPassosBrilho;   ///< começa em 100%
+    std::size_t& passo_vigente();
+    std::size_t  passo_vigente() const;
+
+    /// **Dois presets, e o ajuste manual edita o vigente.** É o que faz o
+    /// aparelho lembrar: acerta-se o brilho uma vez de dia e uma vez de
+    /// noite, e a transição seguinte já vem no valor certo. Um preset só
+    /// obrigaria a reajustar duas vezes por dia, para sempre.
+    std::size_t passo_dia_ = kPassosBrilho;   ///< 100%
+    /// 20% é chute de partida, para ajustar na estrada. Sem medição, é o
+    /// que se pode dizer honestamente — e o R-05 ainda vai dizer se o piso
+    /// de 5% é utilizável.
+    std::size_t passo_noite_ = 4;             ///< 20%
+    PeriodoDoDia periodo_ = PeriodoDoDia::Desconhecido;
 };
 
 }  // namespace coruja

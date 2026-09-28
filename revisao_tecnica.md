@@ -1522,6 +1522,84 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-61 — Modo noturno: LDR descartado, o GPS já sabe que horas são
+
+- **Onde:** proposta do autor em 2026-09-28; decisão registrada antes de implementar
+- **Confiança:** ✅ Regras da paleta e pinos ADC conferidos no código
+- **Status:** ✅ **DECIDIDO** — sinal vem do GPS; a paleta **não** muda
+
+**A proposta.** Um LDR para saber se é dia ou noite e ligar um modo noturno com
+"cores mais suaves" na tela.
+
+**A metade das cores foi recusada, e a razão é estrutural.** As três regras da paleta
+do §4.1 existem *por causa* do PWM do backlight: distinguir por matiz e nunca por
+luminância, nunca só por saturação, número sempre branco. "Cores mais suaves" quer
+dizer baixar luminância ou saturação — exatamente o que as regras 1 e 2 proíbem —, e
+faria isso à noite, com o backlight em 5%, que é quando a margem é menor.
+
+Pior: o **R-05 continua aberto** e pergunta precisamente se âmbar, rosa e vermelho
+sobrevivem distinguíveis a 5%. Suavizar gastaria uma margem que ainda não foi medida.
+
+E o modo noturno, em certo sentido, já existe: **fundo preto permanente mais backlight
+baixo**. O §4.1 diz que o preto não é estética — com o brilho em 5%, quanto menor a
+área acesa, menor o ofuscamento. O que faltava era só decidir o brilho sozinho.
+
+**O LDR foi descartado por três motivos, nenhum deles o custo da peça.** Há GPIO 26,
+27 e 28 livres e são ADC, então hardware não era o obstáculo:
+
+1. **Duplica um controle que existe e funciona.** O encoder já ajusta de 5 a 100 em
+   passos de 5.
+2. **Errar é pior que não ter.** Brilho automático que erra muda a tela sem pedido:
+   viaduto, túnel, farol de quem vem atrás, sombra de caminhão, sol rasante no sensor —
+   cada um é uma transição falsa.
+3. **O difícil é a mecânica.** Dentro da caixa, o sensor precisa de um furo que veja
+   luz ambiente sem ver sol direto nem farol. Esse posicionamento *é* o projeto, e não
+   é óbvio.
+
+**O sinal escolhido: o próprio GPS.** Data, latitude e longitude bastam para calcular
+nascer e pôr do sol. Sem peça nova, sem ADC, sem calibração, sem furo na caixa — e,
+para escolher um **modo**, mais confiável que o LDR: não vira noite dentro de um
+túnel, que é justamente o que não se quer de um modo.
+
+A fraqueza é simétrica e aceita: ele não sabe de garagem coberta nem de temporal ao
+meio-dia. Para brilho instantâneo isso contaria; para modo dia/noite é o comportamento
+desejável.
+
+**O que muda, então:** o **brilho**, entre dois presets, e nada mais. A paleta fica
+como está. O encoder sobrepõe sempre, até a transição seguinte.
+
+**Ordem acordada:** o R-05 continua sendo o que decide se há margem para qualquer
+refinamento noturno além disto, e é medição de bancada quando a tela chegar.
+
+### Implementado em 2026-09-28
+
+`nucleo/PeriodoDoDia` calcula nascer e pôr do sol pelo algoritmo do NOAA, e o
+`Brilho` ganhou **dois presets** — o ajuste manual edita o do período vigente, então
+se acerta uma vez de dia e uma vez de noite e a transição seguinte já vem certa. Um
+preset só obrigaria a reajustar duas vezes por dia, para sempre.
+
+Os valores de referência vieram de uma implementação independente em Python, e foram
+conferidos por um terceiro caminho que não depende da precisão da conta: no equinócio
+o dia dá 12h06m — **pouco mais** de doze horas, porque o zênite de 90,833° inclui
+refração e meio disco solar — com o meio-dia solar às 12:18 local, que é a soma da
+correção de longitude (+11,5 min) com a equação do tempo de março (+7,4 min).
+
+**Um defeito real, achado por teste:** em longitudes a leste o meio-dia solar cai perto
+de 00:00 UTC e a conta crua devolve **minuto negativo** para o nascer. Sem normalizar
+para `[0, 1440)`, a comparação com o relógio comparava coisas diferentes e o aparelho
+acharia que é dia à meia-noite na Nova Zelândia. No Brasil nunca apareceria.
+
+E dois erros meus **nos testes**, não no código: escrevi os casos polares com os
+hemisférios trocados — no solstício de junho quem fica no escuro é o sul, não o norte.
+
+11 defeitos injetados, 11 mortos.
+
+**Pendência:** falta ligar o `define_periodo` ao laço do firmware. Depende do porte do
+backlight, que depende de identificar o controlador do painel. A prévia de terminal já
+exercita o caminho.
+
+---
+
 ## R-60 — O LED apagado queria dizer duas coisas
 
 - **Onde:** `led/PadraoLed`, `requirements.md` §4.1
@@ -2846,6 +2924,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-61  DECIDIDO — modo noturno pelo GPS (nascer/por do sol), nao por
+          LDR; troca o BRILHO entre dois presets e nao a paleta
 [x] R-60  APLICADO — LED azul fixo para 'vivo sem protecao'; escuro
           passa a significar so falta de energia. Teste guarda a regra
 [x] R-59  FEITO — previa do produto no terminal com o codigo real;

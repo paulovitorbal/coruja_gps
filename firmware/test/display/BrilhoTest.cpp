@@ -78,6 +78,65 @@ TEST(Brilho, o_piso_e_visivel_mas_discreto) {
     EXPECT_LT(b.duty(), 655) << "o piso nao esta baixo o bastante para a noite";
 }
 
+// ================================================ dia e noite (R-61)
+
+TEST(Brilho, a_noite_comeca_mais_escura_que_o_dia) {
+    Brilho b;
+    const std::uint8_t dia = b.percentual();
+    b.define_periodo(PeriodoDoDia::Noite);
+    EXPECT_LT(b.percentual(), dia);
+    EXPECT_GE(b.percentual(), kBrilhoMinimoPct);
+}
+
+TEST(Brilho, periodo_desconhecido_NAO_mexe_em_nada) {
+    // Sem data o aparelho nao sabe, e mexer por palpite seria pior que
+    // deixar como esta -- o brilho mudaria sozinho no boot e voltaria ao
+    // primeiro fix.
+    Brilho b;
+    b.define_periodo(PeriodoDoDia::Noite);
+    const std::uint8_t antes = b.percentual();
+    b.define_periodo(PeriodoDoDia::Desconhecido);
+    EXPECT_EQ(b.percentual(), antes);
+    EXPECT_EQ(b.periodo(), PeriodoDoDia::Noite);
+}
+
+TEST(Brilho, o_ajuste_manual_vale_para_o_periodo_em_que_foi_feito) {
+    // E o que faz o aparelho LEMBRAR: acerta-se uma vez de dia e uma vez de
+    // noite, e a transicao seguinte ja vem certa. Com um preset so, seria
+    // reajustar duas vezes por dia, para sempre.
+    Brilho b;
+    b.define_periodo(PeriodoDoDia::Dia);
+    for (int i = 0; i < 4; ++i) { b.diminui(); }      // dia -> 80%
+    ASSERT_EQ(b.percentual(), 80);
+
+    b.define_periodo(PeriodoDoDia::Noite);
+    for (int i = 0; i < 2; ++i) { b.diminui(); }      // noite -> 10%
+    ASSERT_EQ(b.percentual(), 10);
+
+    b.define_periodo(PeriodoDoDia::Dia);
+    EXPECT_EQ(b.percentual(), 80) << "o ajuste de dia se perdeu";
+    b.define_periodo(PeriodoDoDia::Noite);
+    EXPECT_EQ(b.percentual(), 10) << "o ajuste de noite se perdeu";
+}
+
+TEST(Brilho, o_piso_vale_nos_dois_periodos) {
+    Brilho b;
+    for (const auto p : {PeriodoDoDia::Dia, PeriodoDoDia::Noite}) {
+        b.define_periodo(p);
+        for (int i = 0; i < 50; ++i) { b.diminui(); }
+        EXPECT_EQ(b.percentual(), kBrilhoMinimoPct);
+        EXPECT_GT(b.duty(), 0);
+    }
+}
+
+TEST(Brilho, trocar_de_periodo_muda_o_duty_e_nao_so_o_rotulo) {
+    Brilho b;
+    b.define_periodo(PeriodoDoDia::Dia);
+    const std::uint16_t d = b.duty();
+    b.define_periodo(PeriodoDoDia::Noite);
+    EXPECT_LT(b.duty(), d);
+}
+
 TEST(Brilho, o_pwm_fica_acima_da_faixa_que_assobia_e_cintila) {
     EXPECT_GE(kFrequenciaPwmHz, 20000U);
 }

@@ -35,6 +35,7 @@ add_executable(testes
     nucleo/ZonamentoTest.cpp
     nucleo/MonitorTaxaTest.cpp
     nucleo/UbxTest.cpp
+    nucleo/PeriodoDoDiaTest.cpp
     buzzer/CadenciaBuzzerTest.cpp
     rede/AtualizadorOtaTest.cpp
     log/LoggerCartaoTest.cpp

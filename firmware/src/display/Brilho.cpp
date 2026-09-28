@@ -16,20 +16,37 @@ constexpr std::uint16_t kCurva[kPassosBrilho] = {
 
 }  // namespace
 
+std::size_t& Brilho::passo_vigente() {
+    return periodo_ == PeriodoDoDia::Noite ? passo_noite_ : passo_dia_;
+}
+
+std::size_t Brilho::passo_vigente() const {
+    return periodo_ == PeriodoDoDia::Noite ? passo_noite_ : passo_dia_;
+}
+
+void Brilho::define_periodo(PeriodoDoDia periodo) {
+    if (periodo == PeriodoDoDia::Desconhecido) { return; }
+    periodo_ = periodo;
+}
+
 void Brilho::aumenta() {
-    if (passo_ < kPassosBrilho) { ++passo_; }
+    auto& p = passo_vigente();
+    if (p < kPassosBrilho) { ++p; }
 }
 
 void Brilho::diminui() {
     // Para no 1, que é o piso de 5%. Zero apagaria a tela e o usuário
     // perderia a referência para recuperá-la.
-    if (passo_ > 1) { --passo_; }
+    auto& p = passo_vigente();
+    if (p > 1) { --p; }
 }
+
+std::size_t Brilho::passo() const { return passo_vigente(); }
 
 std::uint8_t Brilho::percentual() const {
-    return static_cast<std::uint8_t>(passo_ * 5U);
+    return static_cast<std::uint8_t>(passo_vigente() * 5U);
 }
 
-std::uint16_t Brilho::duty() const { return kCurva[passo_ - 1]; }
+std::uint16_t Brilho::duty() const { return kCurva[passo_vigente() - 1]; }
 
 }  // namespace coruja
