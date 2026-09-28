@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 
 #include "log/Logger.h"
 
@@ -14,6 +15,19 @@ constexpr std::size_t kMaxSsid = 32;
 /// WPA2 aceita passphrase de 8 a 63 caracteres.
 constexpr std::size_t kMaxSenha = 63;
 constexpr std::size_t kMaxUrl = 160;
+constexpr std::size_t kMaxNome = 23;
+
+constexpr std::uint8_t kVolumeMinimo = 50;
+constexpr std::uint8_t kVolumeMaximo = 100;
+
+/// Como o modo noturno decide.
+///
+/// `Automatico` usa nascer e pôr do sol calculados pela posição (R-61). Os
+/// dois forçados existem para o que o cálculo **não** vê: garagem coberta ao
+/// meio-dia, ou um trecho em que se queira a tela clara à noite.
+enum class ModoNoturno : std::uint8_t { Automatico, SempreDia, SempreNoite };
+
+const char* descreve(ModoNoturno m);
 
 /// Uma rede Wi-Fi candidata para a atualização OTA.
 struct Rede {
@@ -62,6 +76,29 @@ struct Configuracao {
     /// cartão. `Info` por padrão — `Debug` inclui a varredura de Wi-Fi inteira
     /// e cada volume sondado, que é muito para uso normal.
     Nivel nivel_log = Nivel::Info;
+
+    // ---- ajustes que o aparelho GRAVA de volta (menu do encoder) -------
+    //
+    // Ao contrário dos de cima, estes o firmware escreve. Ficam no mesmo
+    // arquivo por decisão do autor, e a gravação é cirúrgica: troca o valor
+    // das chaves conhecidas e preserva comentários e o resto byte a byte.
+
+    /// Identifica a unidade. Com mais de um aparelho os ajustes divergem —
+    /// ruído de cabine muda o volume, posição do painel muda o brilho — e
+    /// trocar os cartões sem perceber aplicaria os ajustes do outro carro
+    /// **em silêncio**. O nome aparece no boot e em cada linha do log.
+    char nome[kMaxNome + 1] = {};
+
+    /// Brilho da tela por período, em passos de 5, de 5 a 100 (R-61).
+    std::uint8_t brilho_dia = 100;
+    std::uint8_t brilho_noite = 20;
+
+    ModoNoturno modo_noturno = ModoNoturno::Automatico;
+
+    /// Volume do buzzer, de 50 a 100. **Nunca abaixo de 50**: janela aberta
+    /// pede 100, ar-condicionado pede 50, e silenciar transformaria o
+    /// aparelho em enfeite.
+    std::uint8_t volume_buzzer = kVolumeMaximo;
 
     bool tem_rede() const { return n_redes > 0; }
     bool tem_urls() const {

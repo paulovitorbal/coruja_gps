@@ -44,6 +44,21 @@ class Rede(NamedTuple):
     senha: str
 
 
+class Ajustes(NamedTuple):
+    """Os ajustes que o aparelho tambem escreve, pelo menu.
+
+    Os padroes moram aqui e em mais lugar nenhum: o argparse os toma
+    daqui, e o test_gera_config confere que batem com os de
+    Configuracao.h. Divergir os dois faria o arquivo gerado descrever
+    um aparelho diferente do que o firmware assume antes de le-lo.
+    """
+    nome: str = "coruja"
+    brilho_dia: int = 100
+    brilho_noite: int = 20
+    modo_noturno: str = "auto"
+    volume_buzzer: int = 100
+
+
 def valida_rede(ssid: str, senha: str) -> str | None:
     """Devolve a mensagem de erro, ou None se estiver válido."""
     if len(ssid) > MAX_SSID:
@@ -129,7 +144,7 @@ def coleta_urls(permitir_http: bool = False) -> tuple[str, str]:
 
 
 def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
-              com_segredo: bool) -> str:
+              com_segredo: bool, ajustes: Ajustes = Ajustes()) -> str:
     linhas = [
         "# Configuração do Coruja GPS. Vai na raiz do cartão microSD.",
         "# Gerado por scripts/gera_config.py.",
@@ -137,8 +152,8 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
         "# O cartão é removível e legível por qualquer um: use uma rede de",
         "# convidados ou de IoT, nunca a principal da casa.",
         "#",
-        "# Só entra aqui o que varia por instalação. Brilho, fuso, tolerâncias",
-        "# e calibração do LED ficam no código (docs/adr/0002).",
+        "# Só entra aqui o que varia por instalação ou por gosto. Fuso,",
+        "# tolerâncias e calibração do LED ficam no código (docs/adr/0002).",
         "",
         f"# Redes em ordem de PRIORIDADE, até {MAX_REDES}. Ao clicar no encoder o",
         "# aparelho varre e conecta na primeira desta lista que estiver visível.",
@@ -180,6 +195,34 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
          else "# Entrega o radares.bin. O RF05.2 exige HTTPS."),
         f"url_base={url_base if com_segredo else 'https://exemplo/radares.bin'}",
         "",
+        "# --- ajustes do aparelho ----------------------------------------",
+        "#",
+        "# Daqui para baixo o APARELHO tambem escreve, ao mexer no menu com o",
+        "# carro parado. A gravacao e cirurgica: ele troca so o valor destas",
+        "# chaves e preserva o resto do arquivo, comentarios inclusive. Pode",
+        "# editar a mao; vale o ultimo que escreveu.",
+        "",
+        "# Identifica a unidade. Com mais de um aparelho os ajustes divergem,",
+        "# e trocar os cartoes sem perceber aplicaria os ajustes do outro",
+        "# carro em silencio. Aparece no boot e em cada linha do log.",
+        f"nome={ajustes.nome}",
+        "",
+        "# Brilho da tela por periodo, de 5 a 100 em passos de 5. Sao dois",
+        "# porque o ajuste manual vale por periodo: acerta-se uma vez de dia",
+        "# e uma de noite, e a troca seguinte ja vem certa.",
+        f"brilho_dia={ajustes.brilho_dia}",
+        f"brilho_noite={ajustes.brilho_noite}",
+        "",
+        "# auto  = decide por nascer e por do sol, calculados pela posicao",
+        "# dia   = forca tela clara (garagem coberta ao meio-dia)",
+        "# noite = forca tela escura",
+        f"modo_noturno={ajustes.modo_noturno}",
+        "",
+        "# Volume do buzzer, de 50 a 100. NUNCA abaixo de 50: janela aberta",
+        "# pede 100, ar-condicionado pede 50, e silenciar transformaria o",
+        "# aparelho em enfeite.",
+        f"volume_buzzer={ajustes.volume_buzzer}",
+        "",
     ]
     return "\n".join(linhas)
 
@@ -200,10 +243,25 @@ def main(argv: list[str] | None = None) -> int:
                    help="onde gravar o coruja.cfg; aponte para o cartão montado")
     p.add_argument("--so-exemplo", action="store_true",
                    help="gera apenas o coruja.cfg.exemplo, sem pedir segredo")
+    padrao = Ajustes()
+    p.add_argument("--nome", default=padrao.nome,
+                   help="identifica a unidade; aparece no boot e no log")
+    p.add_argument("--brilho-dia", type=int, default=padrao.brilho_dia,
+                   help="5 a 100, em passos de 5")
+    p.add_argument("--brilho-noite", type=int, default=padrao.brilho_noite,
+                   help="5 a 100, em passos de 5")
+    p.add_argument("--modo-noturno", choices=("auto", "dia", "noite"),
+                   default=padrao.modo_noturno)
+    p.add_argument("--volume-buzzer", type=int, default=padrao.volume_buzzer,
+                   help="50 a 100; nunca abaixo de 50")
     p.add_argument("--permitir-http", action="store_true",
                    help="aceita URL em http:// — SÓ para teste em rede local; "
                         "exige confirmação e grava aviso no arquivo")
     args = p.parse_args(argv)
+    ajustes = Ajustes(nome=args.nome, brilho_dia=args.brilho_dia,
+                      brilho_noite=args.brilho_noite,
+                      modo_noturno=args.modo_noturno,
+                      volume_buzzer=args.volume_buzzer)
 
     if args.permitir_http and not args.so_exemplo:
         # Confirmação explícita: um sinalizador sozinho é fácil demais de
@@ -218,6 +276,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.so_exemplo:
+        if ajustes != Ajustes():
+            print("erro: --so-exemplo gera o gabarito versionado, que leva os "
+                  "padroes; os ajustes so valem para o coruja.cfg do cartao.",
+                  file=sys.stderr)
+            return 1
         grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
         return 0
 
@@ -231,7 +294,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     grava(args.destino / CFG,
-          corpo_cfg(redes, url_versao, url_base, com_segredo=True), modo=0o600)
+          corpo_cfg(redes, url_versao, url_base, com_segredo=True,
+                    ajustes=ajustes), modo=0o600)
     grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
 
     if args.destino.resolve() == RAIZ:

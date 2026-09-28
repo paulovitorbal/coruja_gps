@@ -63,6 +63,30 @@ int indice_de(const char* ini, std::size_t n, const char* prefixo) {
     return d - '1';
 }
 
+/// Inteiro sem sinal, sem aceitar lixo à volta.
+bool inteiro(const char* ini, std::size_t n, unsigned* destino) {
+    if (n == 0 || n > 5) { return false; }
+    unsigned v = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (ini[i] < '0' || ini[i] > '9') { return false; }
+        v = v * 10U + static_cast<unsigned>(ini[i] - '0');
+    }
+    *destino = v;
+    return true;
+}
+
+/// Brilho de 5 a 100, **em passos de 5**. Um valor fora do passo seria
+/// aceito e depois arredondado em silêncio ao virar índice da curva; recusar
+/// deixa o erro visível enquanto ainda dá para corrigir o arquivo.
+bool le_brilho(const char* ini, std::size_t n, std::uint8_t* destino) {
+    unsigned v = 0;
+    if (!inteiro(ini, n, &v) || v < 5 || v > 100 || v % 5 != 0) {
+        return false;
+    }
+    *destino = static_cast<std::uint8_t>(v);
+    return true;
+}
+
 /// Copia se couber. Devolve falso quando não cabe — e aí nada é copiado, de
 /// propósito: meio valor é pior que valor nenhum.
 bool copia(char* destino, std::size_t capacidade, const char* ini,
@@ -185,6 +209,51 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
         if (igual(chave, nc, "url_base")) {
             if (!copia(r.config.url_base, kMaxUrl, valor, nv)) {
                 ++r.diagnostico.valores_longos;
+            }
+            continue;
+        }
+
+        if (igual(chave, nc, "nome")) {
+            if (!copia(r.config.nome, kMaxNome, valor, nv)) {
+                ++r.diagnostico.valores_longos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "brilho_dia")) {
+            if (!le_brilho(valor, nv, &r.config.brilho_dia)) {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "brilho_noite")) {
+            if (!le_brilho(valor, nv, &r.config.brilho_noite)) {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "modo_noturno")) {
+            if (igual(valor, nv, "auto")) {
+                r.config.modo_noturno = ModoNoturno::Automatico;
+            } else if (igual(valor, nv, "dia")) {
+                r.config.modo_noturno = ModoNoturno::SempreDia;
+            } else if (igual(valor, nv, "noite")) {
+                r.config.modo_noturno = ModoNoturno::SempreNoite;
+            } else {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "volume_buzzer")) {
+            unsigned v = 0;
+            // **Fora da faixa é recusado, não limitado.** Limitar em
+            // silêncio esconderia um erro de digitação: quem escreveu 10
+            // acharia que silenciou e não silenciou, e descobriria na
+            // estrada. Recusado, vale o padrão e o diagnóstico conta.
+            if (inteiro(valor, nv, &v) && v >= kVolumeMinimo &&
+                v <= kVolumeMaximo) {
+                r.config.volume_buzzer = static_cast<std::uint8_t>(v);
+            } else {
+                ++r.diagnostico.valores_invalidos;
             }
             continue;
         }

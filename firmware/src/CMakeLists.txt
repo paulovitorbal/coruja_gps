@@ -10,6 +10,7 @@ add_library(coruja_nucleo STATIC
     nucleo/LimiarInfracao.cpp
     nucleo/BaseRadares.cpp
     nucleo/LeitorConfig.cpp
+    nucleo/Configuracao.cpp
     nucleo/Crc32.cpp
     nucleo/Texto.cpp
     nucleo/Nmea.cpp

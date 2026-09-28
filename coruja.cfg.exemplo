@@ -4,8 +4,8 @@
 # O cartão é removível e legível por qualquer um: use uma rede de
 # convidados ou de IoT, nunca a principal da casa.
 #
-# Só entra aqui o que varia por instalação. Brilho, fuso, tolerâncias
-# e calibração do LED ficam no código (docs/adr/0002).
+# Só entra aqui o que varia por instalação ou por gosto. Fuso,
+# tolerâncias e calibração do LED ficam no código (docs/adr/0002).
 
 # Redes em ordem de PRIORIDADE, até 5. Ao clicar no encoder o
 # aparelho varre e conecta na primeira desta lista que estiver visível.
@@ -32,3 +32,31 @@ log_level=info
 url_versao=https://exemplo/radares.versao
 # Entrega o radares.bin. O RF05.2 exige HTTPS.
 url_base=https://exemplo/radares.bin
+
+# --- ajustes do aparelho ----------------------------------------
+#
+# Daqui para baixo o APARELHO tambem escreve, ao mexer no menu com o
+# carro parado. A gravacao e cirurgica: ele troca so o valor destas
+# chaves e preserva o resto do arquivo, comentarios inclusive. Pode
+# editar a mao; vale o ultimo que escreveu.
+
+# Identifica a unidade. Com mais de um aparelho os ajustes divergem,
+# e trocar os cartoes sem perceber aplicaria os ajustes do outro
+# carro em silencio. Aparece no boot e em cada linha do log.
+nome=coruja
+
+# Brilho da tela por periodo, de 5 a 100 em passos de 5. Sao dois
+# porque o ajuste manual vale por periodo: acerta-se uma vez de dia
+# e uma de noite, e a troca seguinte ja vem certa.
+brilho_dia=100
+brilho_noite=20
+
+# auto  = decide por nascer e por do sol, calculados pela posicao
+# dia   = forca tela clara (garagem coberta ao meio-dia)
+# noite = forca tela escura
+modo_noturno=auto
+
+# Volume do buzzer, de 50 a 100. NUNCA abaixo de 50: janela aberta
+# pede 100, ar-condicionado pede 50, e silenciar transformaria o
+# aparelho em enfeite.
+volume_buzzer=100

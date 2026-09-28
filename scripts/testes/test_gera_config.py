@@ -115,6 +115,71 @@ class GeraConfig(unittest.TestCase):
         self.assertEqual(g.MAX_SENHA, const("kMaxSenha"))
         self.assertEqual(g.MAX_URL, const("kMaxUrl"))
 
+    def test_os_ajustes_padrao_batem_com_o_cabecalho_cpp(self):
+        # Os dois lados escrevem o mesmo padrao em lugares diferentes: o
+        # gerador no arquivo, o firmware no struct antes de ler o arquivo.
+        # Divergir faria um cartao sem a chave se comportar diferente de um
+        # cartao com a chave no valor "padrao".
+        h = (RAIZ / "firmware/src/nucleo/Configuracao.h").read_text(
+            encoding="utf-8")
+        padrao = g.Ajustes()
+
+        def campo(nome, tipo=r"std::uint8_t"):
+            m = re.search(rf"{tipo} {nome} = ([\w:]+);", h)
+            self.assertIsNotNone(m, f"{nome} nao encontrado em Configuracao.h")
+            return m.group(1)
+
+        self.assertEqual(str(padrao.brilho_dia), campo("brilho_dia"))
+        self.assertEqual(str(padrao.brilho_noite), campo("brilho_noite"))
+        # volume_buzzer nasce no maximo, pela constante.
+        self.assertEqual("kVolumeMaximo", campo("volume_buzzer"))
+        m = re.search(r"constexpr std::uint8_t kVolumeMaximo = (\d+);", h)
+        self.assertEqual(padrao.volume_buzzer, int(m.group(1)))
+        self.assertIn("ModoNoturno::Automatico",
+                      campo("modo_noturno", r"ModoNoturno"))
+        self.assertEqual("auto", padrao.modo_noturno)
+
+    def test_o_nome_padrao_cabe_no_buffer_do_firmware(self):
+        h = (RAIZ / "firmware/src/nucleo/Configuracao.h").read_text(
+            encoding="utf-8")
+        m = re.search(r"constexpr std::size_t kMaxNome = (\d+);", h)
+        self.assertLessEqual(len(g.Ajustes().nome), int(m.group(1)))
+
+    def test_os_ajustes_aparecem_no_corpo(self):
+        corpo = g.corpo_cfg([], "", "", com_segredo=False,
+                            ajustes=g.Ajustes(nome="fusca", brilho_dia=75,
+                                              brilho_noite=15,
+                                              modo_noturno="noite",
+                                              volume_buzzer=50))
+        for linha in ("nome=fusca", "brilho_dia=75", "brilho_noite=15",
+                      "modo_noturno=noite", "volume_buzzer=50"):
+            self.assertIn(linha, corpo)
+
+    def test_os_ajustes_vem_depois_das_urls(self):
+        # A gravacao pelo menu e cirurgica, mas o bloco so faz sentido
+        # como bloco: o aviso de que o aparelho escreve ali precisa vir
+        # antes das chaves que ele escreve.
+        corpo = g.corpo_cfg([], "", "", com_segredo=False)
+        self.assertLess(corpo.index("url_base="), corpo.index("nome="))
+        self.assertLess(corpo.index("# --- ajustes do aparelho"),
+                        corpo.index("nome="))
+
+    def test_so_exemplo_recusa_ajustes(self):
+        # Sem isto os ajustes seriam ignorados em silencio, e o gabarito
+        # versionado sairia com o carro de quem rodou.
+        self.assertEqual(1, g.main(["--so-exemplo", "--nome", "fusca"]))
+
+    def test_so_exemplo_sem_ajustes_funciona(self):
+        # Restaura o arquivo: se este teste o deixasse regerado, ele
+        # esconderia uma defasagem que test_o_exemplo_versionado_esta_em_dia
+        # deveria pegar -- hoje so a ordem alfabetica evita isso.
+        alvo = RAIZ / "coruja.cfg.exemplo"
+        antes = alvo.read_text(encoding="utf-8")
+        try:
+            self.assertEqual(0, g.main(["--so-exemplo"]))
+        finally:
+            alvo.write_text(antes, encoding="utf-8")
+
     def test_o_exemplo_versionado_esta_em_dia(self):
         # O parser em C++ lê este arquivo. Se o gerador mudar de formato e o
         # exemplo nao for regerado, os dois lados divergem em silencio.

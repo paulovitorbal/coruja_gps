@@ -366,4 +366,124 @@ TEST(LeitorConfig, AsChavesDeLogConvivemComOResto) {
     EXPECT_TRUE(r.diagnostico.limpo());
 }
 
+// --- ajustes do aparelho (os que o menu tambem escreve) ---
+
+TEST(LeitorConfig, AjustesAusentesFicamNoPadrao) {
+    // Um cartao antigo, sem o bloco de ajustes, precisa continuar dando
+    // um aparelho utilizavel -- e com o buzzer no maximo, nao no minimo.
+    const auto r = le("url_base=https://ex/r.bin\n");
+    EXPECT_STREQ(r.config.nome, "");
+    EXPECT_EQ(r.config.brilho_dia, 100);
+    EXPECT_EQ(r.config.brilho_noite, 20);
+    EXPECT_EQ(r.config.modo_noturno, ModoNoturno::Automatico);
+    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, LeOsAjustes) {
+    const auto r = le(
+        "nome=fusca\n"
+        "brilho_dia=75\n"
+        "brilho_noite=15\n"
+        "modo_noturno=noite\n"
+        "volume_buzzer=50\n");
+    EXPECT_STREQ(r.config.nome, "fusca");
+    EXPECT_EQ(r.config.brilho_dia, 75);
+    EXPECT_EQ(r.config.brilho_noite, 15);
+    EXPECT_EQ(r.config.modo_noturno, ModoNoturno::SempreNoite);
+    EXPECT_EQ(r.config.volume_buzzer, 50);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, ModoNoturnoAceitaAsTresPalavras) {
+    EXPECT_EQ(le("modo_noturno=auto\n").config.modo_noturno,
+              ModoNoturno::Automatico);
+    EXPECT_EQ(le("modo_noturno=dia\n").config.modo_noturno,
+              ModoNoturno::SempreDia);
+    EXPECT_EQ(le("modo_noturno=noite\n").config.modo_noturno,
+              ModoNoturno::SempreNoite);
+}
+
+TEST(LeitorConfig, ModoNoturnoDesconhecidoERecusado) {
+    const auto r = le("modo_noturno=escuro\n");
+    EXPECT_EQ(r.config.modo_noturno, ModoNoturno::Automatico);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, VolumeAbaixoDoMinimoERecusadoNaoLimitado) {
+    // O buzzer nunca silencia. Limitar 10 para 50 em silencio faria quem
+    // digitou 10 acreditar que silenciou; recusar deixa o erro visivel.
+    const auto r = le("volume_buzzer=10\n");
+    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, VolumeZeroNaoSilencia) {
+    const auto r = le("volume_buzzer=0\n");
+    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, VolumeAcimaDoMaximoERecusado) {
+    const auto r = le("volume_buzzer=120\n");
+    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, VolumeAceitaAsPontasDaFaixa) {
+    EXPECT_EQ(le("volume_buzzer=50\n").config.volume_buzzer, kVolumeMinimo);
+    EXPECT_EQ(le("volume_buzzer=100\n").config.volume_buzzer, kVolumeMaximo);
+    EXPECT_TRUE(le("volume_buzzer=50\n").diagnostico.limpo());
+}
+
+TEST(LeitorConfig, VolumeNaoNumericoERecusado) {
+    const auto r = le("volume_buzzer=alto\n");
+    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, BrilhoForaDoPassoDeCincoERecusado) {
+    // 73 viraria indice de curva arredondado em silencio.
+    const auto r = le("brilho_dia=73\n");
+    EXPECT_EQ(r.config.brilho_dia, 100);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, BrilhoAceitaAsPontasERecusaOZero) {
+    EXPECT_EQ(le("brilho_noite=5\n").config.brilho_noite, 5);
+    EXPECT_EQ(le("brilho_dia=100\n").config.brilho_dia, 100);
+    // Zero e multiplo de 5, mas apagaria a tela: o piso e 5.
+    const auto zero = le("brilho_noite=0\n");
+    EXPECT_EQ(zero.config.brilho_noite, 20);
+    EXPECT_EQ(zero.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, BrilhoAcimaDeCemERecusado) {
+    const auto r = le("brilho_dia=105\n");
+    EXPECT_EQ(r.config.brilho_dia, 100);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+}
+
+TEST(LeitorConfig, NomeLongoDemaisNaoEntraPelaMetade) {
+    // Meio nome identificaria a unidade errada, que e justamente o risco
+    // que a chave existe para evitar com duas unidades.
+    const std::string longo(kMaxNome + 1, 'x');
+    const auto r = le("nome=" + longo + "\n");
+    EXPECT_STREQ(r.config.nome, "");
+    EXPECT_EQ(r.diagnostico.valores_longos, 1U);
+}
+
+TEST(LeitorConfig, NomeNoLimiteCabe) {
+    const std::string cheio(kMaxNome, 'x');
+    const auto r = le("nome=" + cheio + "\n");
+    EXPECT_EQ(std::strlen(r.config.nome), kMaxNome);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, DescreveModoNoturno) {
+    EXPECT_STREQ(descreve(ModoNoturno::Automatico), "auto");
+    EXPECT_STREQ(descreve(ModoNoturno::SempreDia), "dia");
+    EXPECT_STREQ(descreve(ModoNoturno::SempreNoite), "noite");
+}
+
 }  // namespace
