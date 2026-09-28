@@ -68,17 +68,6 @@ int ao_ver_rede(void* env, const cyw43_ev_scan_result_t* r) {
 
 }  // namespace
 
-const char* descreve(ErroWifi erro) {
-    switch (erro) {
-        case ErroWifi::Nenhum:                 return "ok";
-        case ErroWifi::ChipNaoIniciou:         return "chip CYW43 nao iniciou";
-        case ErroWifi::VarreduraFalhou:        return "varredura falhou";
-        case ErroWifi::NenhumaRedeConfigurada: return "nenhuma rede na configuracao";
-        case ErroWifi::NenhumaRedeVisivel:     return "nenhuma rede da lista esta visivel";
-        case ErroWifi::FalhaDeAssociacao:      return "associacao recusada (senha? sinal?)";
-    }
-    return "erro desconhecido";
-}
 
 RedeWifi::~RedeWifi() {
     if (iniciado_) {

@@ -75,18 +75,6 @@ void ao_terminar(void* arg, httpc_result_t resultado, u32_t recebidos,
 
 }  // namespace
 
-const char* descreve(ErroHttp erro) {
-    switch (erro) {
-        case ErroHttp::Nenhum:          return "ok";
-        case ErroHttp::UrlInvalida:     return "URL invalida";
-        case ErroHttp::TlsNaoSuportado: return "https: este cliente nao fala TLS";
-        case ErroHttp::NaoIniciou:      return "o pedido nao saiu (DNS? memoria?)";
-        case ErroHttp::TempoEsgotado:   return "tempo esgotado";
-        case ErroHttp::StatusNaoOk:     return "servidor respondeu com status != 200";
-        case ErroHttp::Interrompida:    return "conexao interrompida no meio";
-    }
-    return "erro desconhecido";
-}
 
 ResultadoHttp ClienteHttp::baixa(const Url& url, AoReceber ao_receber,
                                  void* contexto, Logger& log,

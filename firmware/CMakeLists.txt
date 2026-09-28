@@ -45,6 +45,7 @@ else()
     endif()
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
+        coruja_ota
         coruja_armazenamento
         pico_stdlib)
     # O lwipopts.h e o cyw43 procuram cabecalhos na raiz do firmware.

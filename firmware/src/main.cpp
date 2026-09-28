@@ -31,7 +31,9 @@
 #include "nucleo/BaseRadares.h"
 #include "nucleo/CarregadorFluxo.h"
 #include "nucleo/LeitorConfig.h"
+#include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
+#include "rede/ClienteHttp.h"
 #include "rede/RedeWifi.h"
 
 namespace {
@@ -178,7 +180,9 @@ int main() {
     coruja::EncoderKy040     encoder;
     coruja::CicloCores       ciclo;
     coruja::RedeWifi         rede;
-    coruja::AtualizadorOta   ota;
+    coruja::ClienteHttp      http;
+    coruja::PausaReal        pausa;
+    coruja::AtualizadorOta   ota(cartao, rede, http, pausa);
 
     cartao.inicia(log);
 
@@ -231,7 +235,7 @@ int main() {
             // nunca fica velha.
             coruja::Configuracao config;
             if (carrega_configuracao(cartao, &config, log)) {
-                ota.executa(config, cartao, rede, log);
+                ota.executa(config, log);
             } else {
                 log.error("ota", "sem configuracao utilizavel: nada a fazer");
             }

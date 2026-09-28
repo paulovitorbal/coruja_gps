@@ -2,11 +2,12 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "armazenamento/CartaoSd.h"
+#include "armazenamento/Armazenamento.h"
 #include "nucleo/Configuracao.h"
 #include "nucleo/VerificadorDownload.h"
-#include "rede/ClienteHttp.h"
-#include "rede/RedeWifi.h"
+#include "nucleo/Pausa.h"
+#include "rede/Baixador.h"
+#include "rede/Conexao.h"
 
 namespace coruja {
 
@@ -61,15 +62,28 @@ const char* descreve(ResultadoOta resultado);
 /// lugar. Se o aparelho desligar entre os dois, a versão antiga permanece e o
 /// próximo clique rebaixa — desperdício de rede, que é o modo de falha certo
 /// para escolher.
+/// Orquestra a atualização da base pelo RF05: consulta a versão, baixa,
+/// verifica em fluxo, grava com troca atômica.
+///
+/// **Recebe abstrações e não o hardware.** Foi assim que a troca atômica e as
+/// três tentativas passaram a ser verificáveis no host: com `CartaoSd` e
+/// `RedeWifi` concretos, 310 linhas de decisão só rodavam na placa, e provocar
+/// "o cartão encheu no meio do download" na bancada é impraticável.
 class AtualizadorOta {
 public:
-    ResultadoOta executa(const Configuracao& cfg, CartaoSd& cartao,
-                         RedeWifi& rede, Logger& log);
+    AtualizadorOta(Armazenamento& cartao, Conexao& rede, Baixador& http,
+                   Pausa& pausa)
+        : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa) {}
+
+    ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
     const char* versao_local() const { return versao_local_; }
 
 private:
-    ClienteHttp         http_;
+    Armazenamento&      cartao_;
+    Conexao&            rede_;
+    Baixador&           http_;
+    Pausa&              pausa_;
     VerificadorDownload verificador_;
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};

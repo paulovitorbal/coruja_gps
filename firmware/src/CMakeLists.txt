@@ -22,6 +22,13 @@ target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A configuracao carrega um Nivel de log, e o parser usa nivel_de_texto().
 target_link_libraries(coruja_nucleo PUBLIC coruja_log)
 
+# coruja_ota: orquestracao da atualizacao do RF05. Portavel, porque recebe
+# Armazenamento, Rede, Baixador e Pausa -- abstracoes, nao o hardware. E o que
+# permite testar a troca atomica e as tres tentativas no host.
+add_library(coruja_ota STATIC rede/AtualizadorOta.cpp)
+target_include_directories(coruja_ota PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(coruja_ota PUBLIC coruja_nucleo coruja_log)
+
 # coruja_ihm: logica de interface de usuario. Portavel, sem hardware: o
 # decodificador de quadratura, o anti-repique e o modo de teste sao funcoes
 # puras, e e por isso que a decodificacao inteira e testada no host.
@@ -45,6 +52,7 @@ if(NOT CORUJA_TESTES)
         led/LedRgbAnodoComum.cpp
         encoder/EncoderKy040.cpp
         buzzer/BuzzerGpio.cpp
+        placa/PausaReal.cpp
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(coruja_portes PUBLIC
@@ -81,7 +89,6 @@ if(NOT CORUJA_TESTES)
     add_library(coruja_rede STATIC
         rede/RedeWifi.cpp
         rede/ClienteHttp.cpp
-        rede/AtualizadorOta.cpp
     )
     # O ".." e onde mora o lwipopts.h, que o proprio lwIP inclui por nome.
     target_include_directories(coruja_rede PUBLIC

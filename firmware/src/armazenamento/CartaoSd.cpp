@@ -51,19 +51,6 @@ FIL   g_arquivo;
 
 }  // namespace
 
-const char* descreve(ErroCartao erro) {
-    switch (erro) {
-        case ErroCartao::Nenhum:         return "ok";
-        case ErroCartao::SemCartaoLegivel:
-            return "cartao ausente ou ilegivel";
-        case ErroCartao::ArquivoAusente: return "arquivo nao encontrado em nenhuma particao";
-        case ErroCartao::ArquivoGrande:  return "arquivo maior que o buffer";
-        case ErroCartao::FalhaDeLeitura: return "falha de leitura";
-        case ErroCartao::FalhaDeEscrita: return "falha de escrita";
-        case ErroCartao::FalhaDeRenomeacao: return "falha ao renomear (troca atomica)";
-    }
-    return "erro desconhecido";
-}
 
 void CartaoSd::inicia(Logger& log) {
     if (iniciado_) {

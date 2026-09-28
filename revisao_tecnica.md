@@ -1522,6 +1522,60 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-54 — 310 linhas de OTA só rodavam na placa, por uma dependência que não precisava existir
+
+- **Onde:** `rede/AtualizadorOta`, `armazenamento/Armazenamento.h`, `rede/Conexao.h`,
+  `rede/Baixador.h`, `nucleo/Pausa.h`
+- **Confiança:** ✅ Medido: 23 testes novos, 11 defeitos injetados e 11 mortos
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ **CORRIGIDO** — item 4 da revisão geral
+
+**O problema.** O `AtualizadorOta` recebia `CartaoSd&` e `RedeWifi&` — classes
+**concretas**, sem método virtual, cujas bibliotecas nem são compiladas no alvo de
+host. Consequência: a troca atômica do RF05.2, as três retentativas e todo o
+tratamento de falha só existiam na placa. E são exatamente os caminhos que a bancada
+**não** consegue provocar: "o cartão encheu no meio do download", "a renomeação
+falhou", "a base chegou corrompida".
+
+O projeto já tinha a regra certa e a aplicava — `LedRgb` e `Buzzer` são interfaces com
+porte separado. Armazenamento e rede ficaram de fora, e ninguém notou porque o OTA
+*funcionava*: foi validado de ponta a ponta com base real, Wi-Fi real e cartão real. O
+caminho feliz estava provado; nenhum dos outros estava.
+
+**A correção.** Quatro interfaces, cada uma o **subconjunto** que o OTA usa e não a
+classe inteira: `Armazenamento` (7 métodos, sem `inicia` nem montagem de volume),
+`Conexao` (2), `Baixador` (1) e `Pausa` (1). As concretas passaram a implementá-las e o
+`AtualizadorOta` migrou para injeção por construtor, numa biblioteca nova
+(`coruja_ota`) que compila nos **dois** alvos.
+
+Dois detalhes que mereceram decisão:
+
+* Os `descreve()` dos enums de erro viraram **`inline` no cabeçalho**. Estavam nos
+  `.cpp` de hardware, então qualquer lógica portável que mencionasse um erro de cartão
+  deixava de linkar no host — o tipo é portável, a implementação não.
+* A interface de rede chama-se **`Conexao`**, não `Rede`: `Rede` já é a struct de uma
+  credencial Wi-Fi em `Configuracao.h`. Uma é o enlace, a outra é uma linha da lista de
+  prioridade.
+
+**Abstrair o `sleep_ms` parecia exagero e não era.** Era a última amarra: as três
+tentativas esperam 5 s entre si, e um teste que dormisse de verdade levaria 10 s para
+exercitar o caminho de falha — a ponto de ninguém rodar. Com a espera injetada, o teste
+**verifica** que esperou, quantas vezes e quanto, sem esperar. E pegou coisa: o mutante
+que esperava também antes da primeira tentativa morre nesse assert.
+
+**O que os 23 testes cobrem e antes não se cobria.** A ordem `abre → conclui → promove
+→ grava versão`, que é o coração do RF05.2 — gravar a versão antes da troca deixaria o
+cartão afirmando ter uma base que não tem, e o próximo boot carregaria a antiga achando
+que está em dia. O cartão enchendo no meio do download. A base chegando corrompida ou
+truncada. A renomeação falhando, que sai na hora em vez de insistir, porque não é falha
+que se cure repetindo. E a promessa que dá sentido ao requisito: **falhar não piora o
+que já existe** — em nenhum caminho de erro o `promove` é chamado nem a versão é
+tocada.
+
+Teste de mutação: 11 defeitos, 11 mortos.
+
+---
+
 ## R-53 — As constantes de payload do UBX não estão medidas, e o ACK é quem julga
 
 - **Onde:** `nucleo/Ubx.cpp`, `monta_cfg_prt_uart()`
@@ -2467,6 +2521,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-54  CORRIGIDO — OTA passa a receber interfaces; 310 linhas que so
+          rodavam na placa ganharam 23 testes de host, 11/11 mutantes
 [~] R-53  ABERTO — bitmasks do CFG-PRT vem da especificacao, nao de
           bancada. Fecha quando o ACK for observado com o modulo
 [x] R-52  VALIDADO — sequencia APROX/MARGEM/PERIGO/segura no mesmo alvo

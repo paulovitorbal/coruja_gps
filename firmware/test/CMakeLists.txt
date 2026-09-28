@@ -36,6 +36,7 @@ add_executable(testes
     nucleo/MonitorTaxaTest.cpp
     nucleo/UbxTest.cpp
     buzzer/CadenciaBuzzerTest.cpp
+    rede/AtualizadorOtaTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/VerificadorDownloadTest.cpp
@@ -55,5 +56,5 @@ target_compile_definitions(testes PRIVATE
     CORUJA_CFG_EXEMPLO="${CMAKE_CURRENT_SOURCE_DIR}/../../coruja.cfg.exemplo"
     CORUJA_BASE_REAL="${CORUJA_BASE_REAL}")
 target_link_libraries(testes PRIVATE
-    coruja_nucleo coruja_log coruja_ihm GTest::gtest GTest::gtest_main)
+    coruja_nucleo coruja_log coruja_ihm coruja_ota GTest::gtest GTest::gtest_main)
 gtest_discover_tests(testes)

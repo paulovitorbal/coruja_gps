@@ -3,8 +3,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include <pico/stdlib.h>
-
 #include "log/Logger.h"
 #include "nucleo/Texto.h"
 #include "nucleo/Url.h"
@@ -38,7 +36,7 @@ void ao_receber_versao(void* contexto, const std::uint8_t* bytes,
 /// base reserva.
 struct DestinoDownload {
     VerificadorDownload* verificador = nullptr;
-    CartaoSd*            cartao = nullptr;
+    Armazenamento*       cartao = nullptr;
     bool                 falhou_a_escrita = false;
 };
 
@@ -125,8 +123,11 @@ const char* descreve(ResultadoOta resultado) {
     return "resultado desconhecido";
 }
 
-ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, CartaoSd& cartao,
-                                     RedeWifi& rede, Logger& log) {
+ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
+    // Apelidos locais: o corpo abaixo foi escrito contra parametros e nao
+    // muda ao passarem a ser membros. Trocar os nomes seria diff sem ganho.
+    Armazenamento& cartao = cartao_;
+    Conexao&       rede = rede_;
     char msg[224];
 
     if (!cfg.ota_possivel()) {
@@ -219,7 +220,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, CartaoSd& cartao,
                           tentativa, kTentativas,
                           static_cast<unsigned long>(kEsperaEntreTentativasMs));
             log.warning("ota", msg);
-            sleep_ms(kEsperaEntreTentativasMs);
+            pausa_.espera_ms(kEsperaEntreTentativasMs);
         }
 
         verificador_.reinicia();
