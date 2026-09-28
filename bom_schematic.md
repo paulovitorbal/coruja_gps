@@ -419,9 +419,8 @@ bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
 
 #### ⚪ CADUCA — "o trecho de 12 V não pode usar JST-XH"
 
-> **A premissa desta regra deixou de existir em 2026-09-25.** O texto original fica
-> abaixo, não apagado, porque o raciocínio continua válido — só não se aplica mais a
-> esta montagem.
+> **A premissa desta regra deixou de existir em 2026-09-25.** O raciocínio continua
+> válido; só não se aplica mais a esta montagem.
 
 A proibição valia contra **dois cabos externos da mesma família**: um de 12 V e um de
 5 V, em que o de 12 V encaixaria no soquete do de 5 V. Hoje **há um cabo externo só**
@@ -432,28 +431,6 @@ O que sobra na entrada é a **inversão de polaridade**, e aí a conclusão se i
 conector **chaveado** passa a ser desejável justamente por só entrar de um jeito. O
 JST-XH é chaveado. A escolha da família fica em aberto (item 19) — o que importa é que
 **seja chaveado**, não qual é.
-
-<details>
-<summary>Texto original, de quando havia dois cabos externos</summary>
-
-> Com o conversor fora, existem agora **dois cabos externos**: um de 12 V (piggyback →
-> conversor) e um de 5 V (conversor → gabinete). Se os dois usarem JST-XH, o de 12 V
-> encaixa no conector do gabinete e injeta **12 V no nó `VSYS`**, cujo máximo absoluto é
-> 5,5 V — Pico, GPS, display e cartão destruídos juntos.
->
-> Duas formas de impedir, escolha uma:
->
-> * **Ligue o 12 V direto aos terminais do conversor**, sem conector. É o mais simples:
->   não existindo plugue de 12 V, não há o que trocar.
-> * Se quiser conector no 12 V, use **família diferente** — JST-VH (passo 3,96 mm) ou
->   faston. Nunca XH.
->
-> O risco mudou de lugar, não desapareceu. Antes o 12 V entrava no gabinete e o perigo
-> estava nos dois conectores do aparelho; agora o 12 V para no conversor e o perigo
-> está entre os dois cabos externos.
-
-</details>
-
 #### Por que pós-chave e não bateria direta com relé
 
 O pós-chave permanece energizado durante a partida do motor — **confirmado pelo autor

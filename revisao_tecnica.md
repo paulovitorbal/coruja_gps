@@ -1553,11 +1553,11 @@ individualmente necessário — a reentrância pela porta pública é real, o `m
 `descarrega()` — e o de `registra()` ficou documentado no código com a medição, porque
 não há caminho alcançável que o isole. Não é sobra: são duas portas diferentes.
 
-### Item 6 — `CartaoSd`: FEITO, e a minha avaliação anterior estava errada
+### Item 6 — `CartaoSd`
 
-> **Retratação, 2026-09-28.** O texto abaixo, escrito horas antes, conclui que o
-> caminho certo era FatFs de verdade sobre disco em RAM, e que isso era caro. Estava
-> errado no diagnóstico, não na estimativa: **não queremos testar o FatFs.** Ele é
+> **Retratação, 2026-09-28.** Horas antes eu avaliei que o caminho era FatFs de
+> verdade sobre disco em RAM, e que sairia caro. Errado no diagnóstico, não na
+> estimativa: **não queremos testar o FatFs.** Ele é
 > maduro e não é nosso. Queremos testar a nossa lógica **sobre** ele — e os casos que
 > interessam são justamente os que um disco real torna difíceis: "o volume 0 não monta
 > e o 2 sim", "o `f_rename` falhou", "o cartão encheu no meio da escrita". Num dublê
@@ -1582,31 +1582,6 @@ não há caminho alcançável que o isole. Não é sobra: são duas portas difer
 >
 > A lição é sobre a pergunta. Eu perguntei *"como rodar o FatFs no host?"* e a resposta
 > era cara. A pergunta certa era *"o que, aqui, é nosso?"* — e aí a resposta é barata.
-
-<details>
-<summary>Avaliação anterior, preservada</summary>
-
-### Item 6 — `CartaoSd`: por que fica sem teste de host, por ora
-
-436 linhas, 26 chamadas a FatFs, e a lógica que vale é a **sondagem de partições** do
-R-38. Três caminhos foram avaliados:
-
-| Caminho | Veredito |
-| :--- | :--- |
-| Abstrair cada chamada FatFs | ❌ Seria abstrair uma biblioteca que já é abstração. Muita troca, pouco ganho |
-| Extrair a "política" de sondagem | ❌ O laço é FatFs entrelaçado; o que sobra puro é `montadas == 0 ? A : B`. Testar isso é cerimônia sem informação |
-| **FatFs no host sobre disco em RAM** | ✅ **Vale, e é tarefa própria** |
-
-O terceiro é o certo e não é barato: o `CartaoSd.cpp` inclui `f_util.h` e `hw_config.h`
-da carlk3, não só FatFs puro, então o host precisa do `ff.c`, de um `diskio` sobre um
-vetor de bytes, de dublês da camada de SD, e de uma **imagem FAT multipartição
-sintética** — que o próprio FatFs sabe criar com `f_mkfs`/`f_fdisk`.
-
-O que isso cobriria é exatamente o que hoje só foi verificado na bancada: a escolha de
-volume do R-38, a sequência da troca atômica, e o mapeamento de erro do ADR 0010. Fica
-registrado como **item aberto com escopo definido**, e não como "sem teste" genérico.
-
-</details>
 
 ---
 
@@ -1840,9 +1815,8 @@ relendo o documento — quem o releu escreveu-o e lê o que quis dizer.
 
 **Correção.** A seção foi reescrita para um conector só, com a progressão histórica
 (Jack P2 → JST → header genérico → soldado) numa tabela, porque ela explica por que
-cada passo intermediário não bastava. A nota do JST-XH foi marcada como **caduca** com
-o texto original preservado num bloco recolhível — a regra não estava errada, a
-premissa dela é que sumiu.
+cada passo intermediário não bastava. A nota do JST-XH foi marcada como **caduca** — a
+regra não estava errada, a premissa dela é que sumiu.
 
 **A conclusão que se inverteu.** Sem um segundo conector, a troca entre soquetes deixa
 de ser modo de falha, e o que sobra na entrada é a **inversão de polaridade** (o TVS é
