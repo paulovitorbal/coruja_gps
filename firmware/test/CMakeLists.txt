@@ -49,6 +49,8 @@ add_executable(testes
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     app/CicloCoresTest.cpp
+    app/PilotoAlertaTest.cpp
+    led/PadraoLedTest.cpp
     # O dublê de FatFs e o CartaoSd DE PRODUCAO compilado contra ele. O .cpp
     # nao muda: o que muda e qual `ff.h` o caminho de include encontra. Assim
     # o teste exercita o codigo que vai para a placa, e nao uma copia.

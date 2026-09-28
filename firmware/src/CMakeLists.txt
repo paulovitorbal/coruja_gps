@@ -48,10 +48,12 @@ add_library(coruja_ihm STATIC
     app/ModoCalibracao.cpp
     app/CicloCores.cpp
     buzzer/CadenciaBuzzer.cpp
+    led/PadraoLed.cpp
+    app/PilotoAlerta.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A cadencia do buzzer parte da FaixaSonora decidida pelo Zonamento.
-target_link_libraries(coruja_ihm PUBLIC coruja_nucleo)
+target_link_libraries(coruja_ihm PUBLIC coruja_nucleo coruja_gps_cfg)
 
 # coruja_portes: implementacoes que tocam hardware. So no alvo Pico.
 if(NOT CORUJA_TESTES)

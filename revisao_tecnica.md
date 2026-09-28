@@ -1522,6 +1522,46 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-57 — O laço do produto, e o que sobrou de decisão para ele
+
+- **Onde:** `app/PilotoAlerta`, `led/PadraoLed`, `led/Cor.h`
+- **Confiança:** ✅ 22 testes, mutação com 11 defeitos
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ **FEITO** — item 8 da revisão geral
+
+O `PilotoAlerta` lê o GPS, decide a zona e manda no LED e no buzzer. Cabe em vinte
+linhas, e **isso é o resultado**, não economia: toda a decisão já estava no
+`Zonamento`, no `CadenciaBuzzer` e no `PadraoLed`, cada um com suíte própria. O que os
+testes dele verificam não é lógica, é **fiação** — que o veredito chega ao LED certo,
+que o buzzer só soa em Perigo, que perder o fix apaga tudo.
+
+### Sem fix e sem base são o mesmo caso
+
+Cartão ausente, base recusada ou túnel: nos três não há o que afirmar sobre a via. O
+motorista não precisa saber qual faltou para entender que não há alerta, e a tela tem
+onde dizer a diferença. É a mesma decisão do ADR 0010 aplicada um nível acima.
+
+### O `PadraoLed`, e por que ele não mora no `Zonamento`
+
+A máquina decide **o que está acontecendo**; o padrão decide **como mostrar**. Trocar a
+paleta, o período de piscada ou o próprio LED não deve tocar na lógica de alerta.
+
+O semáforo alterna amarelo↔vermelho em vez de piscar contra o apagado: não é gravidade
+intermediária entre margem e perigo, é **outra natureza** de alerta, e o par de cores
+evoca a própria coisa. Um teste garante que o apagado nunca aparece nessa zona.
+
+### Um sobrevivente que virou teste melhor
+
+`define_base()` chama `maquina_.reinicia()`, e o mutante que o removia sobrevivia: o
+alvo já está protegido por coordenada desde o R-51. Mas `reinicia()` faz uma segunda
+coisa — **zera a histerese** —, e isso é observável. A 65 km/h contra limite 60
+(`V_infra` 66), vindo de Perigo o limiar está rebaixado para 64 e 65 ainda é Perigo; do
+zero, 65 não passa de 66 e é Margem. **Uma base nova não pode chegar já em Perigo por
+causa da anterior.** O teste que distingue os dois casos matou o mutante e documentou
+uma regra que não estava escrita em lugar nenhum.
+
+---
+
 ## R-56 — O configurador do GPS, e a armadilha de trocar o baud no meio
 
 - **Onde:** `gps/Uart.h`, `gps/UartPico`, `gps/ConfiguradorGps`
@@ -2664,6 +2704,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-57  FEITO — laco do produto ligando GPS, zonas, LED e buzzer. 22
+          testes, 11/11 mutantes. Falta so o visor
 [x] R-56  FEITO — configurador do GPS com ACK por comando, e a troca de
           baud na ordem certa. 19 testes, 10/10 mutantes
 [x] R-55  itens 5 e 6 CORRIGIDOS. LoggerCartao com 16 testes (regressao do

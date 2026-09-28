@@ -24,6 +24,17 @@ constexpr Cor kApagado{0, 0, 0};
 constexpr Cor kVermelho{255, 0, 0};
 constexpr Cor kVerde{0, 255, 0};
 constexpr Cor kAzul{0, 0, 255};
+
+// Cores de zona do RF03, §"Codificação visual". Os percentuais são os da
+// tabela: amarelo é R 100% + G ~70%, rosa é R 100% + B ~40%.
+//
+// O rosa não é escolha estética. Os estados vizinhos na escala de gravidade
+// são amarelo (R+G) e vermelho (R); uma cor intermediária de canal R+G vira
+// vermelho quando o verde apaga e amarelo quando satura — colide com os dois
+// vizinhos. R+B não colide com nenhum: some para vermelho de um lado e vira
+// magenta do outro, que não é estado de nada.
+constexpr Cor kAmarelo{255, 178, 0};
+constexpr Cor kRosa{255, 0, 102};
 }  // namespace cores
 
 }  // namespace coruja
