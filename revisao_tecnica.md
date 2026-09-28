@@ -1522,6 +1522,61 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-58 — A tela, e os 150 KB de framebuffer que não precisavam existir
+
+- **Onde:** `display/Visor.h`, `display/TelaPrincipal`, `display/Brilho`
+- **Confiança:** ✅ 35 testes, mutação com 15 defeitos
+- **Registrado em:** 2026-09-28
+- **Status:** 🟡 **layout e brilho FEITOS**; o porte do painel depende de identificar
+  o controlador
+
+### O framebuffer sai do orçamento inteiro
+
+O RNF07 reserva **150,0 KB** para um framebuffer 320×240 RGB565 e exige ≥ 60 KB de
+folga. Com os 182 KiB livres medidos no binário real (L-02), um framebuffer inteiro
+deixaria **32 KiB** — abaixo da própria reserva. O requisito previa uma alavanca de
+alívio, renderização em bandas de 40 linhas, que cairia para 25 KB.
+
+Nenhuma das duas é necessária. O próprio §4.1 já continha a resposta, três seções
+adiante da tabela de memória: *"o layout não muda entre estados"* e *"nada pisca"*,
+com os custos por região tabelados — 38,4 ms para a tela toda contra 3,4 ms para a
+barra. **Se o redesenho é sempre parcial, não há o que bufferizar.** A `TelaPrincipal`
+compara o que vai desenhar com o que desenhou e emite só as regiões que mudaram; o
+`.bss` medido depois de tudo isto continua em 338,3 KiB, **sem um byte novo**.
+
+Vale registrar o formato do erro: a linha de 150 KB não estava errada quando foi
+escrita, estava desatualizada em relação a uma decisão tomada no mesmo documento.
+Orçamento e desenho moram em seções diferentes e ninguém releu as duas juntas.
+
+### O controlador está contraditório, e o porte espera por isso
+
+O item 5 do BOM diz *"controlador a confirmar: 2,4" costuma ser ILI9341, não ST7789"*,
+e o título da seção 2 do mesmo arquivo dizia **"Display ST7789"**. O nome saiu do
+título; a identificação é passo de bancada, e a sequência de inicialização difere entre
+os dois. **Não escrevi o porte concreto** — inventar uma sequência de inicialização
+para o chip errado é trabalho que se joga fora, e o que decide não é raciocínio, é
+olhar a peça.
+
+O que ficou pronto é o que não depende disso: a interface `Visor`, todo o layout do
+§4.1 e a curva de brilho do RF04.
+
+### Dois mutantes mascarados por valores neutros
+
+Sobreviveram à primeira suíte, e os dois pelo mesmo motivo — o teste usava um valor em
+que o certo e o errado coincidem:
+
+* **Barra enchendo ao contrário.** Eu testava 300 m → 0%, 150 m → 50%, 0 m → 100%. Os
+  extremos são fixados pelos limites, e **150 m dá 50% nos dois sentidos**. Só um ponto
+  assimétrico distingue: 75 m → 75%, ou 25% se estiver invertida.
+* **Zona Segura ganhando ícone.** O teste usava um `Veredito` com o alvo zerado, e tipo
+  zero não é `TipoPonto` válido, então nenhum ícone saía nem com o `if` quebrado.
+  Agora o alvo vai **preenchido** e quem manda é o `tem_alvo`.
+
+É a terceira vez nesta sessão que um teste passa pelo motivo errado. O padrão é sempre
+o mesmo: **escolher o caso pelo que é fácil de escrever, e não pelo que distingue.**
+
+---
+
 ## R-57 — O laço do produto, e o que sobrou de decisão para ele
 
 - **Onde:** `app/PilotoAlerta`, `led/PadraoLed`, `led/Cor.h`
@@ -2704,6 +2759,10 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[~] R-58  layout e brilho FEITOS (35 testes, 15/15 mutantes). Porte do
+          painel espera identificar o controlador na bancada. E o
+          framebuffer de 150 KB do RNF07 nao e necessario: redesenho
+          parcial, .bss inalterado
 [x] R-57  FEITO — laco do produto ligando GPS, zonas, LED e buzzer. 22
           testes, 11/11 mutantes. Falta so o visor
 [x] R-56  FEITO — configurador do GPS com ACK por comando, e a troca de

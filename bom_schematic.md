@@ -587,7 +587,12 @@ isso que é ruim:
 > ~0,3–0,45 V de queda. O `VSYS` do Pico aceita 1,8 V a 5,5 V, então os ~4,6 V
 > resultantes estão bem dentro da faixa.
 
-### 2. Barramento SPI0 (Compartilhado: Display ST7789 + SD Adafruit)
+### 2. Barramento SPI0 (Compartilhado: Display + SD Adafruit)
+
+> ⚠️ **O controlador não está confirmado.** Este título dizia "ST7789" e o item 5 do
+> BOM diz o contrário — 2,4" costuma ser **ILI9341**, e a sequência de inicialização
+> difere. O nome saiu do título até a peça ser identificada na bancada; a pinagem
+> abaixo vale para os dois.
 
 * **Pico GPIO 18 (Pino 24 / CLK):** conecta ao pino **`CLK`** do leitor SD **E** ao pino
   **SCL** do Display TFT.

@@ -49,6 +49,8 @@ add_library(coruja_ihm STATIC
     app/CicloCores.cpp
     buzzer/CadenciaBuzzer.cpp
     led/PadraoLed.cpp
+    display/TelaPrincipal.cpp
+    display/Brilho.cpp
     app/PilotoAlerta.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
