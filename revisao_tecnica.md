@@ -1529,6 +1529,38 @@ deixa de ser pendência e passa a ser desnecessária.
 - **Registrado em:** 2026-09-28
 - **Status:** ✅ **FEITO** — item 7 da revisão geral. Prepara o fechamento do R-53
 
+### O leitor, e o byte que derrubava a sentença seguinte
+
+O `LeitorGps` puxa bytes da UART e os vira telemetria, alimentando o
+`MonitorTaxa` no caminho. Dois achados vieram dos testes, e nenhum dos dois eu
+teria previsto:
+
+**Quadro UBX gruda na sentença seguinte.** Texto e binário dividem a linha, e um
+`ACK` que chegue entre duas sentenças fica no buffer de montagem e prefixa a
+próxima — que então não começa com `$` e é descartada. Acontece o tempo todo
+*durante a configuração*, que é justamente quando não se quer perder telemetria. A
+correção é de uma linha e vale como regra geral: **`$` reinicia a montagem**, porque
+o que estava no buffer antes dele era lixo por definição.
+
+**Bytes de UBX não contam como checksum inválido.** Eles produzem "linhas" sem `$`,
+e contá-las poluiria o número que o RF01.5 existe para separar — "o GPS não está
+enviando" contra "estamos falhando em interpretar". Sem esse cuidado, configurar o
+módulo pareceria ruído elétrico na linha.
+
+### E eu fabriquei um checksum de novo
+
+A sentença sem fix do teste levava `*7A`, inventado. O correto é `*63`. É o mesmo
+erro que o `NmeaTest` já registra — e, de novo, quem pegou foi o validador, não eu.
+Vale menos como falha isolada e mais como padrão: **toda constante de protocolo
+escrita à mão neste projeto até hoje saiu errada.** Calculadas em Python, saem certas.
+
+### Uma redundância removida em vez de documentada
+
+O montador recortava o `\r` do fim da linha. A mutação mostrou que nenhum teste
+distinguia as duas versões — o `analisa_rmc` para no `*` e ignora o que vem depois.
+O recorte saiu, e a tolerância do parser virou **afirmação testada** em vez de
+suposição.
+
 O RF01.2 manda enviar quatro comandos a cada boot. O que **não** estava escrito em
 lugar nenhum é que mandá-los não basta: mandar e torcer produz exatamente o sintoma que
 o RF01.5 descreve — o módulo segue em 1 Hz com sete sentenças por época, e o defeito só

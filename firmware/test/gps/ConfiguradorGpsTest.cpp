@@ -94,7 +94,7 @@ private:
         for (const auto id : recusa) { if (id == c.id) { nak = true; } }
 
         if (intercala_nmea) {
-            const char* s = "$GNRMC,123519.00,V,,,,,,,220926,,,N*7A\r\n";
+            const char* s = "$GNRMC,123519.00,V,,,,,,,220926,,,N*63\r\n";
             for (const char* p = s; *p != 0; ++p) {
                 pendente_.push_back(static_cast<std::uint8_t>(*p));
             }

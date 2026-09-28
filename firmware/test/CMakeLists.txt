@@ -56,6 +56,7 @@ add_executable(testes
     ../src/armazenamento/CartaoSd.cpp
     armazenamento/CartaoSdTest.cpp
     gps/ConfiguradorGpsTest.cpp
+    gps/LeitorGpsTest.cpp
 )
 target_include_directories(testes PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

@@ -28,7 +28,7 @@ target_link_libraries(coruja_nucleo PUBLIC coruja_log)
 # Armazenamento, Rede, Baixador e Pausa -- abstracoes, nao o hardware. E o que
 # permite testar a troca atomica e as tres tentativas no host.
 # coruja_gps: configuracao do receptor. Portavel, porque recebe Uart e Pausa.
-add_library(coruja_gps_cfg STATIC gps/ConfiguradorGps.cpp)
+add_library(coruja_gps_cfg STATIC gps/ConfiguradorGps.cpp gps/LeitorGps.cpp)
 target_include_directories(coruja_gps_cfg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_gps_cfg PUBLIC coruja_nucleo coruja_log)
 
