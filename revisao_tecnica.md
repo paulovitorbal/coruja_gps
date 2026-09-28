@@ -1522,6 +1522,47 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-60 — O LED apagado queria dizer duas coisas
+
+- **Onde:** `led/PadraoLed`, `requirements.md` §4.1
+- **Confiança:** ✅ Separação de matiz calculada; 487 testes
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ **APLICADO**
+
+**O problema, que estava à vista desde o começo.** O desenho original deixava o LED
+**apagado** sem fix, sem base e durante o OTA. Apagado também é o que se vê quando o
+aparelho perde energia, trava ou queima. Ou seja: o canal dizia *"não estou
+protegendo"* e *"morri"* com o mesmo sinal, e o motorista não distingue os dois sem
+tirar os olhos da estrada — que é exatamente o que o LED existe para evitar.
+
+É a mesma família do R-46 e do buraco de log: **estado silencioso é pior que estado
+curto**, porque faz quem observa concluir a coisa errada.
+
+**A correção, e a regra que ela produz.** Azul fixo para os três casos, e o escuro
+deixa de ser estado:
+
+> **azul = vivo e sem proteção ativa · escuro = sem energia**
+
+Um significado cada. Os três casos viram um só porque, para o motorista, são o mesmo
+fato — não há alerta agora —, e a ação é a mesma nos três. É o mesmo critério que
+retirou o ícone do radar móvel no R-59: **distinção que não muda decisão é ruído.**
+
+**Por que azul, e por que fixo.** Matiz 240°, a **96°** do vizinho mais próximo,
+contra os 40° que o §4.1 exige como mínimo discriminável — magenta ficaria em 36° e
+ciano em 60°. O canal azul já tem o menor resistor da placa (150 Ω) por ser o mais
+fraco, então está calibrado. E fixo, não pulsante: sem fix **não há ação a tomar**, e
+piscar pediria uma atenção que não se deve pedir. O canal pulsante fica para o urgente.
+
+**Um teste guarda a regra.** Ele percorre as seis zonas e falha se **alguma** deixar o
+LED apagado o tempo inteiro. Se um dia alguém reintroduzir o escuro como estado, a
+ambiguidade volta junto — e aí a suíte avisa, em vez do trânsito.
+
+**Pendência:** os estados de OTA ainda não existem como zona, então o firmware não tem
+onde honrar o azul durante a atualização. O requisito já manda; o código vai junto
+quando o modo OTA entrar no laço.
+
+---
+
 ## R-59 — Prévia do produto no terminal, e uma distinção visual retirada
 
 - **Onde:** `ferramentas/VisorTerminal`, `ferramentas/previa_produto`,
@@ -2805,6 +2846,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-60  APLICADO — LED azul fixo para 'vivo sem protecao'; escuro
+          passa a significar so falta de energia. Teste guarda a regra
 [x] R-59  FEITO — previa do produto no terminal com o codigo real;
           alinhamento de texto virou explicito; radar movel deixou de
           ter icone proprio, e o §4.1 foi emendado

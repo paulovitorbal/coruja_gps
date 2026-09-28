@@ -116,7 +116,7 @@ TEST(PilotoAlerta, sem_fix_apaga_o_led_e_cala_o_buzzer) {
     b.com_radar(100.0F, 60);
     for (std::uint32_t t = 0; t <= 1000; t += 50) { b.piloto.passo(t); }
     EXPECT_EQ(b.piloto.veredito().zona, Zona::SemSinal);
-    EXPECT_EQ(b.led.atual, cores::kApagado);
+    EXPECT_EQ(b.led.atual, cores::kAzul);
     EXPECT_FALSE(b.buzzer.ligado());
 }
 
@@ -126,7 +126,7 @@ TEST(PilotoAlerta, sem_base_carregada_tambem_e_sem_sinal) {
     Bancada b;
     b.dirige(60.0F, 0, 1000);
     EXPECT_EQ(b.piloto.veredito().zona, Zona::SemSinal);
-    EXPECT_EQ(b.led.atual, cores::kApagado);
+    EXPECT_EQ(b.led.atual, cores::kAzul);
 }
 
 TEST(PilotoAlerta, perder_o_fix_no_meio_apaga_o_alerta) {
@@ -137,7 +137,7 @@ TEST(PilotoAlerta, perder_o_fix_no_meio_apaga_o_alerta) {
     // Um tunel: para de chegar sentenca.
     for (std::uint32_t t = 3050; t <= 5000; t += 50) { b.piloto.passo(t); }
     EXPECT_EQ(b.piloto.veredito().zona, Zona::SemSinal);
-    EXPECT_EQ(b.led.atual, cores::kApagado);
+    EXPECT_EQ(b.led.atual, cores::kAzul);
     EXPECT_FALSE(b.buzzer.ligado());
 }
 

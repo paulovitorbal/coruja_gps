@@ -21,9 +21,22 @@ Cor PadraoLed::cor(std::uint32_t agora_ms) const {
     const std::uint32_t decorrido = agora_ms - inicio_;
     switch (zona_) {
         case Zona::SemSinal:
-            // Apagado, e não verde: verde dentro de um túnel diria "não há
-            // radar por perto", que é justamente o que não se sabe.
-            return cores::kApagado;
+            // **Azul fixo**, e nem verde nem apagado.
+            //
+            // Verde diria "não há radar por perto", que é justamente o que
+            // não se sabe dentro de um túnel. E apagado, que era o desenho
+            // original, significava duas coisas ao mesmo tempo: "perdi o
+            // GPS" e "o aparelho morreu". Com o azul, o escuro passa a ter
+            // **um** significado só, e o motorista distingue sem tirar os
+            // olhos da estrada.
+            //
+            // Fixo e não pulsante de propósito: sem fix não há ação a tomar,
+            // e piscar pediria uma atenção que não se deve pedir. O canal
+            // pulsante existe para o que é urgente.
+            //
+            // Azul é o matiz mais distante de tudo que já se usa — 96° do
+            // vizinho mais próximo, contra os 40° que o §4.1 exige.
+            return cores::kAzul;
 
         case Zona::Segura:
             return cores::kVerde;

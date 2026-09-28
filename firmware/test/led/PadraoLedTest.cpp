@@ -36,13 +36,32 @@ TEST(PadraoLed, as_zonas_fixas_nao_piscam) {
     EXPECT_EQ(q.cor(1234), cores::kAmarelo);
 }
 
-TEST(PadraoLed, sem_sinal_fica_apagado_e_nao_verde) {
-    // Verde dentro de um tunel diria "nao ha radar por perto", que e
-    // justamente o que nao se sabe.
+TEST(PadraoLed, sem_sinal_fica_AZUL_e_nem_verde_nem_apagado) {
+    // Verde diria "nao ha radar por perto", que e justamente o que nao se
+    // sabe. E apagado significava duas coisas: "perdi o GPS" e "o aparelho
+    // morreu". Com o azul, o escuro passa a ter um significado so.
     PadraoLed p;
     p.define_zona(Zona::SemSinal, 0);
-    EXPECT_EQ(p.cor(0), cores::kApagado);
-    EXPECT_EQ(p.cor(5000), cores::kApagado);
+    EXPECT_EQ(p.cor(0), cores::kAzul);
+    EXPECT_EQ(p.cor(5000), cores::kAzul) << "nao pisca: sem fix nao ha acao";
+}
+
+TEST(PadraoLed, o_LED_apagado_passa_a_significar_SO_aparelho_sem_vida) {
+    // Nenhuma zona acende apagado. E o que da ao escuro um unico
+    // significado -- se um dia alguma voltar a usa-lo, esta ambiguidade
+    // volta junto, e este teste avisa.
+    for (const auto z : {Zona::SemSinal, Zona::Segura,
+                         Zona::AproximacaoConforme, Zona::AproximacaoMargem,
+                         Zona::Perigo, Zona::Semaforo}) {
+        PadraoLed p;
+        p.define_zona(z, 0);
+        bool sempre_apagado = true;
+        for (std::uint32_t t = 0; t <= 2000; t += 10) {
+            if (p.cor(t) != cores::kApagado) { sempre_apagado = false; }
+        }
+        EXPECT_FALSE(sempre_apagado) << "zona " << descreve(z)
+            << " deixa o LED morto, e morto tem de querer dizer sem energia";
+    }
 }
 
 TEST(PadraoLed, margem_pisca_a_1_hz) {
@@ -75,16 +94,17 @@ TEST(PadraoLed, semaforo_alterna_duas_cores_a_2_hz_sem_apagar) {
     EXPECT_EQ(s.count(chave(cores::kApagado)), 0U);
 }
 
-TEST(PadraoLed, as_quatro_zonas_com_cor_sao_distinguiveis_entre_si) {
+TEST(PadraoLed, as_cinco_zonas_com_cor_sao_distinguiveis_entre_si) {
     // Duas zonas com a mesma cor tornariam o LED inutil como diagnostico.
     std::set<std::uint32_t> s;
     for (const auto z : {Zona::Segura, Zona::AproximacaoConforme,
-                         Zona::AproximacaoMargem, Zona::Perigo}) {
+                         Zona::AproximacaoMargem, Zona::Perigo,
+                         Zona::SemSinal}) {
         PadraoLed p;
         p.define_zona(z, 0);
         s.insert(chave(p.cor(0)));
     }
-    EXPECT_EQ(s.size(), 4U);
+    EXPECT_EQ(s.size(), 5U);
 }
 
 TEST(PadraoLed, o_rosa_nao_colide_com_os_vizinhos_na_escala) {

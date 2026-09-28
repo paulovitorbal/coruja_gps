@@ -538,6 +538,23 @@ Largura da faixa de margem: **6,0 km/h** em todos os limites até 100 km/h, e 5,
 | **Aproximação em margem** | 🩷 **rosa** | **R 100% + B ~40%** | **1 Hz** |
 | Zona de Perigo | 🔴 vermelho | R 100% | 4 Hz |
 | *(Zona de Semáforo)* | 🟡🔴 *alternado* | *amarelo ↔ vermelho* | *2 Hz* |
+| **Sem proteção ativa** | 🔵 **azul** | **B 100%** | **fixo** |
+
+> **Azul acrescentado em 2026-09-28, e o apagado saiu de cena.** O desenho original
+> deixava o LED **apagado** sem fix, durante o OTA e sem base — e apagado significava
+> duas coisas ao mesmo tempo: *"não estou protegendo"* e *"o aparelho morreu"*. O
+> motorista não distingue as duas sem tirar os olhos da estrada.
+>
+> A regra passa a ser: **azul = vivo e sem proteção ativa; escuro = sem energia.** Um
+> significado cada. Cobre os três casos de uma vez — sem fix, sem base e durante a
+> atualização — porque para o motorista eles são o mesmo fato: não há alerta agora.
+>
+> Azul é **fixo e não pulsante**: sem fix não há ação a tomar, e piscar pediria uma
+> atenção que não se deve pedir. O canal pulsante fica reservado ao que é urgente.
+>
+> Matiz 240°, a **96°** do vizinho mais próximo — o dobro largo dos 40° que esta mesma
+> seção exige como mínimo discriminável. O canal azul do LED já tem o menor resistor
+> da placa (150 Ω, item 11) justamente por ser o mais fraco, então está calibrado.
 
 ##### Por que rosa é mais robusto que laranja aqui
 
@@ -983,8 +1000,8 @@ nos atuadores visuais e sonoros do dispositivo.
 
 | Evento / Ação do Usuário | Estado do Sistema | Visor IPS 2,4" 320×240 (ver §4.1) | LED RGB Periférico | Buzzer SFM-27 (Painel) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Girar chave do carro (Boot)** | Inicialização | Exibe logo e contagem de pontos carregados. Indica que a proteção ainda não está ativa. | **Apagado** | Silencioso |
-| **Aguardando primeiro fix** | Sem Sinal | "Buscando satélites" com tempo decorrido. | **Apagado** | Silencioso |
+| **Girar chave do carro (Boot)** | Inicialização | Exibe logo e contagem de pontos carregados. Indica que a proteção ainda não está ativa. | **Azul fixo** | Silencioso |
+| **Aguardando primeiro fix** | Sem Sinal | "Buscando satélites" com tempo decorrido. | **Azul fixo** | Silencioso |
 | **Dirigindo sem pontos próximos** | Zona Segura | Velocidade em branco, **sem denominador** — fora do raio de um ponto o aparelho não sabe o limite da via. Sem ícone e sem barra: a faixa inferior fica vazia. | **Verde Fixo** | Silencioso |
 | **Entrou no raio de 300m, dentro do limite** (`vel ≤ limite`) | Aproximação — conforme | `velocidade/limite` em branco; ícone do tipo de ponto e barra de proximidade em **âmbar**. | **Amarelo Fixo** | **Silencioso** |
 | **Acima do limite, ainda sem multa** (`limite < vel ≤ V_infra`) | Aproximação — **margem** | Idem, com a barra de proximidade em **rosa**. | 🩷 **Rosa Piscante (1 Hz)** | **Silencioso** |
@@ -993,14 +1010,14 @@ nos atuadores visuais e sonoros do dispositivo.
 | **Acima do limiar de infração** — faixa 3 (acima de +20%) | Zona de Perigo | Idem. | **Vermelho Piscante (4 Hz)** | Bipe de 50 ms a cada **100 ms** — pulso rápido, não contínuo (R-32) |
 | **Entrou no raio de 300m de semáforo** | Zona de Semáforo | Ícone 🚦 e barra em **âmbar**. **Sem denominador** — não há limite a comparar. Para `TYPE=2` (semáforo *com* radar) o ícone é 🚦+🏎 e **há** denominador: resolve o **R-26**. | **Amarelo/Vermelho alternados (2 Hz)** | **Silencioso — sem exceção.** |
 | **Entrou no raio de 300m de radar móvel** | Idêntico a radar fixo | Ícone 🏎 **vazado** em vez de preenchido: confiança expressa como preenchimento, não como símbolo novo — a fiscalização pode não estar ativa. Zonamento e LED idênticos a radar fixo. | conforme o estado da via | conforme o estado da via |
-| **Perda de sinal em movimento** | Sem Sinal | Numerador vira **`- -`** — o GPS é a única fonte de velocidade. Faixa inferior: `SEM SINAL — alertas suspensos` com tempo decorrido, em **cinza**. Layout preservado. | **Apagado** | Silencioso |
+| **Perda de sinal em movimento** | Sem Sinal | Numerador vira **`- -`** — o GPS é a única fonte de velocidade. Faixa inferior: `SEM SINAL — alertas suspensos` com tempo decorrido, em **cinza**. Layout preservado. | **Azul fixo** | Silencioso |
 | **Girar o botão do Encoder** | Ajuste de Brilho | Barra de brilho por ~1,5 s **na faixa superior**, deslocando o relógio. Curva perceptual, não linear (§4.1). | Mantém estado atual | Silencioso |
 | **Clique do Encoder com carro em movimento** | Recusa | `PARE O VEÍCULO PARA ATUALIZAR` por 2 s **na faixa inferior**, não em tela cheia — os alertas continuam visíveis. | Mantém estado atual | Silencioso |
-| **Clique do Encoder com carro parado** | Sincronismo OTA | Altera tela para "Atualizando base de dados...". | **Apagado** | Silencioso |
-| **Wi-Fi autenticado e baixando arquivo** | Transferência | Barra de progresso ou animação de download. | **Apagado** | Silencioso |
+| **Clique do Encoder com carro parado** | Sincronismo OTA | Altera tela para "Atualizando base de dados...". | **Azul fixo** | Silencioso |
+| **Wi-Fi autenticado e baixando arquivo** | Transferência | Barra de progresso ou animação de download. | **Azul fixo** | Silencioso |
 | **Fim do download / Falha no Timeout** | Conclusão | Exibe "Sucesso!" ou "Falha na conexão — base anterior mantida". Retorna ao velocímetro após 2s. | Restaura estado da via | Silencioso |
 | **Taxa de GPS abaixo de 3 Hz** | Degradação | Indicador discreto de taxa reduzida, sem ocultar o velocímetro. Alertas seguem ativos. | Mantém estado da via | Silencioso |
-| **Cartão SD ausente ou base inválida** | Falha de Dados | `⚠ BASE INDISPONÍVEL — sem alertas` **permanente** na faixa inferior, em **cinza**, não 3 s. Sem base não há ponto, logo a barra de proximidade nunca teria o que mostrar: a faixa fica livre. Corrige o **R-30**. | **Apagado** | Silencioso |
+| **Cartão SD ausente ou base inválida** | Falha de Dados | `⚠ BASE INDISPONÍVEL — sem alertas` **permanente** na faixa inferior, em **cinza**, não 3 s. Sem base não há ponto, logo a barra de proximidade nunca teria o que mostrar: a faixa fica livre. Corrige o **R-30**. | **Azul fixo** | Silencioso |
 
 ---
 
