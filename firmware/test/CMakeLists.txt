@@ -37,6 +37,7 @@ add_executable(testes
     nucleo/UbxTest.cpp
     buzzer/CadenciaBuzzerTest.cpp
     rede/AtualizadorOtaTest.cpp
+    log/LoggerCartaoTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/VerificadorDownloadTest.cpp

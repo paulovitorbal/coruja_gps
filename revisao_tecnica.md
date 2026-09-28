@@ -1522,6 +1522,59 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-55 — O logger de cartão ganhou teste, e o `CartaoSd` continua sem — com motivo
+
+- **Onde:** `log/LoggerCartao`, `armazenamento/CartaoSd`
+- **Confiança:** ✅ Medido: 16 testes novos, mutação com 10 defeitos
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ item 5 **CORRIGIDO** · ⚠️ item 6 **AVALIADO E ADIADO**
+
+### Item 5 — `LoggerCartao`
+
+107 linhas sem teste, e foi onde nasceu o R-46 — a perda silenciosa de 14 linhas de
+log. A correção da época foi verificada à mão, comparando arquivo com serial.
+
+Bastou o que o R-54 já tinha criado: trocar `CartaoSd&` por `Armazenamento&`
+(acrescentando `acrescenta_arquivo` à interface) e o logger virou portável. Ele decide
+**quando** gravar, não **como** — nunca precisou do cartão concreto.
+
+16 testes, entre eles a regressão do R-46: gravação que falha **preserva** o buffer, e
+as linhas de antes da falha sobrevivem quando o cartão volta.
+
+### A redundância que a mutação destapou
+
+O guarda de reentrância existe em **dois** lugares: `descarrega()` e `registra()`.
+Medido em 2026-09-28: removendo **qualquer um dos dois**, a suíte continua passando —
+o outro segura. Removendo **os dois**, ela morre com SIGSEGV por recursão infinita.
+
+Isso é incômodo de um jeito útil. Cada guarda, olhado sozinho, parece código morto que
+alguém vai "limpar" um dia. Escrevi um teste que torna o de `descarrega()`
+individualmente necessário — a reentrância pela porta pública é real, o `main` chama
+`descarrega()` — e o de `registra()` ficou documentado no código com a medição, porque
+não há caminho alcançável que o isole. Não é sobra: são duas portas diferentes.
+
+### Item 6 — `CartaoSd`: por que fica sem teste de host, por ora
+
+436 linhas, 26 chamadas a FatFs, e a lógica que vale é a **sondagem de partições** do
+R-38. Três caminhos foram avaliados:
+
+| Caminho | Veredito |
+| :--- | :--- |
+| Abstrair cada chamada FatFs | ❌ Seria abstrair uma biblioteca que já é abstração. Muita troca, pouco ganho |
+| Extrair a "política" de sondagem | ❌ O laço é FatFs entrelaçado; o que sobra puro é `montadas == 0 ? A : B`. Testar isso é cerimônia sem informação |
+| **FatFs no host sobre disco em RAM** | ✅ **Vale, e é tarefa própria** |
+
+O terceiro é o certo e não é barato: o `CartaoSd.cpp` inclui `f_util.h` e `hw_config.h`
+da carlk3, não só FatFs puro, então o host precisa do `ff.c`, de um `diskio` sobre um
+vetor de bytes, de dublês da camada de SD, e de uma **imagem FAT multipartição
+sintética** — que o próprio FatFs sabe criar com `f_mkfs`/`f_fdisk`.
+
+O que isso cobriria é exatamente o que hoje só foi verificado na bancada: a escolha de
+volume do R-38, a sequência da troca atômica, e o mapeamento de erro do ADR 0010. Fica
+registrado como **item aberto com escopo definido**, e não como "sem teste" genérico.
+
+---
+
 ## R-54 — 310 linhas de OTA só rodavam na placa, por uma dependência que não precisava existir
 
 - **Onde:** `rede/AtualizadorOta`, `armazenamento/Armazenamento.h`, `rede/Conexao.h`,
@@ -2521,6 +2574,9 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[~] R-55  item 5 CORRIGIDO (LoggerCartao com 16 testes, inclusive a
+          regressao do R-46); item 6 AVALIADO: teste de host do CartaoSd
+          exige FatFs sobre disco em RAM, tarefa propria com escopo dado
 [x] R-54  CORRIGIDO — OTA passa a receber interfaces; 310 linhas que so
           rodavam na placa ganharam 23 testes de host, 11/11 mutantes
 [~] R-53  ABERTO — bitmasks do CFG-PRT vem da especificacao, nao de

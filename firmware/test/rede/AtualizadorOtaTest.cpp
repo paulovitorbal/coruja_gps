@@ -87,6 +87,12 @@ public:
         return resposta_grava;
     }
 
+    ErroCartao acrescenta_arquivo(const char* nome, const char*, std::size_t,
+                                  Logger&) override {
+        chamadas.push_back(std::string("acrescenta:") + nome);
+        return ErroCartao::Nenhum;
+    }
+
     ErroCartao abre_para_escrita(const char* nome, Logger&) override {
         ++aberturas;
         chamadas.push_back(std::string("abre:") + nome);

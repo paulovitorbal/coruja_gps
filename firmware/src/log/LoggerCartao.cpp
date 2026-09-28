@@ -3,11 +3,11 @@
 #include <cstdio>
 #include <cstring>
 
-#include "armazenamento/CartaoSd.h"
+#include "armazenamento/Armazenamento.h"
 
 namespace coruja {
 
-LoggerCartao::LoggerCartao(Logger& seguinte, CartaoSd& cartao,
+LoggerCartao::LoggerCartao(Logger& seguinte, Armazenamento& cartao,
                            const char* nome_arquivo)
     : seguinte_(seguinte), cartao_(cartao), nome_(nome_arquivo) {}
 
@@ -30,6 +30,15 @@ void LoggerCartao::descarrega() {
     // O guarda é o que impede a recursão: o `CartaoSd` registra as próprias
     // falhas, e sem isto uma falha de gravação tentaria gravar a mensagem
     // sobre a falha de gravação.
+    //
+    // ⚠️ **São dois guardas, e nenhum é sobra.** Este e o de `registra()`
+    // cobrem portas diferentes: aqui entra quem chama `descarrega()`
+    // diretamente — ela é pública e o `main` a usa —, e lá entra quem registra
+    // uma mensagem durante a gravação. Medido por mutação em 2026-09-28:
+    // removendo **qualquer um dos dois** os testes continuam passando, porque
+    // o outro segura; removendo **os dois**, a suíte morre com SIGSEGV por
+    // recursão infinita. Ou seja: cada um parece dispensável isoladamente e
+    // não é.
     gravando_ = true;
     // O logger passado é o SEGUINTE, não `*this`. Assim as mensagens do
     // cartão aparecem no console e não realimentam o buffer.

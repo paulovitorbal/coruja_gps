@@ -5,7 +5,7 @@
 
 namespace coruja {
 
-class CartaoSd;
+class Armazenamento;
 
 /// Escreve o log no cartão, **além** de repassá-lo ao logger seguinte.
 ///
@@ -32,7 +32,7 @@ public:
     /// `seguinte` recebe tudo, sempre. `cartao` só é tocado quando há o que
     /// gravar. O arquivo é aberto em modo de acréscimo, então o log sobrevive
     /// a reinicializações.
-    LoggerCartao(Logger& seguinte, CartaoSd& cartao, const char* nome_arquivo);
+    LoggerCartao(Logger& seguinte, Armazenamento& cartao, const char* nome_arquivo);
 
     void registra(Nivel nivel, const char* origem,
                   const char* mensagem) override;
@@ -47,7 +47,7 @@ public:
 
 private:
     Logger&     seguinte_;
-    CartaoSd&   cartao_;
+    Armazenamento& cartao_;
     const char* nome_;
     Nivel       minimo_ = Nivel::Info;
     bool        ligado_ = false;

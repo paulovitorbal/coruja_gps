@@ -56,6 +56,14 @@ public:
     virtual ErroCartao grava_arquivo(const char* nome, const char* conteudo,
                                      std::size_t tamanho, Logger& log) = 0;
 
+    /// Acrescenta ao fim, criando se não existir. É o que o log em cartão
+    /// usa: reescrever o arquivo inteiro a cada descarga multiplicaria a
+    /// escrita num meio de ciclos finitos.
+    virtual ErroCartao acrescenta_arquivo(const char* nome,
+                                          const char* conteudo,
+                                          std::size_t tamanho,
+                                          Logger& log) = 0;
+
     /// Escrita em fluxo: abre, escreve em pedaços, conclui ou descarta. É
     /// assim porque a base não cabe em RAM (formato_dados.md §1).
     virtual ErroCartao abre_para_escrita(const char* nome, Logger& log) = 0;

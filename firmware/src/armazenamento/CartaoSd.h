@@ -50,7 +50,7 @@ public:
     /// removível, e manter um arquivo de log aberto indefinidamente é como se
     /// perde um sistema de arquivos ao puxar o cartão.
     ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
-                                  std::size_t tamanho, Logger& log);
+                                  std::size_t tamanho, Logger& log) override;
 
     /// Grava um arquivo pequeno inteiro, de uma vez. Para a linha de versão.
     ErroCartao grava_arquivo(const char* nome, const char* conteudo,
