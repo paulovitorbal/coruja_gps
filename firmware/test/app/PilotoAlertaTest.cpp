@@ -267,4 +267,16 @@ TEST(PilotoAlerta, o_monitor_de_taxa_acompanha_o_laco) {
     EXPECT_EQ(b.gps.monitor().estado(), EstadoTaxa::Nominal);
 }
 
+// ===================================================== dia e noite
+
+TEST(PilotoAlerta, o_periodo_avanca_mesmo_sem_base_carregada) {
+    // Dia ou noite nao depende de haver radares no cartao. Preso ao ramo
+    // do alerta, um aparelho com a base ausente ficaria no preset de dia
+    // a noite inteira -- e a base ausente e exatamente quando se vai
+    // mexer no menu para atualiza-la.
+    Bancada b;  // sem com_radar(): base_ == nullptr
+    b.dirige(0.0F, 0, 1000);
+    EXPECT_NE(b.piloto.periodo(), PeriodoDoDia::Desconhecido);
+}
+
 }  // namespace

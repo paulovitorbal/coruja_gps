@@ -13,13 +13,19 @@ void PilotoAlerta::define_base(const Ponto* base, std::size_t quantos) {
 void PilotoAlerta::passo(std::uint32_t agora_ms) {
     gps_.atualiza(agora_ms);
 
+    // Dia ou noite nao depende de haver base carregada -- so de haver
+    // data e posicao. Preso ao ramo do alerta, um aparelho com a base
+    // ausente ou corrompida ficaria no preset de dia a noite inteira.
+    // O fix, sim, e exigido: sem data o calculo nao tem entrada, e o
+    // ultimo valor conhecido e melhor palpite que 'Desconhecido' --
+    // entrar num tunel nao amanhece.
+    if (gps_.tem_fix(agora_ms)) {
+        seletor_.atualiza(gps_.telemetria(), agora_ms);
+    }
+
     if (gps_.tem_fix(agora_ms) && base_ != nullptr) {
         veredito_ = maquina_.avalia(gps_.telemetria(), base_, quantos_,
                                     agora_ms);
-        // O periodo so avanca com fix: sem data e sem posicao o calculo
-        // nao tem entrada, e o ultimo valor conhecido e melhor palpite
-        // que 'Desconhecido' -- entrar num tunel nao amanhece.
-        seletor_.atualiza(gps_.telemetria(), agora_ms);
     } else {
         // Sem fix **ou sem base**: nos dois casos não há o que afirmar sobre
         // a via. Tratá-los igual é deliberado — o motorista não precisa

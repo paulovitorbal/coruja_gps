@@ -56,6 +56,7 @@ add_executable(testes
     led/CalibracaoTest.cpp
     app/CicloCoresTest.cpp
     app/PilotoAlertaTest.cpp
+    app/AplicacaoTest.cpp
     led/PadraoLedTest.cpp
     display/TelaPrincipalTest.cpp
     display/BrilhoTest.cpp

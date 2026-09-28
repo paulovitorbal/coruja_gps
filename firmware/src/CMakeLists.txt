@@ -60,6 +60,7 @@ add_library(coruja_ihm STATIC
     display/TelaPrincipal.cpp
     display/Brilho.cpp
     app/PilotoAlerta.cpp
+    app/Aplicacao.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A cadencia do buzzer parte da FaixaSonora decidida pelo Zonamento.
