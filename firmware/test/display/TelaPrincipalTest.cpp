@@ -17,7 +17,8 @@ using namespace coruja;
 class VisorEspiao : public Visor {
 public:
     struct Ret { int x, y, l, a; Cor565 cor; };
-    struct Txt { int x, y; std::string s; Fonte f; Cor565 cor; };
+    struct Txt { int x, y; std::string s; Fonte f; Cor565 cor;
+                 Alinhamento alin; };
     std::vector<Ret>   retangulos;
     std::vector<Txt>   textos;
     std::vector<Icone> icones;
@@ -26,8 +27,9 @@ public:
     void retangulo(int x, int y, int l, int a, Cor565 c) override {
         retangulos.push_back({x, y, l, a, c});
     }
-    void texto(int x, int y, const char* s, Fonte f, Cor565 c) override {
-        textos.push_back({x, y, s, f, c});
+    void texto(int x, int y, const char* s, Fonte f, Cor565 c,
+               Alinhamento a) override {
+        textos.push_back({x, y, s, f, c, a});
     }
     void icone(int, int, Icone i) override { icones.push_back(i); }
     void apresenta() override { ++apresentacoes; }
@@ -212,23 +214,23 @@ TEST(TelaPrincipal, com_alvo_aparecem_icone_e_barra) {
     e.veredito.distancia_m = 150.0F;
     tela.desenha(e, 0, v);
     ASSERT_EQ(v.icones.size(), 1U);
-    EXPECT_EQ(v.icones[0], Icone::RadarFixo);
+    EXPECT_EQ(v.icones[0], Icone::Radar);
     EXPECT_TRUE(v.tem_cor(paleta::kBarraPerigo));
 }
 
 // ================================================== ícones e cores
 
 TEST(TelaPrincipal, cada_tipo_de_ponto_tem_seu_icone) {
-    EXPECT_EQ(icone_de(TipoPonto::RadarFixo), Icone::RadarFixo);
-    EXPECT_EQ(icone_de(TipoPonto::RadarMovel), Icone::RadarMovel);
+    EXPECT_EQ(icone_de(TipoPonto::RadarFixo), Icone::Radar);
     EXPECT_EQ(icone_de(TipoPonto::SemaforoComRadar), Icone::SemaforoComRadar);
     EXPECT_EQ(icone_de(TipoPonto::SemaforoCamera), Icone::Semaforo);
 }
 
-TEST(TelaPrincipal, radar_movel_se_distingue_do_fixo) {
-    // RF03.5: a zona e identica a de um radar fixo, mas o motorista precisa
-    // saber que aquele ponto pode nao estar la hoje.
-    EXPECT_NE(icone_de(TipoPonto::RadarMovel), icone_de(TipoPonto::RadarFixo));
+TEST(TelaPrincipal, radar_movel_mostra_o_MESMO_icone_do_fixo) {
+    // Decidido em 2026-09-28. O RF03.5 ja zoneia o movel igual ao fixo, e a
+    // acao do motorista e a mesma nos dois: distincao que nao muda decisao e
+    // ruido no instante em que menos se pode gastar atencao.
+    EXPECT_EQ(icone_de(TipoPonto::RadarMovel), icone_de(TipoPonto::RadarFixo));
 }
 
 TEST(TelaPrincipal, as_tres_cores_de_barra_sao_distintas) {
@@ -285,6 +287,38 @@ TEST(TelaPrincipal, sem_fix_o_relogio_fica_em_tracos) {
     char buf[32];
     formata_relogio(t, buf, sizeof buf);
     EXPECT_STREQ(buf, "--/--/-- --:--");
+}
+
+TEST(TelaPrincipal, o_ocupante_da_faixa_superior_fica_centralizado) {
+    // A faixa tem um ocupante por vez e nada em volta: centralizada, ela
+    // equilibra com o numero, que tambem e centralizado.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(75.0F), 0, v);
+    bool achou = false;
+    for (const auto& t : v.textos) {
+        if (t.f != Fonte::Texto) { continue; }
+        if (t.s.find("28/09/26") == std::string::npos) { continue; }
+        EXPECT_EQ(t.alin, Alinhamento::Centro);
+        EXPECT_EQ(t.x, tela::kLargura / 2);
+        achou = true;
+    }
+    EXPECT_TRUE(achou);
+}
+
+TEST(TelaPrincipal, a_faixa_inferior_fica_a_esquerda) {
+    // O contador de tempo sem sinal cresce ao fim da linha; centralizado,
+    // ele arrastaria a frase inteira de lado a cada segundo.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e;
+    e.tem_fix = false;
+    tela.desenha(e, 5000, v);
+    for (const auto& t : v.textos) {
+        if (t.s.find("SEM SINAL") != std::string::npos) {
+            EXPECT_EQ(t.alin, Alinhamento::Esquerda);
+        }
+    }
 }
 
 TEST(TelaPrincipal, taxa_reduzida_vence_o_relogio_na_faixa_superior) {

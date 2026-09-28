@@ -51,8 +51,11 @@ void formata_decorrido(std::uint32_t ms, char* destino, std::size_t tamanho) {
 
 Icone icone_de(TipoPonto tipo) {
     switch (tipo) {
-        case TipoPonto::RadarFixo:        return Icone::RadarFixo;
-        case TipoPonto::RadarMovel:       return Icone::RadarMovel;
+        // Fixo e móvel dão o mesmo ícone de propósito: ver a nota em
+        // `Icone`. O tipo continua distinto no dado e na base — o que se
+        // decidiu é não gastar um canal visual com ele.
+        case TipoPonto::RadarFixo:
+        case TipoPonto::RadarMovel:       return Icone::Radar;
         case TipoPonto::SemaforoComRadar: return Icone::SemaforoComRadar;
         case TipoPonto::SemaforoCamera:   return Icone::Semaforo;
     }
@@ -158,8 +161,12 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
     if (tudo || std::strcmp(agora.superior, anterior_.superior) != 0) {
         visor.retangulo(0, tela::kYFaixaSuperior, tela::kLargura,
                         tela::kFaixaSuperior, paleta::kFundo);
-        visor.texto(8, tela::kYFaixaSuperior + 3, agora.superior, Fonte::Texto,
-                    paleta::kTexto);
+        // A faixa superior tem um ocupante por vez e nada à sua volta:
+        // centralizado ela fica equilibrada com o número, que também é
+        // centralizado, e o olho não precisa procurar onde o texto começa.
+        visor.texto(tela::kLargura / 2, tela::kYFaixaSuperior + 3,
+                    agora.superior, Fonte::Texto, paleta::kTexto,
+                    Alinhamento::Centro);
         ++regioes;
     }
 
@@ -168,7 +175,7 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         visor.retangulo(0, tela::kYAreaNumero, tela::kLargura,
                         tela::kAreaNumero, paleta::kFundo);
         visor.texto(tela::kLargura / 2, tela::kYAreaNumero + 36, agora.numero,
-                    Fonte::Numero, agora.numero_cor);
+                    Fonte::Numero, agora.numero_cor, Alinhamento::Centro);
         ++regioes;
     }
 
@@ -181,8 +188,12 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         visor.retangulo(0, tela::kYFaixaInferior, tela::kLargura,
                         tela::kFaixaInferior, paleta::kFundo);
         if (agora.inferior[0] != '\0') {
+            // A faixa inferior fica à esquerda: o contador de tempo sem
+            // sinal cresce ao fim da linha, e centralizado ele arrastaria a
+            // frase inteira de lado a cada segundo.
             visor.texto(8, tela::kYFaixaInferior + 12, agora.inferior,
-                        Fonte::Texto, paleta::kDegradado);
+                        Fonte::Texto, paleta::kDegradado,
+                        Alinhamento::Esquerda);
         } else if (agora.icone != Icone::Nenhum) {
             visor.icone(8, tela::kYFaixaInferior + 2, agora.icone);
             // Trilho inteiro e depois o preenchido: o trilho mostra o quanto

@@ -44,17 +44,32 @@ static_assert(kMoldura + kFaixaSuperior + kAreaNumero + kFaixaInferior +
               "as faixas do §4.1 tem de fechar em 240 px");
 }  // namespace tela
 
+/// Onde o `x` do texto cai.
+///
+/// Explícito porque era implícito no tipo de fonte, e isso é armadilha: o
+/// número usava `x` como centro e o texto como borda esquerda, sem nada no
+/// código dizendo isso. Quem escrevesse uma terceira chamada teria 50% de
+/// chance de acertar.
+enum class Alinhamento : std::uint8_t { Esquerda, Centro };
+
 enum class Fonte : std::uint8_t {
     Numero,   ///< 56×94, para `velocidade/limite`
     Texto,    ///< 12×20, para as faixas
 };
 
-/// Os quatro ícones do §4.1. O `TYPE=2` **compõe** semáforo com radar em vez
-/// de ser um quinto desenho — são três sprites em flash, não quatro.
+/// Os ícones do §4.1.
+///
+/// São **dois** sprites em flash e três ícones: o `TYPE=2` compõe semáforo
+/// com radar em vez de ser um desenho próprio.
+///
+/// **Radar móvel não se distingue do fixo** (decidido em 2026-09-28). O §4.1
+/// pedia um carro vazado para dizer "este ponto pode não estar aqui hoje",
+/// mas a ação do motorista é a mesma nos dois casos — o RF03.5 já manda
+/// zonear o móvel igual ao fixo. Distinção que não muda decisão é ruído no
+/// instante em que menos se pode gastar atenção.
 enum class Icone : std::uint8_t {
     Nenhum,
-    RadarFixo,          ///< 🏎 cheio
-    RadarMovel,         ///< 🏎 vazado
+    Radar,              ///< 🏎 — fixo e móvel, sem distinção
     Semaforo,           ///< 🚦
     SemaforoComRadar,   ///< 🚦 + 🏎
 };
@@ -73,7 +88,7 @@ public:
     virtual void retangulo(int x, int y, int largura, int altura,
                            Cor565 cor) = 0;
     virtual void texto(int x, int y, const char* texto, Fonte fonte,
-                       Cor565 cor) = 0;
+                       Cor565 cor, Alinhamento alinhamento) = 0;
     virtual void icone(int x, int y, Icone icone) = 0;
 
     /// Empurra o que foi desenhado para o painel.

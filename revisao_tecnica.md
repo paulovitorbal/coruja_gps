@@ -1522,6 +1522,52 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-59 — Prévia do produto no terminal, e uma distinção visual retirada
+
+- **Onde:** `ferramentas/VisorTerminal`, `ferramentas/previa_produto`,
+  `display/Visor.h`, `requirements.md` §4.1
+- **Confiança:** ✅ Rodado contra o simulador, 500+ fixes a 4 Hz sem erro
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ **FEITO**
+
+Com o módulo de GPS e o de tela ainda não entregues, o produto inteiro passou a rodar
+no host: `LeitorGps`, `PilotoAlerta`, `MaquinaZona`, `TelaPrincipal`, `CadenciaBuzzer` e
+`PadraoLed` são os **mesmos objetos** que o `main.cpp` vai instanciar. Trocam-se três
+portes de saída — a UART vira pty, o painel vira ANSI, LED e buzzer viram texto.
+
+Serve ao que teste unitário não alcança: ver a coisa **em movimento**. Já rendeu,
+imediatamente, o que se esperava dela.
+
+### O `x` do texto significava duas coisas
+
+`Visor::texto` recebia `x` como **centro** para `Fonte::Numero` e como **borda
+esquerda** para `Fonte::Texto`, sem nada no código dizendo isso. Não dava erro porque
+só havia duas chamadas, cada uma escrita por quem sabia. A terceira teria 50% de chance
+de acertar. O alinhamento virou parâmetro explícito, com teste afirmando cada escolha:
+faixa superior centralizada, faixa inferior à esquerda — esta porque o contador `0:14`
+cresce no fim da linha e centralizado arrastaria a frase de lado a cada segundo.
+
+### Emoji no terminal, sprites no painel
+
+No painel são sprites próprios, e o §4.1 explica: não há pilha de fontes no Pico. No
+terminal há, então ali o emoji é **mais** fiel que `[RADAR]`. Custou duas mudanças na
+grade: emoji ocupa duas colunas e tem vários bytes, então a célula virou `std::string`
+com marca de continuação, e as cadeias passaram a ser quebradas em glifos UTF-8 — sem
+isso, um emoji cortado ao meio faria tudo à direita escorregar.
+
+### O radar móvel deixou de ter ícone próprio
+
+Decisão do autor, e boa. O desenho original usava um carro **vazado** para dizer "este
+ponto pode não estar aqui hoje". Mas o RF03.5 já manda zonear o móvel exatamente como o
+fixo, e **a ação do motorista é a mesma nos dois casos**: distinção que não muda
+decisão é ruído no instante em que menos se pode gastar atenção.
+
+O `TYPE` continua distinto no dado e na base — o que se retirou foi o canal visual. O
+valor saiu do `enum` em vez de virar um apelido, porque um valor que ninguém mais
+produz é código morto. Economiza um sprite, 3,1 KiB de flash, e o §4.1 foi emendado.
+
+---
+
 ## R-58 — A tela, e os 150 KB de framebuffer que não precisavam existir
 
 - **Onde:** `display/Visor.h`, `display/TelaPrincipal`, `display/Brilho`
@@ -2759,6 +2805,9 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-59  FEITO — previa do produto no terminal com o codigo real;
+          alinhamento de texto virou explicito; radar movel deixou de
+          ter icone proprio, e o §4.1 foi emendado
 [~] R-58  layout e brilho FEITOS (35 testes, 15/15 mutantes). Porte do
           painel espera identificar o controlador na bancada. E o
           framebuffer de 150 KB do RNF07 nao e necessario: redesenho

@@ -1041,7 +1041,7 @@ três estados degradados sem ambiguidade:
 | :--- | :--- | :--- |
 | **Número** | a que velocidade eu vou | `75` · `75/110` · `- -` |
 | **Denominador** | há limite a comparar | presente / ausente |
-| **Ícone** | que tipo de ponto vem | 🏎 cheio · 🏎 vazado · 🚦 · 🚦+🏎 |
+| **Ícone** | que tipo de ponto vem | 🏎 · 🚦 · 🚦+🏎 |
 | **Barra** | quão perto, e quão grave | preenchimento + cor |
 
 A **moldura não é canal**: cor fixa, decorativa. O LED RGB periférico continua sendo o
@@ -1059,7 +1059,7 @@ denominador portanto só existe perto de um ponto que afira velocidade:
 | :--- | :--- | :--- | :--- |
 | Zona Segura | `75` | — | — |
 | Radar fixo (`TYPE=1`) | `75/110` | 🏎 cheio | ✓ |
-| Radar móvel (`TYPE=5`) | `75/110` | 🏎 **vazado** | ✓ |
+| Radar móvel (`TYPE=5`) | `75/110` | 🏎 | ✓ |
 | Semáforo c/ radar (`TYPE=2`) | `75/60` | 🚦 **+** 🏎 | ✓ |
 | Semáforo c/ câmera (`TYPE=3`) | `75` | 🚦 | ✓ |
 | Sem sinal de GPS | `- -` | — | — |
@@ -1154,12 +1154,20 @@ Tudo em **flash** (4 MB), zero impacto no orçamento de RAM da §1 do `formato_d
 | :--- | ---: |
 | Fonte numérica 56×94, **1 bpp** (11 glifos: `0-9` e `/`) | 7,1 KiB |
 | Fonte de texto 12×20, 1 bpp, ASCII | 2,9 KiB |
-| 3 sprites 40×40 RGB565 (🏎 cheio, 🏎 vazado, 🚦) | 9,4 KiB |
-| **Total** | **~19 KiB** |
+| 2 sprites 40×40 RGB565 (🏎, 🚦) | 6,3 KiB |
+| **Total** | **~16 KiB** |
 
 **1 bpp com a cor aplicada no blit** é o que faz uma única fonte servir todos os estados;
-em RGB565 gastaria 16× mais e exigiria uma cópia por cor. Os sprites são **três** porque
-o `TYPE=2` **compõe** 🚦 com 🏎 em vez de ser um quarto desenho.
+em RGB565 gastaria 16× mais e exigiria uma cópia por cor. Os sprites são **dois** porque
+o `TYPE=2` **compõe** 🚦 com 🏎 em vez de ser um desenho próprio.
+
+> **Revisão de 2026-09-28 — o radar móvel deixou de ter ícone próprio.** O desenho
+> original usava um carro **vazado** para dizer "este ponto pode não estar aqui hoje".
+> A distinção foi removida: o RF03.5 já manda zonear o móvel exatamente como o fixo, a
+> ação do motorista é a mesma nos dois casos, e **distinção que não muda decisão é
+> ruído** no instante em que menos se pode gastar atenção. O `TYPE` continua distinto
+> no dado e na base; o que se decidiu foi não gastar um canal visual com ele. Custo
+> economizado: um sprite, 3,1 KiB de flash.
 
 Os "emoji" são **sprites próprios, não caracteres**: não há sistema operacional nem pilha
 de fontes no Pico, e o emoji colorido do desktop vem de uma fonte de vários megabytes.
