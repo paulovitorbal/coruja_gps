@@ -235,6 +235,56 @@ TEST(MenuAjustes, OVolumeAndaDeDezEmDez) {
     EXPECT_EQ(c.menu().ajustes().volume_buzzer, 90);
 }
 
+/// Abre o menu ja no item Volume, com o volume inicial dado.
+class CenarioVolume {
+public:
+    explicit CenarioVolume(std::uint8_t inicial)
+        : menu_(com_volume(inicial)) {
+        menu_.avalia(EventoEncoder::GiroDireita, kParado, tempo());
+        while (menu_.item() != ItemMenu::Volume) {
+            menu_.avalia(EventoEncoder::GiroDireita, kParado, tempo());
+        }
+        menu_.avalia(EventoEncoder::Clique, kParado, tempo());
+    }
+
+    std::uint8_t sobe() { return move(EventoEncoder::GiroDireita); }
+    std::uint8_t desce() { return move(EventoEncoder::GiroEsquerda); }
+
+private:
+    static Configuracao com_volume(std::uint8_t v) {
+        Configuracao c;
+        c.volume_buzzer = v;
+        return c;
+    }
+    std::uint32_t tempo() { return agora_ += 100; }
+    std::uint8_t move(EventoEncoder e) {
+        menu_.avalia(e, kParado, tempo());
+        return menu_.ajustes().volume_buzzer;
+    }
+    MenuAjustes menu_;
+    std::uint32_t agora_ = 1000;
+};
+
+TEST(MenuAjustes, VolumeForaDaGradeMantemOResto) {
+    // Um arquivo editado a mao com 73 e valido: o leitor aceita qualquer
+    // inteiro de 50 a 100. O menu anda de 10 em 10 a partir de onde
+    // estiver, em vez de arredondar para a grade primeiro -- assim o
+    // primeiro giro produz a mudanca que se pediu, e nao meia mudanca.
+    CenarioVolume c{83};
+    EXPECT_EQ(c.sobe(), 93);
+    EXPECT_EQ(c.sobe(), 100) << "103 tem de virar 100";
+    EXPECT_EQ(c.desce(), 90) << "descer do teto cai na grade";
+}
+
+TEST(MenuAjustes, VolumeForaDaGradeDescendoAteOPiso) {
+    CenarioVolume c{83};
+    EXPECT_EQ(c.desce(), 73);
+    EXPECT_EQ(c.desce(), 63);
+    EXPECT_EQ(c.desce(), 53);
+    EXPECT_EQ(c.desce(), 50) << "43 tem de virar 50, nunca menos";
+    EXPECT_EQ(c.sobe(), 60) << "subir do piso cai na grade";
+}
+
 TEST(MenuAjustes, ModoNoturnoPercorreAsTresPosicoesSemCircular) {
     Cenario c;
     c.abre();
