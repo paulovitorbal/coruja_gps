@@ -1553,6 +1553,39 @@ individualmente necessário — a reentrância pela porta pública é real, o `m
 `descarrega()` — e o de `registra()` ficou documentado no código com a medição, porque
 não há caminho alcançável que o isole. Não é sobra: são duas portas diferentes.
 
+### Item 6 — `CartaoSd`: FEITO, e a minha avaliação anterior estava errada
+
+> **Retratação, 2026-09-28.** O texto abaixo, escrito horas antes, conclui que o
+> caminho certo era FatFs de verdade sobre disco em RAM, e que isso era caro. Estava
+> errado no diagnóstico, não na estimativa: **não queremos testar o FatFs.** Ele é
+> maduro e não é nosso. Queremos testar a nossa lógica **sobre** ele — e os casos que
+> interessam são justamente os que um disco real torna difíceis: "o volume 0 não monta
+> e o 2 sim", "o `f_rename` falhou", "o cartão encheu no meio da escrita". Num dublê
+> são um campo; num disco em RAM, uma obra.
+>
+> A superfície é pequena e fechada: `f_mount`, `f_unmount`, `f_open`, `f_close`,
+> `f_read`, `f_write`, `f_size`, `f_stat`, `f_rename`, `f_unlink`, `FRESULT_str` e
+> `sd_init_driver`. Uma fachada de 217 linhas cobre tudo.
+>
+> **O `CartaoSd.cpp` de produção compila sem uma linha alterada** — o que muda é qual
+> `ff.h` o caminho de include encontra. O `ffconf.h` é o **nosso**, o mesmo do alvo
+> Pico, então os `static_assert` passam a verificar a configuração real também no host.
+>
+> 21 testes, mutação com 9 defeitos e 9 mortos. Entre eles **o defeito do R-38**:
+> parar na primeira partição que monta, em vez de seguir procurando o arquivo. Aquele
+> bug, que custou uma investigação com cartão na mão, agora falha a suíte em 30 ms.
+>
+> Cobertos também: a troca atômica guardando a base anterior, a primeira atualização
+> sem base a guardar, o `.bak` antigo que impediria o rename, a renomeação que falha
+> deixando a base vigente intacta, a distinção do ADR 0010 entre cartão ilegível e
+> arquivo ausente, e a escrita indo ao **mesmo volume** onde a leitura achou.
+>
+> A lição é sobre a pergunta. Eu perguntei *"como rodar o FatFs no host?"* e a resposta
+> era cara. A pergunta certa era *"o que, aqui, é nosso?"* — e aí a resposta é barata.
+
+<details>
+<summary>Avaliação anterior, preservada</summary>
+
 ### Item 6 — `CartaoSd`: por que fica sem teste de host, por ora
 
 436 linhas, 26 chamadas a FatFs, e a lógica que vale é a **sondagem de partições** do
@@ -1572,6 +1605,8 @@ sintética** — que o próprio FatFs sabe criar com `f_mkfs`/`f_fdisk`.
 O que isso cobriria é exatamente o que hoje só foi verificado na bancada: a escolha de
 volume do R-38, a sequência da troca atômica, e o mapeamento de erro do ADR 0010. Fica
 registrado como **item aberto com escopo definido**, e não como "sem teste" genérico.
+
+</details>
 
 ---
 
@@ -2574,9 +2609,11 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
-[~] R-55  item 5 CORRIGIDO (LoggerCartao com 16 testes, inclusive a
-          regressao do R-46); item 6 AVALIADO: teste de host do CartaoSd
-          exige FatFs sobre disco em RAM, tarefa propria com escopo dado
+[x] R-55  itens 5 e 6 CORRIGIDOS. LoggerCartao com 16 testes (regressao do
+          R-46). CartaoSd com 21 testes sobre uma fachada falsa de FatFs de
+          217 linhas -- o defeito do R-38 agora falha a suite em 30 ms. Minha
+          avaliacao de que exigiria disco em RAM estava errada e esta
+          retratada no corpo do R-55
 [x] R-54  CORRIGIDO — OTA passa a receber interfaces; 310 linhas que so
           rodavam na placa ganharam 23 testes de host, 11/11 mutantes
 [~] R-53  ABERTO — bitmasks do CFG-PRT vem da especificacao, nao de

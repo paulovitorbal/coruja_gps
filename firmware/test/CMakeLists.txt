@@ -49,8 +49,21 @@ add_executable(testes
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     app/CicloCoresTest.cpp
+    # O dublê de FatFs e o CartaoSd DE PRODUCAO compilado contra ele. O .cpp
+    # nao muda: o que muda e qual `ff.h` o caminho de include encontra. Assim
+    # o teste exercita o codigo que vai para a placa, e nao uma copia.
+    apoio/fatfs/FatFsFalso.cpp
+    ../src/armazenamento/CartaoSd.cpp
+    armazenamento/CartaoSdTest.cpp
 )
-target_include_directories(testes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(testes PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    # A fachada falsa de FatFs vem ANTES: e ela que o `#include "ff.h"` do
+    # CartaoSd.cpp encontra no host.
+    ${CMAKE_CURRENT_SOURCE_DIR}/apoio/fatfs
+    # E o ffconf.h e o NOSSO, o mesmo do alvo Pico, para os static_assert do
+    # CartaoSd.cpp verificarem a configuracao de verdade.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/armazenamento)
 add_dependencies(testes fixture)
 target_compile_definitions(testes PRIVATE
     CORUJA_FIXTURE_BIN="${FIXTURE_BIN}"
