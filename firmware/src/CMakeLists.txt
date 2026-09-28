@@ -11,6 +11,9 @@ add_library(coruja_nucleo STATIC
     nucleo/BaseRadares.cpp
     nucleo/LeitorConfig.cpp
     nucleo/Configuracao.cpp
+    nucleo/LinhaConfig.cpp
+    nucleo/EscritorConfig.cpp
+    nucleo/GravadorConfig.cpp
     nucleo/Crc32.cpp
     nucleo/Texto.cpp
     nucleo/Nmea.cpp

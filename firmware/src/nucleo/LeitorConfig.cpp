@@ -4,27 +4,13 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "nucleo/LinhaConfig.h"
 
 namespace coruja {
 
 namespace {
 
 constexpr const char* kOrigem = "config";
-
-bool e_espaco(char c) {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-}
-
-/// Recorta espaços das duas pontas, ajustando ponteiro e tamanho no lugar.
-void apara(const char*& ini, std::size_t& n) {
-    while (n > 0 && e_espaco(*ini)) {
-        ++ini;
-        --n;
-    }
-    while (n > 0 && e_espaco(ini[n - 1])) {
-        --n;
-    }
-}
 
 /// `true`/`false` ou `1`/`0`, sem diferenciar maiúsculas. Qualquer outra
 /// coisa é recusada em vez de interpretada: aceitar "sim" e não "yes", ou o
@@ -43,10 +29,6 @@ bool booleano(const char* ini, std::size_t n, bool* destino) {
     if (casa("true") || casa("1"))  { *destino = true;  return true; }
     if (casa("false") || casa("0")) { *destino = false; return true; }
     return false;
-}
-
-bool igual(const char* ini, std::size_t n, const char* literal) {
-    return std::strlen(literal) == n && std::strncmp(ini, literal, n) == 0;
 }
 
 /// Reconhece `prefixo` seguido de um dígito de 1 a 9. Devolve o índice
@@ -132,28 +114,20 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
         std::size_t n = fim - i;
         i = fim + 1;
 
-        apara(linha, n);
-        if (n == 0 || linha[0] == '#') {
+        const ParChaveValor par = divide(linha, n);
+        if (par.vazia || par.comentario) {
             continue;
         }
         ++r.diagnostico.linhas_lidas;
-
-        // Divide no PRIMEIRO '=': senha de Wi-Fi pode conter '='.
-        std::size_t pos = 0;
-        while (pos < n && linha[pos] != '=') {
-            ++pos;
-        }
-        if (pos == n) {
+        if (!par.valida) {
             ++r.diagnostico.linhas_sem_igual;
             continue;
         }
 
-        const char* chave = linha;
-        std::size_t nc = pos;
-        const char* valor = linha + pos + 1;
-        std::size_t nv = n - pos - 1;
-        apara(chave, nc);
-        apara(valor, nv);
+        const char* chave = par.chave;
+        std::size_t nc = par.n_chave;
+        const char* valor = par.valor;
+        std::size_t nv = par.n_valor;
 
         int idx = indice_de(chave, nc, "wifi_ssid_");
         if (idx >= 0) {
