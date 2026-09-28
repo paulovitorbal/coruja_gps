@@ -109,12 +109,17 @@ PECAS = [
      "Entrada 12V (pos-chave)", {},
      ["+12V", "n/c", "GND"]),
 
-    # Fusível de 2 A. Protege o FIO, não a carga — por isso acompanha a
-    # corrente do aparelho e não a capacidade do cabo. Fica no chicote, antes
-    # da proteção, porque o modo de falha desejável de um TVS é curto.
+    # Fusível de 2 A, DENTRO do gabinete (decidido em 2026-09-28). Dimensionado
+    # pela corrente do aparelho, não pela capacidade do cabo: quem protege o
+    # cabo é o fusível do carro, porque a derivação é no pós-chave e sai da
+    # caixa de fusíveis já protegida. Dois fusíveis em série no mesmo ramo
+    # seriam redundância sem função.
+    #
+    # Fica antes do TVS porque o modo de falha desejável de um TVS é curto: se
+    # ele grampear e ficar em curto, é este fusível que abre.
     ("F1", "SparkFun-Passives-FUSE-X20MM",
      "sparkfun-passives-fuse-x20mm.fzp",
-     "F1 2 A (no chicote)", {}, ["0", "1"]),
+     "F1 2 A", {}, ["0", "1"]),
 
     # TVS BIDIRECIONAL de 24 V. O sufixo CA é o que o torna bidirecional; a
     # versão A montada ao contrário fica em curto permanente. Clampa em

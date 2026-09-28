@@ -37,7 +37,7 @@
 | 21 | **Barras de Pinos Fêmea 1x20** | Duas fileiras, espaçamento 2,54 mm | Soquete para encaixar e remover o Pico 2 W sem soldá-lo direto. | 🔵 comprado |
 | 22 | 🆕 **Conversor CC 12 V → 5 V** | Buck. **Entrada ≥ 40 V** (*load dump*). Saída ≥ 1 A, preferir **ajustável** | Alimenta o aparelho. Montado **fora** do gabinete, por ocupar espaço. Proteger com termorretrátil. | 🔵 comprado |
 | 23 | 🆕 **Adaptador de fusível piggyback** | *"add-a-circuit"*, do tipo de fusível da caixa do seu carro (mini, padrão ou micro2) | Deriva um circuito pós-chave na caixa de fusíveis **sem emenda no chicote**. Reversível. | ⚪ disponível |
-| 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador | Protege a derivação. **Não use 10 A** — ver nota de dimensionamento. | 🔵 comprado |
+| 24 | 🆕 **Fusível de 2 A** | Do mesmo tipo do adaptador. **Fica dentro do gabinete** (2026-09-28) | Protege o **aparelho**; o cabo até ele é protegido pelo fusível do carro, já que a derivação é no pós-chave. **Não use 10 A** — ver nota de dimensionamento. | 🔵 comprado |
 | 25 | **Cabo 1,5 mm²** | ✅ Em mãos: **1 via, flexível**. Usar **dois trechos trançados** entre si — ver nota | Do pós-chave ao conversor (trecho de 12 V). Sobredimensionado para a carga (~180 mA), o que é seguro. | ⚪ disponível |
 | 26 | 🆕 **Fio 22 AWG, cobre estanhado** | 0,35 mm². Cores variadas — ver convenção abaixo | Fiação **interna** do gabinete, cabo do **conversor ao gabinete** (5 V) e cabo até o buzzer. | ⚪ disponível |
 | 27 | 🆕 ⚠️ **Diodo TVS bidirecional 24 V** | **P6KE24CA** (600 W) ou **1.5KE24CA** (1500 W). Axial, **bidirecional** — sufixo `CA` | **Na entrada de 12 V do conversor.** Clampa transientes da rede do carro. Ver nota de dimensionamento. | 🔵 comprado |
@@ -407,12 +407,15 @@ bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
                           Schottky ─ VSYS (pino 39)      ← seção 1
 ```
 
-> ⚠️ **Onde fica o fusível, exatamente?** O BOM (item 24) diz *"no chicote, antes da
-> proteção"*, o que o põe **antes** do conector de entrada. A netlist do
-> `gera_fritzing.py` liga `J12V → F1 → proteção`, ou seja, **depois**. Eletricamente dá
-> no mesmo; fisicamente, não: um fusível no chicote protege também o cabo entre a caixa
-> de fusíveis e o gabinete, e um fusível interno não. **Pendente de decisão** — o
-> diagrama acima segue a netlist, que é a fonte declarada pelo R-29.
+> ✅ **O fusível de 2 A fica DENTRO do gabinete** — decidido pelo autor em 2026-09-28,
+> e é o que a netlist já dizia. A derivação é no **pós-chave**, que sai da caixa de
+> fusíveis **já protegido**: o fusível do carro cuida do cabo, e o de 2 A cuida do
+> aparelho. Dois fusíveis em série no mesmo ramo seriam redundância sem função.
+>
+> A consequência a ter em mente: o cabo entre a caixa de fusíveis e o gabinete fica
+> protegido pelo fusível **do carro**, na amperagem dele, e não em 2 A. Com 1,5 mm² e
+> uma via de acessórios típica isso é folgado — a bitola aguenta bem mais do que o
+> fusível do circuito deixa passar.
 
 #### ⚪ CADUCA — "o trecho de 12 V não pode usar JST-XH"
 
