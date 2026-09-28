@@ -2279,21 +2279,39 @@ Nenhum requisito define o que acontece em túnel, garagem ou cold start: o que a
 mostra, o que o LED RGB faz, se o último radar detectado continua válido e por quanto
 tempo. Hoje a matriz IHM não tem linha para esse estado.
 
-## L-02 — Orçamentos de recursos
+## L-02 — Orçamentos de recursos — 🟡 **memória FECHADA, corrente e boot abertos**
 
-Não há requisito não-funcional para **memória**, **corrente** (ver R-13) nem **tempo de
-boot** até o primeiro alerta útil — o TTFF do NEO-M8N em cold start pode passar de 30 s,
-e o motorista não tem como saber que ainda não há proteção.
+Faltavam números medidos, não estimados. A **memória** agora está medida no binário
+real (2026-09-28, `coruja_gps.elf` do build do RP2350):
 
-O orçamento de memória já tem números: `formato_dados.md` §1 estima **~407 KB de 520 KB**
-(base 214 KB + framebuffer 150 KB + pilha Wi-Fi ~48 KB + resto), com duas alavancas de
-alívio identificadas. Falta **transformar isso em requisito** e **medir** os itens
-marcados ⚠️ com `arm-none-eabi-size` e marca d'água de stack.
+| | medido | de | ocupação |
+| :--- | ---: | ---: | ---: |
+| Flash (`text`) | **465,4 KiB** | 4096 KiB | 11,4% |
+| SRAM (`.bss`) | **338,3 KiB** | 520 KiB | 65,0% |
+| SRAM livre para pilha e heap | **181,7 KiB** | — | 35,0% |
 
-Dois números que merecem virar limites explícitos:
-- **Framebuffer: 150 KB** — maior consumidor isolado, e não aparecia em nenhum documento.
-- **Base: 214 KB hoje, teto de ~35.000 registros** antes de o particionamento do
-  Anexo A voltar a ser necessário.
+Quem ocupa o `.bss`, pelos seis maiores símbolos:
+
+| Símbolo | Tamanho | O que é |
+| :--- | ---: | :--- |
+| `g_pontos` | 280,8 KiB | a base de radares, 24.000 × 12 B — **83% do total** |
+| `memp_memory_PBUF_POOL_base` | 35,9 KiB | pool de buffers do lwIP |
+| `ram_heap` | 3,9 KiB | heap do lwIP |
+| `pedaco` (`CartaoSd::le_em_fluxo`) | 4,0 KiB | buffer de leitura em fluxo |
+| `cyw43_state` | 2,4 KiB | estado do rádio |
+| `g_texto_config` | 2,0 KiB | texto do `coruja.cfg` |
+
+**O que esses números dizem.** A base domina, como o ADR 0006 previu, e a decisão de
+reservar 24.000 em vez dos 40.000 do teto foi o que manteve a folga: o teto custaria
+mais 187 KiB e **não caberia** — 525 KiB de `.bss` num chip de 520 KiB. Fora a base, o
+firmware inteiro cabe em 57 KiB, e o maior item nem é nosso, é o pool do lwIP.
+
+Flash a 11,4% não é restrição para nada que esteja planejado, incluindo o driver de
+display, que é o próximo grande consumidor previsto.
+
+**Continuam abertos:** o orçamento de **corrente** (medido com a placa montada e
+alimentada pela fonte de bancada) e o **tempo de boot** — nenhum dos dois se mede no
+binário.
 
 ## L-03 — Falha ou ausência do cartão SD
 
@@ -2311,11 +2329,25 @@ Painel de veículo ao sol passa de 60 °C. O capacitor eletrolítico (item 14) n
 temperatura especificada — **exigir 105 °C, não 85 °C**. Avaliar também a faixa de
 operação do display IPS e do cartão SD. Nenhum RNF trata disso.
 
-## L-06 — Conversão e tratamento da velocidade
+## L-06 — Conversão e tratamento da velocidade — ✅ **FECHADA**
 
 A sentença RMC entrega velocidade em nós. O fator ×1,852 e a estratégia de suavização
-(média móvel, filtro) não estão especificados, apesar de a velocidade ser o gatilho da
-transição Aproximação → Perigo.
+(média móvel, filtro) não estavam especificados, apesar de a velocidade ser o gatilho
+da transição Aproximação → Perigo.
+
+**Resolvido em duas frentes, e o registro estava faltando (2026-09-28):**
+
+1. **Conversão:** implementada em `nucleo/Nmea.cpp`, `kNoParaKmh = 1,852`, com teste.
+2. **Suavização: não haverá**, por decisão do autor em 2026-09-23 — *"não há
+   necessidade de implementar suavização de velocidade antes de ter certeza que isso é
+   um problema real"*. Princípio YAGNI.
+
+A segunda merece nota, porque é uma decisão e não uma omissão. Suavizar velocidade tem
+um custo que não é óbvio: **atrasa a detecção da subida**, que é exatamente a direção
+em que o alerta precisa ser rápido. Uma média móvel de 4 amostras a 4 Hz adiciona meio
+segundo de atraso à transição Margem → Perigo. Se o ruído de velocidade do NEO-M8N vier
+a incomodar em uso real, o lugar de tratá-lo é a histerese do RF03.7, que já existe e
+não custa atraso — não um filtro novo.
 
 ## L-07 — Estratégia de verificação e testes
 
@@ -2482,13 +2514,17 @@ RELEVANTES
 
 LACUNAS
 [ ] L-01  Comportamento sem fix de GPS
-[ ] L-02  Orçamentos de memória, corrente e tempo de boot
+[~] L-02  MEMORIA FECHADA (28/09, medida no .elf): flash 465,4 KiB de 4096
+          (11,4%), .bss 338,3 KiB de 520 (65%), 181,7 KiB livres. A base e 83%
+          do .bss. Corrente e tempo de boot seguem abertos
 [~] L-03  Cartao ausente e cartao ilegivel sao UM caso so desde 2026-09-22
           (ADR 0010), reportado como "cartao ausente ou ilegivel". Falta o
           tratamento de IHM para base ausente
 [ ] L-04  Watchdog e recuperação
 [ ] L-05  Faixa térmica (capacitor 105 °C)
-[ ] L-06  Conversão e suavização da velocidade
+[x] L-06  FECHADA — x1,852 implementado e testado; suavizacao NAO havera,
+          por decisao de 2026-09-23 (YAGNI). Ruido, se houver, se trata na
+          histerese que ja existe, que nao custa atraso
 [ ] L-07  Estratégia de verificação e testes
 [ ] L-08  Linguagem e runtime declarados (C/C++ SDK recomendado; ver §9)
 [ ] L-09  Precisão dos cálculos geográficos definida (FPU é single-precision)

@@ -52,6 +52,21 @@ bool inteiro(const Campo& c, std::uint32_t* destino) {
 
 /// Decimal com ponto, em `double`. Sem `strtod`: o campo não é terminado em
 /// `\0` e copiá-lo para um buffer só para isso seria trabalho por nada.
+// ⚠️ **`double` aqui é deliberado, contra a regra do resto do projeto.**
+//
+// O `Geo.h` documenta que a FPU do RP2350 é de precisão simples e que é por
+// isso que a distância é equirretangular em `float`. Aqui é o contrário, e a
+// razão é a largura do dado: uma latitude como `-15,857512` pede ~8 dígitos
+// significativos, e `float` entrega ~7. Fazer o parsing em `float` custaria
+// o último dígito, que vale cerca de **1 m** de posição.
+//
+// O custo é software float, porque a FPU não faz `double` — mas isto roda 4
+// vezes por segundo sobre uma sentença, não num laço. O resultado é
+// estreitado para `float` ao entrar na `Telemetria`; o `double` existe só
+// para a conta intermediária não acumular erro antes disso.
+//
+// Quem "padronizar" estas funções para `float` seguindo a regra declarada
+// perderá precisão de posição em silêncio. É por isso que esta nota existe.
 bool decimal(const Campo& c, double* destino) {
     if (c.vazio()) return false;
     double inteiro_parte = 0.0;

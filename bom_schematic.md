@@ -386,22 +386,33 @@ bateria ─ caixa de fusíveis ─┬─ [circuito original do carro]
                                     │
                                     │  1,5 mm², 12 V
                                     ▼
+                          conector de entrada, 3 vias      ← ÚNICO conector
+                                    │                          externo (item 19)
+          ═══════════════ fronteira do gabinete ═══════════════
+                                    │
                           ┌─── proteção da entrada ───┐
                           │  TVS P6KE24CA   ┬  470 µF │  itens 27 e 28
                           │  (bidirecional) │   50 V  │  em paralelo, junto
                           └────────┬────────┴─────────┘  ao conversor
                                     │
+                                    ├───────────────► buzzer, 12 V
+                                    │                 (soldado, sem conector)
                                     ▼
                           ┌──────────────────────┐
-                          │ conversor 12 V → 5 V │   fora do gabinete,
-                          │  (ajustável)         │   sob o painel
+                          │ conversor 12 V → 5 V │   DENTRO do gabinete
+                          │  (ajustável)         │   (ADR 0009)
                           └──────────┬───────────┘
-                                     │  22 AWG, 5 V
+                                     │  5 V
                                      ▼
-                          JST-XH 3 vias  (entrada do gabinete)
-                                     │
                           Schottky ─ VSYS (pino 39)      ← seção 1
 ```
+
+> ⚠️ **Onde fica o fusível, exatamente?** O BOM (item 24) diz *"no chicote, antes da
+> proteção"*, o que o põe **antes** do conector de entrada. A netlist do
+> `gera_fritzing.py` liga `J12V → F1 → proteção`, ou seja, **depois**. Eletricamente dá
+> no mesmo; fisicamente, não: um fusível no chicote protege também o cabo entre a caixa
+> de fusíveis e o gabinete, e um fusível interno não. **Pendente de decisão** — o
+> diagrama acima segue a netlist, que é a fonte declarada pelo R-29.
 
 #### ⚪ CADUCA — "o trecho de 12 V não pode usar JST-XH"
 
@@ -926,12 +937,15 @@ justamente para que a escolha errada seja visível onde se escolhe. Ver **R-33**
 
 ### ⚠️ 5. Circuito de Potência do Buzzer (soldado, sem conector)
 
-> **Correção da revisão 1 — ✅ confirmada pelo autor em 2026-09-15:** o Jack P2 (3,5 mm)
-> foi **substituído por conector JST-XH de 2 vias**. No arranjo anterior (tip = 5 V, sleeve = coletor), inserir ou remover o
-> plugue faz o sleeve varrer o tip; com o transistor conduzindo nesse instante, o
-> resultado é curto direto de 5 V ao GND **sem o buzzer limitando a corrente** — risco
-> de dano ao transistor e à fonte de 5 V. Conector de áudio para energia é
+> **Histórico, para não se repetir o erro.** A revisão 1 usava um **Jack P2** de
+> 3,5 mm (tip = 5 V, sleeve = coletor). Inserir ou remover o plugue faz o sleeve varrer
+> o tip; com o transistor conduzindo nesse instante, o resultado é curto direto de 5 V
+> ao GND **sem o buzzer limitando a corrente**. Conector de áudio para energia é
 > antipadrão conhecido justamente por isso.
+>
+> A correção de 2026-09-15 (R-06) trocou por JST-XH de 2 vias; o ADR 0009 trocou por
+> header genérico; e em **2026-09-25 o conector saiu de vez** — o buzzer é soldado.
+> Nenhuma das três etapas descreve o estado atual: **não há conector neste ramo.**
 
 * **Pico GPIO 5 (Pino 7)** → **Resistor de 1 kΩ**.
 * Outro lado do **Resistor de 1 kΩ** → perna **BASE** do transistor (pino central do
@@ -1010,7 +1024,7 @@ Antes de ligar o circuito pela primeira vez:
 | :--- | :--- |
 | R-01 — `VBUS` é o pino 40; usar `VSYS` + Schottky | Seção 1; BOM item 14 |
 | R-05 — 330 Ω apaga verde e azul do LED RGB | BOM itens 11 e 12; seção 4; nota crítica |
-| R-06 — Jack P2 curto-circuita 5 V no GND | Seção 5; BOM item 19 — ✅ **confirmado** |
+| R-06 — Jack P2 curto-circuita 5 V no GND | Seção 5 — ✅ **fechado de vez**: o buzzer é soldado desde 2026-09-25, e o item 18 foi dispensado. *(A versão anterior desta linha citava o item 19, que é o conector de entrada, não o do buzzer.)* |
 | R-13 — Orçamento de corrente do `3V3_OUT` | Nota na seção 3; checklist |
 | R-14 — Alimentação do GPS indefinida | Seção 3 — ✅ **5 V decidido** (GY-GPSV3 tem LDO embarcado) |
 | R-22 — GPIO de 3,3 V excede `VIN` do GPS | Seção 3 — resistor de 1 kΩ em série no `GPIO 0 → GPS RX` |
@@ -1027,7 +1041,8 @@ Antes de ligar o circuito pela primeira vez:
 | Conectores permutáveis | Seção 0 (12 V, crítico) e nota dos conectores do aparelho (5 V, robustez) |
 | Fiação interna | BOM item 26 — 22 AWG estanhado, margem de 10× e quedas < 11 mV |
 
-**Confirmado pelo autor (2026-09-15):** conector **JST-XH** no lugar do Jack P2 (seção 5).
+~~**Confirmado pelo autor (2026-09-15):** conector **JST-XH** no lugar do Jack P2 (seção 5).~~
+**Superado em 2026-09-25:** o buzzer não tem conector — é soldado direto (seção 5, R-49).
 
 **Removido do projeto (2026-09-15):** LED verde de status de Wi-Fi e seu resistor de
 330 Ω. O `GPIO 14` liberado foi usado pelo **card detect** do leitor SD entre
