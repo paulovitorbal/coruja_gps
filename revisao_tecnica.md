@@ -1522,6 +1522,55 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-56 — O configurador do GPS, e a armadilha de trocar o baud no meio
+
+- **Onde:** `gps/Uart.h`, `gps/UartPico`, `gps/ConfiguradorGps`
+- **Confiança:** ✅ 19 testes, mutação com 10 defeitos e 10 mortos
+- **Registrado em:** 2026-09-28
+- **Status:** ✅ **FEITO** — item 7 da revisão geral. Prepara o fechamento do R-53
+
+O RF01.2 manda enviar quatro comandos a cada boot. O que **não** estava escrito em
+lugar nenhum é que mandá-los não basta: mandar e torcer produz exatamente o sintoma que
+o RF01.5 descreve — o módulo segue em 1 Hz com sete sentenças por época, e o defeito só
+aparece meses depois como "taxa baixa". Cada comando aqui espera o `ACK-ACK` **da sua
+classe e do seu id**.
+
+### A armadilha do `CFG-PRT`
+
+A resposta ao comando que troca o baud sai **na velocidade nova** — o módulo troca ao
+processá-lo. Se a porta local continuasse em 9600, esperaríamos um ACK ilegível e
+concluiríamos "não respondeu", com o módulo tendo respondido. A ordem correta é:
+escrever o quadro, trocar a porta local, **e só então** esperar.
+
+E há um segundo laço: a u-blox **não garante** esse ACK. Tratá-lo como obrigatório
+recusaria um módulo que se configurou certo. A saída não foi ignorar o passo, foi
+**deslocar a prova**: o silêncio no `CFG-PRT` é tolerado, e quem confirma que a porta
+nova está de pé é o `CFG-CFG` seguinte — se a porta tivesse ficado muda, nenhum ACK
+chegaria lá. Um NAK, ao contrário, é recusa explícita e encerra.
+
+### Silêncio e recusa deixaram de ser a mesma coisa
+
+Na primeira versão que escrevi, um `NAK` no `CFG-RATE` era reportado como "o módulo não
+respondeu". São dois lugares diferentes para procurar: silêncio aponta para fiação,
+energia ou baud errado; recusa diz que o módulo entendeu e não aceitou. Corrigido antes
+de existir teste, ao escrever os casos.
+
+### O que a mutação achou depois de 17 testes passando
+
+Dois defeitos sobreviveram à primeira suíte, e os dois eram buracos meus:
+
+* **Aceitar ACK de qualquer comando.** O dublê sempre respondia pelo comando recém
+  enviado, então o filtro por id nunca era exercitado. Na linha de verdade chega sobra
+  de ACK anterior, e aceitar qualquer um daria por confirmado um comando que o módulo
+  pode nem ter visto.
+* **NAK no `CFG-PRT` tratado como o silêncio tolerado.** Faltava o caso.
+
+Desligar as seis sentenças extras **antes** de subir o baud também é deliberado: a
+9600 as sete de fábrica não cabem nem em 1 Hz, e é essa a linha congestionada por onde
+o próximo comando vai passar.
+
+---
+
 ## R-55 — O logger de cartão ganhou teste, e o `CartaoSd` continua sem — com motivo
 
 - **Onde:** `log/LoggerCartao`, `armazenamento/CartaoSd`
@@ -2583,6 +2632,8 @@ RELEVANTES
           debounce. RC de 1-10 nF fica como contingencia documentada.
 [x] R-37  RESOLVIDO — url_versao e url_base em coruja.cfg; ate 5 redes Wi-Fi
           por ordem de prioridade. LeitorConfig com 26 testes.
+[x] R-56  FEITO — configurador do GPS com ACK por comando, e a troca de
+          baud na ordem certa. 19 testes, 10/10 mutantes
 [x] R-55  itens 5 e 6 CORRIGIDOS. LoggerCartao com 16 testes (regressao do
           R-46). CartaoSd com 21 testes sobre uma fachada falsa de FatFs de
           217 linhas -- o defeito do R-38 agora falha a suite em 30 ms. Minha

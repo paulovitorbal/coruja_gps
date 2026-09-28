@@ -45,9 +45,9 @@ else()
     endif()
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
-        coruja_ota
+        coruja_ota coruja_gps_cfg
         coruja_armazenamento
-        pico_stdlib)
+        pico_stdlib hardware_uart)
     # O lwipopts.h e o cyw43 procuram cabecalhos na raiz do firmware.
     target_include_directories(coruja_gps PRIVATE ${CMAKE_CURRENT_LIST_DIR})
     pico_enable_stdio_usb(coruja_gps 1)

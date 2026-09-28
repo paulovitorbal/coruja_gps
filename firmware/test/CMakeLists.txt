@@ -55,6 +55,7 @@ add_executable(testes
     apoio/fatfs/FatFsFalso.cpp
     ../src/armazenamento/CartaoSd.cpp
     armazenamento/CartaoSdTest.cpp
+    gps/ConfiguradorGpsTest.cpp
 )
 target_include_directories(testes PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -70,5 +71,5 @@ target_compile_definitions(testes PRIVATE
     CORUJA_CFG_EXEMPLO="${CMAKE_CURRENT_SOURCE_DIR}/../../coruja.cfg.exemplo"
     CORUJA_BASE_REAL="${CORUJA_BASE_REAL}")
 target_link_libraries(testes PRIVATE
-    coruja_nucleo coruja_log coruja_ihm coruja_ota GTest::gtest GTest::gtest_main)
+    coruja_nucleo coruja_log coruja_ihm coruja_ota coruja_gps_cfg GTest::gtest GTest::gtest_main)
 gtest_discover_tests(testes)
