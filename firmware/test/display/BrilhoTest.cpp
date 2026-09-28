@@ -141,4 +141,46 @@ TEST(Brilho, o_pwm_fica_acima_da_faixa_que_assobia_e_cintila) {
     EXPECT_GE(kFrequenciaPwmHz, 20000U);
 }
 
+// --- presets vindos do coruja.cfg ---
+
+TEST(Brilho, CarregaOsDoisPresetsDoArquivo) {
+    Brilho b;
+    b.define_presets(60, 25);
+    b.define_periodo(PeriodoDoDia::Dia);
+    EXPECT_EQ(b.percentual(), 60);
+    b.define_periodo(PeriodoDoDia::Noite);
+    EXPECT_EQ(b.percentual(), 25) << "os dois presets ficaram iguais";
+}
+
+TEST(Brilho, OsPresetsVoltamComoEntraram) {
+    // Ida e volta pelo arquivo: o que o menu gravou e o que o boot le.
+    Brilho b;
+    b.define_presets(45, 15);
+    EXPECT_EQ(b.pct_dia(), 45);
+    EXPECT_EQ(b.pct_noite(), 15);
+}
+
+TEST(Brilho, PresetZeroNaoApagaATela) {
+    // Um arquivo editado a mao com 0 nao pode deixar o aparelho cego:
+    // sem tela nao ha como recuperar o brilho.
+    Brilho b;
+    b.define_presets(0, 0);
+    b.define_periodo(PeriodoDoDia::Dia);
+    EXPECT_EQ(b.percentual(), kBrilhoMinimoPct);
+    EXPECT_GT(b.duty(), 0);
+}
+
+TEST(Brilho, PresetAcimaDeCemVaiParaOTeto) {
+    Brilho b;
+    b.define_presets(200, 200);
+    EXPECT_EQ(b.pct_dia(), kBrilhoMaximoPct);
+}
+
+TEST(Brilho, PresetForaDoPassoVaiParaOMaisProximo) {
+    Brilho b;
+    b.define_presets(73, 72);
+    EXPECT_EQ(b.pct_dia(), 75) << "arredondou para baixo em vez do mais proximo";
+    EXPECT_EQ(b.pct_noite(), 70);
+}
+
 }  // namespace

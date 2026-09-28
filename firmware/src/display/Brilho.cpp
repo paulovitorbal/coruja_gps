@@ -24,6 +24,30 @@ std::size_t Brilho::passo_vigente() const {
     return periodo_ == PeriodoDoDia::Noite ? passo_noite_ : passo_dia_;
 }
 
+namespace {
+
+/// Porcentagem para posicao de passo: 5% -> 1, 100% -> 20.
+std::size_t passo_de_pct(std::uint8_t pct) {
+    if (pct <= kBrilhoMinimoPct) { return 1; }
+    if (pct >= kBrilhoMaximoPct) { return kPassosBrilho; }
+    return static_cast<std::size_t>((pct + 2) / 5);
+}
+
+}  // namespace
+
+void Brilho::define_presets(std::uint8_t dia_pct, std::uint8_t noite_pct) {
+    passo_dia_ = passo_de_pct(dia_pct);
+    passo_noite_ = passo_de_pct(noite_pct);
+}
+
+std::uint8_t Brilho::pct_dia() const {
+    return static_cast<std::uint8_t>(passo_dia_ * 5);
+}
+
+std::uint8_t Brilho::pct_noite() const {
+    return static_cast<std::uint8_t>(passo_noite_ * 5);
+}
+
 void Brilho::define_periodo(PeriodoDoDia periodo) {
     if (periodo == PeriodoDoDia::Desconhecido) { return; }
     periodo_ = periodo;

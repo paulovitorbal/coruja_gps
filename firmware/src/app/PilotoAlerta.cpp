@@ -16,6 +16,10 @@ void PilotoAlerta::passo(std::uint32_t agora_ms) {
     if (gps_.tem_fix(agora_ms) && base_ != nullptr) {
         veredito_ = maquina_.avalia(gps_.telemetria(), base_, quantos_,
                                     agora_ms);
+        // O periodo so avanca com fix: sem data e sem posicao o calculo
+        // nao tem entrada, e o ultimo valor conhecido e melhor palpite
+        // que 'Desconhecido' -- entrar num tunel nao amanhece.
+        seletor_.atualiza(gps_.telemetria(), agora_ms);
     } else {
         // Sem fix **ou sem base**: nos dois casos não há o que afirmar sobre
         // a via. Tratá-los igual é deliberado — o motorista não precisa

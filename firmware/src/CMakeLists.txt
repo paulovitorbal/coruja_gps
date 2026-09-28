@@ -14,6 +14,9 @@ add_library(coruja_nucleo STATIC
     nucleo/LinhaConfig.cpp
     nucleo/EscritorConfig.cpp
     nucleo/GravadorConfig.cpp
+    nucleo/DetectorParado.cpp
+    nucleo/SeletorPeriodo.cpp
+    menu/MenuAjustes.cpp
     nucleo/Crc32.cpp
     nucleo/Texto.cpp
     nucleo/Nmea.cpp

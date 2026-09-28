@@ -8,6 +8,7 @@
 #include "led/LedRgb.h"
 #include "led/PadraoLed.h"
 #include "nucleo/Ponto.h"
+#include "nucleo/SeletorPeriodo.h"
 #include "nucleo/Zonamento.h"
 
 namespace coruja {
@@ -35,6 +36,11 @@ public:
     /// Uma volta do laço.
     void passo(std::uint32_t agora_ms);
 
+    /// Dia ou noite, ja com o `modo_noturno` do arquivo aplicado. Quem
+    /// chama passa isto ao `Brilho`; o piloto nao conhece o display.
+    PeriodoDoDia periodo() const { return seletor_.periodo(); }
+    void define_modo_noturno(ModoNoturno m) { seletor_.define_modo(m); }
+
     const Veredito& veredito() const { return veredito_; }
     const MaquinaZona& maquina() const { return maquina_; }
 
@@ -43,6 +49,7 @@ private:
     LedRgb&        led_;
     Buzzer&        buzzer_;
     MaquinaZona    maquina_;
+    SeletorPeriodo seletor_;
     CadenciaBuzzer cadencia_;
     PadraoLed      padrao_;
     Veredito       veredito_;

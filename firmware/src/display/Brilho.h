@@ -31,6 +31,18 @@ public:
     void aumenta();
     void diminui();
 
+    /// Carrega os dois presets do `coruja.cfg`, em porcentagem.
+    ///
+    /// Valor fora do passo de 5 e arredondado para o passo mais proximo,
+    /// e nao recusado: o leitor de configuracao ja recusa o que vem do
+    /// arquivo, entao o que chega aqui vem do menu, onde nao ha como
+    /// digitar errado. Fora da faixa vai para a ponta.
+    void define_presets(std::uint8_t dia_pct, std::uint8_t noite_pct);
+
+    /// Os presets como vao para o arquivo.
+    std::uint8_t pct_dia() const;
+    std::uint8_t pct_noite() const;
+
     /// Informa dia ou noite. Troca o preset vigente; `Desconhecido` **não
     /// muda nada** — sem data o aparelho não sabe, e mexer no brilho por
     /// palpite seria pior que deixar como está.
