@@ -45,7 +45,13 @@ url_base=https://exemplo/radares.bin
 # carro em silencio. Aparece no boot e em cada linha do log.
 nome=coruja
 
-# Brilho da tela por periodo, de 5 a 100 em passos de 5. Sao dois
+# Brilho da tela por periodo, de 0 a 100 em passos de 5.
+#
+# ZERO NAO APAGA A TELA: e o mais escuro que o painel consegue
+# mostrar. O minimo real de luminancia e do hardware, medido na
+# bancada (R-05), e nao aparece aqui -- ele ja mudou uma vez e
+# pode mudar com outro painel, sem que este arquivo precise ser
+# reescrito. Sao dois valores
 # porque o ajuste manual vale por periodo: acerta-se uma vez de dia
 # e uma de noite, e a troca seguinte ja vem certa.
 brilho_dia=100

@@ -662,8 +662,19 @@ O sistema deve ler o encoder rotativo KY-040 para ajustar o ciclo de trabalho
 (*duty cycle*) do PWM do backlight em passos de aproximadamente **5% por clique**,
 permitindo escurecer o visor para condução noturna.
 
-* **Piso de brilho de 5%:** o ajuste não deve permitir 0% real. Com o visor totalmente
-  apagado o usuário perde a referência visual para recuperá-lo.
+* **A escala exposta vai de 0% a 100%, em 21 posições** *(revisado em 2026-09-29)*.
+  **O 0% não apaga a tela:** ele é o mínimo que o painel consegue mostrar. Com o visor
+  totalmente escuro o usuário perderia a referência visual para recuperá-lo.
+* **O piso físico é 10% de luminância** *(era 5%; ver R-05)*. A bancada mostrou que
+  "apagado na prática" começa **antes** do duty zero: a 5% a barra da faixa inferior
+  não se enxerga no painel real, com a geometria de 28 px da `TelaPrincipal`.
+* **Não é a cor que falha, é a área.** As três matizes continuam distinguíveis entre
+  si a 5%; o que some é a barra inteira contra o fundo. Por isso subir o piso resolve,
+  e mexer na paleta não resolveria.
+* **O piso físico não aparece na interface, e isso é requisito.** Ele é propriedade do
+  painel — já mudou uma vez e pode mudar com outro componente. Expondo-o, uma
+  remedição obrigaria a reescrever o arquivo de configuração, o menu e a tela; contido
+  na tabela da curva, não obriga nada.
 
 #### ✅ Debounce: máquina de estados em software, filtro RC como contingência
 
@@ -1146,13 +1157,24 @@ do branco a baixo brilho e passa a competir com o número. O âmbar mantém iden
 **Verde não aparece na tela.** Zona Segura não tem barra, e barra só existe perto de
 ponto — então as cores necessárias são três, não quatro. O verde vive no LED.
 
-⚠️ **A definir na bancada (R-05):** se a âmbar, a rosa e a vermelha continuam
-distinguíveis no piso de 5% de brilho. Se não, o piso sobe para ~10%. A cor da barra e a
-do LED devem concordar, e o rosa é a mais sensível das duas calibrações.
+✅ **Medido na bancada em 2026-09-29 (R-05): o piso sobe para 10%.**
+
+A contingência prevista aqui se concretizou, mas por uma razão diferente da esperada.
+O texto previa que as três matizes se confundissem entre si; **não é o que acontece**.
+Elas continuam distinguíveis a 5% — o que desaparece é a barra inteira contra o fundo,
+porque a área acesa fica pequena demais para o olho registrar de relance.
+
+A consequência prática é a mesma (piso de 10%), mas a causa importa: fosse confusão de
+matiz, a correção seria na paleta; sendo área, a correção é no brilho, e a paleta
+permanece válida como está.
+
+✅ **Reverificado no painel depois da correção** (2026-09-29): no 0% da escala nova —
+que é o piso físico de 10% — o texto continua legível no escuro e a barra é fácil de
+ver. O layout do §4.1 foi dado por fechado na mesma sessão.
 
 #### Controle de brilho pelo encoder
 
-* **Faixa de 5% a 100%**, conforme a matriz de IHM.
+* **Faixa de 0% a 100%**, 21 posições, com o 0% mapeado no piso físico do painel.
 * **Curva perceptual, não linear.** A percepção humana de brilho é aproximadamente
   logarítmica: passos lineares de *duty cycle* fazem toda a mudança acontecer no fundo
   da escala. Use `duty = (passo / N) ^ 2,2` ou uma tabela logarítmica.

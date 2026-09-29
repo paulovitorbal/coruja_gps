@@ -76,6 +76,7 @@ if(NOT CORUJA_TESTES)
         gps/UartPico.cpp
         display/RetroiluminacaoPwm.cpp
         display/PainelSt7789.cpp
+        display/DesenhaTexto.cpp
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(coruja_portes PUBLIC

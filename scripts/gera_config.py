@@ -209,7 +209,13 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
         "# carro em silencio. Aparece no boot e em cada linha do log.",
         f"nome={ajustes.nome}",
         "",
-        "# Brilho da tela por periodo, de 5 a 100 em passos de 5. Sao dois",
+        "# Brilho da tela por periodo, de 0 a 100 em passos de 5.",
+        "#",
+        "# ZERO NAO APAGA A TELA: e o mais escuro que o painel consegue",
+        "# mostrar. O minimo real de luminancia e do hardware, medido na",
+        "# bancada (R-05), e nao aparece aqui -- ele ja mudou uma vez e",
+        "# pode mudar com outro painel, sem que este arquivo precise ser",
+        "# reescrito. Sao dois valores",
         "# porque o ajuste manual vale por periodo: acerta-se uma vez de dia",
         "# e uma de noite, e a troca seguinte ja vem certa.",
         f"brilho_dia={ajustes.brilho_dia}",
@@ -249,9 +255,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--nome", default=padrao.nome,
                    help="identifica a unidade; aparece no boot e no log")
     p.add_argument("--brilho-dia", type=int, default=padrao.brilho_dia,
-                   help="5 a 100, em passos de 5")
+                   help="0 a 100, em passos de 5; 0 nao apaga")
     p.add_argument("--brilho-noite", type=int, default=padrao.brilho_noite,
-                   help="5 a 100, em passos de 5")
+                   help="0 a 100, em passos de 5; 0 nao apaga")
     p.add_argument("--modo-noturno", choices=("auto", "dia", "noite"),
                    default=padrao.modo_noturno)
     p.add_argument("--volume-buzzer", type=int, default=padrao.volume_buzzer,

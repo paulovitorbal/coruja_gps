@@ -160,6 +160,88 @@ void PainelSt7789::preenche(int x, int y, int largura, int altura,
     seleciona(false);
 }
 
+void PainelSt7789::desenha_bitmap(int x, int y, int largura, int altura,
+                                  int bytes_por_linha,
+                                  const std::uint8_t* bits,
+                                  std::uint16_t cor, std::uint16_t fundo) {
+    if (bits == nullptr || largura <= 0 || altura <= 0) { return; }
+    // Fora da tela por inteiro: sai antes de tocar no controlador. Recorte
+    // parcial nao e suportado de proposito -- glifo cortado pela metade e
+    // defeito de layout, e engoli-lo em silencio esconderia o defeito.
+    if (x < 0 || y < 0 || x + largura > tela::kLargura ||
+        y + altura > tela::kAltura) {
+        return;
+    }
+
+    const std::uint8_t col[4] = {
+        static_cast<std::uint8_t>(x >> 8), static_cast<std::uint8_t>(x),
+        static_cast<std::uint8_t>((x + largura - 1) >> 8),
+        static_cast<std::uint8_t>(x + largura - 1)};
+    const std::uint8_t lin[4] = {
+        static_cast<std::uint8_t>(y >> 8), static_cast<std::uint8_t>(y),
+        static_cast<std::uint8_t>((y + altura - 1) >> 8),
+        static_cast<std::uint8_t>(y + altura - 1)};
+    escreve(kCaset, col, sizeof col);
+    escreve(kRaset, lin, sizeof lin);
+
+    seleciona(true);
+    gpio_put(pinos::kDisplayDc, false);
+    spi_write_blocking(spi1, &kRamwr, 1);
+    gpio_put(pinos::kDisplayDc, true);
+
+    std::uint8_t linha[tela::kLargura * 2];
+    for (int ly = 0; ly < altura; ++ly) {
+        const std::uint8_t* origem = bits + ly * bytes_por_linha;
+        for (int lx = 0; lx < largura; ++lx) {
+            const bool aceso =
+                (origem[lx >> 3] & (0x80U >> (lx & 7))) != 0;
+            const std::uint16_t v = aceso ? cor : fundo;
+            linha[lx * 2] = static_cast<std::uint8_t>(v >> 8);
+            linha[lx * 2 + 1] = static_cast<std::uint8_t>(v);
+        }
+        spi_write_blocking(spi1, linha,
+                           static_cast<std::size_t>(largura) * 2);
+    }
+    seleciona(false);
+}
+
+void PainelSt7789::desenha_rgb565(int x, int y, int largura, int altura,
+                                  const std::uint16_t* pixels) {
+    if (pixels == nullptr || largura <= 0 || altura <= 0) { return; }
+    if (x < 0 || y < 0 || x + largura > tela::kLargura ||
+        y + altura > tela::kAltura) {
+        return;  // sprite cortado e defeito de layout, nao caso a tratar
+    }
+
+    const std::uint8_t col[4] = {
+        static_cast<std::uint8_t>(x >> 8), static_cast<std::uint8_t>(x),
+        static_cast<std::uint8_t>((x + largura - 1) >> 8),
+        static_cast<std::uint8_t>(x + largura - 1)};
+    const std::uint8_t lin[4] = {
+        static_cast<std::uint8_t>(y >> 8), static_cast<std::uint8_t>(y),
+        static_cast<std::uint8_t>((y + altura - 1) >> 8),
+        static_cast<std::uint8_t>(y + altura - 1)};
+    escreve(kCaset, col, sizeof col);
+    escreve(kRaset, lin, sizeof lin);
+
+    seleciona(true);
+    gpio_put(pinos::kDisplayDc, false);
+    spi_write_blocking(spi1, &kRamwr, 1);
+    gpio_put(pinos::kDisplayDc, true);
+    std::uint8_t linha[tela::kLargura * 2];
+    for (int ly = 0; ly < altura; ++ly) {
+        for (int lx = 0; lx < largura; ++lx) {
+            const std::uint16_t v = pixels[ly * largura + lx];
+            // Big-endian no barramento, como o resto do driver.
+            linha[lx * 2] = static_cast<std::uint8_t>(v >> 8);
+            linha[lx * 2 + 1] = static_cast<std::uint8_t>(v);
+        }
+        spi_write_blocking(spi1, linha,
+                           static_cast<std::size_t>(largura) * 2);
+    }
+    seleciona(false);
+}
+
 void PainelSt7789::limpa(std::uint16_t cor) {
     preenche(0, 0, tela::kLargura, tela::kAltura, cor);
 }

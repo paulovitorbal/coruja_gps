@@ -6,12 +6,31 @@
 
 namespace coruja {
 
-/// Passos de ~5% do RF04: 20 posições, de 5% a 100%.
-constexpr std::size_t kPassosBrilho = 20;
-/// **Piso de 5%, e nunca 0%.** Com o visor totalmente apagado o usuário
-/// perde a referência visual para recuperá-lo.
-constexpr std::uint8_t kBrilhoMinimoPct = 5;
+/// Passos de 5% do RF04: 21 posições, de 0% a 100%.
+constexpr std::size_t kPassosBrilho = 21;
+
+/// **A escala do usuário vai de 0% a 100%, e 0% NÃO apaga a tela.**
+///
+/// Zero aqui significa "o mínimo que este painel consegue mostrar", que é
+/// `kPisoFisicoPct` de duty. A separação é deliberada: o piso é propriedade
+/// do hardware — mudou de 5% para 10% quando o R-05 foi medido, e pode
+/// mudar de novo com outro painel — e não há razão para o motorista
+/// conhecê-lo. Ele quer "o mais escuro possível", e isso se chama 0%.
+///
+/// Antes a escala exposta era a física, e o piso vazava para o arquivo de
+/// configuração, para o menu e para a tela. Uma remedição do R-05 teria de
+/// reescrever os três.
+constexpr std::uint8_t kBrilhoMinimoPct = 0;
 constexpr std::uint8_t kBrilhoMaximoPct = 100;
+
+/// O duty mínimo real, em percentual de luminância física.
+///
+/// **Medido no painel em 2026-09-29 (R-05), não escolhido.** A 5% a barra
+/// da faixa inferior não se enxerga; a 10%, sim. E não é a cor que falha:
+/// as três matizes continuam distinguíveis entre si a 5% — o que some é a
+/// barra inteira contra o fundo, por falta de área acesa. Por isso o
+/// remédio é brilho, e a paleta segue válida.
+constexpr std::uint8_t kPisoFisicoPct = 10;
 
 /// Frequência mínima do PWM do backlight.
 ///
@@ -19,6 +38,15 @@ constexpr std::uint8_t kBrilhoMaximoPct = 100;
 /// periférica e pode produzir efeito estroboscópico com feições da estrada.
 /// Entre 1 e 20 kHz alguns módulos assobiam. Daí os 20 kHz.
 constexpr std::uint32_t kFrequenciaPwmHz = 20000;
+
+/// O duty do **primeiro** passo da curva, `(5/100)^2,2 x 65535`.
+///
+/// Exposto porque a porta de PWM precisa conferir que ele nao vira zero na
+/// resolucao dela. Uma porta que trunque 90 para 0 apaga a tela no piso do
+/// RF04 -- e foi exatamente o que aconteceu com um wrap de 8 bits, onde
+/// `90/257` da 0. A promessa de `duty()` ("nunca zero") vale para quem
+/// chama, e a porta tem de honra-la.
+constexpr std::uint16_t kDutyMinimo = 90;
 
 /// Ajuste de brilho do RF04, com a curva perceptual.
 ///
@@ -67,11 +95,11 @@ private:
     /// aparelho lembrar: acerta-se o brilho uma vez de dia e uma vez de
     /// noite, e a transição seguinte já vem no valor certo. Um preset só
     /// obrigaria a reajustar duas vezes por dia, para sempre.
-    std::size_t passo_dia_ = kPassosBrilho;   ///< 100%
+    std::size_t passo_dia_ = kPassosBrilho - 1;  ///< 100%
     /// 20% é chute de partida, para ajustar na estrada. Sem medição, é o
     /// que se pode dizer honestamente — e o R-05 ainda vai dizer se o piso
     /// de 5% é utilizável.
-    std::size_t passo_noite_ = 4;             ///< 20%
+    std::size_t passo_noite_ = 4;             ///< 20% (passo*5)
     PeriodoDoDia periodo_ = PeriodoDoDia::Desconhecido;
 };
 

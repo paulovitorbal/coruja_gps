@@ -25,7 +25,7 @@
 
 | Item | O que medir | Por quê |
 | :--- | :--- | :--- |
-| ~~**R-05**~~ | ✅ **CONCLUÍDO em 2026-09-19.** Resistores: 330 Ω vermelho, 470 Ω verde, 150 Ω azul. PWM: âmbar 19,6% de verde, rosa 15,7% de azul | Critério do RF03.4 atendido: rosa inconfundível com o vermelho, âmbar claro. |
+| ~~**R-05**~~ | ✅ **CONCLUÍDO em duas partes.** LED em 2026-09-19: resistores 330/470/150 Ω, âmbar 19,6% de verde, rosa 15,7% de azul. **Tela em 2026-09-29:** as três matizes se distinguem a 5%, mas a barra some por falta de área — piso físico sobe de 5% para 10%, e a escala exposta passa a 0–100% com o piso escondido. **Reverificado:** a 0% da escala nova o texto continua legível no escuro e a barra é fácil de ver | Critério do RF03.4 atendido no LED. Na tela, a paleta passou, o piso de brilho não — e o piso corrigido passou na reverificação. |
 | **R-13** | Corrente agregada no `3V3_OUT` com backlight em 100% | Com o GPS migrado para 5 V (R-14), sobraram display e SD — margem provavelmente confortável, mas não verificada. |
 | **R-17** | Consumo do buzzer e pinagem do BC337/2N2222 | A ordem E-B-C difere da do BC547. ⚠️ **Esperado ~10 mA no SFM-20B**, não 20–50 mA como dizia a rev. 2 da folha de bancada — aquele número era do SFM-27 (R-32). |
 
@@ -1521,6 +1521,53 @@ oscilar no veículo, soldar **1 a 10 nF** (τ de 10 a 100 µs) resolve sem redes
 confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** contra
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
+
+## R-64 — A fonte de 56×94 do §4.1 não cabe uma velocidade de três dígitos
+
+- **Onde:** `requirements.md` §4.1, tabela de assets
+- **Confiança:** ✅ Aritmética, confirmada na maquete no painel real
+- **Status:** ✅ **CORRIGIDO** — hierarquia de escala, `FonteNumeroPequeno`
+
+**O defeito.** O §4.1 especifica uma fonte numérica de **56×94** para
+`velocidade/limite`, com 11 glifos (`0-9` e `/`). Some as larguras do pior
+caso real:
+
+```
+"120/120"  →  7 glifos × 56 px  =  392 px
+tela útil  →  320 − 2×2 de moldura  =  316 px
+```
+
+**Não cabe, e por 76 px.** Não é caso extremo: rodovia brasileira tem limite
+de 110 e 120 km/h, e velocidade de três dígitos é o normal nelas.
+
+**Por que passou.** O §4.1 fixou o tamanho da célula sem multiplicar pelo
+conteúdo máximo. E a primeira maquete só não expôs isso porque eu escolhi
+`72/60` como exemplo — 5 glifos, 280 px, cabe. **Escolhi um caso que caberia
+e concluí que o layout funcionava.** O autor pediu explicitamente para ver
+`100/120`, e foi o pedido que revelou o problema.
+
+**A correção: hierarquia de escala, não encolher tudo.** Reduzir a fonte
+única para 45 px faria caber, ao custo de diminuir a velocidade — que é
+justamente o que se lê de relance. Em vez disso:
+
+| Elemento | Fonte | Pior caso |
+| :--- | :--- | ---: |
+| Velocidade | 56×94 | `120` → 168 px |
+| `/limite` | **28×48** | `/120` → 112 px |
+| | | **280 px** ✅ |
+
+Isso também concorda com a atenção do motorista, e não só com a aritmética:
+a velocidade é a informação, o limite é referência. O §4.1 já lista
+"hierarquia por contraste de escala" entre as qualidades exigidas — aqui ela
+deixou de ser recomendação e virou necessidade geométrica.
+
+**Custo em flash:** +2.112 bytes. Total das três fontes: 12,8 KiB, contra os
+~10 KiB que o §4.1 orçava para duas. O orçamento era de 16 KiB com os
+sprites, e ainda cabe.
+
+**O limite assenta na linha de base da velocidade**, não centralizado na
+altura da própria célula — alinhado pelo meio ele pareceria flutuar acima do
+número.
 
 ## R-63 — Primeira ligação do painel: o custo de não conferir o óbvio
 

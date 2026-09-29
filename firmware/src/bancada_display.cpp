@@ -25,7 +25,14 @@
 #include <pico/stdio_usb.h>
 #include <pico/stdlib.h>
 
+#include "display/Brilho.h"
+#include "display/DesenhaTexto.h"
+#include "display/FonteNumero.h"
+#include "display/FonteNumeroPequeno.h"
+#include "display/Sprites.h"
+#include "display/FonteTexto.h"
 #include "display/PainelSt7789.h"
+#include "encoder/EncoderKy040.h"
 #include "led/LedRgbAnodoComum.h"
 #include "display/RetroiluminacaoPwm.h"
 #include "display/Visor.h"
@@ -36,6 +43,19 @@ using namespace coruja;
 namespace {
 
 constexpr std::uint32_t kEtapaMs = 3000;
+
+/// **As cinco etapas de diagnostico ficam desligadas por padrao.**
+///
+/// Elas levam ~1 min, e 30 s disso e o pulso de pinos para medicao com
+/// multimetro. Isso era essencial enquanto o painel nao desenhava; com ele
+/// validado, e espera pura entre a gravacao e o que se quer olhar.
+///
+/// **Ficam no codigo, e nao viram lixo:** foram elas que isolaram
+/// alimentacao, fiacao, velocidade e inversao, e serao elas de novo no dia
+/// em que a tela apagar -- ou quando o segundo aparelho for montado, que e
+/// uma primeira ligacao inteira outra vez. Ligar de volta e trocar `false`
+/// por `true` aqui.
+constexpr bool kDiagnosticoCompleto = false;
 
 /// O LED e o unico retorno que sobra enquanto a tela esta muda.
 ///
@@ -164,24 +184,164 @@ void orientacao(PainelSt7789& painel) {
     sleep_ms(kEtapaMs * 2);
 }
 
-void paleta_rf03(PainelSt7789& painel, RetroiluminacaoPwm& luz) {
-    pisca_etapa(Cor{255, 255, 255}, 6);
-    anuncia("6/6 paleta do RF03 no piso de 5%");
-    const std::uint16_t cores[] = {paleta::kBarraAmbar, paleta::kBarraRosa,
-                                   paleta::kBarraPerigo};
-    const int largura = tela::kLargura / 3;
-    painel.limpa(paleta::kFundo);
-    for (int i = 0; i < 3; ++i) {
-        painel.preenche(i * largura, 40, largura, tela::kAltura - 80,
-                        cores[i]);
+/// A faixa superior: o percentual de brilho, onde iria o relogio.
+///
+/// Alinhado a direita, como o relogio ficaria. O fundo e pintado pelo
+/// proprio glifo, o que dispensa limpar a faixa antes e evita a piscada de
+/// apagar-e-redesenhar -- com 320x240 a 20 kHz de PWM, apagar primeiro se
+/// ve.
+void desenha_brilho(PainelSt7789& painel, const Brilho& brilho) {
+    char texto[16];
+    std::snprintf(texto, sizeof texto, "%3u%%", brilho.percentual());
+    const int y = tela::kYFaixaSuperior +
+                  (tela::kFaixaSuperior - fonte::texto::kAltura) / 2;
+    escreve_texto(painel,
+                  tela::kLargura - tela::kMoldura - 8 - largura_texto(texto),
+                  y, texto, paleta::kTexto, paleta::kFundo);
+}
+
+/// Etapa 6: a maquete do §4.1 no painel, com o brilho no lugar do relogio.
+///
+/// **Julga a paleta no contexto de uso, nao em abstrato.** As tres barras
+/// lado a lado respondiam "estas cores sao diferentes entre si?", que nao e
+/// a pergunta: no carro se ve UMA tela, de relance, e e preciso saber em que
+/// zona se esta. A barra ocupa a faixa inferior, o numero e branco no meio,
+/// e e esse conjunto que tem de funcionar a 5% de brilho.
+///
+/// O relogio da faixa superior da lugar ao **percentual de brilho**, a
+/// pedido do autor: sem isso, ajustar no escuro e as cegas.
+///
+/// Girar ajusta o brilho. Clicar sorteia outra zona **e revela qual era a
+/// anterior pelo serial** -- entao da para nomear antes de conferir, que e
+/// o unico teste que reproduz a tarefa real.
+void maquete_com_encoder(PainelSt7789& painel, RetroiluminacaoPwm& luz,
+                         Encoder& encoder, Brilho& brilho) {
+    anuncia("6/6 maquete do 4.1 -- brilho no encoder, no lugar do relogio");
+    std::printf("  girar  = brilho\n");
+
+    struct Cenario { const char* nome; std::uint16_t cor; unsigned vel;
+                     unsigned limite; int pct_barra; };
+    // Os quatro primeiros contam uma historia coerente com o RF03: limite
+    // de 60, V_infra de 66. Os tres ultimos existem para provar o LAYOUT
+    // nos extremos de largura, que e onde o §4.1 falhou:
+    //
+    //   120/120 -> 7 glifos, o pior caso. Rodovia, nao excecao.
+    //   100/120 -> pedido do autor.
+    //     8/60  -> um digito, para ver se a centragem aguenta os dois fins.
+    const Cenario cenarios[] = {
+        {"SEGURA",      paleta::kMoldura,       58,  60,   0},
+        {"APROXIMACAO", paleta::kBarraAmbar,    62,  60,  35},
+        {"MARGEM",      paleta::kBarraRosa,     67,  60,  65},
+        {"PERIGO",      paleta::kBarraPerigo,   74,  60,  95},
+        {"SEGURA (rodovia)",  paleta::kMoldura, 100, 120,   0},
+        {"PERIGO (rodovia)",  paleta::kBarraPerigo, 120, 120, 90},
+        {"SEGURA (1 digito)", paleta::kMoldura,   8,  60,   0},
+    };
+    constexpr int kQuantosCenarios =
+        static_cast<int>(sizeof cenarios / sizeof *cenarios);
+
+    std::printf("  clique = proximo cenario (%d no total)\n",
+                kQuantosCenarios);
+
+    // Ordem fixa, nao sorteio. O sorteio servia ao teste cego do R-05; para
+    // revisar layout, previsibilidade vale mais -- e para um teste cego
+    // basta olhar para o lado enquanto clica.
+    int atual = 0;
+
+    auto desenha_tudo = [&] {
+        const Cenario& z = cenarios[atual];
+        // **Sem moldura** (decidido pelo autor em 2026-09-29): o fio de
+        // 2 px em volta nao carregava informacao nenhuma e gastava area
+        // acesa -- que e exatamente o que o §4.1 manda economizar, porque
+        // com o brilho a 5% a noite o ofuscamento vem da area, nao da cor.
+        painel.limpa(paleta::kFundo);
+
+        desenha_brilho(painel, brilho);
+
+        // Area do numero: velocidade grande, limite em metade da escala.
+        // Branco porque e o que precisa ser lido -- 21:1 de contraste sobre
+        // preto contra 5,3:1 do vermelho (regra 3 da paleta).
+        //
+        // A hierarquia nao e estetica: com tudo em 56 px, "120/120" daria
+        // 392 px numa tela de 320. E ela concorda com a atencao -- a
+        // velocidade se le de relance, o limite e referencia.
+        char s_vel[8];
+        char s_lim[8];
+        std::snprintf(s_vel, sizeof s_vel, "%u", z.vel);
+        std::snprintf(s_lim, sizeof s_lim, "/%u", z.limite);
+        const int lv = largura_numero(s_vel);
+        const int ll = largura_numero_pequeno(s_lim);
+        const int x0 = (tela::kLargura - lv - ll) / 2;
+        const int yv = tela::kYAreaNumero +
+                       (tela::kAreaNumero - fonte::numero::kAltura) / 2;
+        escreve_numero(painel, x0, yv, s_vel, paleta::kTexto, paleta::kFundo);
+        // O limite assenta na MESMA linha de base da velocidade, nao
+        // centralizado na altura: alinhado pelo meio ele pareceria flutuar.
+        const int yl = yv + fonte::numero::kAltura -
+                       fonte::numeropequeno::kAltura;
+        // Branco, nao cinza (decidido pelo autor em 2026-09-29). O cinza
+        // reforcava a hierarquia, mas colapsa antes no piso de brilho, e
+        // ai a referencia do limite se perde justamente a noite. A
+        // hierarquia continua inteira pela ESCALA, que o PWM nao apaga --
+        // e e a regra 1 da paleta: distinguir por matiz ou forma, nunca
+        // por luminancia.
+        escreve_numero_pequeno(painel, x0 + lv, yl, s_lim, paleta::kTexto,
+                               paleta::kFundo);
+
+        // Faixa inferior, com a geometria REAL da TelaPrincipal: barra de
+        // 28 px de altura em x=56, deixando 40 px para o icone a esquerda.
+        // A primeira maquete usava 16 px em x=20 e subrepresentava a barra
+        // -- o que importa, porque foi na visibilidade dela que o piso de
+        // brilho reprovou.
+        constexpr int kBarraX = 56;
+        constexpr int kBarraL = tela::kLargura - kBarraX - 8;
+        constexpr int kBarraA = 28;
+        const int y = tela::kYFaixaInferior + 8;
+        painel.preenche(kBarraX, y, kBarraL, kBarraA, paleta::kMoldura);
+        if (z.pct_barra > 0) {
+            painel.preenche(kBarraX, y, kBarraL * z.pct_barra / 100, kBarraA,
+                            z.cor);
+        }
+        // Icone, 40x40 RGB565 (Twemoji). Semaforo nos cenarios de rodovia,
+        // radar nos demais -- so para as duas artes aparecerem.
+        const bool semaforo = (atual == 4 || atual == 5);
+        painel.desenha_rgb565(8, y - 6, sprite::kLado, sprite::kLado,
+                              semaforo ? sprite::kSemaforo : sprite::kRadar);
+    };
+
+    desenha_tudo();
+    luz.define_duty(brilho.duty());
+    std::printf("  cenario: %s (%u/%u), brilho %u%%\n", cenarios[atual].nome,
+                cenarios[atual].vel, cenarios[atual].limite,
+                brilho.percentual());
+
+    while (true) {
+        const EventoEncoder e = encoder.proximo_evento();
+        if (e == EventoEncoder::Nenhum) {
+            sleep_ms(1);  // a quadratura precisa ver cada transicao
+            continue;
+        }
+        if (e == EventoEncoder::Clique) {
+            atual = (atual + 1) % kQuantosCenarios;
+            desenha_tudo();
+            std::printf("  cenario: %s (%u/%u)\n", cenarios[atual].nome,
+                        cenarios[atual].vel, cenarios[atual].limite);
+            continue;
+        }
+        if (e == EventoEncoder::GiroDireita) {
+            brilho.aumenta();
+        } else {
+            brilho.diminui();
+        }
+        luz.define_duty(brilho.duty());
+        // Redesenha so a faixa superior: e o que muda, e a §4.1 existe
+        // para permitir exatamente isso.
+        desenha_brilho(painel, brilho);
+        std::printf("  brilho: %u%% (passo %u de %u, duty %u)\n",
+                    brilho.percentual(),
+                    static_cast<unsigned>(brilho.passo()),
+                    static_cast<unsigned>(kPassosBrilho), brilho.duty());
     }
-    std::printf("  ambar | rosa | perigo -- a 100%% de brilho\n");
-    luz.define_duty(65535);
-    sleep_ms(kEtapaMs);
-    std::printf("  as mesmas tres a 5%% (R-05: da para distinguir?)\n");
-    luz.define_duty(90);
-    sleep_ms(kEtapaMs * 2);
-    luz.define_duty(65535);
 }
 
 }  // namespace
@@ -199,35 +359,34 @@ int main() {
     RetroiluminacaoPwm luz;
     PainelSt7789 painel;
     LedRgbAnodoComum led;
+    EncoderKy040 encoder;
+    Brilho brilho;
     g_led = &led;
 
     std::printf("\ncoruja - bancada do display ST7789V (GMT024-08-SPI8P)\n");
 
-    rampa(luz);
-    continuidade();
-    varredura(painel);
+    if (kDiagnosticoCompleto) {
+        rampa(luz);
+        continuidade();
+        varredura(painel);
 
-    pisca_etapa(cores::kAzul, 4);
-    anuncia("4/6 cores com INVON (o padrao para IPS)");
-    std::printf("  se o 'vermelho' aparecer ciano, a inversao esta errada\n");
-    serie_rgb(painel);
-    std::printf("  as mesmas com INVOFF:\n");
-    painel.define_inversao(false);
-    serie_rgb(painel);
-    painel.define_inversao(true);
+        pisca_etapa(cores::kAzul, 4);
+        anuncia("4/6 cores com INVON (o padrao para IPS)");
+        std::printf("  se o 'vermelho' aparecer ciano, a inversao esta "
+                    "errada\n");
+        serie_rgb(painel);
+        std::printf("  as mesmas com INVOFF:\n");
+        painel.define_inversao(false);
+        serie_rgb(painel);
+        painel.define_inversao(true);
 
-    orientacao(painel);
-    paleta_rf03(painel, luz);
-
-    std::printf("\nfim. repetindo as cores em laco.\n");
-    // No laco o LED acompanha a cor que a tela deveria estar mostrando:
-    // se a tela ficar muda, da para conferir que o firmware nao travou.
-    while (true) {
-        led.define_cor(cores::kVermelho);
-        mostra(painel, "vermelho", 0xF800);
-        led.define_cor(cores::kVerde);
-        mostra(painel, "verde", 0x07E0);
-        led.define_cor(cores::kAzul);
-        mostra(painel, "azul", 0x001F);
+        orientacao(painel);
+    } else {
+        std::printf("diagnostico pulado (kDiagnosticoCompleto = false).\n");
+        painel.inicia();
+        luz.define_duty(brilho.duty());
     }
+
+    // Nao retorna: a ultima etapa fica no encoder, esperando a pessoa.
+    maquete_com_encoder(painel, luz, encoder, brilho);
 }

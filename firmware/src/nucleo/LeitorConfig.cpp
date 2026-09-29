@@ -57,12 +57,18 @@ bool inteiro(const char* ini, std::size_t n, unsigned* destino) {
     return true;
 }
 
-/// Brilho de 5 a 100, **em passos de 5**. Um valor fora do passo seria
+/// Brilho de **0 a 100**, em passos de 5. Um valor fora do passo seria
 /// aceito e depois arredondado em silêncio ao virar índice da curva; recusar
 /// deixa o erro visível enquanto ainda dá para corrigir o arquivo.
+///
+/// **`0` não apaga a tela.** Na escala do arquivo, como na do menu, zero é
+/// o mais escuro que este painel consegue mostrar — `kPisoFisicoPct` de
+/// luminância, medido no R-05. O piso do hardware não aparece aqui de
+/// propósito: ele já mudou uma vez (5% → 10%) e pode mudar com outro
+/// painel, e nenhum `coruja.cfg` deveria precisar ser reescrito por isso.
 bool le_brilho(const char* ini, std::size_t n, std::uint8_t* destino) {
     unsigned v = 0;
-    if (!inteiro(ini, n, &v) || v < 5 || v > 100 || v % 5 != 0) {
+    if (!inteiro(ini, n, &v) || v > 100 || v % 5 != 0) {
         return false;
     }
     *destino = static_cast<std::uint8_t>(v);

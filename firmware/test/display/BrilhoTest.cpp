@@ -60,9 +60,13 @@ TEST(Brilho, a_curva_e_perceptual_e_nao_linear) {
     // mudanca perceptivel acontece no fundo da escala e os dez cliques de
     // cima nao fazem nada. Na curva de 2,2, metade do brilho PERCEBIDO sao
     // ~22% do duty -- bem longe dos 50% que o linear daria.
+    // Sobe ate 50% em vez de contar passos a partir do piso: contando, o
+    // teste quebra toda vez que o piso mudar -- e ele ja mudou uma vez,
+    // de 5% para 10% (R-05). O que se afirma aqui e sobre o MEIO da
+    // escala, e nao tem por que depender de onde ela comeca.
     Brilho b;
     for (int i = 0; i < 100; ++i) { b.diminui(); }
-    for (int i = 0; i < 9; ++i) { b.aumenta(); }    // 50%
+    while (b.percentual() < 50) { b.aumenta(); }
     ASSERT_EQ(b.percentual(), 50);
     const double fracao = b.duty() / 65535.0;
     EXPECT_LT(fracao, 0.30) << "a curva achatou e virou quase linear";
@@ -70,12 +74,53 @@ TEST(Brilho, a_curva_e_perceptual_e_nao_linear) {
 }
 
 TEST(Brilho, o_piso_e_visivel_mas_discreto) {
-    // 5% percebido sao ~0,14% do duty. Tem de ser maior que zero e bem
-    // menor que 1% -- e o que permite dirigir a noite sem ofuscamento.
+    // O piso subiu de 5% para 10% no R-05, medido no painel: a 5% a barra
+    // inferior nao se enxergava. Em duty isso e 413 de 65535, ~0,63% --
+    // ainda muito abaixo de 1%, que e o que permite dirigir a noite sem
+    // ofuscamento, e agora acima do limiar de visibilidade medido.
     Brilho b;
     for (int i = 0; i < 100; ++i) { b.diminui(); }
+    EXPECT_EQ(b.percentual(), kBrilhoMinimoPct);
     EXPECT_GT(b.duty(), 0);
     EXPECT_LT(b.duty(), 655) << "o piso nao esta baixo o bastante para a noite";
+}
+
+TEST(Brilho, o_piso_fisico_do_R05_nao_muda_sem_medir_de_novo) {
+    // Guarda de requisito, nao de implementacao. O 10% saiu de medicao no
+    // painel real (R-05); muda-lo exige repetir a medicao, e este teste
+    // existe para que isso seja decisao consciente e nao consequencia de
+    // alguem "arredondando" a constante.
+    //
+    // Repare em QUAL constante isto guarda: `kPisoFisicoPct`, nao
+    // `kBrilhoMinimoPct`. A primeira e a grandeza medida; a segunda e o
+    // zero da escala do usuario, que e convencao e nao medicao. Guardar a
+    // errada foi o que este teste fez por uma versao.
+    EXPECT_EQ(kPisoFisicoPct, 10)
+        << "piso fisico alterado: refaca o R-05 na bancada antes disto";
+}
+
+TEST(Brilho, a_escala_do_usuario_vai_de_zero_a_cem) {
+    // O piso do hardware nao vaza para a interface: quem le 0% nao precisa
+    // saber que o painel esta em 10% de luminancia.
+    EXPECT_EQ(kBrilhoMinimoPct, 0);
+    EXPECT_EQ(kBrilhoMaximoPct, 100);
+    EXPECT_EQ(kPassosBrilho, 21u) << "0 a 100 de 5 em 5 sao 21 passos";
+
+    Brilho b;
+    for (int i = 0; i < 100; ++i) { b.diminui(); }
+    EXPECT_EQ(b.percentual(), 0) << "o fundo da escala tem de se chamar 0%";
+    for (int i = 0; i < 100; ++i) { b.aumenta(); }
+    EXPECT_EQ(b.percentual(), 100);
+}
+
+TEST(Brilho, zero_por_cento_nao_apaga_a_tela) {
+    // O 0% da escala e o mais escuro UTILIZAVEL, nao o apagado. Quem apaga
+    // e o duty zero, que a curva nunca produz -- e com o visor escuro o
+    // usuario perderia a referencia para recupera-lo.
+    Brilho b;
+    for (int i = 0; i < 100; ++i) { b.diminui(); }
+    ASSERT_EQ(b.percentual(), 0);
+    EXPECT_GT(b.duty(), 0) << "0% na escala nao pode significar tela apagada";
 }
 
 // ================================================ dia e noite (R-61)

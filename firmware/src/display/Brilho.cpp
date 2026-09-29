@@ -3,15 +3,31 @@
 namespace coruja {
 namespace {
 
-/// `(pct/100)^2,2 × 65535`, para pct de 5 em 5. Gerada em Python e conferida
-/// no ponto que importa: 50% de brilho **percebido** são 21,8% do duty, e é
-/// essa diferença que a curva existe para produzir. Tabela em vez de `powf`
-/// porque é 40 bytes de flash contra uma chamada de biblioteca por ajuste.
+/// Duty de cada passo, já com as duas transformações aplicadas.
+///
+/// `duty = (fisico/100)^2,2 × 65535`, onde
+/// `fisico = kPisoFisicoPct + (100 - kPisoFisicoPct) × passo / 20`.
+///
+/// São duas coisas em cima da outra, e vale separá-las:
+///
+/// 1. **A redistribuição** mapeia os 0–100% que o usuário vê nos 10–100%
+///    que o painel consegue. É linear, e existe para o piso do hardware não
+///    vazar para a interface.
+/// 2. **A curva de 2,2** é perceptual: a percepção humana de brilho é
+///    aproximadamente logarítmica, e com passos lineares de duty toda a
+///    mudança acontece no fundo da escala e os dez cliques de cima não
+///    fazem nada.
+///
+/// Gerada em Python e conferida no ponto que importa: 50% na escala do
+/// usuário dá 17.590 de duty, 26,8% do máximo — bem longe dos 50% que o
+/// linear daria. Tabela em vez de `powf` porque são 42 bytes de flash
+/// contra uma chamada de biblioteca por ajuste.
 constexpr std::uint16_t kCurva[kPassosBrilho] = {
-        90,    413,   1009,   1900,   3104,   //  5% a 25%
-      4636,   6508,   8730,  11312,  14263,   // 30% a 50%
-     17590,  21301,  25403,  29901,  34802,   // 55% a 75%
-     40112,  45835,  51976,  58542,  65535,   // 80% a 100%
+      413,   936,  1697,  2709,  3983,   //  0% a  20%
+     5529,  7354,  9466, 11872, 14579,   // 25% a  45%
+    17590, 20913, 24551, 28510, 32793,   // 50% a  70%
+    37406, 42351, 47633, 53255, 59222,   // 75% a  95%
+    65535,                               // 100%
 };
 
 }  // namespace
@@ -26,11 +42,19 @@ std::size_t Brilho::passo_vigente() const {
 
 namespace {
 
-/// Porcentagem para posicao de passo: 5% -> 1, 100% -> 20.
+/// Porcentagem para posicao de passo: 0% -> 0, 100% -> 20.
+///
+/// O passo 0 agora EXISTE e e o mais escuro utilizavel, nao a tela
+/// apagada: quem apaga e o duty zero, que a curva nunca produz.
 std::size_t passo_de_pct(std::uint8_t pct) {
-    if (pct <= kBrilhoMinimoPct) { return 1; }
-    if (pct >= kBrilhoMaximoPct) { return kPassosBrilho; }
+    if (pct >= kBrilhoMaximoPct) { return kPassosBrilho - 1; }
+    // +2 arredonda para o passo mais proximo em vez de truncar.
     return static_cast<std::size_t>((pct + 2) / 5);
+}
+
+/// A inversa. Uma funcao so, para as tres chamadas nao divergirem.
+std::uint8_t pct_de_passo(std::size_t passo) {
+    return static_cast<std::uint8_t>(passo * 5);
 }
 
 }  // namespace
@@ -40,13 +64,9 @@ void Brilho::define_presets(std::uint8_t dia_pct, std::uint8_t noite_pct) {
     passo_noite_ = passo_de_pct(noite_pct);
 }
 
-std::uint8_t Brilho::pct_dia() const {
-    return static_cast<std::uint8_t>(passo_dia_ * 5);
-}
+std::uint8_t Brilho::pct_dia() const { return pct_de_passo(passo_dia_); }
 
-std::uint8_t Brilho::pct_noite() const {
-    return static_cast<std::uint8_t>(passo_noite_ * 5);
-}
+std::uint8_t Brilho::pct_noite() const { return pct_de_passo(passo_noite_); }
 
 void Brilho::define_periodo(PeriodoDoDia periodo) {
     if (periodo == PeriodoDoDia::Desconhecido) { return; }
@@ -55,22 +75,24 @@ void Brilho::define_periodo(PeriodoDoDia periodo) {
 
 void Brilho::aumenta() {
     auto& p = passo_vigente();
-    if (p < kPassosBrilho) { ++p; }
+    if (p + 1 < kPassosBrilho) { ++p; }
 }
 
 void Brilho::diminui() {
-    // Para no 1, que é o piso de 5%. Zero apagaria a tela e o usuário
-    // perderia a referência para recuperá-la.
+    // Para no passo 0, que na escala do usuário é 0% e no painel é
+    // `kPisoFisicoPct`. A tela nunca apaga: com o visor escuro o usuário
+    // perderia a referência para recuperá-lo, e a bancada mostrou que
+    // "apagado na prática" começa antes do duty zero.
     auto& p = passo_vigente();
-    if (p > 1) { --p; }
+    if (p > 0) { --p; }
 }
 
 std::size_t Brilho::passo() const { return passo_vigente(); }
 
 std::uint8_t Brilho::percentual() const {
-    return static_cast<std::uint8_t>(passo_vigente() * 5U);
+    return pct_de_passo(passo_vigente());
 }
 
-std::uint16_t Brilho::duty() const { return kCurva[passo_vigente() - 1]; }
+std::uint16_t Brilho::duty() const { return kCurva[passo_vigente()]; }
 
 }  // namespace coruja

@@ -449,13 +449,16 @@ TEST(LeitorConfig, BrilhoForaDoPassoDeCincoERecusado) {
     EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
 }
 
-TEST(LeitorConfig, BrilhoAceitaAsPontasERecusaOZero) {
+TEST(LeitorConfig, BrilhoAceitaAEscalaInteiraDeZeroACem) {
+    // ZERO E VALIDO e nao apaga a tela: na escala do arquivo, como na do
+    // menu, ele e o mais escuro que o painel consegue mostrar. O piso
+    // fisico de luminancia e do hardware e nao aparece aqui -- ja mudou
+    // uma vez (5% -> 10%, R-05) e pode mudar com outro painel, sem que
+    // nenhum coruja.cfg precise ser reescrito por isso.
+    EXPECT_EQ(le("brilho_noite=0\n").config.brilho_noite, 0);
     EXPECT_EQ(le("brilho_noite=5\n").config.brilho_noite, 5);
     EXPECT_EQ(le("brilho_dia=100\n").config.brilho_dia, 100);
-    // Zero e multiplo de 5, mas apagaria a tela: o piso e 5.
-    const auto zero = le("brilho_noite=0\n");
-    EXPECT_EQ(zero.config.brilho_noite, 20);
-    EXPECT_EQ(zero.diagnostico.valores_invalidos, 1U);
+    EXPECT_TRUE(le("brilho_noite=0\n").diagnostico.limpo());
 }
 
 TEST(LeitorConfig, BrilhoAcimaDeCemERecusado) {

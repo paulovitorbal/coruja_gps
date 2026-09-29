@@ -17,3 +17,4 @@ servidor/dados/*
 
 # Atalho para a pty do simulador, recriado a cada execucao.
 simulador/serial
+.venv/

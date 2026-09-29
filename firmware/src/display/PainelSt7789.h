@@ -50,6 +50,27 @@ public:
 
     void limpa(std::uint16_t cor);
 
+    /// Desenha um mapa de bits de 1 bpp, expandindo para RGB565 em fluxo.
+    ///
+    /// **Uma janela por glifo, nao um pixel por vez.** Pintar 56x94 com
+    /// `preenche(x, y, 1, 1, ...)` seriam 5264 transacoes SPI, cada uma com
+    /// CASET, RASET e RAMWR proprios -- ordens de magnitude mais lento que
+    /// abrir a janela uma vez e despejar as linhas.
+    ///
+    /// `bits` tem `bytes_por_linha * altura` bytes, MSB primeiro: o bit 7
+    /// do primeiro byte de cada linha e o pixel da esquerda.
+    void desenha_bitmap(int x, int y, int largura, int altura,
+                        int bytes_por_linha, const std::uint8_t* bits,
+                        std::uint16_t cor, std::uint16_t fundo);
+
+    /// Desenha um bloco de pixels RGB565 ja prontos (sprite de icone).
+    ///
+    /// Mesma janela unica do `desenha_bitmap`, sem expansao: os pixels vao
+    /// direto. `pixels` tem `largura * altura` valores, linha por linha de
+    /// cima para baixo.
+    void desenha_rgb565(int x, int y, int largura, int altura,
+                        const std::uint16_t* pixels);
+
     /// Inverte as cores do painel (comando `INVON`/`INVOFF`).
     ///
     /// Painel IPS com ST7789 costuma precisar de `INVON`, mas isso
