@@ -18,7 +18,7 @@
 | 2 | **Módulo GPS u-blox NEO-M8N** | Conector serial UART com antena ativa externa SMA | Rastrear velocidade, coordenadas e rumo em tempo real. | 🔵 comprado |
 | 3 | **Leitor Micro SD Adafruit 4682** | Breakout board nativo para nível lógico de 3,3 V (*3V ONLY!*) | Interface física para o cartão de memória. | 🟢 entregue |
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. | 🟢 entregue |
-| 5 | ⚠️ **Display IPS TFT 2,4"** | Colorido, **320×240 pixels**, interface SPI com pino de Backlight (BL). **Controlador a confirmar:** 2,4" costuma ser ILI9341, não ST7789 — a sequência de inicialização difere | Exibir velocidade, limites e alertas visuais. | 🔵 comprado |
+| 5 | **Display IPS TFT 2,4"** | `GMT024-08-SPI8P ver. 1.3`, controlador **ST7789V**, **240×320** nativo (usado deitado, 320×240), SPI de **8 pinos — sem MISO** | Exibir velocidade, limites e alertas visuais. | 🟢 recebido, controlador confirmado |
 | 6 | **Encoder Rotativo KY-040** | Módulo incremental com chave/botão de pressão no eixo | Girar: ajuste PWM do brilho.<br>Clicar: comando de atualização Wi-Fi. | 🟢 entregue |
 | 7 | **Buzzer Piezo Ativo** | **SFM-20B** (95 dB, 10 mA, 3,9 kHz, 3–24 V, 22 mm) **ou SFM-27** (até 105 dB, ~50 mA). **Ativo** é obrigatório — ver nota | Bipes audíveis no painel. **Soldado direto** desde 2026-09-25 — trocá-lo exige dessoldar. | 🔵 comprado |
 | 8 | ⚠️ **LED RGB 10 mm Difuso** | **Ânodo comum** (terminal mais longo vai ao **3V3**) — **lógica invertida**, ver nota | **Único indicador luminoso do projeto.** Estado de via: verde / amarelo / rosa / vermelho. | ⚪ disponível |
@@ -113,7 +113,16 @@ contra oxidação, o que importa num ambiente com variação térmica e umidade 
 interior de um painel.
 
 > 💡 **Convenção de cor**, espelhando as cores dos fios no Fritzing: preto para GND,
-> vermelho para 5 V, **magenta para 12 V** e azul para 3V3.
+> vermelho para 5 V, **amarelo para 12 V**, azul para 3V3 — e **verde para todo
+> sinal**, sem distinguir grupos.
+>
+> O esquema anterior dava cor própria a cada grupo de sinal (SPI0, SPI1, display,
+> GPS, encoder, LED, buzzer): onze cores. Foi trocado por quatro tensões mais
+> verde em 2026-09-29, porque na perfboard o erro que custa caro é de **tensão**,
+> não de sinal — trocar um fio de sinal dá um periférico que não responde, trocar
+> 12 V por 3,3 V destrói Pico, GPS, display e cartão juntos. O que se perde é
+> rastrear grupo de sinal pela cor; com tudo verde, distinguir o `SCL` do cartão
+> do `SCL` do display exige seguir o fio ou consultar a netlist.
 >
 > ⚠️ A revisão anterior mandava vermelho para 5 V **e** 12 V. Não serve mais: desde que
 > o conversor veio para dentro do gabinete, as duas tensões convivem a centímetros uma
@@ -162,7 +171,7 @@ conector de 2 vias do buzzer. Sem o buzzer, não fazem mal e não fazem falta �
 ou passar a 2 vias é indiferente do ponto de vista elétrico.
 
 > 🔴 **O dano real continua sendo qualquer caminho que leve os 12 V ao trilho de 5 V**,
-> cujo máximo absoluto é 5,5 V. Daí a cor distinta do fio: magenta, não vermelho.
+> cujo máximo absoluto é 5,5 V. Daí a cor distinta do fio: amarelo, não vermelho.
 
 ### ✅ Nota — resistores do LED RGB, **medidos** (itens 10 e 11)
 
@@ -587,29 +596,77 @@ isso que é ruim:
 > ~0,3–0,45 V de queda. O `VSYS` do Pico aceita 1,8 V a 5,5 V, então os ~4,6 V
 > resultantes estão bem dentro da faixa.
 
-### 2. Barramento SPI0 (Compartilhado: Display + SD Adafruit)
+### 2. Barramentos SPI — SPI0 para o cartão, SPI1 para o display
 
-> ⚠️ **O controlador não está confirmado.** Este título dizia "ST7789" e o item 5 do
-> BOM diz o contrário — 2,4" costuma ser **ILI9341**, e a sequência de inicialização
-> difere. O nome saiu do título até a peça ser identificada na bancada; a pinagem
-> abaixo vale para os dois.
+> ✅ **Controlador confirmado em 29/09/2026: ST7789V.** A serigrafia do verso diz
+> `GMT024-08-SPI8P ver.: 1.3`, e a peça é um painel de 2,4" **240×320** com
+> ST7789V. O palpite do item 5 do BOM ("2,4" costuma ser ILI9341") estava errado;
+> o título original da seção estava certo quanto ao controlador e errado quanto à
+> resolução, que não é 240×240.
+>
+> ⚠️ **O módulo tem 8 pinos e não traz MISO** (`GND, VCC, SCL, SDA, RST, DC, CS,
+> BL`). Duas consequências:
+>
+> * **Não há como ler o registrador de ID nem qualquer estado do controlador.** A
+>   identificação é por serigrafia e datasheet, e a verificação de que a
+>   inicialização funcionou é **visual**, não programática.
+> * **Sem pino MISO ele não teria como disputar a linha de dados do microSD**
+>   mesmo que os dois dividissem o barramento — o que, desde 29/09/2026, já não
+>   é o caso (ver abaixo).
 
-* **Pico GPIO 18 (Pino 24 / CLK):** conecta ao pino **`CLK`** do leitor SD **E** ao pino
-  **SCL** do Display TFT.
-* **Pico GPIO 19 (Pino 25 / MOSI):** conecta ao pino **`CMD/SI`** do leitor SD **E** ao
-  pino **SDA** do Display TFT.
-* **Pico GPIO 16 (Pino 21 / MISO):** conecta **apenas** ao pino **`DO/SO`** do leitor SD.
-* **Pico GPIO 17 (Pino 22 / SD_CS):** conecta ao pino **`D3/CS`** do leitor SD.
-* ⚠️ **Pico GPIO 14 (Pino 19): LIVRE.** Era o card detect, removido em 2026-09-22 —
-  ver a nota abaixo e a ADR 0010.
-* **Pico GPIO 20 (Pino 26 / TFT_CS):** conecta ao pino **CS** do Display TFT.
-* **Pico GPIO 21 (Pino 27 / TFT_DC):** conecta ao pino **DC/RS** do Display TFT.
-* **Pico GPIO 22 (Pino 29 / TFT_RST):** conecta ao pino **RES/RESET** do Display TFT.
-* **Pico GPIO 15 (Pino 20 / PWM BL):** conecta ao pino **BL / BLK** (Backlight).
-* **Alimentação do Bloco:** conecte o pino **`3V`** do leitor SD no pino
-  **`3V3_OUT` (Pino 36)**. O **VCC da tela** depende da inspeção da seção 3: **5 V** se o
-  módulo tiver regulador próprio (preferível — tira o backlight do trilho de 3V3),
-  `3V3_OUT` se não tiver. Conecte os **GND** de ambos ao GND comum.
+> ✅ **O barramento deixou de ser compartilhado em 29/09/2026.** O display migrou
+> para o **SPI1**, e o cartão ficou sozinho no SPI0. Caem três obrigações de uma
+> vez: o **mutex** entre display e cartão, a **reconfiguração de velocidade a
+> cada transação** — o cartão exige ≤ 400 kHz na inicialização e o display quer
+> dezenas de MHz — e a possibilidade de o **buffer de nível do leitor carregar as
+> linhas do display**, que chegou a ser suspeito na primeira ligação.
+>
+> O motivo imediato foi espaço na protoboard: o display ocupava cinco pinos do
+> lado direito e o lado esquerdo tinha seis livres em sequência. A separação dos
+> barramentos veio de brinde, e é o ganho que fica.
+>
+> `GP10` e `GP11` **não são escolha arbitrária** — são as funções `SCK` e `TX` do
+> SPI1 no RP2350, e os únicos pinos livres daquele lado que servem. Trocá-los por
+> outros "livres" quebraria o barramento sem quebrar compilação nenhuma, e é por
+> isso que o `PinosTest.cpp` fixa os dois valores.
+
+#### SPI0 — cartão microSD, sozinho
+
+* **Pico GPIO 18 (Pino 24 / CLK):** pino **`CLK`** do leitor SD.
+* **Pico GPIO 19 (Pino 25 / MOSI):** pino **`CMD/SI`** do leitor SD.
+* **Pico GPIO 16 (Pino 21 / MISO):** pino **`DO/SO`** do leitor SD.
+* **Pico GPIO 17 (Pino 22 / SD_CS):** pino **`D3/CS`** do leitor SD.
+
+#### SPI1 — display, exclusivo
+
+Seis pinos físicos em sequência, **14 a 20**, com o `GND` do pino 18 no meio do
+bloco. A contiguidade é o motivo da mudança.
+
+| Módulo | GPIO | Pino físico | Função |
+| :--- | :---: | :---: | :--- |
+| `SCL` | 10 | **14** | clock do SPI1 |
+| `SDA` | 11 | **15** | dados (TX do SPI1) |
+| `CS` | 12 | **16** | seleção |
+| `DC` | 13 | **17** | comando/dado |
+| — | — | *18* | *`GND`, dentro do bloco* |
+| `RST` | 14 | **19** | reset |
+| `BL` | 15 | **20** | backlight, PWM |
+
+* ⚠️ **O GPIO 14 (pino 19) está na sua TERCEIRA função.** Foi LED de Wi-Fi
+  (R-25), depois card detect (removido em 2026-09-22, ADR 0010), e agora é o
+  `RST` do display. **Antes de montar, confira que não sobrou fiação do soquete
+  de microSD nesse pino:** um `RST` puxado para baixo mantém o ST7789V em reset
+  permanente — tela apagada, nenhum comando surtindo efeito, e a continuidade
+  medindo perfeita, porque o fio do Pico até o módulo continua lá.
+* **`BL` vai direto no GPIO, sem transistor externo** — o módulo já traz o dele
+  (ver adiante).
+
+#### Alimentação do bloco
+
+* **Leitor SD:** pino **`3V`** no **`3V3_OUT` (Pino 36)**.
+* **Display:** `VCC` nos **5 V**. O módulo tem regulador próprio — ver a nota da
+  seção 3, que fecha essa inspeção com o `662K`/XC6206P332MR identificado.
+* **`GND`** de ambos ao GND comum.
 * **PWM do backlight:** use frequência **≥ 20 kHz**. Abaixo de ~1 kHz o painel
   cintila de forma perceptível na visão periférica e pode bater com feições da estrada
   em efeito estroboscópico; entre 1 e 20 kHz alguns módulos assobiam. Ver §8 do
@@ -818,19 +875,51 @@ ilumina ~4× a área do de 1,3" e usa tipicamente 4 LEDs em vez de 1 ou 2, entã
 estimativa anterior de 50–80 mA não se aplica mais. Isso torna a medição do **R-13** mais
 crítica, não menos.
 
-> 🔍 **Inspeção antes de ligar — mesma lógica do R-14 (GPS).** Muitos módulos de 2,4"
-> trazem **regulador próprio e aceitam 5 V na entrada**. Se o seu tiver, ligue o `VCC`
-> do display nos **5 V**, não no `3V3_OUT`: o backlight inteiro sai do conversor CC e o
-> trilho de 3V3 do Pico volta a ter folga, eliminando o risco do R-13. Procure o
-> encapsulamento de 3 pinos junto ao `VCC` e leia a serigrafia da entrada (`5V` vs
-> apenas `3.3V`). **Sem regulador, 5 V destroem o módulo.**
+> ✅ **Inspeção feita em 2026-09-29 — o módulo TEM regulador. `VCC` vai nos 5 V.**
 >
-> 🔍 Verifique também se o módulo traz **slot de microSD embutido**. Se trouxer, pode
-> tornar o leitor Adafruit (item 6) redundante — mas seria o mesmo SPI0, e o mutex
-> display ↔ SD continua obrigatório.
+> A trilha do `VCC` entra num SOT-23 marcado `662K`, serigrafado `Q1` na placa (o
+> designador engana — a convenção seria `U1` ou `VR1`, mas placas baratas fazem
+> isso). `662K` é a marcação do **XC6206P332MR**: LDO de 3,3 V, entrada de 1,8 a
+> **6 V**, saída de **200 mA**, dropout de 160 mV a 100 mA.
+>
+> **Ligar em 5 V é o certo, e não apenas o preferível:** com `3V3_OUT` na entrada
+> o LDO ficaria *em dropout* — 3,3 V entrando para 3,3 V saindo, sem os 160 mV de
+> folga — e a saída cairia para ~3,14 V. Funciona na bancada e é operação fora de
+> especificação.
+>
+> ⚠️ **Duas consequências novas do regulador, que não existiam antes:**
+>
+> 1. **Teto de 200 mA para o módulo inteiro**, backlight incluído se ele sair da
+>    saída do LDO. É o que o R-13 precisa medir.
+> 2. **O LDO dissipa `(5 − 3,3) × I`.** A 100 mA são 170 mW num SOT-23; a 200 mA,
+>    340 mW, que é o limite térmico do encapsulamento com pouco cobre. Se ele
+>    esquentar demais, a saída é alimentar o `VCC` com uma tensão menor — 3,6 a
+>    4 V ainda dão a folga de dropout e cortam a dissipação pela metade.
+>
+> 🔍 **Este módulo NÃO traz slot de microSD embutido** (verificado em
+> 29/09/2026 — são 8 pinos, sem linhas de cartão). O leitor Adafruit segue
+> necessário. A questão perdeu o outro motivo de existir: com o display no SPI1,
+> um slot embutido também não criaria mutex nenhum.
 
-⚠️ *Medir de todo modo:* consumo agregado no `3V3_OUT` com todos os periféricos ativos e
-backlight em 100%.
+> ✅ **O `BL` já tem transistor no módulo (inspecionado em 2026-09-29).** A linha
+> passa por um resistor `102` (1 kΩ) até a base de um SOT-23 marcado `Y1`,
+> serigrafado `Q2` — é um **SS8050**, NPN de 1,5 A. Topologia idêntica à do
+> buzzer (§ do BC337).
+>
+> **Consequência: o `BL` vai direto no GPIO 15, sem transistor externo.** O pino
+> fornece só corrente de base, `(3,3 − 0,7) / 1 kΩ ≈ 2,6 mA`, bem dentro dos
+> 4–12 mA do RP2350. E a polaridade bate com a `RetroiluminacaoPwm`: NPN
+> chaveando o lado baixo é ativo em nível alto, então duty 0 apaga.
+>
+> ⚠️ **O `R1` em série com os LEDs não foi lido com certeza** — a marcação vista
+> foi `389`, que não é código válido de 3 dígitos (daria 38 × 10⁹ Ω). É `3R9`
+> (3,9 Ω, dando ~77 mA nos LEDs) ou `390` (39 Ω, ~8 mA). A diferença é de uma
+> ordem de grandeza e decide se o backlight cabe nos 200 mA do LDO. **A medição
+> do R-13 resolve** — não vale continuar adivinhando pela lupa.
+
+⚠️ *Medir de todo modo (R-13):* consumo agregado na entrada de **5 V** do display com o
+backlight em 100%, e temperatura do LDO `Q1` depois de alguns minutos. Os dois números
+saem da mesma bancada.
 
 ### ⚠️ 4. Periféricos de Interface (Encoder KY-040 + LED RGB)
 
@@ -981,7 +1070,7 @@ Antes de ligar o circuito pela primeira vez:
       conversor não tem proteção de polaridade reversa.
 - [ ] **Conectores de entrada (3 vias) e de buzzer (2 vias) confirmados diferentes.**
 - [ ] Polaridade da entrada de **12 V** conferida no conector, com o cabo já crimpado.
-- [ ] Fio de 12 V em cor distinta do de 5 V (magenta no `.fzz`), dentro e fora.
+- [ ] Fio de 12 V em cor distinta do de 5 V (amarelo no `.fzz`), dentro e fora.
 - [ ] 🆕 **Tudo que é 3,3 V está no pino 36 (`3V3_OUT`), não no 37 (`3V3_EN`).**
       São pinos adjacentes; o 37 desliga o regulador da placa. Confira o leitor SD,
       o encoder, o ânodo comum do LED e o VCC do display se ele for de 3,3 V.
@@ -1013,7 +1102,7 @@ Antes de ligar o circuito pela primeira vez:
 | R-13 — Orçamento de corrente do `3V3_OUT` | Nota na seção 3; checklist |
 | R-14 — Alimentação do GPS indefinida | Seção 3 — ✅ **5 V decidido** (GY-GPSV3 tem LDO embarcado) |
 | R-22 — GPIO de 3,3 V excede `VIN` do GPS | Seção 3 — resistor de 1 kΩ em série no `GPIO 0 → GPS RX` |
-| R-15 — Mutex no SPI0 compartilhado | Nota de firmware na seção 2 |
+| R-15 — Mutex no SPI0 compartilhado | ✅ **Anulado em 29/09/2026:** display migrou para o SPI1; não há barramento compartilhado a proteger (seção 2) |
 | R-16 — Justificativa incorreta do diodo | Nota do BOM item 15 |
 | R-17 — BC547 sem margem de corrente | BOM item 10; nota; seção 5 |
 | R-19 — Zona de Semáforo depende do canal verde | Nota crítica do BOM |

@@ -82,13 +82,16 @@ PECAS = [
 
     ("TFT", "17898e57-1ee0-11de-8283-0019d2b7521e",
      "generic-female-header_8.fzp",
-     # 2,4" 320x240 confirmado pelo autor em 2026-09-17. O CONTROLADOR ainda
-     # nao: 2,4" costuma ser ILI9341 e nao ST7789, e a sequencia de
-     # inicializacao difere. A ORDEM DOS PINOS tambem esta a confirmar na
-     # serigrafia -- dos tres modulos ja conferidos fisicamente, dois
-     # divergiam do documentado (ver R-34).
-     'Display 2,4" 320x240 (controlador a confirmar)', {},
-     ["GND", "VCC 3V3", "SCL", "SDA", "RES", "DC", "CS", "BL"]),
+     # GMT024-08-SPI8P ver. 1.3, serigrafia lida no verso em 2026-09-29:
+     # ST7789V, 240x320 nativo, usado deitado em 320x240 (rotacao por
+     # MADCTL). Ordem dos pinos CONFERIDA na placa fisica pelo autor na
+     # mesma data -- bate com a documentada, ao contrario de dois dos tres
+     # modulos anteriores (R-34). Ver R-62.
+     #
+     # VCC vai nos 5 V: o modulo tem LDO proprio (662K / XC6206P332MR).
+     # Nao ha MISO -- sao 8 pinos, e nada pode ser lido de volta.
+     'Display 2,4" 240x320 ST7789V (GMT024-08-SPI8P)', {},
+     ["GND", "VCC 5V", "SCL", "SDA", "RES", "DC", "CS", "BL"]),
 
     # Pinagem conferida na placa física (2026-09-17), da esquerda para a
     # direita olhando de frente. ATENÇÃO: é o inverso da ordem que se
@@ -237,8 +240,14 @@ NETS = {
 
     # --- 5 V, gerado dentro do aparelho -------------------------------------
     "5V_CONV":     [("CONV", "OUT+"), ("D1", "A")],
+    # O display entrou aqui em 2026-09-29: o modulo tem LDO proprio (662K /
+    # XC6206P332MR, entrada de 1,8 a 6 V, saida de 200 mA), e com 3V3 na
+    # entrada esse LDO ficaria EM DROPOUT -- 3,3 V entrando para 3,3 V
+    # saindo, sem os 160 mV de folga -- e entregaria ~3,14 V. Nos 5 V ele
+    # trabalha em especificacao, e o backlight sai do conversor em vez do
+    # trilho de 3V3 do Pico.
     "VSYS_5V":     [("D1", "K"), ("PICO", "39"), ("C1", "+"), ("C2", "0"),
-                    ("GPS", "VCC 5V")],
+                    ("GPS", "VCC 5V"), ("TFT", "VCC 5V")],
 
     # GND comum. O conversor NAO pode ser isolado: sem continuidade entre o
     # negativo de 12 V e o do aparelho, a corrente do buzzer nao fecha pelo
@@ -251,21 +260,35 @@ NETS = {
     # O LED e de ANODO comum (BOM item 8, corrigido em 2026-09-18): o terminal
     # comum vai ao 3V3, nao ao GND, e cada catodo desce por seu resistor ate um
     # GPIO. Ver R-33 -- isso inverte a logica de acionamento no firmware.
-    "3V3":         [("PICO", "36"), ("SD", "3V"), ("TFT", "VCC 3V3"),
+    "3V3":         [("PICO", "36"), ("SD", "3V"),
                     ("ENC", "+ 3V3"), ("LED", "K")],
 
-    "SPI0_SCK":    [("PICO", "24"), ("SD", "CLK"), ("TFT", "SCL")],
-    "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD"), ("TFT", "SDA")],
+    # SPI0: so o cartao, desde 2026-09-29. O display saiu para o SPI1 e com
+    # ele foram o mutex display <-> cartao, a troca de velocidade por
+    # transacao (cartao <= 400 kHz na init, display em dezenas de MHz) e o
+    # risco de o buffer de nivel do leitor carregar as linhas do display.
+    "SPI0_SCK":    [("PICO", "24"), ("SD", "CLK")],
+    "SPI0_MOSI":   [("PICO", "25"), ("SD", "CMD")],
     "SPI0_MISO":   [("PICO", "21"), ("SD", "D0")],
     "SD_CS":       [("PICO", "22"), ("SD", "D3")],
     # SEM card detect. O pino DET do modulo fica DESCONECTADO desde
     # 2026-09-22 (ADR 0010): o projeto reage igual a cartao ausente e a cartao
     # ilegivel, e a chave do soquete nao abria por completo -- deixava o GPIO
-    # 14 em 1,13 V, na zona indeterminada da logica de 3,3 V. O GPIO 14 esta
-    # LIVRE.
-    "TFT_CS":      [("PICO", "26"), ("TFT", "CS")],
-    "TFT_DC":      [("PICO", "27"), ("TFT", "DC")],
-    "TFT_RST":     [("PICO", "29"), ("TFT", "RES")],
+    # 14 em 1,13 V, na zona indeterminada da logica de 3,3 V.
+    #
+    # ATENCAO: o GPIO 14 (pino 19) NAO esta mais livre -- virou o TFT_RST
+    # abaixo. Se sobrar fiacao do soquete nesse pino, ela disputa o reset do
+    # display e mantem o ST7789V em reset permanente.
+
+    # SPI1: display, exclusivo. Seis pinos fisicos em sequencia, 14 a 20, com
+    # o GND do pino 18 no meio do bloco -- e a contiguidade e o motivo da
+    # mudanca. PICO 14 e 15 sao GP10 e GP11, as funcoes SCK e TX do SPI1 no
+    # RP2350; nao sao pinos "livres" quaisquer.
+    "SPI1_SCK":    [("PICO", "14"), ("TFT", "SCL")],
+    "SPI1_MOSI":   [("PICO", "15"), ("TFT", "SDA")],
+    "TFT_CS":      [("PICO", "16"), ("TFT", "CS")],
+    "TFT_DC":      [("PICO", "17"), ("TFT", "DC")],
+    "TFT_RST":     [("PICO", "19"), ("TFT", "RES")],
     "TFT_BL_PWM":  [("PICO", "20"), ("TFT", "BL")],
 
     "GPS_TX":      [("PICO", "2"), ("GPS", "TX")],
@@ -319,36 +342,36 @@ POS = {
     "R5": (380, 60),
 }
 
-# Paleta padrão do Fritzing. GND/5V/3V3 conforme pedido; o resto por grupo de
-# sinal, para dar rastreabilidade visual na perfboard.
+# Paleta: uma cor por TENSAO, e verde para todo sinal.
+#
+# Decidido pelo autor em 2026-09-29, substituindo o esquema anterior, que
+# dava cor propria a cada grupo de sinal (SPI0, SPI1, display, GPS, encoder,
+# LED, buzzer -- sete cores).
+#
+# O que se ganha: conferir alimentacao de relance. Na perfboard, o erro que
+# custa caro e de tensao, nao de sinal -- trocar um fio de sinal da um
+# periferico que nao responde, trocar 12 V por 3,3 V destroi Pico, GPS,
+# display e cartao juntos. Quatro cores memorizaveis servem a esse erro
+# melhor que onze.
+#
+# O que se perde: rastreabilidade visual por grupo de sinal. Com tudo verde,
+# distinguir o SCL do cartao do SCL do display exige seguir o fio ou
+# consultar a netlist. E consequencia aceita, nao descuido.
+#
+# ⚠️ **12 V NAO e vermelho, de proposito** -- e a unica regra herdada do
+# esquema anterior. A convencao antiga mandava vermelho para "5 V e 12 V";
+# com o 12 V dentro do gabinete, duas tensoes na mesma cor a 3 cm uma da
+# outra e convite ao erro descrito acima. Amarelo o separa.
 CORES = {
-    "GND":        "#000000",   # preto
-    # ⚠️ 12 V NAO e vermelho, de proposito. A convencao antiga mandava
-    # vermelho para 5 V "e 12 V" -- com o 12 V dentro do gabinete, duas
-    # tensoes com a mesma cor a 3 cm uma da outra e convite a erro, e o erro
-    # destroi Pico, GPS, display e cartao juntos.
-    "12V_ENTRADA":   "#ff33cc",  # magenta
-    "12V_PROTEGIDO": "#ff33cc",  # magenta
-    "5V_CONV":    "#ff1a1a",   # vermelho
-    "VSYS_5V":    "#ff1a1a",   # vermelho
-    "3V3":        "#418dd9",   # azul
-    # BARRAMENTO SPI EM COR ÚNICA, incluindo os dois chip-selects. O
-    # barramento é compartilhado entre cartão e display (RNF06), e na
-    # perfboard o que se quer enxergar de relance é "isto é SPI" — separar o
-    # CS por cor sugeria que ele fosse outro grupo, quando ele é o que
-    # distingue quem fala no mesmo barramento.
-    "SPI0_SCK":   "#4faf4e", "SPI0_MOSI": "#4faf4e", "SPI0_MISO": "#4faf4e",
-    "SD_CS":      "#4faf4e", "TFT_CS":    "#4faf4e",
-    # Controle do display, fora do barramento: DC escolhe comando ou dado,
-    # RES é reset e BL é o PWM do backlight.
-    "TFT_DC":     "#ffe500", "TFT_RST": "#ffe500", "TFT_BL_PWM": "#ffe500",
-    "GPS_TX":     "#8c3b00", "GPS_RX": "#8c3b00", "UART_TX_R5": "#8c3b00",
-    "ENC_CLK":    "#ff7f00", "ENC_DT": "#ff7f00", "ENC_SW": "#ff7f00",
-    "LED_R_GPIO": "#8c00ff", "LED_R_CATODO": "#8c00ff",
-    "LED_G_GPIO": "#8c00ff", "LED_G_CATODO": "#8c00ff",
-    "LED_B_GPIO": "#8c00ff", "LED_B_CATODO": "#8c00ff",
+    "GND":           "#000000",   # preto
+    "12V_ENTRADA":   "#ffe500",   # amarelo
+    "12V_PROTEGIDO": "#ffe500",   # amarelo
+    "5V_CONV":       "#ff1a1a",   # vermelho
+    "VSYS_5V":       "#ff1a1a",   # vermelho
+    "3V3":           "#418dd9",   # azul
 }
-COR_PADRAO = "#999999"
+# Todo o resto e sinal, e sinal e verde.
+COR_PADRAO = "#4faf4e"
 
 # Posição na vista protoboard. Espaçamento generoso para os fios ficarem
 # legíveis; arraste no Fritzing como preferir.
@@ -566,12 +589,11 @@ def main(argv=None):
     import collections
     porcor = collections.Counter(c for _m, c, *_r in fios)
     print(f"{SAIDA.name}: {len(PECAS)} peças, {len(NETS)} redes, {len(fios)} fios")
-    nomes_cor = {"#000000": "preto (GND)", "#ff1a1a": "vermelho (5V)",
-                 "#ff33cc": "magenta (12V)",
-                 "#418dd9": "azul (3V3)", "#4faf4e": "verde (SPI)",
-                 "#ffe500": "amarelo (display)", "#8c3b00": "marrom (GPS/UART)",
-                 "#ff7f00": "laranja (encoder)", "#8c00ff": "violeta (LED RGB)",
-                 "#999999": "cinza (buzzer)"}
+    nomes_cor = {"#000000": "preto (GND)",
+                 "#ffe500": "amarelo (12V)",
+                 "#ff1a1a": "vermelho (5V)",
+                 "#418dd9": "azul (3V3)",
+                 "#4faf4e": "verde (sinais)"}
     for cor, n in porcor.most_common():
         print(f"  {n:>3} fios  {nomes_cor.get(cor, cor)}")
     print(f"  {SAIDA.stat().st_size} bytes")

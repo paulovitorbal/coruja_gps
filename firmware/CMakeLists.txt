@@ -38,8 +38,17 @@ else()
     add_subdirectory(src)
     # -DCORUJA_DIAGNOSTICO=ON troca o firmware pelo diagnostico de pinos.
     option(CORUJA_DIAGNOSTICO "Compila o diagnostico de pinos do encoder" OFF)
+    # -DCORUJA_BANCADA_DISPLAY=ON troca o firmware pela primeira ligacao do
+    # painel. Sem MISO nao ha verificacao automatica: e para olhar (R-62).
+    option(CORUJA_BANCADA_DISPLAY "Compila a bancada do display" OFF)
+    # -DCORUJA_BITBANG=ON: SPI na unha, sem o periferico. Diagnostico.
+    option(CORUJA_BITBANG "Compila o bit-bang do display" OFF)
     if(CORUJA_DIAGNOSTICO)
         add_executable(coruja_gps src/diagnostico.cpp)
+    elseif(CORUJA_BANCADA_DISPLAY)
+        add_executable(coruja_gps src/bancada_display.cpp)
+    elseif(CORUJA_BITBANG)
+        add_executable(coruja_gps src/bancada_bitbang.cpp)
     else()
         add_executable(coruja_gps src/main.cpp)
     endif()

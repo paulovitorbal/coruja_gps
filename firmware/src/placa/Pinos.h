@@ -80,32 +80,60 @@ constexpr unsigned kLedAzul     = 6;  // pino físico  9; resistor 150 Ω
 // Cartão microSD
 // ---------------------------------------------------------------------------
 
-// ⚠️ **O GPIO 14 está LIVRE.** Ele era o card detect, removido em 2026-09-22
-// (ADR 0010): o projeto reage igual a cartão ausente e a cartão ilegível, e a
-// chave do soquete não abria por completo — deixava o pino em 1,13 V, dentro
-// da zona indeterminada da lógica de 3,3 V.
+// ⚠️ **O GPIO 14 é o `RST` do display desde 2026-09-29** — e é a **terceira**
+// função que esse pino recebe. Antes foi o LED de Wi-Fi (R-25) e depois o
+// card detect do soquete de microSD, removido em 2026-09-22 (ADR 0010): o
+// projeto reage igual a cartão ausente e a cartão ilegível, e a chave do
+// soquete não abria por completo — deixava o pino em 1,13 V, dentro da zona
+// indeterminada da lógica de 3,3 V.
 //
-// É a **segunda** vez que este pino é liberado; antes ele era o LED de Wi-Fi
-// (R-25). Quem for ocupá-lo, confira que nada ficou ligado nele na placa.
+// **Consequência prática para quem monta:** se sobrar qualquer fio do soquete
+// do cartão neste pino, ele disputa o `RST` do display. Um `RST` puxado para
+// baixo mantém o ST7789V em reset permanente — tela apagada, nenhum comando
+// surtindo efeito, e a continuidade medindo perfeita, porque o fio do Pico
+// até o módulo continua lá. É um sintoma caro de diagnosticar, e foi por um
+// fio muito parecido com este que a primeira ligação do painel custou várias
+// horas.
 
 constexpr unsigned kSdCs  = 17;  // pino físico 22
 
 // ---------------------------------------------------------------------------
-// Display — SPI0, compartilhado com o cartão
+// Cartão microSD — SPI0, agora sozinho
 // ---------------------------------------------------------------------------
 //
-// ⚠️ O barramento é COMPARTILHADO e exige mutex: nenhum acesso pode se
-// intercalar com o outro. O cartão exige clock <= 400 kHz na inicialização e o
-// display opera em dezenas de MHz, então a velocidade é reconfigurada por
-// dispositivo antes de cada transação (RNF06).
+// ✅ **O barramento deixou de ser compartilhado em 2026-09-29.** O display
+// migrou para o SPI1 (abaixo), e com isso caem três coisas de uma vez: o
+// mutex entre display e cartão, a reconfiguração de velocidade a cada
+// transação — o cartão exige <= 400 kHz na inicialização e o display quer
+// dezenas de MHz — e a possibilidade de o buffer de nível do leitor carregar
+// as linhas do display, que chegou a ser suspeito na primeira ligação.
+//
+// O motivo imediato foi espaço na protoboard: o display ocupava cinco pinos
+// do lado direito e o lado esquerdo tinha seis livres em sequência. A
+// separação dos barramentos veio de brinde, e é o ganho que fica.
 
 constexpr unsigned kSpiMiso = 16;  // pino físico 21; cartão DO/SO
-constexpr unsigned kSpiSck  = 18;  // pino físico 24; cartão CLK + display SCL
-constexpr unsigned kSpiMosi = 19;  // pino físico 25; cartão CMD/SI + display SDA
+constexpr unsigned kSpiSck  = 18;  // pino físico 24; cartão CLK
+constexpr unsigned kSpiMosi = 19;  // pino físico 25; cartão CMD/SI
 
-constexpr unsigned kDisplayCs  = 20;  // pino físico 26
-constexpr unsigned kDisplayDc  = 21;  // pino físico 27
-constexpr unsigned kDisplayRst = 22;  // pino físico 29
+// ---------------------------------------------------------------------------
+// Display — SPI1, exclusivo
+// ---------------------------------------------------------------------------
+//
+// Seis pinos físicos em sequência (14 a 20), com o GND do pino 18 no meio do
+// bloco. GP10 e GP11 não são escolha arbitrária: são as funções `SCK` e `TX`
+// do SPI1 no RP2350, e são os únicos pinos livres do lado esquerdo que
+// servem para isso.
+//
+// O módulo é um `GMT024-08-SPI8P ver. 1.3`: ST7789V, 240x320, **8 pinos sem
+// MISO** (R-62). Não há linha de leitura porque não há o que ler — nem o
+// registrador de ID, nem estado nenhum.
+
+constexpr unsigned kDisplaySck  = 10;  // pino físico 14; módulo SCL
+constexpr unsigned kDisplayMosi = 11;  // pino físico 15; módulo SDA
+constexpr unsigned kDisplayCs   = 12;  // pino físico 16
+constexpr unsigned kDisplayDc   = 13;  // pino físico 17
+constexpr unsigned kDisplayRst  = 14;  // pino físico 19
 
 /// PWM do backlight. Frequência >= 20 kHz: abaixo de ~1 kHz o painel cintila
 /// de forma perceptível na visão periférica e pode dar efeito estroboscópico
@@ -149,7 +177,8 @@ constexpr unsigned kPinoFisicoGnd = 38;
 constexpr unsigned kTodosOsGpio[] = {
     kGpsTx,     kGpsRx,      kEncoderClk, kEncoderDt,  kEncoderSw,
     kBuzzerBase, kLedVermelho, kLedVerde, kLedAzul,   kSdCs,
-    kSpiMiso,   kSpiSck,     kSpiMosi,    kDisplayCs,
+    kSpiMiso,   kSpiSck,     kSpiMosi,
+    kDisplaySck, kDisplayMosi, kDisplayCs,
     kDisplayDc, kDisplayRst, kDisplayBacklight,
 };
 constexpr std::size_t kQuantosGpio =
@@ -196,7 +225,12 @@ static_assert(detalhe::todos_disponiveis(kTodosOsGpio, kQuantosGpio),
               "algum GPIO não existe no cabeçalho do Pico, ou pertence ao "
               "módulo Wi-Fi CYW43 (23, 24, 25, 29)");
 
-static_assert(kQuantosGpio == 17,
+// ⚠️ **PENDENTE:** subiu de 17 para 19 em 2026-09-29, quando o display
+// migrou para o SPI1 e o `SCK`/`MOSI` dele deixaram de ser os mesmos do
+// cartão. O `bom_schematic.md` §2 e a netlist do `gera_fritzing.py` **ainda
+// descrevem a pinagem antiga** — atualizar os dois é trabalho combinado com
+// o autor para depois de o painel estar funcionando.
+static_assert(kQuantosGpio == 19,
               "a contagem de GPIO mudou: confira o bom_schematic.md e a "
               "netlist do gera_fritzing.py antes de ajustar este número");
 

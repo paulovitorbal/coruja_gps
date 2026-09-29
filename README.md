@@ -160,7 +160,7 @@ Três consequências práticas:
   mais.
 * **O fio de 12 V não é vermelho.** A convenção antiga mandava vermelho para 5 V *e*
   12 V; duas tensões com a mesma cor a três centímetros uma da outra é convite a erro.
-  No `.fzz` o 12 V é **magenta**.
+  No `.fzz` o 12 V é **amarelo**.
 * **O fio do coletor também está em 12 V** sempre que o transistor está cortado, ou
   seja, na maior parte do tempo. Não é só o `+12 V` que precisa de cuidado.
 

@@ -18,12 +18,19 @@ using namespace coruja::pinos;
 // funcionar sem ninguém saber por quê. Um teste que falha dizendo "o encoder
 // CLK mudou de pino" é a mensagem que se quer receber.
 
-// O GPIO 14 saiu do projeto com o card detect (ADR 0010). Este teste existe
-// para que reocupá-lo seja uma decisão consciente: ele quebra se alguém o
-// acrescentar sem atualizar a contagem.
-TEST(Pinos, GpioQuatorzeEstaLivre) {
+// O GPIO 14 ficou livre quando o card detect saiu (ADR 0010), e o teste
+// anterior exigia que continuasse livre — justamente para que reocupá-lo
+// fosse decisão consciente. Funcionou: ele quebrou quando o `RST` do display
+// foi para lá em 2026-09-29, e a reocupação foi ratificada pelo autor.
+//
+// O teste não desaparece, muda de lado. Agora fixa o pino na função nova, e
+// preserva a razão pela qual ele existia: este é o **terceiro** uso do GP14
+// (LED de Wi-Fi, card detect, `RST`), e cada troca exige conferir que nada
+// da função anterior ficou ligado nele na placa.
+TEST(Pinos, GpioQuatorzeEOResetDoDisplay) {
+    EXPECT_EQ(kDisplayRst, 14u);
     const std::set<unsigned> usados(kTodosOsGpio, kTodosOsGpio + kQuantosGpio);
-    EXPECT_EQ(usados.count(14), 0u) << "GPIO 14 voltou a ser usado";
+    EXPECT_EQ(usados.count(14), 1u);
 }
 
 TEST(Pinos, ValoresBatemComOBomSchematic) {
@@ -43,9 +50,12 @@ TEST(Pinos, ValoresBatemComOBomSchematic) {
     EXPECT_EQ(kSdCs, 17u);
     EXPECT_EQ(kSpiSck, 18u);
     EXPECT_EQ(kSpiMosi, 19u);
-    EXPECT_EQ(kDisplayCs, 20u);
-    EXPECT_EQ(kDisplayDc, 21u);
-    EXPECT_EQ(kDisplayRst, 22u);
+    // Display no SPI1, em seis pinos fisicos seguidos (14 a 20).
+    EXPECT_EQ(kDisplaySck, 10u);
+    EXPECT_EQ(kDisplayMosi, 11u);
+    EXPECT_EQ(kDisplayCs, 12u);
+    EXPECT_EQ(kDisplayDc, 13u);
+    EXPECT_EQ(kDisplayRst, 14u);
 }
 
 TEST(Pinos, AListaCobreTodosOsPinosDeclarados) {
@@ -55,7 +65,8 @@ TEST(Pinos, AListaCobreTodosOsPinosDeclarados) {
     const std::set<unsigned> na_lista(kTodosOsGpio, kTodosOsGpio + kQuantosGpio);
     for (unsigned g : {kGpsTx, kGpsRx, kEncoderClk, kEncoderDt, kEncoderSw,
                        kBuzzerBase, kLedVermelho, kLedVerde, kLedAzul,
-                       kSdCs, kSpiMiso, kSpiSck, kSpiMosi, kDisplayCs,
+                       kSdCs, kSpiMiso, kSpiSck, kSpiMosi,
+                       kDisplaySck, kDisplayMosi, kDisplayCs,
                        kDisplayDc, kDisplayRst, kDisplayBacklight}) {
         EXPECT_EQ(na_lista.count(g), 1u) << "GPIO " << g << " fora de kTodosOsGpio";
     }
@@ -77,6 +88,19 @@ TEST(Pinos, DisplayESdCompartilhamOSpiMasTemCsSeparados) {
     // O compartilhamento é intencional (RNF06) e exige mutex. O que não pode é
     // o CS ser o mesmo, o que selecionaria os dois ao mesmo tempo.
     EXPECT_NE(kSdCs, kDisplayCs);
+
+    // GP10 e GP11 nao sao escolha arbitraria: sao as funcoes SCK e TX do
+    // SPI1 no RP2350. Trocar por pinos "livres" quaisquer quebraria o
+    // barramento sem quebrar compilacao nenhuma.
+    EXPECT_EQ(kDisplaySck, 10u) << "GP10 e o SCK do SPI1";
+    EXPECT_EQ(kDisplayMosi, 11u) << "GP11 e o TX do SPI1";
+
+    // Os dois barramentos nao podem voltar a se encontrar por descuido.
+    for (unsigned d : {kDisplaySck, kDisplayMosi}) {
+        EXPECT_NE(d, kSpiSck);
+        EXPECT_NE(d, kSpiMosi);
+        EXPECT_NE(d, kSpiMiso);
+    }
 }
 
 TEST(Pinos, PinosDeAlimentacaoNaoEstaoNaListaDeGpio) {

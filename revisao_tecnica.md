@@ -1522,6 +1522,95 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-63 — Primeira ligação do painel: o custo de não conferir o óbvio
+
+- **Onde:** bancada, 2026-09-29
+- **Confiança:** ✅ Painel desenhando; cada hipótese descartada por medição
+- **Status:** ✅ **FECHADO** — e registrado como lição de método
+
+**O sintoma.** Backlight aceso, tela sem nada. Nenhuma cor, em nenhuma
+velocidade, com o firmware rodando até o fim (provado pelo LED por etapa).
+
+**A causa.** Os pinos `DC`, `CS` e `RST` **não estavam conectados**. O `DC` é o
+que distingue comando de dado no SPI de 4 fios; sem ele, o ST7789V nunca
+interpretou um único comando como comando. `SLPOUT`, `COLMOD`, `DISPON`: nada
+chegou. O painel nunca saiu do repouso.
+
+**O que isso invalida.** Cinco rodadas de diagnóstico, todas sobre software:
+
+| Hipótese perseguida | Veredito |
+| :--- | :--- |
+| Clock de 62,5 MHz alto demais para protoboard | plausível, mas não era a causa |
+| `CS` solto entre comando e parâmetros | idem |
+| LDO do módulo morto | descartada por medição (3,27 V) |
+| `RST` preso em nível baixo | descartada por medição (3,24 V) |
+| Falta de `NORON` e atrasos curtos | idem |
+| Falta da sequência de tensões internas | idem |
+
+Nenhuma delas podia funcionar, porque **o driver nunca chegou a ser exercido**.
+
+**O erro de método, que é o que importa.** A pergunta *"os oito pinos estão
+fisicamente conectados?"* nunca foi feita. Ela é a mais barata e a mais básica
+de todas, e foi pulada porque a conversa começou pela tabela de pinagem — o
+que criou a impressão de que a ligação estava feita.
+
+Pior: houve um teste de continuidade com resultado "ok em todos os pontos", e
+ele foi tratado como se cobrisse os cinco sinais. Continuidade prova **o fio**,
+não a presença dele. Um par não conectado não é medido como falha — ele
+simplesmente não é medido.
+
+**O que fica como regra.** Antes de qualquer hipótese de protocolo num
+periférico novo:
+
+1. Conferir **presença física** de cada pino, um a um, contra a tabela.
+2. Só então medir continuidade, e **enumerar** os pares medidos.
+3. Só então olhar o software.
+
+O `bancada_display` já tinha a etapa 2 exatamente para isso — pulsar cada pino
+para medição com multímetro. Ela existia, foi escrita, e foi ignorada em favor
+de teorias mais interessantes.
+
+## R-62 — Controlador do display identificado: ST7789V, e sem MISO
+
+- **Onde:** `bom_schematic.md` item 5 e §2; peça em mãos em 2026-09-29
+- **Confiança:** ✅ Serigrafia lida pelo autor, peça e versão confirmadas em fonte externa
+- **Status:** ✅ **FECHADO** — a pendência mais antiga do display
+
+**O que estava em aberto.** O item 5 do BOM dizia *"controlador a confirmar: 2,4"
+costuma ser ILI9341, não ST7789 — a sequência de inicialização difere"*, e a §2
+tinha o mesmo aviso. Era pendência real: as duas sequências de inicialização são
+incompatíveis, e escrever a errada dá tela preta sem mensagem de erro.
+
+**O que a peça diz.** A serigrafia do verso é `GMT024-08-SPI8P ver.: 1.3`. É um
+painel de 2,4" **240×320** com **ST7789V**.
+
+| | Estava escrito | É |
+| :--- | :--- | :--- |
+| Controlador | ILI9341 *(palpite do BOM)* | **ST7789V** |
+| Resolução | 240×240 *(título antigo da §2)* | **240×320** nativo |
+
+O palpite do BOM estava errado e o título original da §2 estava certo quanto ao
+controlador — e errado quanto à resolução. Como o firmware usa a tela deitada em
+320×240 (`Visor.h`), o painel nativo em retrato exige **rotação por MADCTL** na
+inicialização; não é o mesmo que um painel nativo em paisagem.
+
+**O achado que não estava previsto: o módulo não tem MISO.** São 8 pinos —
+`GND, VCC, SCL, SDA, RST, DC, CS, BL`. Duas consequências de peso:
+
+1. **Não há leitura de registrador.** O método definitivo de identificar o
+   controlador (ler o ID por SPI) **não existe nesta peça**, e o mesmo vale para
+   qualquer diagnóstico que dependa de ler estado de volta. A verificação de que
+   a inicialização funcionou é **visual**: um padrão de teste na tela, olhado por
+   uma pessoa. Nenhum teste automatizado substitui isso.
+2. **Um risco do barramento compartilhado desaparece.** A §2 divide o SPI0 entre
+   display e cartão. Sem pino MISO, o display **não tem como** disputar a linha de
+   dados de leitura do microSD. O que resta ali é só o cuidado com o clock, que o
+   cartão exige ≤ 400 kHz na inicialização e o display quer em dezenas de MHz.
+
+**Pendente por consequência.** A inversão de cor (`INVON`) é típica dos painéis
+IPS com ST7789 e não dá para decidir no papel: ou as cores saem certas, ou saem
+todas complementares. Fica para a primeira ligação, junto com a rotação.
+
 ## R-61 — Modo noturno: LDR descartado, o GPS já sabe que horas são
 
 - **Onde:** proposta do autor em 2026-09-28; decisão registrada antes de implementar
