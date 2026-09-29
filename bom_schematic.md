@@ -116,8 +116,13 @@ interior de um painel.
 > vermelho para 5 V, **amarelo para 12 V**, azul para 3V3 — e **verde para todo
 > sinal**, sem distinguir grupos.
 >
+> **As cinco cores são exatamente as da caixa de fios do autor** — 10 m de cada.
+> Isso não é detalhe: uma convenção que exige comprar fio avulso é abandonada no
+> meio da montagem, e uma que sai da caixa que já está na bancada é a que de fato
+> se segue. A restrição veio do estoque e melhorou o esquema.
+>
 > O esquema anterior dava cor própria a cada grupo de sinal (SPI0, SPI1, display,
-> GPS, encoder, LED, buzzer): onze cores. Foi trocado por quatro tensões mais
+> GPS, encoder, LED, buzzer): onze cores — seis a mais do que existem à mão. Foi trocado por quatro tensões mais
 > verde em 2026-09-29, porque na perfboard o erro que custa caro é de **tensão**,
 > não de sinal — trocar um fio de sinal dá um periférico que não responde, trocar
 > 12 V por 3,3 V destrói Pico, GPS, display e cartão juntos. O que se perde é

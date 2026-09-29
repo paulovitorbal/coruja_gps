@@ -354,6 +354,10 @@ POS = {
 # display e cartao juntos. Quatro cores memorizaveis servem a esse erro
 # melhor que onze.
 #
+# As cinco cores sao as da caixa de fios do autor, 10 m de cada. Uma
+# convencao que exige comprar fio avulso e abandonada no meio da montagem;
+# esta sai do estoque que ja esta na bancada.
+#
 # O que se perde: rastreabilidade visual por grupo de sinal. Com tudo verde,
 # distinguir o SCL do cartao do SCL do display exige seguir o fio ou
 # consultar a netlist. E consequencia aceita, nao descuido.
