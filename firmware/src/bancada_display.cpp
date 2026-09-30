@@ -261,6 +261,8 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
             cena = (cena + 1) % kQuantasCenas;
             std::printf("  cena: %s\n", kRoteiro[cena].nome);
         } else if (e == EventoEncoder::GiroDireita) {
+            // Fora do menu o giro ajusta o brilho, como no produto com o
+            // carro andando -- e a faixa superior mostra "BRILHO n%".
             brilho.aumenta();
             brilho_em = agora;
             houve_brilho = true;

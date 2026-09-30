@@ -531,4 +531,92 @@ TEST(Aplicacao, clique_dentro_do_menu_nao_dispara_OTA) {
     EXPECT_EQ(b.acoes.bases, 0U) << "o clique vazou para o OTA";
 }
 
+// --- brilho fora do menu, com o carro andando ---
+
+TEST(Aplicacao, girar_em_movimento_ajusta_o_brilho) {
+    // O menu so abre parado (RF05.1), entao fora dele o giro fica livre --
+    // e e quando mais se precisa dele, porque anoitecer acontece dirigindo.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    const std::uint8_t antes = b.brilho.percentual();
+
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    app.passo(2050);
+
+    EXPECT_LT(b.brilho.percentual(), antes);
+    EXPECT_FALSE(app.mostrando_menu()) << "o menu abriu em movimento";
+}
+
+TEST(Aplicacao, o_ajuste_direto_nao_e_desfeito_no_ciclo_seguinte) {
+    // aplica_ajustes() reaplica a configuracao a cada volta. Se o giro
+    // mexesse so no Brilho, o proximo ciclo o desfaria -- e o sintoma
+    // seria um encoder que "nao funciona" sem nada no log.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    app.passo(2050);
+    const std::uint8_t depois_do_giro = b.brilho.percentual();
+
+    b.roda(app, 2100, 4000, 60.0F);   // muitas voltas sem tocar no encoder
+    EXPECT_EQ(b.brilho.percentual(), depois_do_giro)
+        << "o ajuste foi desfeito pela reaplicacao da configuracao";
+}
+
+TEST(Aplicacao, o_ajuste_direto_aparece_na_faixa_superior) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    b.visor.limpa();
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    app.passo(2050);
+    EXPECT_TRUE(b.visor.tem("BRILHO")) << "o giro nao deu retorno na tela";
+}
+
+TEST(Aplicacao, o_brilho_ajustado_dirigindo_vai_ao_cartao_no_repouso) {
+    // Gravar por detente seriam dezenas de escritas num meio de ciclos
+    // finitos, e o valor intermediario nao interessa a ninguem. So o
+    // repouso interessa.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+
+    for (int i = 0; i < 4; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+        app.passo(2050 + i * 50);
+    }
+    EXPECT_EQ(app.gravacoes(), 0U) << "gravou no meio do giro";
+
+    b.roda(app, 2300, 2300 + kEsperaGravacaoBrilhoMs + 200, 60.0F);
+    EXPECT_EQ(app.gravacoes(), 1U) << "nao gravou depois do repouso";
+
+    const auto r = le_config(b.cartao.cfg.data(), b.cartao.cfg.size());
+    EXPECT_EQ(r.config.brilho_dia, b.brilho.percentual())
+        << "o cartao nao recebeu o brilho ajustado dirigindo";
+}
+
+TEST(Aplicacao, o_giro_que_abre_o_menu_nao_mexe_no_brilho) {
+    // A mesma acao tem dois significados, separados pela velocidade. O giro
+    // que abre o menu e consumido por ele e nao pode valer duas vezes.
+    //
+    // **Gira para BAIXO de proposito.** O brilho nasce em 100%, e girar
+    // para cima ali nao muda nada -- o teste passaria mesmo com o bug. Foi
+    // exatamente assim que a primeira versao deste teste deixou um mutante
+    // vivo.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    const std::uint8_t antes = b.brilho.percentual();
+    ASSERT_EQ(antes, 100) << "o teste depende de haver folga para baixo";
+
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    app.passo(4050);
+
+    EXPECT_TRUE(app.mostrando_menu());
+    EXPECT_EQ(b.brilho.percentual(), antes)
+        << "o giro que abre o menu tambem mexeu no brilho";
+}
+
 }  // namespace

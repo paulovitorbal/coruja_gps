@@ -90,6 +90,8 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.aviso_ota_em_ms = aviso_ota_em_ms_;
     e.houve_aviso_ota = houve_aviso_ota_;
     e.brilho_pct = brilho_.percentual();
+    e.brilho_mexido_em_ms = brilho_mexido_em_ms_;
+    e.houve_ajuste_brilho = houve_ajuste_brilho_;
     tela_.desenha(e, agora_ms, *visor_);
 }
 
@@ -134,6 +136,34 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
         aplica_ajustes();
         executa(acao);
 
+        // **Girar ajusta o brilho quando o menu nao consumiu o giro.**
+        //
+        // A condicao e essa, e nao "o carro esta andando": parado, o giro
+        // abre o menu, e `menu_.aberto()` ja e verdadeiro aqui. Escrever
+        // `!detector_.parado()` junto parecia mais explicito e nao
+        // decidia nada -- a mutacao mostrou que remove-lo nao muda
+        // comportamento nenhum. Em movimento o giro sobra, e e quando mais
+        // se precisa dele: anoitecer acontece dirigindo.
+        //
+        // O valor vai para a CONFIGURACAO, nao so para o `Brilho`: o
+        // `aplica_ajustes()` reaplica a configuracao a cada volta, e sem
+        // isto o giro seria desfeito no ciclo seguinte.
+        if (!menu_estava_aberto && !menu_.aberto()) {
+            const bool girou = evento == EventoEncoder::GiroDireita ||
+                               evento == EventoEncoder::GiroEsquerda;
+            if (girou) {
+                if (evento == EventoEncoder::GiroDireita) {
+                    brilho_.aumenta();
+                } else {
+                    brilho_.diminui();
+                }
+                menu_.registra_brilho_externo(brilho_.percentual());
+                brilho_mexido_em_ms_ = agora_ms;
+                houve_ajuste_brilho_ = true;
+                gravacao_pendente_ = true;
+            }
+        }
+
         // **O clique com o menu fechado e do OTA (RF05), nao do menu** -- e
         // por isso que o menu abre ao GIRAR. O `MenuAjustes` deixa o clique
         // passar de proposito; quem decide o que fazer com ele e aqui.
@@ -152,6 +182,15 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
             }
         }
     } while (evento != EventoEncoder::Nenhum);
+
+    // O brilho ajustado fora do menu vai ao cartao quando o giro cessa.
+    // Gravar por detente seriam dezenas de escritas num meio de ciclos
+    // finitos, e o valor intermediario nao interessa a ninguem.
+    if (gravacao_pendente_ &&
+        (agora_ms - brilho_mexido_em_ms_) >= kEsperaGravacaoBrilhoMs) {
+        gravacao_pendente_ = false;
+        executa(AcaoMenu::Gravar);
+    }
 
     // Desenha por ultimo: a tela mostra o que esta volta decidiu, e nao o
     // que a anterior tinha decidido.

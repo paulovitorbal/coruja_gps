@@ -39,6 +39,15 @@ std::uint8_t MenuAjustes::brilho_vigente() const {
                                            : cfg_.brilho_dia;
 }
 
+void MenuAjustes::registra_brilho_externo(std::uint8_t pct) {
+    // **Nao marca `alterado_`, de proposito.** O `alterado_` governa a
+    // gravacao no FECHAMENTO do menu, e este caminho nao tem fechamento:
+    // quem ajusta dirigindo decide gravar por repouso do encoder. Marcar
+    // aqui seriam dois mecanismos para a mesma decisao, e o segundo nunca
+    // seria exercitado -- foi o que a mutacao mostrou.
+    brilho_vigente() = pct;
+}
+
 void MenuAjustes::abre(std::uint32_t agora_ms) {
     estado_ = EstadoMenu::Navegando;
     item_ = ItemMenu::Brilho;

@@ -65,6 +65,20 @@ public:
     /// Qual preset de brilho o item edita. `Desconhecido` edita o de dia.
     void define_periodo(PeriodoDoDia p) { periodo_ = p; }
 
+    /// Registra um ajuste de brilho feito **fora** do menu.
+    ///
+    /// O encoder ajusta o brilho com o carro em movimento, quando o menu
+    /// nem pode abrir (RF05.1). Esse ajuste tem de chegar aqui, e nao so
+    /// ao `Brilho`: a configuracao e a fonte unica de verdade, e quem
+    /// chama a reaplica a cada volta -- sem isto o giro seria desfeito no
+    /// ciclo seguinte.
+    ///
+    /// Escreve no preset do periodo vigente, como o item do menu faria.
+    /// **Nao marca alteracao:** o `alterado_` governa a gravacao no
+    /// fechamento do menu, e este caminho nao tem fechamento -- quem chama
+    /// decide quando gravar.
+    void registra_brilho_externo(std::uint8_t pct);
+
     EstadoMenu estado() const { return estado_; }
     ItemMenu item() const { return item_; }
     const Configuracao& ajustes() const { return cfg_; }

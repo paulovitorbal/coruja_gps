@@ -16,6 +16,15 @@ namespace coruja {
 
 class Logger;
 
+/// Quanto tempo depois do último giro o brilho ajustado fora do menu vai
+/// ao cartão.
+///
+/// **Existe para não gastar um ciclo de escrita por detente.** Um giro
+/// decidido do encoder produz vários passos em menos de um segundo; gravar
+/// a cada um seriam dezenas de escritas num meio de ciclos finitos, e o
+/// valor intermediário não interessa a ninguém. Só o repouso interessa.
+constexpr std::uint32_t kEsperaGravacaoBrilhoMs = 5000;
+
 /// O que a aplicacao manda fazer e nao sabe como (regra 2).
 ///
 /// O OTA suspende o GPS e fala com a rede; o teste de alertas acende o LED
@@ -98,6 +107,10 @@ private:
     /// aviso por 2 s; sem ele o clique pareceria nao ter efeito.
     std::uint32_t  aviso_ota_em_ms_ = 0;
     bool           houve_aviso_ota_ = false;
+    /// Brilho ajustado fora do menu, esperando o repouso para ser gravado.
+    std::uint32_t  brilho_mexido_em_ms_ = 0;
+    bool           houve_ajuste_brilho_ = false;
+    bool           gravacao_pendente_ = false;
     InfoAparelho   info_;
     std::uint32_t  sem_sinal_desde_ms_ = 0;
     bool           houve_fix_ = false;

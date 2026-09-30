@@ -31,6 +31,11 @@ struct EstadoTela {
     std::uint32_t aviso_ota_em_ms = 0;
     bool          houve_aviso_ota = false;
     /// Instante do último ajuste de brilho pelo encoder.
+    ///
+    /// O ajuste direto existe **com o carro em movimento**, fora do menu —
+    /// que só abre parado (RF05.1). É quando mais se precisa dele, porque
+    /// anoitecer acontece dirigindo. Parado, o brilho é ajustado dentro do
+    /// menu, que o mostra na própria tela e dispensa este overlay.
     std::uint32_t brilho_mexido_em_ms = 0;
     bool          houve_ajuste_brilho = false;
     std::uint8_t  brilho_pct = 100;
