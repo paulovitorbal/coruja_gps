@@ -95,6 +95,11 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     tela_.desenha(e, agora_ms, *visor_);
 }
 
+void Aplicacao::invalida_tela() {
+    tela_.invalida();
+    tela_menu_.invalida();
+}
+
 void Aplicacao::define_base_carregada(const char* versao,
                                       std::size_t pontos) {
     std::snprintf(info_.versao_base, sizeof info_.versao_base, "%s",

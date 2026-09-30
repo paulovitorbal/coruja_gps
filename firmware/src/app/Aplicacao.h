@@ -65,6 +65,14 @@ public:
     /// Uma volta do laco.
     void passo(std::uint32_t agora_ms);
 
+    /// Forca o redesenho completo na proxima volta.
+    ///
+    /// Para depois do OTA, que e bloqueante e desenha a tela dele por cima.
+    /// As telas so redesenham o que mudou, e o que a tela de atualizacao
+    /// deixou no painel nao esta em nenhum instantaneo -- sem isto, a tela
+    /// de dirigir voltaria por cima de pedacos dela.
+    void invalida_tela();
+
     /// O que a tela de informacao do menu mostra sobre a base.
     ///
     /// Vem de fora porque quem carrega a base e quem a conhece: a

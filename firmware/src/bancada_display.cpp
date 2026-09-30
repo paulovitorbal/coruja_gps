@@ -42,7 +42,7 @@ namespace {
 /// e 30 s disso é pulso de pinos para multímetro. Era essencial enquanto o
 /// painel não desenhava; com ele validado, é espera pura. Trocar para `true`
 /// religa — ver R-63.
-constexpr bool kDiagnosticoCompleto = false;
+constexpr bool kDiagnosticoCompleto = true;
 
 constexpr std::uint32_t kEtapaMs = 3000;
 
