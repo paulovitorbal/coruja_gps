@@ -16,7 +16,9 @@ using namespace coruja;
 InfoAparelho info_exemplo() {
     InfoAparelho i;
     std::snprintf(i.nome, sizeof i.nome, "%s", "fusca");
-    std::snprintf(i.versao_base, sizeof i.versao_base, "%s", "2026-09-15");
+    i.ano = 2026;
+    i.mes = 9;
+    i.dia = 15;
     i.pontos = 18304;
     i.taxa_hz = 3.6F;
     return i;
@@ -225,7 +227,8 @@ TEST(TelaMenu, informacao_mostra_unidade_base_e_taxa) {
     tela.desenha(b.menu(), kInfo, 0, v);
 
     EXPECT_TRUE(v.tem_texto("fusca")) << "nao diz QUAL unidade e";
-    EXPECT_TRUE(v.tem_texto("atualizada: 2026-09-15"));
+    EXPECT_TRUE(v.tem_texto("base: 15/09/26"))
+        << "a data da base nao saiu em dd/mm/aa";
     EXPECT_TRUE(v.tem_texto("18304 pontos"));
     EXPECT_TRUE(v.tem_texto("3.6")) << "a taxa perdeu a casa decimal";
 }
@@ -245,7 +248,7 @@ TEST(TelaMenu, o_nome_da_unidade_vem_primeiro) {
     int y_base = -1;
     for (const auto& t : v.textos) {
         if (t.s.find("fusca") != std::string::npos) { y_nome = t.y; }
-        if (t.s.find("2026-09-15") != std::string::npos) { y_base = t.y; }
+        if (t.s.find("15/09/26") != std::string::npos) { y_base = t.y; }
     }
     ASSERT_GE(y_nome, 0);
     ASSERT_GE(y_base, 0);
@@ -345,7 +348,7 @@ TEST(TelaMenu, a_data_e_a_contagem_ficam_em_linhas_separadas) {
     int y_data = -1;
     int y_pontos = -1;
     for (const auto& t : v.textos) {
-        if (t.s.find("2026-09-15") != std::string::npos) { y_data = t.y; }
+        if (t.s.find("15/09/26") != std::string::npos) { y_data = t.y; }
         if (t.s.find("18304") != std::string::npos) { y_pontos = t.y; }
         EXPECT_LE(largura_da_fonte(Fonte::Texto, t.s.c_str()),
                   tela::kLargura) << "estourou: " << t.s;

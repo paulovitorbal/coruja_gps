@@ -222,8 +222,9 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
     // sobre o layout.
     InfoAparelho info;
     std::snprintf(info.nome, sizeof info.nome, "%s", "fusca");
-    std::snprintf(info.versao_base, sizeof info.versao_base, "%s",
-                  "2026-09-15");
+    info.ano = 2026;
+    info.mes = 9;
+    info.dia = 15;
     info.pontos = 18304;
     info.taxa_hz = 4.0F;
 

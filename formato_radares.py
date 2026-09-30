@@ -25,6 +25,7 @@ retorna resultado errado sem avisar se a invariante for violada.
 
 Layout completo em formato_dados.md §2 e §3.
 """
+import datetime
 import struct
 import zlib
 from enum import IntEnum
@@ -32,11 +33,21 @@ from typing import NamedTuple, Iterable, List
 
 # ------------------------------------------------------------------ cabeçalho
 MAGIC = b"RDR1"
-VERSAO = 1
+
+# Versão 2 desde 2026-09-30: o cabeçalho ganhou a DATA da base.
+#
+# Os 16 primeiros bytes são idênticos aos da versão 1 — só `versao` muda —,
+# então um leitor antigo decodifica tudo o que conhece e para no campo novo,
+# em vez de interpretar lixo. Foi essa a razão de a data entrar DEPOIS do
+# CRC, e não antes: pôr um campo no meio deslocaria o `crc32` e um leitor v1
+# leria o CRC de outro lugar sem perceber.
+VERSAO = 2
+VERSAO_SEM_DATA = 1
 EXP_ESCALA = 5                 # coordenadas em graus x 10^5
 ESCALA = 10 ** EXP_ESCALA       # -> resolução de ~1,1 m
 TAM_REGISTRO = 12
-TAM_CABECALHO = 16
+TAM_CABECALHO = 20
+TAM_CABECALHO_SEM_DATA = 16
 
 # Teto de segurança: acima disso a carga integral estoura a SRAM do RP2350.
 # Ver formato_dados.md §1 para a conta.
@@ -121,12 +132,18 @@ def empacota(p: Ponto) -> bytes:
     )
 
 
-def escreve(pontos: Iterable[Ponto], caminho) -> int:
+def escreve(pontos: Iterable[Ponto], caminho,
+            data: "datetime.date | None" = None) -> int:
     """
     Grava radares.bin. Retorna a quantidade de registros.
 
     Ordena por latitude — invariante obrigatória do formato — calcula o CRC-32
     e monta o cabeçalho. Um parser novo não precisa saber nada disso.
+
+    `data` é a data da BASE, não a da conversão: quem chama passa a data do
+    arquivo de origem, porque é ela que diz quão velhos são os dados. Sem
+    argumento, usa hoje — o que só está certo quando se converte no mesmo
+    dia em que se baixou.
     """
     lista = list(pontos)
     if not lista:
@@ -140,8 +157,16 @@ def escreve(pontos: Iterable[Ponto], caminho) -> int:
     registros = sorted((empacota(p) for p in lista),
                        key=lambda r: struct.unpack_from("<i", r)[0])
     dados = b"".join(registros)
-    cab = struct.pack("<4sHBBII", MAGIC, VERSAO, EXP_ESCALA, TAM_REGISTRO,
-                      len(registros), zlib.crc32(dados))
+
+    # A data vai como `u16 ano, u8 mes, u8 dia`, e não como AAAAMMDD num
+    # inteiro: o aparelho só precisa exibir dd/mm/aa, e assim não há divisão
+    # nenhuma a fazer num microcontrolador sem divisor de hardware. De
+    # quebra, aparece legível num dump hexadecimal.
+    if data is None:
+        data = datetime.date.today()
+    cab = struct.pack("<4sHBBIIHBB", MAGIC, VERSAO, EXP_ESCALA, TAM_REGISTRO,
+                      len(registros), zlib.crc32(dados),
+                      data.year, data.month, data.day)
     with open(caminho, "wb") as f:
         f.write(cab + dados)
     return len(registros)
@@ -162,18 +187,23 @@ def le(caminho) -> List[RegistroLido]:
     (formato_dados.md §2). Útil para testar um parser novo.
     """
     bruto = open(caminho, "rb").read()
-    if len(bruto) < TAM_CABECALHO:
+    if len(bruto) < TAM_CABECALHO_SEM_DATA:
         raise ValueError("arquivo menor que o cabeçalho")
     magic, versao, exp, tam, n, crc = struct.unpack_from("<4sHBBII", bruto)
     if magic != MAGIC:
         raise ValueError(f"magic inesperado: {magic!r}")
-    if versao != VERSAO or exp != EXP_ESCALA or tam != TAM_REGISTRO:
+    # Aceita as duas versões: um cartão com base v1 continua válido, e o
+    # aparelho só fica sem a data para mostrar. Recusá-la deixaria o
+    # aparelho sem base até a próxima atualização, o que é pior.
+    if versao not in (VERSAO, VERSAO_SEM_DATA) or exp != EXP_ESCALA or \
+       tam != TAM_REGISTRO:
         raise ValueError(f"versão/escala/tamanho inesperados: {versao},{exp},{tam}")
     if not (0 < n <= TETO_PONTOS):
         raise ValueError(f"n_pontos implausível: {n}")
-    if TAM_CABECALHO + n * TAM_REGISTRO != len(bruto):
+    cab = TAM_CABECALHO if versao == VERSAO else TAM_CABECALHO_SEM_DATA
+    if cab + n * TAM_REGISTRO != len(bruto):
         raise ValueError("tamanho do arquivo não bate com n_pontos")
-    dados = bruto[TAM_CABECALHO:]
+    dados = bruto[cab:]
     if zlib.crc32(dados) != crc:
         raise ValueError("CRC-32 não confere")
 

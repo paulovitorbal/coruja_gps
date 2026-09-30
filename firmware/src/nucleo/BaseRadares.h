@@ -44,10 +44,23 @@ struct ResultadoCarga {
 /// n_pontos u32 | crc32 u32. Equivale ao `<4sHBBII` do `formato_radares.py`,
 /// que e o contrato compartilhado entre conversor e firmware.
 constexpr std::uint32_t kMagic          = 0x31524452U;  // "RDR1" little-endian
-constexpr std::uint16_t kVersao         = 1;
+
+/// Versao 2 desde 2026-09-30: o cabecalho ganhou a DATA da base.
+///
+/// Os 16 primeiros bytes sao identicos aos da versao 1 -- so `versao` muda.
+/// A data entrou DEPOIS do CRC de proposito: um campo no meio deslocaria o
+/// `crc32`, e um leitor antigo leria o CRC de outro lugar sem perceber.
+constexpr std::uint16_t kVersao         = 2;
+/// A versao anterior continua ACEITA na leitura. Um cartao com base v1 vale,
+/// e o aparelho so fica sem a data para mostrar -- recusa-la deixaria o
+/// aparelho sem base ate a proxima atualizacao, o que e muito pior que uma
+/// linha vazia na tela de informacao.
+constexpr std::uint16_t kVersaoSemData  = 1;
+
 constexpr std::uint8_t  kExpoenteEscala = 5;
 constexpr float         kEscala         = 100000.0F;
-constexpr std::size_t   kTamCabecalho   = 16;
+constexpr std::size_t   kTamCabecalho        = 20;
+constexpr std::size_t   kTamCabecalhoSemData = 16;
 constexpr std::size_t   kTamRegistro    = 12;
 
 /// O ponto em RAM e o registro em arquivo tem de ter o mesmo tamanho. Nao e

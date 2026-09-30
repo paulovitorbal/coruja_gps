@@ -83,17 +83,27 @@ bool decodifica_registro(const std::uint8_t* registro, Ponto* destino,
 ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
                             Ponto* destino, std::size_t capacidade,
                             Logger* logger) {
-    if (bytes == nullptr || destino == nullptr || tamanho < kTamCabecalho) {
-        return falha(logger, ErroBase::TamanhoInvalido);
-    }
-    if ((tamanho - kTamCabecalho) % kTamRegistro != 0) {
+    // O cabecalho tem tamanho VARIAVEL: 16 bytes na versao 1, 20 na 2. A
+    // versao so se conhece depois de ler os 6 primeiros, entao a checagem
+    // de tamanho minimo usa o menor dos dois e o resto vem depois.
+    if (bytes == nullptr || destino == nullptr ||
+        tamanho < kTamCabecalhoSemData) {
         return falha(logger, ErroBase::TamanhoInvalido);
     }
     if (le_u32(bytes) != kMagic) {
         return falha(logger, ErroBase::MagicInvalido);
     }
-    if (le_u16(bytes + 4) != kVersao) {
+    const std::uint16_t versao = le_u16(bytes + 4);
+    // Aceita as duas: um cartao com base v1 continua valido, e o aparelho
+    // so fica sem a data. Recusa-la o deixaria SEM BASE ate a proxima
+    // atualizacao, que e muito pior.
+    if (versao != kVersao && versao != kVersaoSemData) {
         return falha(logger, ErroBase::VersaoInvalida);
+    }
+    const std::size_t cab =
+        versao == kVersaoSemData ? kTamCabecalhoSemData : kTamCabecalho;
+    if (tamanho < cab || (tamanho - cab) % kTamRegistro != 0) {
+        return falha(logger, ErroBase::TamanhoInvalido);
     }
     if (bytes[6] != kExpoenteEscala) {
         return falha(logger, ErroBase::EscalaInvalida);
@@ -109,7 +119,7 @@ ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
     if (declarados > kTetoPontos) {
         return falha(logger, ErroBase::ExcedeuTeto);
     }
-    const std::size_t reais = (tamanho - kTamCabecalho) / kTamRegistro;
+    const std::size_t reais = (tamanho - cab) / kTamRegistro;
     if (declarados != reais) {
         return falha(logger, ErroBase::ContagemInconsistente);
     }
@@ -118,13 +128,13 @@ ResultadoCarga carrega_base(const std::uint8_t* bytes, std::size_t tamanho,
     }
 
     const std::uint32_t crc_esperado = le_u32(bytes + 12);
-    if (crc32(bytes + kTamCabecalho, tamanho - kTamCabecalho) != crc_esperado) {
+    if (crc32(bytes + cab, tamanho - cab) != crc_esperado) {
         return falha(logger, ErroBase::CrcInvalido);
     }
 
     std::int32_t lat_anterior = -2147483647 - 1;
     for (std::size_t i = 0; i < reais; ++i) {
-        const std::uint8_t* r = bytes + kTamCabecalho + i * kTamRegistro;
+        const std::uint8_t* r = bytes + cab + i * kTamRegistro;
         std::int32_t lat_e = 0;
         if (!decodifica_registro(r, &destino[i], &lat_e)) {
             return falha(logger, ErroBase::RegistroInvalido);

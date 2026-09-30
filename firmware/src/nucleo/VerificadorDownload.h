@@ -7,9 +7,11 @@
 
 namespace coruja {
 
-/// Os seis campos do cabeçalho de 16 B do `radares.bin`, já decodificados.
-/// Espelha o `<4sHBBII` do `formato_radares.py`, que é o contrato entre
-/// conversor, servidor e firmware.
+/// O cabeçalho do `radares.bin`, já decodificado. Espelha o `<4sHBBIIHBB`
+/// do `formato_radares.py`, que é o contrato entre conversor, servidor e
+/// firmware. Tem 16 B na versão 1 e 20 B na 2 — os quatro últimos são a data,
+/// e por isso vêm DEPOIS do CRC: inserí-los no meio deslocaria o `crc32` e um
+/// leitor v1 o leria do lugar errado.
 struct CabecalhoBase {
     std::uint32_t magic        = 0;
     std::uint16_t versao       = 0;
@@ -17,11 +19,26 @@ struct CabecalhoBase {
     std::uint8_t  tam_registro = 0;
     std::uint32_t n_pontos     = 0;
     std::uint32_t crc          = 0;
+    /// Data da base. Zero quando o arquivo e da versao 1, que nao a tinha.
+    std::uint16_t ano          = 0;
+    std::uint8_t  mes          = 0;
+    std::uint8_t  dia          = 0;
+
+    /// Quantos bytes o cabecalho ocupa, conforme a versao lida.
+    std::size_t tamanho() const {
+        return versao == kVersaoSemData ? kTamCabecalhoSemData : kTamCabecalho;
+    }
+    bool tem_data() const { return ano != 0; }
 };
 
-/// Decodifica os 16 primeiros bytes. Não valida nada — quem valida é
+/// Decodifica o cabeçalho. Não valida nada — quem valida é
 /// `VerificadorDownload::conclui()`, porque a ordem das checagens é parte do
 /// contrato e precisa ficar num lugar só.
+///
+/// `bytes` precisa ter pelo menos `kTamCabecalhoSemData`. Os campos de data
+/// só são lidos quando a versão os tem, e é o chamador quem garante que os 4
+/// bytes extras chegaram — daí o `tamanho()` acima, que responde justamente
+/// "quantos bytes eu preciso ter em mãos".
 CabecalhoBase le_cabecalho(const std::uint8_t* bytes);
 
 /// Verifica um `radares.bin` **enquanto ele chega**, sem nunca tê-lo inteiro.
@@ -45,13 +62,15 @@ public:
     void alimenta(const std::uint8_t* bytes, std::size_t tamanho);
     void reinicia();
 
-    bool tem_cabecalho() const { return recebidos_ >= kTamCabecalho; }
+    bool tem_cabecalho() const { return cabecalho_lido_; }
     /// Só faz sentido quando `tem_cabecalho()`. Antes disso vem zerado.
     const CabecalhoBase& cabecalho() const { return cabecalho_; }
 
     std::size_t   bytes_recebidos() const { return recebidos_; }
     std::size_t   bytes_de_dados() const {
-        return recebidos_ > kTamCabecalho ? recebidos_ - kTamCabecalho : 0;
+        const std::size_t cab = cabecalho_lido_ ? cabecalho_.tamanho()
+                                                : kTamCabecalho;
+        return recebidos_ > cab ? recebidos_ - cab : 0;
     }
     /// CRC-32 dos bytes de dados vistos até agora (o cabeçalho fica de fora,
     /// exatamente como no `carrega_base`).
@@ -71,6 +90,7 @@ private:
     Crc32         crc_;
     CabecalhoBase cabecalho_;
     std::uint8_t  buffer_cabecalho_[kTamCabecalho] = {};
+    bool          cabecalho_lido_ = false;
     std::size_t   recebidos_ = 0;
 };
 

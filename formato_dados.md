@@ -162,21 +162,54 @@ plano B, para o caso de a base passar de ~35.000 registros.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ CABEÇALHO — 16 bytes                                       │
+│ CABEÇALHO — 20 bytes (versão 2)                            │
 ├────────┬────────────────┬──────┬──────────────────────────┤
 │ offset │ campo          │ tipo │ valor                     │
 ├────────┼────────────────┼──────┼──────────────────────────┤
 │   0    │ magic          │ 4 B  │ "RDR1" (0x52 44 52 31)   │
-│   4    │ versao         │ u16  │ 1                         │
+│   4    │ versao         │ u16  │ 2                         │
 │   6    │ exp_escala     │ u8   │ 5  → graus × 10^5         │
 │   7    │ tam_registro   │ u8   │ 12                        │
 │   8    │ n_pontos       │ u32  │ 18294                     │
 │  12    │ crc32          │ u32  │ CRC-32 do bloco de dados  │
+│  16    │ ano            │ u16  │ 2026   ← data da BASE     │
+│  18    │ mes            │ u8   │ 9                         │
+│  19    │ dia            │ u8   │ 30                        │
 ├────────┴────────────────┴──────┴──────────────────────────┤
 │ REGISTROS — n_pontos × 12 bytes                            │
 │ ORDENADOS POR LATITUDE CRESCENTE (invariante obrigatória)  │
 └────────────────────────────────────────────────────────────┘
 ```
+
+### A data, e por que ela entrou depois do CRC
+
+**Versão 2, desde 2026-09-30.** A data é a do **arquivo de origem**, não a da
+conversão nem a do download: é ela que diz quão velhos são os dados. O
+aparelho pode ter baixado hoje uma base de três meses atrás, e a data do
+download não contaria nada sobre isso.
+
+Ela entrou **depois** do `crc32`, e não no meio, de propósito: um campo
+inserido antes deslocaria o CRC, e um leitor da versão 1 leria o CRC de
+outro lugar sem perceber. Com a data no fim, **os 16 primeiros bytes são
+byte a byte idênticos nas duas versões** — só o campo `versao` muda —, e um
+leitor antigo decodifica tudo o que conhece e para no campo novo.
+
+Formato `u16 ano, u8 mes, u8 dia` e não `AAAAMMDD` num inteiro: o aparelho só
+precisa exibir `dd/mm/aa`, e assim não há divisão a fazer num
+microcontrolador sem divisor de hardware. De quebra, aparece legível num
+dump hexadecimal.
+
+**A versão 1 continua aceita na leitura**, no firmware e no conversor. Um
+cartão com base antiga vale, e o aparelho apenas mostra `base: sem data`.
+Recusá-la deixaria o aparelho **sem base** até a próxima atualização — muito
+pior que uma linha incompleta na tela de informação.
+
+> ⚠️ **Consequência na ordem das validações.** Com o cabeçalho de tamanho
+> variável, não dá para conferir se o arquivo tem um número redondo de
+> registros sem antes saber onde ele acaba, o que depende da `versao`, que só
+> vale se o `magic` conferir. Por isso **magic → versao → tamanho** passou a
+> ser a ordem obrigatória, nos dois caminhos de leitura. Há teste exigindo
+> que `carrega_base` e `VerificadorDownload` deem o mesmo veredito.
 
 Tamanho real gerado: **219.544 B = 214,4 KB**, contra 612.348 B do `.txt` de origem —
 compressão de **2,8×**, o que também encurta o download OTA.

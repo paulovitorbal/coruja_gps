@@ -41,6 +41,11 @@ std::vector<std::uint8_t> base_valida(std::uint32_t pontos = 3) {
     out.push_back(kTamRegistro);
     u32(out, pontos);
     u32(out, crc32(reg.data(), reg.size()));
+    // Data da base (v2). O firmware aceita v1 tambem, e ha teste proprio
+    // para isso em BaseRadaresTest.
+    out.push_back(2026 & 0xFF); out.push_back((2026 >> 8) & 0xFF);
+    out.push_back(9);
+    out.push_back(30);
     out.insert(out.end(), reg.begin(), reg.end());
     return out;
 }

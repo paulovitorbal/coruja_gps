@@ -77,7 +77,18 @@ void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
 /// esse recuo, uma atualização que passasse na verificação e ainda assim
 /// produzisse arquivo ruim deixaria o aparelho sem base **e sem caminho de
 /// volta**, e o motorista descobriria dirigindo.
-std::size_t carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
+/// Pontos carregados e o cabeçalho de onde vieram.
+///
+/// O cabeçalho sai junto porque a tela de informação mostra a **data da
+/// base**, e ela vem de lá — não do momento do download. O aparelho pode
+/// ter baixado hoje uma base de três meses atrás, e é a idade dos dados que
+/// diz se vale a pena atualizar.
+struct BaseCarregada {
+    std::size_t          pontos = 0;
+    coruja::CabecalhoBase cabecalho{};
+};
+
+BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
     coruja::CarregadorFluxo carregador(g_pontos, coruja::kCapacidadeFirmware);
     char msg[128];
 
@@ -96,18 +107,27 @@ std::size_t carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
             log.error("base", msg);
             continue;
         }
-        std::snprintf(msg, sizeof msg, "%u pontos de '%s'",
-                      static_cast<unsigned>(carregador.pontos()), nome);
+        const auto& cab = carregador.cabecalho();
+        if (cab.tem_data()) {
+            std::snprintf(msg, sizeof msg, "%u pontos de '%s', base de %02u/%02u/%04u",
+                          static_cast<unsigned>(carregador.pontos()), nome,
+                          static_cast<unsigned>(cab.dia),
+                          static_cast<unsigned>(cab.mes),
+                          static_cast<unsigned>(cab.ano));
+        } else {
+            std::snprintf(msg, sizeof msg, "%u pontos de '%s' (formato antigo, sem data)",
+                          static_cast<unsigned>(carregador.pontos()), nome);
+        }
         log.info("base", msg);
         if (nome == coruja::kArquivoBak) {
             log.warning("base", "operando pela RESERVA: atualize quando puder");
         }
-        return carregador.pontos();
+        return {carregador.pontos(), cab};
     }
     // RF07: sem base o aparelho opera, e precisa deixar isso evidente. Quem
     // avisa é a tela, com "BASE INDISPONIVEL".
     log.error("base", "NENHUMA base: nem a vigente nem a reserva");
-    return 0;
+    return {};
 }
 
 bool carrega_configuracao(coruja::CartaoSd& cartao,
@@ -174,8 +194,8 @@ public:
         // ~1 s de leitura de cartão por clique, e depois de "já estava em dia"
         // não há nada de novo para ler.
         if (resultado == coruja::ResultadoOta::Atualizada) {
-            pontos_ = carrega_base(cartao_, log_);
-            piloto_.define_base(g_pontos, pontos_);
+            base_ = carrega_base(cartao_, log_);
+            piloto_.define_base(g_pontos, base_.pontos);
         }
 
         // Segura o resultado na tela: sem isto a tela de dirigir voltaria no
@@ -199,8 +219,8 @@ public:
         led_.define_cor(coruja::cores::kApagado);
     }
 
-    std::size_t pontos() const { return pontos_; }
-    void define_pontos(std::size_t n) { pontos_ = n; }
+    const BaseCarregada& base() const { return base_; }
+    void define_base(const BaseCarregada& b) { base_ = b; }
 
 private:
     static constexpr std::uint32_t kMostraResultadoMs = 2500;
@@ -213,7 +233,7 @@ private:
     coruja::Buzzer&         buzzer_;
     coruja::Pausa&          pausa_;
     coruja::LoggerCartao&   log_;
-    std::size_t             pontos_ = 0;
+    BaseCarregada           base_;
     bool                    houve_ota_ = false;
 };
 
@@ -262,19 +282,19 @@ int main() {
     configurador.executa(log);
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
-    const std::size_t pontos = carrega_base(cartao, log);
-    piloto.define_base(g_pontos, pontos);
+    const BaseCarregada base = carrega_base(cartao, log);
+    piloto.define_base(g_pontos, base.pontos);
 
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
     AcoesDoAparelho        acoes(cartao, ota, ponte, piloto, led, buzzer,
                                  pausa, log);
-    acoes.define_pontos(pontos);
+    acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,
                           config, g_trabalho_cfg, sizeof g_trabalho_cfg,
                           &visor);
-    app.define_base_carregada(ota.versao_local(), pontos);
+    app.define_base_carregada(base.cabecalho, base.pontos);
 
     log.info("boot", "pronto");
     log.descarrega();
@@ -288,7 +308,8 @@ int main() {
         // OTA — o laço só vê `passo()` demorar, e não teria como adivinhar.
         if (acoes.consome_atualizacao()) {
             app.invalida_tela();
-            app.define_base_carregada(ota.versao_local(), acoes.pontos());
+            app.define_base_carregada(acoes.base().cabecalho,
+                                      acoes.base().pontos);
         }
     }
 }

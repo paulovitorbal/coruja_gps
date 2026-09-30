@@ -26,12 +26,21 @@ CabecalhoBase le_cabecalho(const std::uint8_t* bytes) {
     c.tam_registro = bytes[7];
     c.n_pontos     = le_u32(bytes + 8);
     c.crc          = le_u32(bytes + 12);
+    if (c.versao != kVersaoSemData) {
+        c.ano = le_u16(bytes + 16);
+        c.mes = bytes[18];
+        c.dia = bytes[19];
+    }
     return c;
 }
 
 void VerificadorDownload::reinicia() {
     crc_.reinicia();
     cabecalho_ = CabecalhoBase{};
+    // **Esquecer isto quebrava a segunda tentativa**: o cabecalho da
+    // tentativa anterior seguiria valendo, e os primeiros bytes do download
+    // novo entrariam no CRC como se fossem dados.
+    cabecalho_lido_ = false;
     recebidos_ = 0;
 }
 
@@ -45,16 +54,28 @@ void VerificadorDownload::alimenta(const std::uint8_t* bytes,
     // das chamadas, mas não em todas: nada garante que o primeiro pacote traga
     // 16 bytes, e um cabeçalho partido ao meio é a classe de defeito que só
     // aparece na rede de outra pessoa.
-    if (recebidos_ < kTamCabecalho) {
-        const std::size_t falta = kTamCabecalho - recebidos_;
+    // **O cabecalho tem tamanho variavel**, e isso muda a conta: sao 16
+    // bytes na versao 1 e 20 na 2, e a versao so se conhece depois de ler os
+    // 6 primeiros. Le-se ate 16, decide-se, e so entao se sabe se os 4
+    // seguintes sao cabecalho ou ja sao dados. Errar aqui nao da erro
+    // visivel -- corrompe o CRC, e o arquivo e recusado por um motivo que
+    // nao e o verdadeiro.
+    while (!cabecalho_lido_ && tamanho > 0) {
+        const std::size_t alvo =
+            recebidos_ < kTamCabecalhoSemData
+                ? kTamCabecalhoSemData
+                : le_cabecalho(buffer_cabecalho_).tamanho();
+        if (recebidos_ >= alvo) {
+            cabecalho_ = le_cabecalho(buffer_cabecalho_);
+            cabecalho_lido_ = true;
+            break;
+        }
+        const std::size_t falta = alvo - recebidos_;
         const std::size_t copiar = tamanho < falta ? tamanho : falta;
         std::memcpy(buffer_cabecalho_ + recebidos_, bytes, copiar);
         recebidos_ += copiar;
         bytes += copiar;
         tamanho -= copiar;
-        if (recebidos_ == kTamCabecalho) {
-            cabecalho_ = le_cabecalho(buffer_cabecalho_);
-        }
     }
 
     if (tamanho > 0) {
@@ -64,17 +85,30 @@ void VerificadorDownload::alimenta(const std::uint8_t* bytes,
 }
 
 ErroBase VerificadorDownload::conclui(std::size_t capacidade) const {
-    if (recebidos_ < kTamCabecalho) {
+    if (!cabecalho_lido_) {
         return ErroBase::TamanhoInvalido;
     }
-    if (bytes_de_dados() % kTamRegistro != 0) {
-        return ErroBase::TamanhoInvalido;
-    }
+    // **Magic e versao ANTES do tamanho**, e a ordem virou obrigatoria com o
+    // cabecalho de tamanho variavel: nao da para conferir se o arquivo tem
+    // um numero redondo de registros sem antes saber onde o cabecalho
+    // acaba, e isso depende da versao, que so vale se o magic conferir.
+    //
+    // A ordem e a mesma do `carrega_base`, e ha teste que exige que os dois
+    // deem o MESMO veredito -- dois caminhos de leitura que discordam sobre
+    // por que um arquivo e ruim seriam dois diagnosticos para o mesmo
+    // defeito.
     if (cabecalho_.magic != kMagic) {
         return ErroBase::MagicInvalido;
     }
-    if (cabecalho_.versao != kVersao) {
+    // Aceita as duas versoes na LEITURA. Um cartao com base v1 continua
+    // valido e o aparelho so fica sem a data; recusa-lo deixaria o aparelho
+    // sem base ate a proxima atualizacao.
+    if (cabecalho_.versao != kVersao &&
+        cabecalho_.versao != kVersaoSemData) {
         return ErroBase::VersaoInvalida;
+    }
+    if (bytes_de_dados() % kTamRegistro != 0) {
+        return ErroBase::TamanhoInvalido;
     }
     if (cabecalho_.exp_escala != kExpoenteEscala) {
         return ErroBase::EscalaInvalida;

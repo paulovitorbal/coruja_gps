@@ -100,10 +100,11 @@ void Aplicacao::invalida_tela() {
     tela_menu_.invalida();
 }
 
-void Aplicacao::define_base_carregada(const char* versao,
+void Aplicacao::define_base_carregada(const CabecalhoBase& cabecalho,
                                       std::size_t pontos) {
-    std::snprintf(info_.versao_base, sizeof info_.versao_base, "%s",
-                  versao != nullptr ? versao : "");
+    info_.ano = cabecalho.ano;
+    info_.mes = cabecalho.mes;
+    info_.dia = cabecalho.dia;
     info_.pontos = pontos;
 }
 

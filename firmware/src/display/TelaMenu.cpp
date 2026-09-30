@@ -30,8 +30,18 @@ TelaMenu::Instantaneo TelaMenu::compoe(const MenuAjustes& menu,
         // está olhando vale mais que qualquer outro número aqui.
         std::snprintf(i.info[0], sizeof i.info[0], "unidade: %s",
                       info.nome[0] != '\0' ? info.nome : "sem nome");
-        std::snprintf(i.info[1], sizeof i.info[1], "atualizada: %s",
-                      info.versao_base[0] != '\0' ? info.versao_base : "?");
+        if (info.ano != 0) {
+            // dd/mm/aa: dois dígitos no ano porque a linha é lida de
+            // relance e o século não acrescenta nada.
+            std::snprintf(i.info[1], sizeof i.info[1], "base: %02u/%02u/%02u",
+                          static_cast<unsigned>(info.dia),
+                          static_cast<unsigned>(info.mes),
+                          static_cast<unsigned>(info.ano % 100U));
+        } else {
+            // Base no formato antigo, que não trazia data. Dizer "sem data"
+            // é melhor que inventar uma ou deixar a linha vazia.
+            std::snprintf(i.info[1], sizeof i.info[1], "base: sem data");
+        }
         std::snprintf(i.info[2], sizeof i.info[2], "%u pontos",
                       static_cast<unsigned>(info.pontos));
         // Uma casa decimal: a diferença entre 4,0 e 3,6 Hz é o que separa

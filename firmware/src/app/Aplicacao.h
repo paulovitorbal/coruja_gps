@@ -11,6 +11,7 @@
 #include "menu/MenuAjustes.h"
 #include "nucleo/DetectorParado.h"
 #include "nucleo/GravadorConfig.h"
+#include "nucleo/VerificadorDownload.h"
 
 namespace coruja {
 
@@ -79,7 +80,8 @@ public:
     /// `Aplicacao` recebe o `PilotoAlerta` ja alimentado e nao tem como
     /// saber a versao nem a contagem. A taxa do GPS, essa sim, ela le do
     /// monitor a cada volta.
-    void define_base_carregada(const char* versao, std::size_t pontos);
+    void define_base_carregada(const CabecalhoBase& cabecalho,
+                               std::size_t pontos);
 
     const MenuAjustes& menu() const { return menu_; }
     const DetectorParado& detector() const { return detector_; }

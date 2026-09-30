@@ -15,7 +15,16 @@ namespace coruja {
 /// ponteiros para os três só para exibir texto inverteria as dependências.
 struct InfoAparelho {
     char          nome[24] = {};      ///< qual das duas unidades é esta
-    char          versao_base[24] = {};
+    /// Data da base, do cabeçalho do `radares.bin` (formato v2).
+    ///
+    /// **Não é a data da atualização, é a data dos DADOS.** O aparelho pode
+    /// ter baixado hoje uma base de três meses atrás, e é a idade dos dados
+    /// que diz se vale a pena atualizar — a do download não diz nada.
+    ///
+    /// Zero quando a base é do formato v1, que não a tinha.
+    std::uint16_t ano = 0;
+    std::uint8_t  mes = 0;
+    std::uint8_t  dia = 0;
     std::size_t   pontos = 0;
     float         taxa_hz = 0.0F;
 };

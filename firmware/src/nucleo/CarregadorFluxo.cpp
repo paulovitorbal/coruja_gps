@@ -53,9 +53,18 @@ void CarregadorFluxo::alimenta(const std::uint8_t* bytes, std::size_t tamanho) {
     verificador_.alimenta(bytes, tamanho);
 
     // Onde começa a parte deste pedaço que é dado, e não cabeçalho.
+    //
+    // O tamanho do cabeçalho **depende da versão** — 16 na 1, 20 na 2 —, e
+    // a versão só se conhece depois que ele chega inteiro. Enquanto isso,
+    // pergunta-se ao verificador, que é quem faz essa conta; duplicá-la
+    // aqui criaria dois lugares para errar o mesmo deslocamento, e o
+    // sintoma seria um ponto a mais ou a menos, não um erro.
+    const std::size_t cab = verificador_.tem_cabecalho()
+                                ? verificador_.cabecalho().tamanho()
+                                : kTamCabecalho;
     std::size_t i = 0;
-    if (antes < kTamCabecalho) {
-        const std::size_t do_cabecalho = kTamCabecalho - antes;
+    if (antes < cab) {
+        const std::size_t do_cabecalho = cab - antes;
         i = do_cabecalho < tamanho ? do_cabecalho : tamanho;
     }
 

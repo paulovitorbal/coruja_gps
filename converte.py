@@ -17,6 +17,7 @@ uma lista de `Ponto` e chamar `escreve()`. Ver o docstring de lá.
     python3 converte.py base_igo8.txt radares.bin
 """
 import csv
+import datetime
 import sys
 from pathlib import Path
 
@@ -68,10 +69,16 @@ def main():
         print(f"erro: nenhum ponto válido em {ent}", file=sys.stderr)
         return 1
 
-    n = escreve(pontos, sai)
+    # A data da BASE é a do arquivo de origem, não a de hoje: é ela que
+    # diz quão velhos são os dados. Converter uma base baixada na semana
+    # passada e carimbá-la com hoje faria o aparelho mostrar uma idade que
+    # não é a dela.
+    data = datetime.date.fromtimestamp(ent.stat().st_mtime)
+    n = escreve(pontos, sai, data)
     tam = sai.stat().st_size
     print(f"{ent} -> {sai}")
     print(f"  {n} registros gravados, {tam} B ({tam / 1024:.1f} KB)")
+    print(f"  data da base: {data:%d/%m/%Y} (mtime de {ent.name})")
     print(f"  RAM no Pico: {n * 12 / 1024:.1f} KB")
 
     le(sai)      # relê com as mesmas validações do firmware
