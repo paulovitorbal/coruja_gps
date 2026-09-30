@@ -1,10 +1,24 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 #include "display/Visor.h"
 #include "menu/MenuAjustes.h"
 
 namespace coruja {
+
+/// O que a tela de informação mostra.
+///
+/// **Vem de fora porque o `MenuAjustes` não sabe nada disto** — e não deve
+/// saber. Ele decide navegação; a versão da base, a contagem de pontos e a
+/// taxa do GPS pertencem a três subsistemas diferentes, e dar a ele
+/// ponteiros para os três só para exibir texto inverteria as dependências.
+struct InfoAparelho {
+    char          nome[24] = {};      ///< qual das duas unidades é esta
+    char          versao_base[24] = {};
+    std::size_t   pontos = 0;
+    float         taxa_hz = 0.0F;
+};
 
 /// Desenha o menu de ajustes do carro parado.
 ///
@@ -24,7 +38,8 @@ namespace coruja {
 class TelaMenu {
 public:
     /// Devolve quantas regiões foram tocadas; zero quando nada mudou.
-    int desenha(const MenuAjustes& menu, Visor& visor);
+    int desenha(const MenuAjustes& menu, const InfoAparelho& info,
+                Visor& visor);
 
     /// Força o próximo `desenha` a redesenhar tudo. Chamado ao abrir o
     /// menu, porque a tela por baixo era outra.
@@ -34,12 +49,15 @@ private:
     struct Instantaneo {
         char       rotulo[24] = {};
         char       valor[16] = {};
+        /// Três linhas de informação, só usadas no estado `Informando`.
+        char       info[3][32] = {};
         char       rodape[40] = {};
         EstadoMenu estado = EstadoMenu::Fechado;
         bool       valido = false;
     };
 
-    Instantaneo compoe(const MenuAjustes& menu) const;
+    Instantaneo compoe(const MenuAjustes& menu,
+                       const InfoAparelho& info) const;
 
     Instantaneo anterior_;
 };

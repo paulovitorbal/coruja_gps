@@ -56,6 +56,14 @@ public:
     /// Uma volta do laco.
     void passo(std::uint32_t agora_ms);
 
+    /// O que a tela de informacao do menu mostra sobre a base.
+    ///
+    /// Vem de fora porque quem carrega a base e quem a conhece: a
+    /// `Aplicacao` recebe o `PilotoAlerta` ja alimentado e nao tem como
+    /// saber a versao nem a contagem. A taxa do GPS, essa sim, ela le do
+    /// monitor a cada volta.
+    void define_base_carregada(const char* versao, std::size_t pontos);
+
     const MenuAjustes& menu() const { return menu_; }
     const DetectorParado& detector() const { return detector_; }
 
@@ -90,6 +98,7 @@ private:
     /// aviso por 2 s; sem ele o clique pareceria nao ter efeito.
     std::uint32_t  aviso_ota_em_ms_ = 0;
     bool           houve_aviso_ota_ = false;
+    InfoAparelho   info_;
     std::uint32_t  sem_sinal_desde_ms_ = 0;
     bool           houve_fix_ = false;
     char*          trabalho_;

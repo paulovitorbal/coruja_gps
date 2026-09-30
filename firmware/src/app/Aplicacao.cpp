@@ -1,5 +1,7 @@
 #include "app/Aplicacao.h"
 
+#include <cstdio>
+
 #include "log/Logger.h"
 
 namespace coruja {
@@ -70,7 +72,12 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     }
 
     if (aberto) {
-        tela_menu_.desenha(menu_, *visor_);
+        // A taxa vem do monitor a cada volta: ela muda sozinha, e mostrar
+        // a de quando o menu abriu seria mostrar o passado.
+        info_.taxa_hz = gps_.monitor().taxa_hz();
+        std::snprintf(info_.nome, sizeof info_.nome, "%s",
+                      menu_.ajustes().nome);
+        tela_menu_.desenha(menu_, info_, *visor_);
         return;
     }
 
@@ -84,6 +91,13 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.houve_aviso_ota = houve_aviso_ota_;
     e.brilho_pct = brilho_.percentual();
     tela_.desenha(e, agora_ms, *visor_);
+}
+
+void Aplicacao::define_base_carregada(const char* versao,
+                                      std::size_t pontos) {
+    std::snprintf(info_.versao_base, sizeof info_.versao_base, "%s",
+                  versao != nullptr ? versao : "");
+    info_.pontos = pontos;
 }
 
 void Aplicacao::passo(std::uint32_t agora_ms) {

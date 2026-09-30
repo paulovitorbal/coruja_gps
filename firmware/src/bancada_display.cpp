@@ -217,6 +217,16 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
     TelaMenu tela_menu;
     MenuAjustes menu{Configuracao{}};
 
+    // Numeros de mentira, mas plausiveis: a tela de informacao tem de ser
+    // julgada com conteudo do tamanho do real. "0 pts" nao diria nada sobre
+    // o layout.
+    InfoAparelho info;
+    std::snprintf(info.nome, sizeof info.nome, "%s", "fusca");
+    std::snprintf(info.versao_base, sizeof info.versao_base, "%s",
+                  "2026-09-15");
+    info.pontos = 18304;
+    info.taxa_hz = 4.0F;
+
     int cena = 0;
     bool menu_no_ar = false;
     std::uint32_t brilho_em = 0;
@@ -273,7 +283,8 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
         }
 
         if (menu.aberto()) {
-            tela_menu.desenha(menu, visor);
+            info.taxa_hz = 4.0F;
+            tela_menu.desenha(menu, info, visor);
         } else {
             tela.desenha(monta(kRoteiro[cena], brilho, agora, brilho_em,
                                houve_brilho),
