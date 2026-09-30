@@ -86,6 +86,10 @@ private:
     TelaMenu       tela_menu_;
     /// Para detectar a TRANSICAO entre as duas telas, nao o estado.
     bool           menu_no_ar_ = false;
+    /// Clique recusado por veiculo em movimento (RF05.1). A tela mostra o
+    /// aviso por 2 s; sem ele o clique pareceria nao ter efeito.
+    std::uint32_t  aviso_ota_em_ms_ = 0;
+    bool           houve_aviso_ota_ = false;
     std::uint32_t  sem_sinal_desde_ms_ = 0;
     bool           houve_fix_ = false;
     char*          trabalho_;

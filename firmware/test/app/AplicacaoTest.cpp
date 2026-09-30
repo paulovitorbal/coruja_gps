@@ -470,4 +470,65 @@ TEST(Aplicacao, o_contador_de_sem_sinal_mede_desde_a_perda) {
     EXPECT_FALSE(b.visor.tem("0:00"));
 }
 
+// --- o clique: OTA parado, aviso em movimento (RF05.1) ---
+
+TEST(Aplicacao, clique_parado_dispara_o_OTA) {
+    // O menu abre ao GIRAR justamente para o clique continuar sendo do
+    // OTA, como o RF05 manda.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(4050);
+    EXPECT_EQ(b.acoes.bases, 1U);
+    EXPECT_FALSE(app.mostrando_menu()) << "o clique nao pode abrir o menu";
+}
+
+TEST(Aplicacao, clique_em_movimento_avisa_em_vez_de_ignorar_calado) {
+    // RF05.1: o clique fora da condicao de seguranca e ignorado E avisado.
+    // Ignorar calado faria o clique parecer sem efeito, e o motorista
+    // clicaria de novo -- no volante, a 100 km/h.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    b.visor.limpa();
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(2050);
+
+    EXPECT_EQ(b.acoes.bases, 0U) << "iniciou OTA em movimento";
+    EXPECT_TRUE(b.visor.tem("PARE O VEICULO"))
+        << "recusou o clique sem dizer por que";
+    EXPECT_GT(b.log.contagem(Nivel::Warning), 0U);
+}
+
+TEST(Aplicacao, o_aviso_de_OTA_some_sozinho) {
+    // Dois segundos: tempo de ler, e nao mais que isso. A faixa inferior
+    // e onde a barra de alerta mora, e ela nao pode ficar ocupada.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(2050);
+    ASSERT_TRUE(b.visor.tem("PARE O VEICULO"));
+
+    b.visor.limpa();
+    b.roda(app, 2100, 6000, 60.0F);
+    EXPECT_FALSE(b.visor.tem("PARE O VEICULO")) << "o aviso ficou preso";
+}
+
+TEST(Aplicacao, clique_dentro_do_menu_nao_dispara_OTA) {
+    // Com o menu aberto o clique e do menu: confirma edicao, entra em
+    // item, aciona acao. Disparar OTA junto seria acao dupla.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    b.encoder.enfileira(EventoEncoder::GiroDireita);  // abre o menu
+    app.passo(4050);
+    ASSERT_TRUE(app.mostrando_menu());
+
+    b.encoder.enfileira(EventoEncoder::Clique);       // entra em brilho
+    app.passo(4100);
+    EXPECT_EQ(b.acoes.bases, 0U) << "o clique vazou para o OTA";
+}
+
 }  // namespace

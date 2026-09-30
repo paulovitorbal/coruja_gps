@@ -1,24 +1,22 @@
-// Primeira ligacao do display (R-62).
+// Bancada do display: as TELAS DE VERDADE no painel real.
 //
-// **Existe porque o modulo nao tem MISO.** Nada pode ser lido de volta do
-// ST7789V -- nem o ID, nem se um comando foi aceito. A unica verificacao
-// possivel e olhar a tela ou medir os pinos, e um programa que so desenha
-// a tela final nao diz *onde* falhou quando ela fica escura.
+// Não é mais maquete. O que roda aqui é a `TelaPrincipal` e o `TelaMenu` do
+// produto, através do `VisorSt7789` — as mesmas classes que a suíte de host
+// exercita contra um dublê. O que esta bancada acrescenta é a única coisa
+// que o host não dá: **olhar**.
 //
-// Escada de diagnostico, da causa mais barata de descartar para a mais
-// cara. Cada etapa so faz sentido se a anterior passou:
+// Não há GPS nem cartão. A telemetria é roteirizada, porque o objetivo é
+// julgar tela e não integração — e porque o GPS ainda não foi montado.
 //
-//   1. rampa do backlight -- so PWM. Nao acende? E VCC, GND ou BL.
-//   2. teste de continuidade -- cada pino de controle pulsa sozinho,
-//      anunciado, por 6 s. E para o multimetro: prova a FIACAO antes de
-//      acusar o protocolo. Um DC ou CS trocado da exatamente o mesmo
-//      sintoma que um clock rapido demais.
-//   3. varredura de velocidade -- o mesmo init em varias frequencias, cada
-//      uma com sua cor. Diz em qual delas o painel passa a receber, em vez
-//      de deixar a escolha no chute.
-//   4. cores nomeadas, com e sem INVON.
-//   5. orientacao, com padrao assimetrico de proposito.
-//   6. paleta do RF03 no piso de 5% (R-05 no painel real).
+//   girar   ajusta o brilho (e a faixa superior mostra "BRILHO n%",
+//           exatamente como no produto), ou navega o menu quando ele
+//           estiver aberto
+//   clicar  avança o roteiro; no cenário PARADO, abre o menu
+//
+// As cinco etapas de diagnóstico da primeira ligação continuam aqui, atrás
+// de `kDiagnosticoCompleto`. Foram elas que isolaram alimentação, fiação,
+// velocidade e inversão, e serão elas de novo quando a segunda unidade for
+// montada — que é uma primeira ligação inteira outra vez.
 
 #include <cstdio>
 
@@ -26,43 +24,28 @@
 #include <pico/stdlib.h>
 
 #include "display/Brilho.h"
-#include "display/DesenhaTexto.h"
-#include "display/FonteNumero.h"
-#include "display/FonteNumeroPequeno.h"
-#include "display/Sprites.h"
-#include "display/FonteTexto.h"
 #include "display/PainelSt7789.h"
+#include "display/RetroiluminacaoPwm.h"
+#include "display/TelaMenu.h"
+#include "display/TelaPrincipal.h"
+#include "display/VisorSt7789.h"
 #include "encoder/EncoderKy040.h"
 #include "led/LedRgbAnodoComum.h"
-#include "display/RetroiluminacaoPwm.h"
-#include "display/Visor.h"
+#include "menu/MenuAjustes.h"
 #include "placa/Pinos.h"
 
 using namespace coruja;
 
 namespace {
 
-constexpr std::uint32_t kEtapaMs = 3000;
-
-/// **As cinco etapas de diagnostico ficam desligadas por padrao.**
-///
-/// Elas levam ~1 min, e 30 s disso e o pulso de pinos para medicao com
-/// multimetro. Isso era essencial enquanto o painel nao desenhava; com ele
-/// validado, e espera pura entre a gravacao e o que se quer olhar.
-///
-/// **Ficam no codigo, e nao viram lixo:** foram elas que isolaram
-/// alimentacao, fiacao, velocidade e inversao, e serao elas de novo no dia
-/// em que a tela apagar -- ou quando o segundo aparelho for montado, que e
-/// uma primeira ligacao inteira outra vez. Ligar de volta e trocar `false`
-/// por `true` aqui.
+/// As cinco etapas de diagnóstico ficam desligadas por padrão: levam ~1 min,
+/// e 30 s disso é pulso de pinos para multímetro. Era essencial enquanto o
+/// painel não desenhava; com ele validado, é espera pura. Trocar para `true`
+/// religa — ver R-63.
 constexpr bool kDiagnosticoCompleto = false;
 
-/// O LED e o unico retorno que sobra enquanto a tela esta muda.
-///
-/// Uma cor por etapa, lida de relance, mais uma piscada rapida ao entrar
-/// nela. Serve para dois fins: saber que o programa progride em vez de
-/// ter travado, e -- se ele parar numa cor -- saber exatamente em qual
-/// etapa parou, sem precisar do terminal.
+constexpr std::uint32_t kEtapaMs = 3000;
+
 LedRgbAnodoComum* g_led = nullptr;
 
 void pisca_etapa(const Cor& cor, int quantas) {
@@ -73,7 +56,7 @@ void pisca_etapa(const Cor& cor, int quantas) {
         g_led->define_cor(cores::kApagado);
         sleep_ms(120);
     }
-    g_led->define_cor(cor);  // fica aceso durante a etapa inteira
+    g_led->define_cor(cor);
 }
 
 void anuncia(const char* texto) { std::printf("\n=== %s\n", texto); }
@@ -85,40 +68,27 @@ void mostra(PainelSt7789& painel, const char* nome, std::uint16_t cor) {
 }
 
 void rampa(RetroiluminacaoPwm& luz) {
-    pisca_etapa(cores::kVermelho, 1);
-    anuncia("1/6 rampa do backlight (sem SPI)");
+    anuncia("1/5 rampa do backlight (sem SPI)");
     std::printf("  se nao acender, o problema e VCC, GND ou BL\n");
     for (int pct = 0; pct <= 100; pct += 5) {
-        luz.define_duty(static_cast<std::uint16_t>(pct * 655));
-        sleep_ms(60);
-    }
-    for (int pct = 100; pct >= 0; pct -= 5) {
         luz.define_duty(static_cast<std::uint16_t>(pct * 655));
         sleep_ms(60);
     }
     luz.define_duty(65535);
 }
 
-/// Etapa 2: prova a fiacao, nao o protocolo.
-///
-/// Pulsa um pino de cada vez a 1 Hz, por 6 s, anunciando qual. Com a ponta
-/// do multimetro no pino do MODULO -- nao no do Pico -- da para ver o
-/// valor oscilar. Se um deles nao oscila, o fio esta solto ou trocado, e
-/// nenhuma quantidade de ajuste de protocolo vai consertar isso.
+/// Pulsa um pino de cada vez a 1 Hz, para medição com multímetro no pino
+/// **do módulo**. Prova a fiação antes de acusar o protocolo: um `DC` ou
+/// `CS` trocado dá exatamente o mesmo sintoma que um clock rápido demais.
 void continuidade() {
-    pisca_etapa(cores::kAmarelo, 2);
-    anuncia("2/6 continuidade dos pinos de controle");
-    std::printf("  ponta do multimetro no pino DO MODULO, 6 s cada\n");
+    anuncia("2/5 continuidade dos pinos de controle");
     const struct { const char* nome; unsigned pino; } linhas[] = {
-        {"CS  (deve oscilar no pino CS do modulo)",  pinos::kDisplayCs},
-        {"DC  (deve oscilar no pino DC do modulo)",  pinos::kDisplayDc},
-        {"RST (deve oscilar no pino RST do modulo)", pinos::kDisplayRst},
-        {"SCL (deve oscilar no pino SCL do modulo)", pinos::kDisplaySck},
-        {"SDA (deve oscilar no pino SDA do modulo)", pinos::kDisplayMosi},
+        {"CS",  pinos::kDisplayCs},  {"DC",  pinos::kDisplayDc},
+        {"RST", pinos::kDisplayRst}, {"SCL", pinos::kDisplaySck},
+        {"SDA", pinos::kDisplayMosi},
     };
     for (const auto& l : linhas) {
-        std::printf("  %s\n", l.nome);
-        // SCL e SDA estao em funcao SPI; volta para GPIO so aqui.
+        std::printf("  %s (no pino do modulo)\n", l.nome);
         gpio_set_function(l.pino, GPIO_FUNC_SIO);
         gpio_init(l.pino);
         gpio_set_dir(l.pino, GPIO_OUT);
@@ -129,19 +99,13 @@ void continuidade() {
             sleep_ms(500);
         }
     }
-    std::printf("  fim da continuidade\n");
 }
 
-/// Etapa 3: a mesma inicializacao em varias velocidades, uma cor por
-/// velocidade. O painel aceita ~66 MHz no papel; o que decide e o fio.
-bool varredura(PainelSt7789& painel) {
-    pisca_etapa(cores::kVerde, 3);
-    anuncia("3/6 varredura de velocidade do SPI");
-    std::printf("  uma cor por velocidade; diga em quais apareceu algo\n");
+void varredura(PainelSt7789& painel) {
+    anuncia("3/5 varredura de velocidade do SPI");
     const struct { std::uint32_t hz; const char* cor; std::uint16_t v; }
     passos[] = {
         {  500000, "AZUL      (0,5 MHz)", 0x001F},
-        { 1000000, "VERDE     (1 MHz)",   0x07E0},
         { 4000000, "VERMELHO  (4 MHz)",   0xF800},
         {16000000, "AMARELO   (16 MHz)",  0xFFE0},
         {32000000, "BRANCO    (32 MHz)",  0xFFFF},
@@ -153,30 +117,13 @@ bool varredura(PainelSt7789& painel) {
         painel.limpa(p.v);
         sleep_ms(kEtapaMs);
     }
-    // Modo 3 (CPOL=1, CPHA=1) a 1 MHz. O ST7789V amostra na borda de
-    // subida e os dois modos entregam isso, mas as bibliotecas se dividem
-    // -- uma cor propria elimina a duvida em vez de deixa-la aberta.
-    std::printf("  MAGENTA   (1 MHz, modo 3 em vez do modo 0)\n");
-    painel.inicia(1000000, /*modo3=*/true);
-    painel.limpa(0xF81F);
-    sleep_ms(kEtapaMs);
-
-    // Segue na mais conservadora que faz sentido manter.
-    painel.inicia(1000000);
-    return true;
-}
-
-void serie_rgb(PainelSt7789& painel) {
-    mostra(painel, "vermelho", 0xF800);
-    mostra(painel, "verde", 0x07E0);
-    mostra(painel, "azul", 0x001F);
+    painel.inicia();
 }
 
 void orientacao(PainelSt7789& painel) {
-    pisca_etapa(cores::kRosa, 5);
-    anuncia("5/6 orientacao");
-    std::printf("  esperado: barra branca no TOPO, quadrado vermelho no\n"
-                "  canto SUPERIOR ESQUERDO, faixa azul fina embaixo\n");
+    anuncia("5/5 orientacao");
+    std::printf("  barra branca no TOPO, quadrado vermelho no canto\n"
+                "  SUPERIOR ESQUERDO, faixa azul fina embaixo\n");
     painel.limpa(0x0000);
     painel.preenche(0, 0, tela::kLargura, 12, 0xFFFF);
     painel.preenche(0, 0, 40, 40, 0xF800);
@@ -184,163 +131,155 @@ void orientacao(PainelSt7789& painel) {
     sleep_ms(kEtapaMs * 2);
 }
 
-/// A faixa superior: o percentual de brilho, onde iria o relogio.
-///
-/// Alinhado a direita, como o relogio ficaria. O fundo e pintado pelo
-/// proprio glifo, o que dispensa limpar a faixa antes e evita a piscada de
-/// apagar-e-redesenhar -- com 320x240 a 20 kHz de PWM, apagar primeiro se
-/// ve.
-void desenha_brilho(PainelSt7789& painel, const Brilho& brilho) {
-    char texto[16];
-    std::snprintf(texto, sizeof texto, "%3u%%", brilho.percentual());
-    const int y = tela::kYFaixaSuperior +
-                  (tela::kFaixaSuperior - fonte::texto::kAltura) / 2;
-    escreve_texto(painel,
-                  tela::kLargura - tela::kMoldura - 8 - largura_texto(texto),
-                  y, texto, paleta::kTexto, paleta::kFundo);
+// ------------------------------------------------------ roteiro de telas
+
+Ponto ponto(std::uint8_t limite, TipoPonto tipo) {
+    Ponto p{};
+    p.limite = limite;
+    p.tipo = tipo;
+    p.sentido = Sentido::Omnidirecional;
+    return p;
 }
 
-/// Etapa 6: a maquete do §4.1 no painel, com o brilho no lugar do relogio.
+/// Um instante da direção, montado à mão.
 ///
-/// **Julga a paleta no contexto de uso, nao em abstrato.** As tres barras
-/// lado a lado respondiam "estas cores sao diferentes entre si?", que nao e
-/// a pergunta: no carro se ve UMA tela, de relance, e e preciso saber em que
-/// zona se esta. A barra ocupa a faixa inferior, o numero e branco no meio,
-/// e e esse conjunto que tem de funcionar a 5% de brilho.
-///
-/// O relogio da faixa superior da lugar ao **percentual de brilho**, a
-/// pedido do autor: sem isso, ajustar no escuro e as cegas.
-///
-/// Girar ajusta o brilho. Clicar sorteia outra zona **e revela qual era a
-/// anterior pelo serial** -- entao da para nomear antes de conferir, que e
-/// o unico teste que reproduz a tarefa real.
-void maquete_com_encoder(PainelSt7789& painel, RetroiluminacaoPwm& luz,
-                         Encoder& encoder, Brilho& brilho) {
-    anuncia("6/6 maquete do 4.1 -- brilho no encoder, no lugar do relogio");
-    std::printf("  girar  = brilho\n");
+/// As velocidades contam uma história coerente com o RF03 — limite de 60,
+/// `V_infra` de 66 — e os dois últimos cenários existem para julgar o
+/// layout nos extremos: `120/120` é o pior caso de largura (R-64) e o
+/// PARADO é onde o menu abre.
+struct Cena {
+    const char* nome;
+    float       velocidade;
+    bool        tem_alvo;
+    std::uint8_t limite;
+    TipoPonto   tipo;
+    Zona        zona;
+    float       distancia_m;
+    bool        tem_fix;
+    bool        base_ok;
+};
 
-    struct Cenario { const char* nome; std::uint16_t cor; unsigned vel;
-                     unsigned limite; int pct_barra; };
-    // Os quatro primeiros contam uma historia coerente com o RF03: limite
-    // de 60, V_infra de 66. Os tres ultimos existem para provar o LAYOUT
-    // nos extremos de largura, que e onde o §4.1 falhou:
-    //
-    //   120/120 -> 7 glifos, o pior caso. Rodovia, nao excecao.
-    //   100/120 -> pedido do autor.
-    //     8/60  -> um digito, para ver se a centragem aguenta os dois fins.
-    const Cenario cenarios[] = {
-        {"SEGURA",      paleta::kMoldura,       58,  60,   0},
-        {"APROXIMACAO", paleta::kBarraAmbar,    62,  60,  35},
-        {"MARGEM",      paleta::kBarraRosa,     67,  60,  65},
-        {"PERIGO",      paleta::kBarraPerigo,   74,  60,  95},
-        {"SEGURA (rodovia)",  paleta::kMoldura, 100, 120,   0},
-        {"PERIGO (rodovia)",  paleta::kBarraPerigo, 120, 120, 90},
-        {"SEGURA (1 digito)", paleta::kMoldura,   8,  60,   0},
-    };
-    constexpr int kQuantosCenarios =
-        static_cast<int>(sizeof cenarios / sizeof *cenarios);
+constexpr Cena kRoteiro[] = {
+    {"segura, sem ponto",   58, false,  0, TipoPonto::RadarFixo,
+     Zona::Segura, 0, true, true},
+    {"aproximacao 62/60",   62, true,  60, TipoPonto::RadarFixo,
+     Zona::AproximacaoConforme, 240, true, true},
+    {"margem 67/60",        67, true,  60, TipoPonto::RadarFixo,
+     Zona::AproximacaoMargem, 150, true, true},
+    {"perigo 74/60",        74, true,  60, TipoPonto::RadarFixo,
+     Zona::Perigo, 60, true, true},
+    {"semaforo, sem limite", 48, true,  0, TipoPonto::SemaforoCamera,
+     Zona::Semaforo, 180, true, true},
+    {"semaforo COM radar",  63, true,  60, TipoPonto::SemaforoComRadar,
+     Zona::AproximacaoMargem, 120, true, true},
+    {"rodovia 120/120",    120, true, 120, TipoPonto::RadarFixo,
+     Zona::Perigo, 90, true, true},
+    {"sem sinal",           0, false,  0, TipoPonto::RadarFixo,
+     Zona::SemSinal, 0, false, true},
+    {"base indisponivel",  55, false,  0, TipoPonto::RadarFixo,
+     Zona::SemSinal, 0, true, false},
+    {"PARADO -- gire para abrir o menu", 0, false, 0, TipoPonto::RadarFixo,
+     Zona::Segura, 0, true, true},
+};
+constexpr int kQuantasCenas = static_cast<int>(sizeof kRoteiro /
+                                               sizeof *kRoteiro);
 
-    std::printf("  clique = proximo cenario (%d no total)\n",
-                kQuantosCenarios);
+EstadoTela monta(const Cena& c, const Brilho& brilho, std::uint32_t agora,
+                 std::uint32_t brilho_em, bool houve_brilho) {
+    EstadoTela e;
+    e.telemetria.velocidade_kmh = c.velocidade;
+    e.telemetria.data_valida = true;
+    e.telemetria.ano = 2026;
+    e.telemetria.mes = 9;
+    e.telemetria.dia = 30;
+    e.telemetria.hora = 12;
+    e.telemetria.minuto = 34;
+    e.tem_fix = c.tem_fix;
+    e.base_disponivel = c.base_ok;
+    e.veredito.zona = c.zona;
+    e.veredito.tem_alvo = c.tem_alvo;
+    e.veredito.distancia_m = c.distancia_m;
+    if (c.tem_alvo) {
+        e.veredito.alvo = ponto(c.limite, c.tipo);
+    }
+    e.sem_sinal_desde_ms = agora > 14000 ? agora - 14000 : 0;
+    e.brilho_pct = brilho.percentual();
+    e.brilho_mexido_em_ms = brilho_em;
+    e.houve_ajuste_brilho = houve_brilho;
+    return e;
+}
 
-    // Ordem fixa, nao sorteio. O sorteio servia ao teste cego do R-05; para
-    // revisar layout, previsibilidade vale mais -- e para um teste cego
-    // basta olhar para o lado enquanto clica.
-    int atual = 0;
+/// O laço: as telas do produto, comandadas pelo encoder.
+void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
+                      Encoder& encoder, Brilho& brilho) {
+    VisorSt7789 visor{painel};
+    TelaPrincipal tela;
+    TelaMenu tela_menu;
+    MenuAjustes menu{Configuracao{}};
 
-    auto desenha_tudo = [&] {
-        const Cenario& z = cenarios[atual];
-        // **Sem moldura** (decidido pelo autor em 2026-09-29): o fio de
-        // 2 px em volta nao carregava informacao nenhuma e gastava area
-        // acesa -- que e exatamente o que o §4.1 manda economizar, porque
-        // com o brilho a 5% a noite o ofuscamento vem da area, nao da cor.
-        painel.limpa(paleta::kFundo);
+    int cena = 0;
+    bool menu_no_ar = false;
+    std::uint32_t brilho_em = 0;
+    bool houve_brilho = false;
 
-        desenha_brilho(painel, brilho);
-
-        // Area do numero: velocidade grande, limite em metade da escala.
-        // Branco porque e o que precisa ser lido -- 21:1 de contraste sobre
-        // preto contra 5,3:1 do vermelho (regra 3 da paleta).
-        //
-        // A hierarquia nao e estetica: com tudo em 56 px, "120/120" daria
-        // 392 px numa tela de 320. E ela concorda com a atencao -- a
-        // velocidade se le de relance, o limite e referencia.
-        char s_vel[8];
-        char s_lim[8];
-        std::snprintf(s_vel, sizeof s_vel, "%u", z.vel);
-        std::snprintf(s_lim, sizeof s_lim, "/%u", z.limite);
-        const int lv = largura_numero(s_vel);
-        const int ll = largura_numero_pequeno(s_lim);
-        const int x0 = (tela::kLargura - lv - ll) / 2;
-        const int yv = tela::kYAreaNumero +
-                       (tela::kAreaNumero - fonte::numero::kAltura) / 2;
-        escreve_numero(painel, x0, yv, s_vel, paleta::kTexto, paleta::kFundo);
-        // O limite assenta na MESMA linha de base da velocidade, nao
-        // centralizado na altura: alinhado pelo meio ele pareceria flutuar.
-        const int yl = yv + fonte::numero::kAltura -
-                       fonte::numeropequeno::kAltura;
-        // Branco, nao cinza (decidido pelo autor em 2026-09-29). O cinza
-        // reforcava a hierarquia, mas colapsa antes no piso de brilho, e
-        // ai a referencia do limite se perde justamente a noite. A
-        // hierarquia continua inteira pela ESCALA, que o PWM nao apaga --
-        // e e a regra 1 da paleta: distinguir por matiz ou forma, nunca
-        // por luminancia.
-        escreve_numero_pequeno(painel, x0 + lv, yl, s_lim, paleta::kTexto,
-                               paleta::kFundo);
-
-        // Faixa inferior, com a geometria REAL da TelaPrincipal: barra de
-        // 28 px de altura em x=56, deixando 40 px para o icone a esquerda.
-        // A primeira maquete usava 16 px em x=20 e subrepresentava a barra
-        // -- o que importa, porque foi na visibilidade dela que o piso de
-        // brilho reprovou.
-        constexpr int kBarraX = 56;
-        constexpr int kBarraL = tela::kLargura - kBarraX - 8;
-        constexpr int kBarraA = 28;
-        const int y = tela::kYFaixaInferior + 8;
-        painel.preenche(kBarraX, y, kBarraL, kBarraA, paleta::kMoldura);
-        if (z.pct_barra > 0) {
-            painel.preenche(kBarraX, y, kBarraL * z.pct_barra / 100, kBarraA,
-                            z.cor);
-        }
-        // Icone, 40x40 RGB565 (Twemoji). Semaforo nos cenarios de rodovia,
-        // radar nos demais -- so para as duas artes aparecerem.
-        const bool semaforo = (atual == 4 || atual == 5);
-        painel.desenha_rgb565(8, y - 6, sprite::kLado, sprite::kLado,
-                              semaforo ? sprite::kSemaforo : sprite::kRadar);
-    };
-
-    desenha_tudo();
+    anuncia("telas do produto (TelaPrincipal e TelaMenu de verdade)");
+    std::printf("  girar  = brilho, ou navega o menu quando aberto\n");
+    std::printf("  clique = proxima cena (%d), ou age no menu\n",
+                kQuantasCenas);
+    std::printf("  cena: %s\n", kRoteiro[cena].nome);
     luz.define_duty(brilho.duty());
-    std::printf("  cenario: %s (%u/%u), brilho %u%%\n", cenarios[atual].nome,
-                cenarios[atual].vel, cenarios[atual].limite,
-                brilho.percentual());
 
+    std::uint32_t agora = 0;
     while (true) {
+        agora = to_ms_since_boot(get_absolute_time());
         const EventoEncoder e = encoder.proximo_evento();
-        if (e == EventoEncoder::Nenhum) {
-            sleep_ms(1);  // a quadratura precisa ver cada transicao
-            continue;
-        }
-        if (e == EventoEncoder::Clique) {
-            atual = (atual + 1) % kQuantosCenarios;
-            desenha_tudo();
-            std::printf("  cenario: %s (%u/%u)\n", cenarios[atual].nome,
-                        cenarios[atual].vel, cenarios[atual].limite);
-            continue;
-        }
-        if (e == EventoEncoder::GiroDireita) {
+
+        // O menu só abre parado, como no produto (RF05.1). Aqui "parado" é
+        // a cena, não o GPS — mas a regra é a mesma, e é ela que se quer ver.
+        const bool parado = kRoteiro[cena].velocidade < 3.0F;
+        if (menu.aberto() || (parado && e != EventoEncoder::Nenhum)) {
+            const AcaoMenu acao = menu.avalia(e, parado, agora);
+            if (acao == AcaoMenu::Gravar) {
+                std::printf("  [gravaria os ajustes no cartao]\n");
+            } else if (acao != AcaoMenu::Nenhuma) {
+                std::printf("  [acao do menu: %d]\n", static_cast<int>(acao));
+            }
+            brilho.define_presets(menu.ajustes().brilho_dia,
+                                  menu.ajustes().brilho_noite);
+            luz.define_duty(brilho.duty());
+        } else if (e == EventoEncoder::Clique) {
+            cena = (cena + 1) % kQuantasCenas;
+            std::printf("  cena: %s\n", kRoteiro[cena].nome);
+        } else if (e == EventoEncoder::GiroDireita) {
             brilho.aumenta();
-        } else {
+            brilho_em = agora;
+            houve_brilho = true;
+            luz.define_duty(brilho.duty());
+            std::printf("  brilho %u%%\n", brilho.percentual());
+        } else if (e == EventoEncoder::GiroEsquerda) {
             brilho.diminui();
+            brilho_em = agora;
+            houve_brilho = true;
+            luz.define_duty(brilho.duty());
+            std::printf("  brilho %u%%\n", brilho.percentual());
         }
-        luz.define_duty(brilho.duty());
-        // Redesenha so a faixa superior: e o que muda, e a §4.1 existe
-        // para permitir exatamente isso.
-        desenha_brilho(painel, brilho);
-        std::printf("  brilho: %u%% (passo %u de %u, duty %u)\n",
-                    brilho.percentual(),
-                    static_cast<unsigned>(brilho.passo()),
-                    static_cast<unsigned>(kPassosBrilho), brilho.duty());
+
+        // A transição entre telas invalida a que entra: as duas só
+        // redesenham o que mudou, e o que a outra deixou no painel não está
+        // em nenhum dos dois instantâneos.
+        if (menu.aberto() != menu_no_ar) {
+            if (menu.aberto()) { tela_menu.invalida(); } else { tela.invalida(); }
+            menu_no_ar = menu.aberto();
+        }
+
+        if (menu.aberto()) {
+            tela_menu.desenha(menu, visor);
+        } else {
+            tela.desenha(monta(kRoteiro[cena], brilho, agora, brilho_em,
+                               houve_brilho),
+                         agora, visor);
+        }
+        sleep_ms(1);  // a quadratura precisa ver cada transicao
     }
 }
 
@@ -348,9 +287,6 @@ void maquete_com_encoder(PainelSt7789& painel, RetroiluminacaoPwm& luz,
 
 int main() {
     stdio_init_all();
-    // Espera o monitor, ate 30 s, e segue sem ninguem: a ordem correta de
-    // energizar e 12 V primeiro, USB depois, entao o Pico ja esta rodando
-    // quando o terminal chega.
     for (int i = 0; i < 300 && !stdio_usb_connected(); ++i) {
         sleep_ms(100);
     }
@@ -369,17 +305,11 @@ int main() {
         rampa(luz);
         continuidade();
         varredura(painel);
-
         pisca_etapa(cores::kAzul, 4);
-        anuncia("4/6 cores com INVON (o padrao para IPS)");
-        std::printf("  se o 'vermelho' aparecer ciano, a inversao esta "
-                    "errada\n");
-        serie_rgb(painel);
-        std::printf("  as mesmas com INVOFF:\n");
-        painel.define_inversao(false);
-        serie_rgb(painel);
-        painel.define_inversao(true);
-
+        anuncia("4/5 cores com INVON");
+        mostra(painel, "vermelho", 0xF800);
+        mostra(painel, "verde", 0x07E0);
+        mostra(painel, "azul", 0x001F);
         orientacao(painel);
     } else {
         std::printf("diagnostico pulado (kDiagnosticoCompleto = false).\n");
@@ -387,6 +317,5 @@ int main() {
         luz.define_duty(brilho.duty());
     }
 
-    // Nao retorna: a ultima etapa fica no encoder, esperando a pessoa.
-    maquete_com_encoder(painel, luz, encoder, brilho);
+    telas_do_produto(painel, luz, encoder, brilho);
 }

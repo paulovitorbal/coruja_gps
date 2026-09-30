@@ -80,6 +80,8 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.tem_fix = gps_.tem_fix(agora_ms);
     e.taxa = gps_.monitor().estado();
     e.sem_sinal_desde_ms = sem_sinal_desde_ms_;
+    e.aviso_ota_em_ms = aviso_ota_em_ms_;
+    e.houve_aviso_ota = houve_aviso_ota_;
     e.brilho_pct = brilho_.percentual();
     tela_.desenha(e, agora_ms, *visor_);
 }
@@ -112,10 +114,29 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
     EventoEncoder evento = EventoEncoder::Nenhum;
     do {
         evento = encoder_.proximo_evento();
+        const bool menu_estava_aberto = menu_.aberto();
         const AcaoMenu acao =
             menu_.avalia(evento, detector_.parado(), agora_ms);
         aplica_ajustes();
         executa(acao);
+
+        // **O clique com o menu fechado e do OTA (RF05), nao do menu** -- e
+        // por isso que o menu abre ao GIRAR. O `MenuAjustes` deixa o clique
+        // passar de proposito; quem decide o que fazer com ele e aqui.
+        if (!menu_estava_aberto && !menu_.aberto() &&
+            evento == EventoEncoder::Clique) {
+            if (detector_.parado()) {
+                acoes_.atualiza_base();
+            } else {
+                // RF05.1: fora da condicao de seguranca o clique e
+                // ignorado **e avisado**. Ignorar calado faria o clique
+                // parecer sem efeito, e o motorista clicaria de novo.
+                aviso_ota_em_ms_ = agora_ms;
+                houve_aviso_ota_ = true;
+                log_.warning(kOrigem,
+                             "clique de OTA recusado: veiculo em movimento");
+            }
+        }
     } while (evento != EventoEncoder::Nenhum);
 
     // Desenha por ultimo: a tela mostra o que esta volta decidiu, e nao o
