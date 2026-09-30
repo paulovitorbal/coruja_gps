@@ -57,9 +57,12 @@ add_executable(testes
     app/CicloCoresTest.cpp
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
+    app/OtaNaTelaTest.cpp
     led/PadraoLedTest.cpp
+    led/PadraoLedOtaTest.cpp
     display/TelaPrincipalTest.cpp
     display/TelaMenuTest.cpp
+    display/TelaOtaTest.cpp
     display/TextoRolanteTest.cpp
     display/BrilhoTest.cpp
     # O dublê de FatFs e o CartaoSd DE PRODUCAO compilado contra ele. O .cpp

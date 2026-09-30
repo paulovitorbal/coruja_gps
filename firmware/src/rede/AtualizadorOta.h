@@ -5,6 +5,7 @@
 #include "armazenamento/Armazenamento.h"
 #include "nucleo/Configuracao.h"
 #include "nucleo/VerificadorDownload.h"
+#include "rede/ObservadorOta.h"
 #include "nucleo/Pausa.h"
 #include "rede/Baixador.h"
 #include "rede/Conexao.h"
@@ -25,10 +26,6 @@ constexpr const char* kArquivoBase   = "radares.bin";
 constexpr const char* kArquivoTmp    = "radares.tmp";
 constexpr const char* kArquivoBak    = "radares.bak";
 constexpr const char* kArquivoVersao = "versao.txt";
-
-/// Tentativas de download, e o intervalo entre elas (RF05.2).
-constexpr unsigned kTentativas = 3;
-constexpr std::uint32_t kEsperaEntreTentativasMs = 5000;
 
 enum class ResultadoOta {
     Atualizada,        ///< baixou, verificou e aceitou
@@ -71,9 +68,14 @@ const char* descreve(ResultadoOta resultado);
 /// "o cartão encheu no meio do download" na bancada é impraticável.
 class AtualizadorOta {
 public:
+    /// `observador` e opcional: nulo significa "ninguem esta olhando", que
+    /// e o caso de toda a suite de host e do modo de bancada sem painel.
+    /// Nao tornar obrigatorio evitou mexer em dezenas de construcoes de
+    /// teste para acrescentar um duble que elas nao usariam.
     AtualizadorOta(Armazenamento& cartao, Conexao& rede, Baixador& http,
-                   Pausa& pausa)
-        : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa) {}
+                   Pausa& pausa, ObservadorOta* observador = nullptr)
+        : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa),
+          observador_(observador) {}
 
     ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
@@ -84,6 +86,7 @@ private:
     Conexao&            rede_;
     Baixador&           http_;
     Pausa&              pausa_;
+    ObservadorOta*      observador_ = nullptr;
     VerificadorDownload verificador_;
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};

@@ -177,7 +177,14 @@ public:
 class PausaFalsa : public Pausa {
 public:
     std::vector<std::uint32_t> esperas;
-    void espera_ms(std::uint32_t ms) override { esperas.push_back(ms); }
+    std::uint32_t agora = 0;
+    void espera_ms(std::uint32_t ms) override {
+        esperas.push_back(ms);
+        // O relogio ANDA com a espera: sem isso um teste que verificasse
+        // tempo veria o relogio parado apesar de 5 s de pausa.
+        agora += ms;
+    }
+    std::uint32_t agora_ms() override { return agora; }
 };
 
 // ================================================================== cenário
@@ -435,6 +442,138 @@ TEST(AtualizadorOta, o_radio_desce_em_todos_os_desfechos) {
         EXPECT_EQ(b.rede.desconexoes, 1U) << "caso " << caso
             << ": deixou o radio ligado, gastando corrente e sem alerta";
     }
+}
+
+// ------------------------------------------------ o que a tela ve
+
+/// Anota a sequencia de fases e o ultimo progresso.
+class ObservadorEspiao : public ObservadorOta {
+public:
+    std::vector<FaseOta> fases;
+    std::vector<unsigned> tentativas;
+    std::size_t ultimos_recebidos = 0;
+    std::size_t ultimo_total = 0;
+    unsigned    avisos_de_progresso = 0;
+
+    void fase(FaseOta f, unsigned t) override {
+        fases.push_back(f);
+        tentativas.push_back(t);
+    }
+    void progresso(std::size_t r, std::size_t total) override {
+        ultimos_recebidos = r;
+        ultimo_total = total;
+        ++avisos_de_progresso;
+    }
+    bool tem(FaseOta f) const {
+        for (auto x : fases) { if (x == f) { return true; } }
+        return false;
+    }
+    int posicao_de(FaseOta f) const {
+        for (std::size_t i = 0; i < fases.size(); ++i) {
+            if (fases[i] == f) { return static_cast<int>(i); }
+        }
+        return -1;
+    }
+};
+
+TEST(AtualizadorOta, anuncia_as_fases_na_ordem_da_execucao) {
+    // A ordem importa para a tela: cada fase falha por motivo diferente, e
+    // um "erro na atualizacao" genérico obrigaria a abrir o log para saber
+    // o que tentar.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.cartao.versao_no_cartao = "antiga";
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+
+    EXPECT_LT(obs.posicao_de(FaseOta::Conectando),
+              obs.posicao_de(FaseOta::Consultando));
+    EXPECT_LT(obs.posicao_de(FaseOta::Consultando),
+              obs.posicao_de(FaseOta::Baixando));
+    EXPECT_LT(obs.posicao_de(FaseOta::Baixando),
+              obs.posicao_de(FaseOta::Verificando));
+    EXPECT_LT(obs.posicao_de(FaseOta::Verificando),
+              obs.posicao_de(FaseOta::Gravando));
+    EXPECT_LT(obs.posicao_de(FaseOta::Gravando),
+              obs.posicao_de(FaseOta::Concluida));
+    EXPECT_FALSE(obs.tem(FaseOta::Falhou));
+}
+
+TEST(AtualizadorOta, falha_de_rede_avisa_e_nao_finge_progresso) {
+    Bancada b;
+    ObservadorEspiao obs;
+    b.rede.resposta = ErroWifi::NenhumaRedeVisivel;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.executa(b.cfg, b.log);
+
+    EXPECT_TRUE(obs.tem(FaseOta::Conectando));
+    EXPECT_TRUE(obs.tem(FaseOta::Falhou));
+    EXPECT_FALSE(obs.tem(FaseOta::Baixando)) << "anunciou download sem rede";
+    EXPECT_EQ(obs.avisos_de_progresso, 0U);
+}
+
+TEST(AtualizadorOta, ja_em_dia_nao_anuncia_download) {
+    // Fim feliz que nao baixa nada. A tela tem de dizer isso, e nao
+    // "concluida" -- o usuario clicou esperando uma atualizacao.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.cartao.versao_no_cartao = "v9";
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.http.corpo_versao = "v9";
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::JaEstavaEmDia);
+
+    EXPECT_TRUE(obs.tem(FaseOta::JaEmDia));
+    EXPECT_FALSE(obs.tem(FaseOta::Baixando));
+    EXPECT_FALSE(obs.tem(FaseOta::Concluida))
+        << "'em dia' e 'atualizada' sao coisas diferentes para quem clicou";
+}
+
+TEST(AtualizadorOta, o_progresso_chega_com_total_depois_do_cabecalho) {
+    // O total nao existe antes do cabecalho: e ele que diz quantos pontos
+    // vem. Uma barra de progresso sem denominador nao se desenha.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.cartao.versao_no_cartao = "antiga";
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+
+    EXPECT_GT(obs.avisos_de_progresso, 0U) << "ninguem avisou o progresso";
+    EXPECT_GT(obs.ultimo_total, 0U) << "o total ficou desconhecido";
+    EXPECT_EQ(obs.ultimos_recebidos, obs.ultimo_total)
+        << "o download terminou sem alcancar o total anunciado";
+}
+
+TEST(AtualizadorOta, a_tentativa_aparece_na_fase_de_download) {
+    // As tres tentativas do RF05.2 tem de ser visiveis: "BAIXANDO 2/3" diz
+    // que algo deu errado e esta sendo refeito, e sem isso uma retentativa
+    // parece um travamento.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.cartao.versao_no_cartao = "antiga";
+    b.cartao.escrita_falha_em_diante = true;
+    b.cartao.cura_na_tentativa = 3;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.executa(b.cfg, b.log);
+
+    unsigned maior = 0;
+    for (std::size_t i = 0; i < obs.fases.size(); ++i) {
+        if (obs.fases[i] == FaseOta::Baixando) {
+            maior = obs.tentativas[i] > maior ? obs.tentativas[i] : maior;
+        }
+    }
+    EXPECT_EQ(maior, 3U) << "a contagem de tentativas nao chegou a tela";
+}
+
+TEST(AtualizadorOta, sem_observador_nao_quebra) {
+    // Toda a suite e o modo de bancada sem painel constroem sem observador.
+    Bancada b;
+    b.cartao.versao_no_cartao = "antiga";
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
 }
 
 }  // namespace

@@ -14,6 +14,19 @@ class Pausa {
 public:
     virtual ~Pausa() = default;
     virtual void espera_ms(std::uint32_t ms) = 0;
+
+    /// Milissegundos desde o boot.
+    ///
+    /// **Entrou junto da espera, e não numa porta própria.** Quem precisa
+    /// esperar quase sempre precisa saber que horas são, e as duas se
+    /// implementam na mesma linha do SDK. Uma interface separada custaria
+    /// mais um dublê em cada teste sem separar responsabilidade nenhuma:
+    /// ambas são "o tempo, visto de fora".
+    ///
+    /// O caso que a motivou: o LED pisca durante o OTA, e o piscar é função
+    /// do tempo. Sem isto, a cor só seria recalculada nas mudanças de fase
+    /// e o LED ficaria parado durante todo um download de 214 KB.
+    virtual std::uint32_t agora_ms() = 0;
 };
 
 }  // namespace coruja

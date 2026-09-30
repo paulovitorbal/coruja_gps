@@ -117,7 +117,9 @@ private:
 class PausaFalsa : public Pausa {
 public:
     unsigned esperas = 0;
-    void espera_ms(std::uint32_t) override { ++esperas; }
+    std::uint32_t agora = 0;
+    void espera_ms(std::uint32_t ms) override { ++esperas; agora += ms; }
+    std::uint32_t agora_ms() override { return agora; }
 };
 
 struct Bancada {

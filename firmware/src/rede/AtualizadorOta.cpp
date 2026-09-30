@@ -37,6 +37,7 @@ void ao_receber_versao(void* contexto, const std::uint8_t* bytes,
 struct DestinoDownload {
     VerificadorDownload* verificador = nullptr;
     Armazenamento*       cartao = nullptr;
+    ObservadorOta*       observador = nullptr;
     bool                 falhou_a_escrita = false;
 };
 
@@ -50,6 +51,22 @@ void ao_receber_base(void* contexto, const std::uint8_t* bytes,
     if (!destino->falhou_a_escrita &&
         !destino->cartao->escreve(bytes, tamanho)) {
         destino->falhou_a_escrita = true;
+    }
+
+    if (destino->observador != nullptr) {
+        // O total so existe depois do cabecalho: e ele que diz quantos
+        // pontos vem. Antes disso vai zero, e quem desenha trata.
+        //
+        // Avisa a CADA pedaco, sem limitar a taxa aqui: quem desenha ja
+        // redesenha so quando o pixel da barra muda, e duplicar essa
+        // decisao seria dois lugares para ajustar o mesmo compromisso.
+        const auto& v = *destino->verificador;
+        const std::size_t total =
+            v.tem_cabecalho()
+                ? kTamCabecalho + static_cast<std::size_t>(
+                                      v.cabecalho().n_pontos) * kTamRegistro
+                : 0;
+        destino->observador->progresso(v.bytes_recebidos(), total);
     }
 }
 
@@ -109,6 +126,22 @@ void imprime_cabecalho(const VerificadorDownload& v, Logger& log) {
 
 }  // namespace
 
+const char* descreve(FaseOta fase) {
+    // Texto curto de proposito: vai para a faixa de 26 caracteres da tela,
+    // e uma frase mais longa rolaria em vez de ser lida de relance.
+    switch (fase) {
+        case FaseOta::Conectando:  return "CONECTANDO";
+        case FaseOta::Consultando: return "CONSULTANDO VERSAO";
+        case FaseOta::JaEmDia:     return "JA ESTA EM DIA";
+        case FaseOta::Baixando:    return "BAIXANDO";
+        case FaseOta::Verificando: return "VERIFICANDO";
+        case FaseOta::Gravando:    return "GRAVANDO";
+        case FaseOta::Concluida:   return "ATUALIZADA";
+        case FaseOta::Falhou:      return "FALHOU";
+    }
+    return "?";
+}
+
 const char* descreve(ResultadoOta resultado) {
     switch (resultado) {
         case ResultadoOta::Atualizada:       return "base atualizada";
@@ -162,10 +195,18 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         log.warning("ota", msg);
     }
 
+    const auto avisa = [&](FaseOta f, unsigned tentativa = 1) {
+        if (observador_ != nullptr) {
+            observador_->fase(f, tentativa);
+        }
+    };
+
+    avisa(FaseOta::Conectando);
     const auto erro_rede = rede.conecta(cfg, log);
     if (erro_rede != ErroWifi::Nenhum) {
         std::snprintf(msg, sizeof msg, "rede: %s", descreve(erro_rede));
         log.error("ota", msg);
+        avisa(FaseOta::Falhou);
         return ResultadoOta::FalhaDeRede;
     }
 
@@ -173,6 +214,12 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     // adiantado que esquecesse disso deixaria o rádio associado indefinidamente
     // — exatamente o que a conexão episódica existe para evitar.
     const auto encerra = [&](ResultadoOta r) {
+        // A fase final sai daqui, e nao de cada ponto de retorno: e o unico
+        // lugar por onde todos passam, e foi escrito justamente para que o
+        // `desconecta` nao fosse esquecido em nenhum deles.
+        avisa(r == ResultadoOta::Atualizada      ? FaseOta::Concluida
+              : r == ResultadoOta::JaEstavaEmDia ? FaseOta::JaEmDia
+                                                 : FaseOta::Falhou);
         std::snprintf(msg, sizeof msg, "resultado: %s", descreve(r));
         log.info("ota", msg);
         rede.desconecta(log);
@@ -181,6 +228,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     };
 
     // ---- 1. consultar a versão disponível --------------------------------
+    avisa(FaseOta::Consultando);
     ColetaVersao coleta{versao_remota_, kMaxVersao};
     const auto consulta = http_.baixa(url_versao, ao_receber_versao, &coleta,
                                       log, 15'000);
@@ -223,6 +271,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
             pausa_.espera_ms(kEsperaEntreTentativasMs);
         }
 
+        avisa(FaseOta::Baixando, tentativa);
         verificador_.reinicia();
         const auto abertura = cartao.abre_para_escrita(kArquivoTmp, log);
         if (abertura != ErroCartao::Nenhum) {
@@ -236,6 +285,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         DestinoDownload destino;
         destino.verificador = &verificador_;
         destino.cartao = &cartao;
+        destino.observador = observador_;
 
         const auto download = http_.baixa(url_base, ao_receber_base, &destino,
                                           log, 120'000);
@@ -256,6 +306,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
             continue;
         }
 
+        avisa(FaseOta::Verificando, tentativa);
         imprime_cabecalho(verificador_, log);
 
         // Passo 2 do RF05.2. Valida ANTES de mexer na base vigente: é o que
@@ -276,6 +327,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         }
 
         // ---- 3 e 4. a troca atômica --------------------------------------
+        avisa(FaseOta::Gravando, tentativa);
         const auto troca = cartao.promove(kArquivoTmp, kArquivoBase,
                                           kArquivoBak, log);
         if (troca != ErroCartao::Nenhum) {

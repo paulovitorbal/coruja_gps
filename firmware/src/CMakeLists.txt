@@ -57,13 +57,16 @@ add_library(coruja_ihm STATIC
     app/CicloCores.cpp
     buzzer/CadenciaBuzzer.cpp
     led/PadraoLed.cpp
+    led/PadraoLedOta.cpp
     display/TelaPrincipal.cpp
     display/MetricaFonte.cpp
     display/TextoRolante.cpp
     display/TelaMenu.cpp
+    display/TelaOta.cpp
     display/Brilho.cpp
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
+    app/OtaNaTela.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A cadencia do buzzer parte da FaixaSonora decidida pelo Zonamento.

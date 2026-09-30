@@ -35,6 +35,18 @@ constexpr Cor kAzul{0, 0, 255};
 // magenta do outro, que não é estado de nada.
 constexpr Cor kAmarelo{255, 178, 0};
 constexpr Cor kRosa{255, 0, 102};
+
+/// **Ciano é o OTA, e só o OTA.**
+///
+/// Nenhum estado de via usa este matiz — verde, âmbar, rosa, vermelho e azul
+/// estão todos tomados —, então ciano não pode ser confundido com nada que
+/// aconteça dirigindo. É o que permite ao LED dizer "não estou vigiando a
+/// via agora, estou atualizando" sem uma sexta convenção a decorar.
+///
+/// O canal azul tem o menor resistor da placa (150 Ω) por ser o mais fraco,
+/// então verde e azul juntos puxam para o azulado; medir contra o âmbar
+/// (que é verde com 19,6%) fica para a bancada.
+constexpr Cor kCiano{0, 255, 255};
 }  // namespace cores
 
 }  // namespace coruja

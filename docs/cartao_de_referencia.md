@@ -10,7 +10,7 @@ por quem confunde vermelho e verde, o ritmo ainda distingue todos os estados.
 
 | Cor | Piscada | Significa | O que fazer |
 | :--- | :--- | :--- | :--- |
-| 🔵 **azul** | fixo | vivo, **sem proteção** — sem sinal de GPS, sem base, ou atualizando | nada; não há alerta agora |
+| 🔵 **azul** | fixo | vivo, **sem proteção** — sem sinal de GPS ou sem base | nada; não há alerta agora |
 | 🟢 **verde** | fixo | via livre: nenhum ponto a menos de 300 m | seguir |
 | 🟡 **amarelo** | fixo | ponto à frente, **dentro do limite** | nada; só saber que vem |
 | 🩷 **rosa** | **1 ×/s** | acima do limite, **ainda sem multa** | aliviar |
@@ -20,6 +20,25 @@ por quem confunde vermelho e verde, o ritmo ainda distingue todos os estados.
 
 O escuro não é estado de operação: se o aparelho está ligado, alguma cor está
 acesa. LED apagado com o carro ligado quer dizer problema elétrico.
+
+### Durante a atualização da base
+
+**Ciano só aparece atualizando.** Nenhum estado de via usa este matiz, então
+não há como confundir com alerta — e é por isso que o LED pode dizer "não
+estou vigiando a via agora" sem uma sexta convenção a decorar.
+
+| Cor | Piscada | Significa |
+| :--- | :--- | :--- |
+| 🩵 **ciano** | 1 ×/s | conectando ou consultando a versão |
+| 🩵 **ciano** | 2 ×/s | baixando |
+| 🩵 **ciano** | **fixo** | verificando ou gravando — **não desligue** |
+| 🟢 **verde** | fixo | pronto: atualizada, ou já estava em dia |
+| 🔴 **vermelho** | 2 ×/s | falhou; a tela diz em qual etapa |
+
+O **ciano fixo é o único momento em que desligar o aparelho tem
+consequência**: é a troca do arquivo da base. Luz parada quer dizer ocupado.
+Se cair energia aí, a base anterior continua valendo — o aparelho foi feito
+para isso —, mas não há razão para testar.
 
 ## Buzzer
 

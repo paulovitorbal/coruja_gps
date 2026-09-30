@@ -8,6 +8,7 @@ namespace coruja {
 class PausaReal : public Pausa {
 public:
     void espera_ms(std::uint32_t ms) override;
+    std::uint32_t agora_ms() override;
 };
 
 }  // namespace coruja
