@@ -95,11 +95,14 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
         i.numero_cor = paleta::kDegradado;
     } else {
         const int v = static_cast<int>(e.telemetria.velocidade_kmh + 0.5F);
+        std::snprintf(i.numero, sizeof i.numero, "%d", v);
+        // O denominador é string própria porque vai em fonte menor (R-64):
+        // "120/120" em 56 px daria 392 px numa tela de 320. A hierarquia
+        // também concorda com a atenção — a velocidade é a informação, o
+        // limite é referência.
         if (e.veredito.tem_alvo && e.veredito.alvo.limite != kSemLimite) {
-            std::snprintf(i.numero, sizeof i.numero, "%d/%u", v,
+            std::snprintf(i.limite, sizeof i.limite, "/%u",
                           static_cast<unsigned>(e.veredito.alvo.limite));
-        } else {
-            std::snprintf(i.numero, sizeof i.numero, "%d", v);
         }
         i.numero_cor = paleta::kTexto;
     }
@@ -151,10 +154,10 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
     int regioes = 0;
 
     if (tudo) {
+        // **Sem moldura.** Os dois fios de 2 px não carregavam informação e
+        // gastavam área acesa, que é o que o §4.1 manda economizar: com o
+        // brilho no piso, o ofuscamento vem da área, não da cor.
         visor.retangulo(0, 0, tela::kLargura, tela::kAltura, paleta::kFundo);
-        visor.retangulo(0, 0, tela::kLargura, tela::kMoldura, paleta::kMoldura);
-        visor.retangulo(0, tela::kAltura - tela::kMoldura, tela::kLargura,
-                        tela::kMoldura, paleta::kMoldura);
         ++regioes;
     }
 
@@ -171,11 +174,30 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
     }
 
     if (tudo || std::strcmp(agora.numero, anterior_.numero) != 0 ||
+        std::strcmp(agora.limite, anterior_.limite) != 0 ||
         agora.numero_cor != anterior_.numero_cor) {
         visor.retangulo(0, tela::kYAreaNumero, tela::kLargura,
                         tela::kAreaNumero, paleta::kFundo);
-        visor.texto(tela::kLargura / 2, tela::kYAreaNumero + 36, agora.numero,
-                    Fonte::Numero, agora.numero_cor, Alinhamento::Centro);
+
+        // Velocidade e limite são centralizados **como conjunto**: medir só
+        // o número deixaria o par deslocado para a esquerda quando houvesse
+        // limite, e o conjunto dançaria ao entrar e sair de alerta.
+        const int lv = largura_da_fonte(Fonte::Numero, agora.numero);
+        const int ll = largura_da_fonte(Fonte::NumeroPequeno, agora.limite);
+        const int x0 = (tela::kLargura - lv - ll) / 2;
+        const int yv = tela::kYAreaNumero +
+                       (tela::kAreaNumero -
+                        altura_da_fonte(Fonte::Numero)) / 2;
+        visor.texto(x0, yv, agora.numero, Fonte::Numero, agora.numero_cor,
+                    Alinhamento::Esquerda);
+        if (agora.limite[0] != '\0') {
+            // Assenta na MESMA linha de base da velocidade. Centralizado na
+            // própria altura, o limite pareceria flutuar acima do número.
+            const int yl = yv + altura_da_fonte(Fonte::Numero) -
+                           altura_da_fonte(Fonte::NumeroPequeno);
+            visor.texto(x0 + lv, yl, agora.limite, Fonte::NumeroPequeno,
+                        agora.numero_cor, Alinhamento::Esquerda);
+        }
         ++regioes;
     }
 

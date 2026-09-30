@@ -49,6 +49,13 @@ public:
         }
         return nullptr;
     }
+    /// O `/limite`, que desde o R-64 vai em fonte propria e menor.
+    const Txt* limite() const {
+        for (const auto& t : textos) {
+            if (t.f == Fonte::NumeroPequeno) { return &t; }
+        }
+        return nullptr;
+    }
     bool tem_cor(Cor565 c) const {
         for (const auto& r : retangulos) { if (r.cor == c) { return true; } }
         return false;
@@ -106,7 +113,37 @@ TEST(TelaPrincipal, perto_de_radar_mostra_velocidade_sobre_limite) {
     e.veredito.distancia_m = 200.0F;
     tela.desenha(e, 0, v);
     ASSERT_NE(v.numero(), nullptr);
-    EXPECT_EQ(v.numero()->s, "75/110");
+    EXPECT_EQ(v.numero()->s, "75");
+    // Desde o R-64 o denominador e desenhado a parte, em fonte menor:
+    // "120/120" numa fonte so daria 392 px numa tela de 320.
+    ASSERT_NE(v.limite(), nullptr) << "o denominador sumiu";
+    EXPECT_EQ(v.limite()->s, "/110");
+    // Assentam na mesma linha de base, e o limite vem DEPOIS da velocidade.
+    EXPECT_GT(v.limite()->x, v.numero()->x);
+    EXPECT_GT(v.limite()->y, v.numero()->y)
+        << "o limite nao assentou na linha de base do numero";
+}
+
+TEST(TelaPrincipal, velocidade_e_limite_sao_centralizados_como_conjunto) {
+    // Medir so o numero deslocaria o par para a esquerda quando houvesse
+    // limite, e o conjunto dancaria ao entrar e sair de alerta -- numa tela
+    // que se olha de relance, movimento sem significado custa atencao.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(75.0F);
+    e.veredito.zona = Zona::AproximacaoConforme;
+    e.veredito.tem_alvo = true;
+    e.veredito.alvo = ponto(110);
+    e.veredito.distancia_m = 200.0F;
+    tela.desenha(e, 0, v);
+
+    const int largura_total =
+        largura_da_fonte(Fonte::Numero, "75") +
+        largura_da_fonte(Fonte::NumeroPequeno, "/110");
+    const int esperado = (tela::kLargura - largura_total) / 2;
+    EXPECT_EQ(v.numero()->x, esperado);
+    EXPECT_EQ(v.numero()->alin, Alinhamento::Esquerda)
+        << "centralizacao do conjunto e feita aqui, nao no Visor";
 }
 
 TEST(TelaPrincipal, semaforo_camera_nao_ganha_denominador) {
@@ -396,6 +433,81 @@ TEST(TelaPrincipal, o_relogio_mudando_nao_redesenha_o_numero) {
     e.telemetria.minuto = 36;
     EXPECT_EQ(tela.desenha(e, 250, v), 1);
     EXPECT_EQ(v.numero(), nullptr) << "repintou o numero a toa";
+}
+
+// ---------------------------------------- a barra so existe em alerta
+
+TEST(TelaPrincipal, sem_alvo_nao_ha_barra_nem_icone) {
+    // **A faixa inferior vazia E a mensagem.** Barra so existe perto de
+    // ponto -- dentro dos 300 m do kRaioAlertaM -- e e o vazio que da
+    // contraste ao alerta quando ele aparece. Uma barra permanente viraria
+    // moldura, e moldura o olho para de ver.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(75.0F);
+    e.veredito.zona = Zona::Segura;
+    e.veredito.tem_alvo = false;
+    tela.desenha(e, 0, v);
+
+    EXPECT_TRUE(v.icones.empty()) << "icone sem alvo";
+    for (const auto& r : v.retangulos) {
+        EXPECT_NE(r.cor, paleta::kBarraAmbar);
+        EXPECT_NE(r.cor, paleta::kBarraRosa);
+        EXPECT_NE(r.cor, paleta::kBarraPerigo);
+        EXPECT_NE(r.cor, paleta::kMoldura) << "trilho da barra sem alvo";
+    }
+}
+
+TEST(TelaPrincipal, com_alvo_a_barra_e_o_icone_aparecem) {
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(75.0F);
+    e.veredito.zona = Zona::AproximacaoConforme;
+    e.veredito.tem_alvo = true;
+    e.veredito.alvo = ponto(60);
+    e.veredito.distancia_m = 150.0F;
+    tela.desenha(e, 0, v);
+
+    ASSERT_EQ(v.icones.size(), 1U);
+    EXPECT_EQ(v.icones[0], Icone::Radar);
+    EXPECT_TRUE(v.tem_cor(paleta::kBarraAmbar));
+}
+
+TEST(TelaPrincipal, perder_o_alvo_apaga_a_barra) {
+    // O caminho de volta importa tanto quanto o de ida: uma barra que fica
+    // na tela depois de o ponto passar diria que ainda ha algo a frente.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(75.0F);
+    e.veredito.zona = Zona::AproximacaoConforme;
+    e.veredito.tem_alvo = true;
+    e.veredito.alvo = ponto(60);
+    e.veredito.distancia_m = 150.0F;
+    tela.desenha(e, 0, v);
+    ASSERT_FALSE(v.icones.empty());
+
+    v.limpa();
+    e.veredito.zona = Zona::Segura;
+    e.veredito.tem_alvo = false;
+    tela.desenha(e, 0, v);
+
+    EXPECT_TRUE(v.icones.empty()) << "o icone sobreviveu ao alvo";
+    EXPECT_FALSE(v.tem_cor(paleta::kBarraAmbar)) << "a barra sobreviveu";
+}
+
+TEST(TelaPrincipal, nao_ha_mais_moldura) {
+    // Os dois fios de 2 px nao carregavam informacao e gastavam area
+    // acesa. Removidos em 2026-09-29, a pedido do autor.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(75.0F);
+    e.veredito.tem_alvo = false;
+    tela.desenha(e, 0, v);
+    for (const auto& r : v.retangulos) {
+        const bool e_faixa_fina = r.a == tela::kMoldura &&
+                                  r.l == tela::kLargura;
+        EXPECT_FALSE(e_faixa_fina) << "moldura voltou em y=" << r.y;
+    }
 }
 
 }  // namespace

@@ -64,6 +64,9 @@ public:
 private:
     struct Instantaneo {
         char   numero[16] = {};
+        /// O `/limite`, separado do número desde o R-64: eles vão em fontes
+        /// diferentes, então não podem ser uma string só.
+        char   limite[8] = {};
         char   superior[32] = {};
         char   inferior[48] = {};
         Icone  icone = Icone::Nenhum;

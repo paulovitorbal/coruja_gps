@@ -53,9 +53,15 @@ static_assert(kMoldura + kFaixaSuperior + kAreaNumero + kFaixaInferior +
 enum class Alinhamento : std::uint8_t { Esquerda, Centro };
 
 enum class Fonte : std::uint8_t {
-    Numero,   ///< 56×94, para `velocidade/limite`
-    Texto,    ///< 12×20, para as faixas
+    Numero,         ///< 56×94, para a velocidade
+    NumeroPequeno,  ///< 28×48, para o `/limite` (R-64)
+    Texto,          ///< 12×20, para as faixas
 };
+
+/// Métrica das fontes, para quem decide layout sem incluir as tabelas de
+/// glifos — e sem depender do painel, porque layout se testa no host.
+int altura_da_fonte(Fonte f);
+int largura_da_fonte(Fonte f, const char* texto);
 
 /// Os ícones do §4.1.
 ///

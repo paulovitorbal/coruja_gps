@@ -58,6 +58,7 @@ add_library(coruja_ihm STATIC
     buzzer/CadenciaBuzzer.cpp
     led/PadraoLed.cpp
     display/TelaPrincipal.cpp
+    display/MetricaFonte.cpp
     display/Brilho.cpp
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
@@ -77,6 +78,7 @@ if(NOT CORUJA_TESTES)
         display/RetroiluminacaoPwm.cpp
         display/PainelSt7789.cpp
         display/DesenhaTexto.cpp
+        display/VisorSt7789.cpp
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(coruja_portes PUBLIC

@@ -29,6 +29,17 @@ LADO = 40
 SPRITES = [("Radar", "radar_1f3ce.png", "U+1F3CE 🏎"),
            ("Semaforo", "semaforo_1f6a6.png", "U+1F6A6 🚦")]
 
+# O terceiro ícone é **composto aqui**, não em tempo de execução.
+#
+# O §4.1 pede 🚦+🏎 para `TYPE=2` (semáforo com radar), e o layout dá 48 px
+# entre a margem e o início da barra: dois sprites de 40 px lado a lado não
+# cabem. Compor no gerador custa 3.200 bytes de flash e deixa o desenho com
+# uma única transferência SPI, como os outros dois — compor em tempo de
+# execução exigiria escalar bitmap no laço do alerta, que é o pior lugar
+# possível para gastar ciclos.
+COMPOSTO = ("SemaforoComRadar", "semaforo_1f6a6.png", "radar_1f3ce.png",
+            "U+1F6A6 + U+1F3CE 🚦🏎")
+
 AVISO = """// Gerado por scripts/gera_sprites.py. NÃO EDITAR À MÃO.
 //
 // Arte do Twemoji, © Twitter Inc. e colaboradores.
@@ -47,6 +58,26 @@ def converte(caminho: pathlib.Path, fundo=(0, 0, 0)):
     img = img.resize((LADO, LADO), Image.LANCZOS)
     base = Image.new("RGBA", (LADO, LADO), (*fundo, 255))
     base.alpha_composite(img)
+    px = base.convert("RGB").load()
+    return [para565(*px[x, y]) for y in range(LADO) for x in range(LADO)]
+
+
+def compoe_dois(caminho_a: pathlib.Path, caminho_b: pathlib.Path,
+                fundo=(0, 0, 0)):
+    """Dois ícones em diagonal dentro da mesma célula de 40×40.
+
+    Em diagonal e não lado a lado: lado a lado cada um teria 20 px de
+    largura e viraria borrão. Na diagonal cada um fica com 26 px e a
+    sobreposição é no canto, onde os dois emojis têm menos detalhe.
+    """
+    menor = 26
+    base = Image.new("RGBA", (LADO, LADO), (*fundo, 255))
+    a = Image.open(caminho_a).convert("RGBA").resize((menor, menor),
+                                                     Image.LANCZOS)
+    b = Image.open(caminho_b).convert("RGBA").resize((menor, menor),
+                                                     Image.LANCZOS)
+    base.alpha_composite(a, (0, 0))                       # 🚦 em cima à esquerda
+    base.alpha_composite(b, (LADO - menor, LADO - menor))  # 🏎 embaixo à direita
     px = base.convert("RGB").load()
     return [para565(*px[x, y]) for y in range(LADO) for x in range(LADO)]
 
@@ -80,6 +111,18 @@ def main(argv=None) -> int:
         linhas.append("};")
         linhas.append("")
         print(f"  {nome}: {LADO}x{LADO}, {len(dados) * 2} bytes")
+    nome, arq_a, arq_b, descricao = COMPOSTO
+    dados = compoe_dois(args.origem / arq_a, args.origem / arq_b)
+    total += len(dados) * 2
+    linhas.append(f"/// {descricao} -- composto no gerador, nao em execucao.")
+    linhas.append(f"constexpr std::uint16_t k{nome}[kLado * kLado] = {{")
+    for i in range(0, len(dados), 10):
+        fatia = ", ".join(f"0x{v:04X}" for v in dados[i:i + 10])
+        linhas.append(f"    {fatia},")
+    linhas.append("};")
+    linhas.append("")
+    print(f"  {nome}: {LADO}x{LADO}, {len(dados) * 2} bytes")
+
     linhas += ["}  // namespace coruja::sprite", ""]
     destino = args.destino / "Sprites.h"
     destino.write_text("\n".join(linhas), encoding="utf-8")
