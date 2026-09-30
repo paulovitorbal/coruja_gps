@@ -12,10 +12,10 @@ Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
                      Brilho& brilho, Armazenamento& cartao,
                      AcoesAplicacao& acoes, Logger& log,
                      const Configuracao& inicial, char* trabalho,
-                     std::size_t capacidade)
+                     std::size_t capacidade, Visor* visor)
     : gps_(gps), encoder_(encoder), piloto_(piloto), brilho_(brilho),
       cartao_(cartao), acoes_(acoes), log_(log), menu_(inicial),
-      trabalho_(trabalho), capacidade_(capacidade) {
+      visor_(visor), trabalho_(trabalho), capacidade_(capacidade) {
     // O que veio do cartao vale desde a primeira volta, antes de qualquer
     // evento: um aparelho que so obedece ao arquivo depois que alguem mexe
     // no encoder nao lembra de nada.
@@ -50,14 +50,56 @@ void Aplicacao::executa(AcaoMenu acao) {
     }
 }
 
+void Aplicacao::desenha(std::uint32_t agora_ms) {
+    if (visor_ == nullptr) {
+        return;  // bancadas e testes de logica rodam sem painel
+    }
+
+    // **A transicao entre as telas invalida a que entra.** As duas so
+    // redesenham o que mudou, e o que a outra deixou no painel nao esta em
+    // nenhum dos dois instantaneos -- sem invalidar, a tela nova apareceria
+    // por cima de pedacos da anterior.
+    const bool aberto = menu_.aberto();
+    if (aberto != menu_no_ar_) {
+        if (aberto) {
+            tela_menu_.invalida();
+        } else {
+            tela_.invalida();
+        }
+        menu_no_ar_ = aberto;
+    }
+
+    if (aberto) {
+        tela_menu_.desenha(menu_, *visor_);
+        return;
+    }
+
+    EstadoTela e;
+    e.veredito = piloto_.veredito();
+    e.telemetria = gps_.telemetria();
+    e.tem_fix = gps_.tem_fix(agora_ms);
+    e.taxa = gps_.monitor().estado();
+    e.sem_sinal_desde_ms = sem_sinal_desde_ms_;
+    e.brilho_pct = brilho_.percentual();
+    tela_.desenha(e, agora_ms, *visor_);
+}
+
 void Aplicacao::passo(std::uint32_t agora_ms) {
     // Primeiro o alerta, sempre. Ele nao pode esperar o menu.
     piloto_.passo(agora_ms);
 
     if (gps_.tem_fix(agora_ms)) {
         detector_.atualiza(gps_.telemetria().velocidade_kmh, agora_ms);
+        houve_fix_ = true;
     } else {
         detector_.sem_fix(agora_ms);
+        // O contador "0:14" mede desde a PERDA, nao desde o boot: antes do
+        // primeiro fix nao ha o que contar, e mostrar o tempo ligado no
+        // lugar diria outra coisa.
+        if (houve_fix_) {
+            houve_fix_ = false;
+            sem_sinal_desde_ms_ = agora_ms;
+        }
     }
 
     menu_.define_periodo(piloto_.periodo());
@@ -75,6 +117,10 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
         aplica_ajustes();
         executa(acao);
     } while (evento != EventoEncoder::Nenhum);
+
+    // Desenha por ultimo: a tela mostra o que esta volta decidiu, e nao o
+    // que a anterior tinha decidido.
+    desenha(agora_ms);
 }
 
 }  // namespace coruja

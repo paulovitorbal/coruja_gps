@@ -5,6 +5,8 @@
 #include "app/PilotoAlerta.h"
 #include "armazenamento/Armazenamento.h"
 #include "display/Brilho.h"
+#include "display/TelaMenu.h"
+#include "display/TelaPrincipal.h"
 #include "encoder/Encoder.h"
 #include "menu/MenuAjustes.h"
 #include "nucleo/DetectorParado.h"
@@ -49,13 +51,17 @@ public:
     Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
               Brilho& brilho, Armazenamento& cartao, AcoesAplicacao& acoes,
               Logger& log, const Configuracao& inicial, char* trabalho,
-              std::size_t capacidade);
+              std::size_t capacidade, Visor* visor = nullptr);
 
     /// Uma volta do laco.
     void passo(std::uint32_t agora_ms);
 
     const MenuAjustes& menu() const { return menu_; }
     const DetectorParado& detector() const { return detector_; }
+
+    /// Qual tela esta no ar. Exposto para teste: e a decisao que o laco
+    /// toma a cada volta, e ela nao se le olhando os pixels.
+    bool mostrando_menu() const { return menu_.aberto(); }
 
     /// Resultado da ultima tentativa de gravacao, para a tela e o log.
     ResultadoGravacao ultima_gravacao() const { return ultima_gravacao_; }
@@ -64,6 +70,7 @@ public:
 private:
     void aplica_ajustes();
     void executa(AcaoMenu acao);
+    void desenha(std::uint32_t agora_ms);
 
     LeitorGps&     gps_;
     Encoder&       encoder_;
@@ -74,6 +81,13 @@ private:
     Logger&        log_;
     DetectorParado detector_;
     MenuAjustes    menu_;
+    Visor*         visor_;
+    TelaPrincipal  tela_;
+    TelaMenu       tela_menu_;
+    /// Para detectar a TRANSICAO entre as duas telas, nao o estado.
+    bool           menu_no_ar_ = false;
+    std::uint32_t  sem_sinal_desde_ms_ = 0;
+    bool           houve_fix_ = false;
     char*          trabalho_;
     std::size_t    capacidade_;
     ResultadoGravacao ultima_gravacao_ = ResultadoGravacao::Gravado;

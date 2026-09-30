@@ -100,6 +100,32 @@ public:
     ErroCartao resposta_promove = ErroCartao::Nenhum;
 };
 
+/// Conta o que foi desenhado, sem painel. O que interessa aqui nao e o
+/// pixel: e QUAL tela a Aplicacao escolheu e se ela redesenhou tudo na
+/// transicao.
+class VisorEspiao : public Visor {
+public:
+    std::vector<std::string> textos;
+    unsigned limpezas_totais = 0;
+
+    void retangulo(int, int, int l, int a, Cor565) override {
+        if (l == tela::kLargura && a == tela::kAltura) { ++limpezas_totais; }
+    }
+    void texto(int, int, const char* s, Fonte, Cor565, Alinhamento) override {
+        textos.emplace_back(s);
+    }
+    void icone(int, int, Icone) override {}
+    void apresenta() override {}
+
+    void limpa() { textos.clear(); limpezas_totais = 0; }
+    bool tem(const std::string& parte) const {
+        for (const auto& t : textos) {
+            if (t.find(parte) != std::string::npos) { return true; }
+        }
+        return false;
+    }
+};
+
 class AcoesEspias : public AcoesAplicacao {
 public:
     void atualiza_base() override { ++bases; }
@@ -127,9 +153,12 @@ struct Bancada {
         inicial = r.config;
     }
 
+    VisorEspiao visor;
+
     Aplicacao monta() {
         return Aplicacao{gps,    encoder, piloto,  brilho,   cartao,
-                         acoes,  log,     inicial, trabalho, sizeof(trabalho)};
+                         acoes,  log,     inicial, trabalho, sizeof(trabalho),
+                         &visor};
     }
 
     /// Roda o laco, com ou sem sentenca de GPS.
@@ -356,6 +385,89 @@ TEST(Aplicacao, PerderOFixAndandoNaoLiberaOMenu) {
     b.encoder.enfileira(EventoEncoder::GiroDireita);
     app.passo(20050);
     EXPECT_FALSE(app.menu().aberto());
+}
+
+// --- qual tela esta no ar ---
+
+TEST(Aplicacao, parado_e_sem_menu_desenha_a_tela_de_dirigir) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 60.0F);
+    EXPECT_FALSE(app.mostrando_menu());
+    EXPECT_FALSE(b.visor.tem("AJUSTES"));
+}
+
+TEST(Aplicacao, abrir_o_menu_troca_a_tela) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    b.visor.limpa();
+    b.encoder.enfileira(EventoEncoder::GiroDireita);
+    app.passo(4050);
+    EXPECT_TRUE(app.mostrando_menu());
+    EXPECT_TRUE(b.visor.tem("AJUSTES")) << "a tela do menu nao apareceu";
+}
+
+TEST(Aplicacao, a_transicao_redesenha_tudo) {
+    // As duas telas so desenham o que mudou, e o que a outra deixou no
+    // painel nao esta em nenhum dos dois instantaneos. Sem invalidar, a
+    // tela nova apareceria por cima de pedacos da anterior.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+
+    b.visor.limpa();
+    b.encoder.enfileira(EventoEncoder::GiroDireita);
+    app.passo(4050);
+    EXPECT_GT(b.visor.limpezas_totais, 0U) << "entrou no menu sem limpar";
+
+    b.visor.limpa();
+    b.roda(app, 4100, 5000, 50.0F);   // andar fecha o menu
+    ASSERT_FALSE(app.mostrando_menu());
+    EXPECT_GT(b.visor.limpezas_totais, 0U) << "saiu do menu sem limpar";
+}
+
+TEST(Aplicacao, o_alerta_continua_sendo_desenhado_com_o_menu_fechado) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    EXPECT_FALSE(b.visor.textos.empty()) << "a tela de dirigir nao desenhou";
+}
+
+TEST(Aplicacao, funciona_sem_visor) {
+    // As bancadas e os testes de logica montam a Aplicacao sem painel. Um
+    // ponteiro nulo nao pode ser caso de excecao -- tem de ser suportado.
+    Bancada b;
+    Aplicacao app{b.gps,   b.encoder, b.piloto,  b.brilho,   b.cartao,
+                  b.acoes, b.log,     b.inicial, b.trabalho,
+                  sizeof(b.trabalho)};
+    b.roda(app, 0, 2000, 60.0F);
+    SUCCEED();
+}
+
+TEST(Aplicacao, o_contador_de_sem_sinal_mede_desde_a_perda) {
+    // "0:14" e um viaduto e "3:20" e problema real, e a acao do motorista
+    // difere nos dois casos -- entao o numero precisa estar certo. Ele
+    // conta desde a PERDA do fix: reiniciado a cada volta ficaria parado em
+    // 0:00, e contado desde o boot mostraria o tempo ligado, que e outra
+    // coisa.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);            // com fix
+    b.roda(app, 2050, 16000, 0.0F, false);  // perde o fix e fica sem
+    ASSERT_FALSE(b.gps.tem_fix(16000));
+
+    // Olha o ESTADO FINAL, nao o historico: o espiao acumula tudo que foi
+    // desenhado, e nos primeiros quadros apos a perda o contador marcava
+    // 0:00 com razao.
+    b.visor.limpa();
+    b.roda(app, 16050, 17000, 0.0F, false);
+
+    ASSERT_FALSE(b.visor.textos.empty()) << "parou de redesenhar";
+    EXPECT_TRUE(b.visor.tem("SEM SINAL"));
+    EXPECT_TRUE(b.visor.tem("0:1"))
+        << "o contador nao avancou: ele esta reiniciando a cada volta";
+    EXPECT_FALSE(b.visor.tem("0:00"));
 }
 
 }  // namespace
