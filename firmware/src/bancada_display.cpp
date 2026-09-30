@@ -218,8 +218,8 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
     MenuAjustes menu{Configuracao{}};
 
     // Numeros de mentira, mas plausiveis: a tela de informacao tem de ser
-    // julgada com conteudo do tamanho do real. "0 pts" nao diria nada sobre
-    // o layout.
+    // julgada com conteudo do tamanho do real. "0 pontos" nao diria nada
+    // sobre o layout.
     InfoAparelho info;
     std::snprintf(info.nome, sizeof info.nome, "%s", "fusca");
     std::snprintf(info.versao_base, sizeof info.versao_base, "%s",

@@ -57,8 +57,13 @@ private:
     struct Instantaneo {
         char       rotulo[24] = {};
         char       valor[16] = {};
-        /// Três linhas de informação, só usadas no estado `Informando`.
-        char       info[3][32] = {};
+        /// Quatro linhas de informação, só usadas no estado `Informando`.
+        ///
+        /// A data e a contagem de pontos ficam em linhas separadas (pedido
+        /// do autor, 2026-09-30). Juntas davam 324 px numa tela de 320 —
+        /// era a única linha do aparelho que precisava rolar, e rolar 4 px
+        /// parece tremor, não rolagem. Separadas, as duas cabem.
+        char       info[4][40] = {};
         EstadoMenu estado = EstadoMenu::Fechado;
         bool       valido = false;
     };
@@ -70,7 +75,7 @@ private:
     std::uint32_t agora_ms_ = 0;
     /// Deslocamento de cada linha de informacao, para detectar que ela
     /// andou e ter de redesenhar.
-    int x_info_[3] = {0, 0, 0};
+    int x_info_[4] = {0, 0, 0, 0};
 };
 
 }  // namespace coruja

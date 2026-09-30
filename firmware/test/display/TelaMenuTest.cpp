@@ -4,6 +4,7 @@
 
 #include <string>
 #include <cstdio>
+#include <cstring>
 
 #include "display/TextoRolante.h"
 #include <vector>
@@ -224,8 +225,8 @@ TEST(TelaMenu, informacao_mostra_unidade_base_e_taxa) {
     tela.desenha(b.menu(), kInfo, 0, v);
 
     EXPECT_TRUE(v.tem_texto("fusca")) << "nao diz QUAL unidade e";
-    EXPECT_TRUE(v.tem_texto("2026-09-15"));
-    EXPECT_TRUE(v.tem_texto("18304"));
+    EXPECT_TRUE(v.tem_texto("atualizada: 2026-09-15"));
+    EXPECT_TRUE(v.tem_texto("18304 pontos"));
     EXPECT_TRUE(v.tem_texto("3.6")) << "a taxa perdeu a casa decimal";
 }
 
@@ -297,37 +298,62 @@ TEST(TelaMenu, sair_da_informacao_volta_a_navegar) {
     EXPECT_TRUE(v.tem_texto("informacao")) << "voltou para o item errado";
 }
 
-TEST(TelaMenu, a_linha_da_base_rola_quando_nao_cabe) {
-    // "base: 2026-09-15  18304 pts" tem 324 px numa tela de 320. E a unica
-    // linha desta tela que estoura, e antes do recorte de verdade ela
-    // perdia glifos nas duas pontas em silencio.
+TEST(TelaMenu, um_nome_longo_faz_a_linha_da_unidade_rolar) {
+    // A linha da base deixou de estourar quando a data e a contagem de
+    // pontos se separaram. O caminho da rolagem continua alcancavel com
+    // dado REAL: o `nome` aceita 23 caracteres, e "unidade: " mais 23 dao
+    // 384 px numa tela de 320.
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
+    InfoAparelho longo = kInfo;
+    std::snprintf(longo.nome, sizeof longo.nome, "%s",
+                  "coruja-do-fusca-branco8");
+    ASSERT_EQ(std::strlen(longo.nome), 23U) << "o teste depende do limite";
+
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
-
-    tela.desenha(b.menu(), kInfo, 0, v);
+    tela.desenha(b.menu(), longo, 0, v);
     int x1 = 999;
     for (const auto& t : v.textos) {
-        if (t.s.find("2026-09-15") != std::string::npos) { x1 = t.x; }
+        if (t.s.find("coruja-do-fusca") != std::string::npos) { x1 = t.x; }
     }
     ASSERT_NE(x1, 999);
     EXPECT_EQ(x1, 0) << "texto que nao cabe comeca na borda esquerda";
 
     v.limpa();
-    tela.desenha(b.menu(), kInfo,
-                 kPausaRolagemMs + kMsPorPassoRolagem, v);
+    tela.desenha(b.menu(), longo, kPausaRolagemMs + kMsPorPassoRolagem, v);
     int x2 = 999;
     for (const auto& t : v.textos) {
-        if (t.s.find("2026-09-15") != std::string::npos) { x2 = t.x; }
+        if (t.s.find("coruja-do-fusca") != std::string::npos) { x2 = t.x; }
     }
     ASSERT_NE(x2, 999) << "parou de redesenhar a linha que rola";
-    // O curso aqui e de 4 px (324 - 320), menor que um passo de caractere,
-    // entao o primeiro passo ja alcanca o fim e e limitado ao curso. Se
-    // nao fosse limitado, o texto andaria 12 px e sobraria borda vazia a
-    // direita -- fim do texto ANTES da borda, que parece defeito.
-    EXPECT_EQ(x2, -4) << "nao limitou o passo ao curso restante";
+    EXPECT_EQ(x2, -kPassoRolagemPx) << "andou de um caractere";
+}
+
+TEST(TelaMenu, a_data_e_a_contagem_ficam_em_linhas_separadas) {
+    // Juntas davam 324 px numa tela de 320 -- era a unica linha do
+    // aparelho que precisava rolar, e rolar 4 px parece tremor e nao
+    // rolagem. Separadas, as duas cabem.
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    int y_data = -1;
+    int y_pontos = -1;
+    for (const auto& t : v.textos) {
+        if (t.s.find("2026-09-15") != std::string::npos) { y_data = t.y; }
+        if (t.s.find("18304") != std::string::npos) { y_pontos = t.y; }
+        EXPECT_LE(largura_da_fonte(Fonte::Texto, t.s.c_str()),
+                  tela::kLargura) << "estourou: " << t.s;
+    }
+    ASSERT_GE(y_data, 0) << "a data sumiu";
+    ASSERT_GE(y_pontos, 0) << "a contagem sumiu";
+    EXPECT_NE(y_data, y_pontos) << "continuam na mesma linha";
+    EXPECT_LT(y_data, y_pontos) << "a data vem antes da contagem";
 }
 
 TEST(TelaMenu, as_linhas_que_cabem_ficam_centralizadas_e_paradas) {
