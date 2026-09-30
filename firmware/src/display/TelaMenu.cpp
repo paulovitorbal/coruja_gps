@@ -1,5 +1,7 @@
 #include "display/TelaMenu.h"
 
+#include "display/TextoRolante.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -38,28 +40,12 @@ TelaMenu::Instantaneo TelaMenu::compoe(const MenuAjustes& menu,
                       static_cast<double>(info.taxa_hz));
     }
 
-    // O rodapé diz o que o encoder faz **agora**, e muda com o estado. É a
-    // única pista de que girar deixou de navegar e passou a editar — sem
-    // ela, o usuário descobriria a diferença mexendo, que num menu que
-    // altera brilho e volume significa mexer no que não queria.
-    switch (menu.estado()) {
-        case EstadoMenu::Navegando:
-            copia(i.rodape, sizeof i.rodape, "girar: escolher   clicar: abrir");
-            break;
-        case EstadoMenu::Editando:
-            copia(i.rodape, sizeof i.rodape, "girar: mudar   clicar: confirmar");
-            break;
-        case EstadoMenu::Informando:
-            copia(i.rodape, sizeof i.rodape, "qualquer acao volta");
-            break;
-        case EstadoMenu::Fechado:
-            break;
-    }
     return i;
 }
 
 int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
-                      Visor& visor) {
+                      std::uint32_t agora_ms, Visor& visor) {
+    agora_ms_ = agora_ms;
     const Instantaneo agora = compoe(menu, info);
     const bool tudo = !anterior_.valido;
     int regioes = 0;
@@ -82,7 +68,19 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
         info_mudou = info_mudou ||
                      std::strcmp(agora.info[l], anterior_.info[l]) != 0;
     }
-    if (tudo || info_mudou ||
+    bool info_rolando = false;
+    if (agora.estado == EstadoMenu::Informando) {
+        for (int l = 0; l < 3; ++l) {
+            const Rolagem r =
+                rolagem(largura_da_fonte(Fonte::Texto, agora.info[l]),
+                        tela::kLargura, agora_ms);
+            if (r.rolando) {
+                info_rolando = info_rolando || r.x != x_info_[l];
+                x_info_[l] = r.x;
+            }
+        }
+    }
+    if (tudo || info_mudou || info_rolando ||
         std::strcmp(agora.rotulo, anterior_.rotulo) != 0 ||
         std::strcmp(agora.valor, anterior_.valor) != 0 ||
         agora.estado != anterior_.estado) {
@@ -96,20 +94,17 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
             const int passo = altura_da_fonte(Fonte::Texto) + 10;
             int y = tela::kYAreaNumero + 30;
             for (int l = 0; l < 3; ++l) {
-                visor.texto(tela::kLargura / 2, y, agora.info[l],
-                            Fonte::Texto, paleta::kTexto,
-                            Alinhamento::Centro);
+                // A linha da base passa de 320 px com uma versao datada e
+                // 18 mil pontos, e e a unica desta tela que rola. Cabendo,
+                // `rolagem` devolve o `x` centralizado.
+                const Rolagem r =
+                    rolagem(largura_da_fonte(Fonte::Texto, agora.info[l]),
+                            tela::kLargura, agora_ms_);
+                visor.texto(r.x, y, agora.info[l], Fonte::Texto,
+                            paleta::kTexto, Alinhamento::Esquerda);
                 y += passo;
             }
             ++regioes;
-            if (tudo || std::strcmp(agora.rodape, anterior_.rodape) != 0) {
-                visor.retangulo(0, tela::kYFaixaInferior, tela::kLargura,
-                                tela::kFaixaInferior, paleta::kFundo);
-                visor.texto(tela::kLargura / 2, tela::kYFaixaInferior + 14,
-                            agora.rodape, Fonte::Texto, paleta::kTexto,
-                            Alinhamento::Centro);
-                ++regioes;
-            }
             visor.apresenta();
             anterior_ = agora;
             return regioes;
@@ -140,15 +135,6 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
                                 l, 4, paleta::kTexto);
             }
         }
-        ++regioes;
-    }
-
-    if (tudo || std::strcmp(agora.rodape, anterior_.rodape) != 0) {
-        visor.retangulo(0, tela::kYFaixaInferior, tela::kLargura,
-                        tela::kFaixaInferior, paleta::kFundo);
-        visor.texto(tela::kLargura / 2, tela::kYFaixaInferior + 14,
-                    agora.rodape, Fonte::Texto, paleta::kTexto,
-                    Alinhamento::Centro);
         ++regioes;
     }
 

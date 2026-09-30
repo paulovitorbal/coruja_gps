@@ -286,7 +286,7 @@ void telas_do_produto(PainelSt7789& painel, RetroiluminacaoPwm& luz,
 
         if (menu.aberto()) {
             info.taxa_hz = 4.0F;
-            tela_menu.desenha(menu, info, visor);
+            tela_menu.desenha(menu, info, agora, visor);
         } else {
             tela.desenha(monta(kRoteiro[cena], brilho, agora, brilho_em,
                                houve_brilho),

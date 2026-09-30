@@ -28,6 +28,12 @@ struct InfoAparelho {
 /// que o encoder faz agora. Quem abre o menu já conhece essa divisão da
 /// tela de dirigir, e reaproveitá-la é uma coisa a menos para aprender.
 ///
+/// **Sem rodapé de instruções** (decidido pelo autor em 2026-09-30). As
+/// frases "girar: escolher / clicar: abrir" ocupavam a faixa inferior e
+/// passavam de 320 px, o que as fazia rolar para dizer o que se aprende na
+/// primeira vez que se usa o menu. O sublinhado do valor continua marcando
+/// o modo de edição, que é a única distinção que não se adivinha.
+///
 /// **O item corrente ocupa o centro sozinho, e não há lista rolando.** Uma
 /// lista de sete itens em 166 px caberia em corpo pequeno, e o menu é usado
 /// com o carro parado mas com o motorista ainda ao volante — provavelmente
@@ -38,8 +44,10 @@ struct InfoAparelho {
 class TelaMenu {
 public:
     /// Devolve quantas regiões foram tocadas; zero quando nada mudou.
+    /// `agora_ms` entra porque a linha da base rola quando nao cabe, e
+    /// rolagem depende do tempo e nao do conteudo.
     int desenha(const MenuAjustes& menu, const InfoAparelho& info,
-                Visor& visor);
+                std::uint32_t agora_ms, Visor& visor);
 
     /// Força o próximo `desenha` a redesenhar tudo. Chamado ao abrir o
     /// menu, porque a tela por baixo era outra.
@@ -51,7 +59,6 @@ private:
         char       valor[16] = {};
         /// Três linhas de informação, só usadas no estado `Informando`.
         char       info[3][32] = {};
-        char       rodape[40] = {};
         EstadoMenu estado = EstadoMenu::Fechado;
         bool       valido = false;
     };
@@ -60,6 +67,10 @@ private:
                        const InfoAparelho& info) const;
 
     Instantaneo anterior_;
+    std::uint32_t agora_ms_ = 0;
+    /// Deslocamento de cada linha de informacao, para detectar que ela
+    /// andou e ter de redesenhar.
+    int x_info_[3] = {0, 0, 0};
 };
 
 }  // namespace coruja

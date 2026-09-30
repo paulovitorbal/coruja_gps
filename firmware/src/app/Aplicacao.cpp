@@ -77,7 +77,7 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
         info_.taxa_hz = gps_.monitor().taxa_hz();
         std::snprintf(info_.nome, sizeof info_.nome, "%s",
                       menu_.ajustes().nome);
-        tela_menu_.desenha(menu_, info_, *visor_);
+        tela_menu_.desenha(menu_, info_, agora_ms, *visor_);
         return;
     }
 

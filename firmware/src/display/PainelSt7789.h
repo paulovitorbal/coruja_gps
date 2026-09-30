@@ -18,6 +18,24 @@ namespace coruja {
 /// O painel e 240x320 em retrato; o firmware usa 320x240 deitado
 /// (`Visor.h`), o que se obtem por MADCTL na inicializacao -- nao e um
 /// painel nativo em paisagem.
+/// Clock do SPI do display: **16 MHz, medidos e não supostos.**
+///
+/// A varredura da bancada mostrou desenho limpo até 25 MHz efetivos nesta
+/// protoboard (autor, 2026-09-29); 16 deixa margem para variação de
+/// temperatura e de contato.
+///
+/// Os 4 MHz que estavam aqui antes eram conservadorismo caro. Cada passo de
+/// rolagem redesenha uma linha de texto — 320 × 20 px, 12.800 bytes — e a
+/// 4 MHz isso é **25,6 ms de SPI bloqueante**, mais que a folga inteira de
+/// 5,75 ms que a decodificação do encoder tem no estado `(0,0)` (R-36). A
+/// 16 MHz cai para 6,4 ms, e com rolagem por caractere (4 passos/s) o custo
+/// total fica em 3% do barramento.
+///
+/// O número é do **meio físico**, não do chip: o ST7789V aceita ~66 MHz,
+/// protoboard com fio jumper não. Foi por confundir os dois que a primeira
+/// versão saiu com 62,5 MHz.
+constexpr std::uint32_t kBaudDisplayHz = 16000000;
+
 class PainelSt7789 {
 public:
     /// Reset por hardware, sequencia de inicializacao e limpeza da tela.
@@ -25,14 +43,14 @@ public:
     /// **Nao liga a retroiluminacao.** Quem chama acende depois de
     /// desenhar o primeiro quadro, senao o usuario ve um retangulo de
     /// lixo de RAM antes da primeira tela.
-    /// `baud_hz` e do **meio fisico**, nao do chip. O ST7789V aceita
-    /// ~66 MHz; protoboard com fio jumper, nao. O padrao e conservador de
-    /// proposito -- ver a nota em `kBaudBancadaHz`.
+    /// `baud_hz` vem de `kBaudDisplayHz`; ver a nota de lá.
+    ///
     /// `modo3` troca CPOL/CPHA de 0,0 para 1,1. O ST7789V amostra o
     /// SDA na borda de SUBIDA, e os dois modos entregam isso -- por
     /// isso as bibliotecas se dividem entre eles. Exposto para a
     /// bancada eliminar a duvida medindo, nao lendo.
-    void inicia(std::uint32_t baud_hz = 4000000, bool modo3 = false);
+    void inicia(std::uint32_t baud_hz = kBaudDisplayHz,
+                bool modo3 = false);
 
     /// Troca a velocidade em operacao. Existe para achar o teto real
     /// medindo, e porque o microSD divide este barramento e exige
@@ -59,6 +77,10 @@ public:
     ///
     /// `bits` tem `bytes_por_linha * altura` bytes, MSB primeiro: o bit 7
     /// do primeiro byte de cada linha e o pixel da esquerda.
+    ///
+    /// **Recorta em coluna, inclusive parcialmente**, porque o texto que
+    /// nao cabe rola e precisa de glifos meio de fora. Fora da tela por
+    /// inteiro, nao desenha nada.
     void desenha_bitmap(int x, int y, int largura, int altura,
                         int bytes_por_linha, const std::uint8_t* bits,
                         std::uint16_t cor, std::uint16_t fundo);

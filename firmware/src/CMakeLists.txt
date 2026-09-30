@@ -59,6 +59,7 @@ add_library(coruja_ihm STATIC
     led/PadraoLed.cpp
     display/TelaPrincipal.cpp
     display/MetricaFonte.cpp
+    display/TextoRolante.cpp
     display/TelaMenu.cpp
     display/Brilho.cpp
     app/PilotoAlerta.cpp

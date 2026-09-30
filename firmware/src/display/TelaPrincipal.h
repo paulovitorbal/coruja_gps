@@ -76,6 +76,10 @@ private:
         char   inferior[48] = {};
         Icone  icone = Icone::Nenhum;
         int    barra_pct = -1;
+        /// Deslocamento das faixas que rolam. Faz parte do instantaneo
+        /// porque muda com o TEMPO, e nao com o conteudo.
+        int    x_superior = 0;
+        int    x_inferior = 0;
         Cor565 barra_cor = 0;
         Cor565 numero_cor = 0;
         bool   valido = false;

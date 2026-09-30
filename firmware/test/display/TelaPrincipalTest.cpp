@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "display/TextoRolante.h"
 #include "nucleo/Geo.h"
 
 namespace {
@@ -200,7 +201,7 @@ TEST(TelaPrincipal, o_aviso_de_OTA_vence_tudo_por_dois_segundos) {
     e.houve_aviso_ota = true;
     e.aviso_ota_em_ms = 1000;
     tela.desenha(e, 1500, v);
-    EXPECT_TRUE(v.tem_texto("PARE O VEICULO"));
+    EXPECT_TRUE(v.tem_texto("PARE PARA ATUALIZAR"));
     EXPECT_FALSE(v.tem_texto("BASE INDISPONIVEL"));
 }
 
@@ -336,8 +337,11 @@ TEST(TelaPrincipal, o_ocupante_da_faixa_superior_fica_centralizado) {
     for (const auto& t : v.textos) {
         if (t.f != Fonte::Texto) { continue; }
         if (t.s.find("28/09/26") == std::string::npos) { continue; }
-        EXPECT_EQ(t.alin, Alinhamento::Centro);
-        EXPECT_EQ(t.x, tela::kLargura / 2);
+        // A centragem passou da `Visor` para a tela quando o texto ganhou
+        // rolagem: quem decide o `x` e quem sabe se o texto cabe.
+        EXPECT_EQ(t.alin, Alinhamento::Esquerda);
+        EXPECT_EQ(t.x, (tela::kLargura -
+                        largura_da_fonte(Fonte::Texto, t.s.c_str())) / 2);
         achou = true;
     }
     EXPECT_TRUE(achou);
@@ -508,6 +512,97 @@ TEST(TelaPrincipal, nao_ha_mais_moldura) {
                                   r.l == tela::kLargura;
         EXPECT_FALSE(e_faixa_fina) << "moldura voltou em y=" << r.y;
     }
+}
+
+// ------------------------------------------ texto que nao cabe rola
+
+TEST(TelaPrincipal, a_frase_de_sem_sinal_e_so_o_essencial) {
+    // "alertas suspensos" era inferencia do proprio "sem sinal", e levava a
+    // frase a 432 px numa tela de 320 -- custava rolagem para dizer o que o
+    // leitor ja sabia.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(0.0F);
+    e.tem_fix = false;
+    e.sem_sinal_desde_ms = 0;
+    tela.desenha(e, 14000, v);
+
+    EXPECT_TRUE(v.tem_texto("SEM SINAL"));
+    EXPECT_TRUE(v.tem_texto("0:14")) << "o contador sumiu";
+    EXPECT_FALSE(v.tem_texto("alertas suspensos"));
+
+    // E, encurtada, ela CABE -- o que e o ponto da mudanca.
+    for (const auto& t : v.textos) {
+        if (t.s.find("SEM SINAL") == std::string::npos) { continue; }
+        EXPECT_LE(largura_da_fonte(Fonte::Texto, t.s.c_str()),
+                  tela::kLargura)
+            << "a frase encurtada ainda nao cabe: " << t.s;
+    }
+}
+
+TEST(TelaPrincipal, nenhuma_frase_da_tela_principal_estoura) {
+    // **O invariante que importa.** A fonte de texto tem 12 px por glifo e
+    // a tela 320: o teto e 26 caracteres. Seis das nove frases do projeto
+    // estouravam esse teto, e o painel descartava glifos INTEIROS em
+    // silencio nas duas pontas -- nada avisava que a frase estava
+    // incompleta.
+    //
+    // A rolagem existe como rede de seguranca, nao como projeto: texto que
+    // rola e mais lento de ler e custa SPI. Este teste afirma que a tela
+    // principal nao depende dela.
+    VisorEspiao v;
+    TelaPrincipal tela;
+
+    struct Caso { const char* nome; EstadoTela e; };
+    EstadoTela sem_fix = dirigindo(0.0F);
+    sem_fix.tem_fix = false;
+    EstadoTela sem_base = dirigindo(55.0F);
+    sem_base.base_disponivel = false;
+    EstadoTela aviso = dirigindo(60.0F);
+    aviso.houve_aviso_ota = true;
+    aviso.aviso_ota_em_ms = 0;
+    EstadoTela taxa = dirigindo(60.0F);
+    taxa.taxa = EstadoTaxa::Degradado;
+    EstadoTela alerta = dirigindo(120.0F);
+    alerta.veredito.zona = Zona::Perigo;
+    alerta.veredito.tem_alvo = true;
+    alerta.veredito.alvo = ponto(120);
+    alerta.veredito.distancia_m = 90.0F;
+
+    const Caso casos[] = {{"sem fix", sem_fix}, {"sem base", sem_base},
+                          {"aviso de OTA", aviso}, {"taxa reduzida", taxa},
+                          {"120/120", alerta}};
+    for (const auto& c : casos) {
+        v.limpa();
+        tela.invalida();
+        tela.desenha(c.e, 14000, v);
+        for (const auto& t : v.textos) {
+            if (t.f != Fonte::Texto) { continue; }
+            EXPECT_LE(largura_da_fonte(Fonte::Texto, t.s.c_str()),
+                      tela::kLargura)
+                << "estourou em '" << c.nome << "': " << t.s;
+        }
+    }
+}
+
+TEST(TelaPrincipal, o_texto_que_cabe_nao_anda) {
+    // Movimento sem informacao custa atencao numa tela que se olha de
+    // relance. "TAXA DE GPS REDUZIDA" tem 240 px e cabe.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(60.0F);
+    e.taxa = EstadoTaxa::Degradado;
+
+    tela.desenha(e, 0, v);
+    int x1 = 999;
+    for (const auto& t : v.textos) {
+        if (t.s.find("TAXA") != std::string::npos) { x1 = t.x; }
+    }
+    ASSERT_NE(x1, 999);
+
+    v.limpa();
+    const int regioes = tela.desenha(e, 30000, v);
+    EXPECT_EQ(regioes, 0) << "redesenhou um texto que nao rola";
 }
 
 }  // namespace

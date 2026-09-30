@@ -165,18 +165,28 @@ void PainelSt7789::desenha_bitmap(int x, int y, int largura, int altura,
                                   const std::uint8_t* bits,
                                   std::uint16_t cor, std::uint16_t fundo) {
     if (bits == nullptr || largura <= 0 || altura <= 0) { return; }
-    // Fora da tela por inteiro: sai antes de tocar no controlador. Recorte
-    // parcial nao e suportado de proposito -- glifo cortado pela metade e
-    // defeito de layout, e engoli-lo em silencio esconderia o defeito.
-    if (x < 0 || y < 0 || x + largura > tela::kLargura ||
-        y + altura > tela::kAltura) {
-        return;
-    }
 
+    // **Recorta em coluna, inclusive parcialmente.**
+    //
+    // A primeira versao recusava qualquer glifo que saisse da tela, com a
+    // justificativa de que glifo cortado e defeito de layout. O efeito real
+    // era pior do que o defeito que ela queria evitar: texto mais largo que
+    // a tela perdia glifos INTEIROS, em silencio, nas duas pontas -- e
+    // nenhuma frase avisava que estava incompleta.
+    //
+    // Agora o recorte e explicito e o texto que nao cabe ROLA
+    // (`TextoRolante`), o que exige desenhar glifos meio de fora.
+    const int c0 = x < 0 ? -x : 0;
+    const int c1 = x + largura > tela::kLargura ? tela::kLargura - x : largura;
+    if (c1 <= c0) { return; }  // inteiramente fora da tela
+    if (y < 0 || y + altura > tela::kAltura) { return; }
+
+    const int vx = x + c0;
+    const int vl = c1 - c0;
     const std::uint8_t col[4] = {
-        static_cast<std::uint8_t>(x >> 8), static_cast<std::uint8_t>(x),
-        static_cast<std::uint8_t>((x + largura - 1) >> 8),
-        static_cast<std::uint8_t>(x + largura - 1)};
+        static_cast<std::uint8_t>(vx >> 8), static_cast<std::uint8_t>(vx),
+        static_cast<std::uint8_t>((vx + vl - 1) >> 8),
+        static_cast<std::uint8_t>(vx + vl - 1)};
     const std::uint8_t lin[4] = {
         static_cast<std::uint8_t>(y >> 8), static_cast<std::uint8_t>(y),
         static_cast<std::uint8_t>((y + altura - 1) >> 8),
@@ -192,15 +202,15 @@ void PainelSt7789::desenha_bitmap(int x, int y, int largura, int altura,
     std::uint8_t linha[tela::kLargura * 2];
     for (int ly = 0; ly < altura; ++ly) {
         const std::uint8_t* origem = bits + ly * bytes_por_linha;
-        for (int lx = 0; lx < largura; ++lx) {
+        for (int lx = c0; lx < c1; ++lx) {
             const bool aceso =
                 (origem[lx >> 3] & (0x80U >> (lx & 7))) != 0;
             const std::uint16_t v = aceso ? cor : fundo;
-            linha[lx * 2] = static_cast<std::uint8_t>(v >> 8);
-            linha[lx * 2 + 1] = static_cast<std::uint8_t>(v);
+            const int i = (lx - c0) * 2;
+            linha[i] = static_cast<std::uint8_t>(v >> 8);
+            linha[i + 1] = static_cast<std::uint8_t>(v);
         }
-        spi_write_blocking(spi1, linha,
-                           static_cast<std::size_t>(largura) * 2);
+        spi_write_blocking(spi1, linha, static_cast<std::size_t>(vl) * 2);
     }
     seleciona(false);
 }
@@ -208,15 +218,21 @@ void PainelSt7789::desenha_bitmap(int x, int y, int largura, int altura,
 void PainelSt7789::desenha_rgb565(int x, int y, int largura, int altura,
                                   const std::uint16_t* pixels) {
     if (pixels == nullptr || largura <= 0 || altura <= 0) { return; }
-    if (x < 0 || y < 0 || x + largura > tela::kLargura ||
-        y + altura > tela::kAltura) {
-        return;  // sprite cortado e defeito de layout, nao caso a tratar
-    }
 
+    // Mesmo recorte em coluna do `desenha_bitmap`. Os sprites do §4.1
+    // sempre cabem, mas manter a regra igual nas duas evita que a proxima
+    // arte maior falhe de um jeito diferente do texto.
+    const int c0 = x < 0 ? -x : 0;
+    const int c1 = x + largura > tela::kLargura ? tela::kLargura - x : largura;
+    if (c1 <= c0) { return; }
+    if (y < 0 || y + altura > tela::kAltura) { return; }
+
+    const int vx = x + c0;
+    const int vl = c1 - c0;
     const std::uint8_t col[4] = {
-        static_cast<std::uint8_t>(x >> 8), static_cast<std::uint8_t>(x),
-        static_cast<std::uint8_t>((x + largura - 1) >> 8),
-        static_cast<std::uint8_t>(x + largura - 1)};
+        static_cast<std::uint8_t>(vx >> 8), static_cast<std::uint8_t>(vx),
+        static_cast<std::uint8_t>((vx + vl - 1) >> 8),
+        static_cast<std::uint8_t>(vx + vl - 1)};
     const std::uint8_t lin[4] = {
         static_cast<std::uint8_t>(y >> 8), static_cast<std::uint8_t>(y),
         static_cast<std::uint8_t>((y + altura - 1) >> 8),
@@ -230,14 +246,14 @@ void PainelSt7789::desenha_rgb565(int x, int y, int largura, int altura,
     gpio_put(pinos::kDisplayDc, true);
     std::uint8_t linha[tela::kLargura * 2];
     for (int ly = 0; ly < altura; ++ly) {
-        for (int lx = 0; lx < largura; ++lx) {
+        for (int lx = c0; lx < c1; ++lx) {
             const std::uint16_t v = pixels[ly * largura + lx];
+            const int i = (lx - c0) * 2;
             // Big-endian no barramento, como o resto do driver.
-            linha[lx * 2] = static_cast<std::uint8_t>(v >> 8);
-            linha[lx * 2 + 1] = static_cast<std::uint8_t>(v);
+            linha[i] = static_cast<std::uint8_t>(v >> 8);
+            linha[i + 1] = static_cast<std::uint8_t>(v);
         }
-        spi_write_blocking(spi1, linha,
-                           static_cast<std::size_t>(largura) * 2);
+        spi_write_blocking(spi1, linha, static_cast<std::size_t>(vl) * 2);
     }
     seleciona(false);
 }

@@ -496,7 +496,7 @@ TEST(Aplicacao, clique_em_movimento_avisa_em_vez_de_ignorar_calado) {
     app.passo(2050);
 
     EXPECT_EQ(b.acoes.bases, 0U) << "iniciou OTA em movimento";
-    EXPECT_TRUE(b.visor.tem("PARE O VEICULO"))
+    EXPECT_TRUE(b.visor.tem("PARE PARA ATUALIZAR"))
         << "recusou o clique sem dizer por que";
     EXPECT_GT(b.log.contagem(Nivel::Warning), 0U);
 }
@@ -509,11 +509,17 @@ TEST(Aplicacao, o_aviso_de_OTA_some_sozinho) {
     b.roda(app, 0, 2000, 60.0F);
     b.encoder.enfileira(EventoEncoder::Clique);
     app.passo(2050);
-    ASSERT_TRUE(b.visor.tem("PARE O VEICULO"));
+    ASSERT_TRUE(b.visor.tem("PARE PARA ATUALIZAR"));
 
+    // Corre PARA DEPOIS da janela de 2 s e so entao limpa o espiao. Antes
+    // bastava "nao foi desenhado de novo", porque a faixa so redesenhava ao
+    // mudar de conteudo; com rolagem ela redesenha continuamente enquanto o
+    // aviso esta no ar, e "foi desenhado" deixou de significar "ficou
+    // preso".
+    b.roda(app, 2100, 4600, 60.0F);
     b.visor.limpa();
-    b.roda(app, 2100, 6000, 60.0F);
-    EXPECT_FALSE(b.visor.tem("PARE O VEICULO")) << "o aviso ficou preso";
+    b.roda(app, 4650, 6000, 60.0F);
+    EXPECT_FALSE(b.visor.tem("PARE PARA ATUALIZAR")) << "o aviso ficou preso";
 }
 
 TEST(Aplicacao, clique_dentro_do_menu_nao_dispara_OTA) {

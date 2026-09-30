@@ -60,6 +60,7 @@ add_executable(testes
     led/PadraoLedTest.cpp
     display/TelaPrincipalTest.cpp
     display/TelaMenuTest.cpp
+    display/TextoRolanteTest.cpp
     display/BrilhoTest.cpp
     # O dublê de FatFs e o CartaoSd DE PRODUCAO compilado contra ele. O .cpp
     # nao muda: o que muda e qual `ff.h` o caminho de include encontra. Assim

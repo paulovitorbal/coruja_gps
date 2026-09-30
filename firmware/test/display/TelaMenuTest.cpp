@@ -4,6 +4,8 @@
 
 #include <string>
 #include <cstdio>
+
+#include "display/TextoRolante.h"
 #include <vector>
 
 namespace {
@@ -81,7 +83,7 @@ TEST(TelaMenu, mostra_o_rotulo_e_o_valor_do_item_corrente) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
 
     EXPECT_TRUE(v.tem_texto("AJUSTES")) << "a faixa superior diz onde se esta";
     EXPECT_TRUE(v.tem_texto("brilho"));
@@ -94,29 +96,28 @@ TEST(TelaMenu, o_valor_e_maior_que_o_rotulo) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     const auto* valor = v.em_fonte(Fonte::NumeroPequeno);
     ASSERT_NE(valor, nullptr) << "o valor nao foi desenhado em fonte propria";
     EXPECT_GT(altura_da_fonte(Fonte::NumeroPequeno),
               altura_da_fonte(Fonte::Texto));
 }
 
-TEST(TelaMenu, o_rodape_diz_o_que_o_encoder_faz_agora) {
-    // E a unica pista de que girar deixou de navegar e passou a editar.
-    // Sem ela, o usuario descobriria a diferenca mexendo -- o que num menu
-    // de brilho e volume significa mexer no que nao queria.
+TEST(TelaMenu, nao_ha_rodape_de_instrucoes) {
+    // As frases "girar: escolher / clicar: abrir" ocupavam a faixa inferior
+    // e passavam de 320 px, o que as fazia ROLAR para dizer o que se
+    // aprende na primeira vez que se usa o menu. Saíram em 2026-09-30.
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
-    EXPECT_TRUE(v.tem_texto("escolher"));
+    tela.desenha(b.menu(), kInfo, 0, v);
+    EXPECT_FALSE(v.tem_texto("girar"));
+    EXPECT_FALSE(v.tem_texto("clicar"));
 
+    b.clica();
     v.limpa();
-    b.clica();                       // entra em edicao
-    ASSERT_EQ(b.menu().estado(), EstadoMenu::Editando);
-    tela.desenha(b.menu(), kInfo, v);
-    EXPECT_TRUE(v.tem_texto("mudar"));
-    EXPECT_TRUE(v.tem_texto("confirmar"));
+    tela.desenha(b.menu(), kInfo, 0, v);
+    EXPECT_FALSE(v.tem_texto("girar")) << "o rodape voltou em edicao";
 }
 
 TEST(TelaMenu, edicao_e_marcada_por_forma_e_nao_por_cor) {
@@ -127,12 +128,12 @@ TEST(TelaMenu, edicao_e_marcada_por_forma_e_nao_por_cor) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     const std::size_t antes = v.retangulos.size();
 
     v.limpa();
     b.clica();
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
 
     bool tem_sublinhado = false;
     for (const auto& r : v.retangulos) {
@@ -155,7 +156,7 @@ TEST(TelaMenu, itens_de_acao_nao_mostram_valor) {
     VisorEspiao v;
     TelaMenu tela;
     b.avanca_ate(ItemMenu::AtualizarBase);
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     EXPECT_TRUE(v.tem_texto("atualizar"));
     EXPECT_EQ(v.em_fonte(Fonte::NumeroPequeno), nullptr)
         << "acao nao tem valor a mostrar";
@@ -167,15 +168,15 @@ TEST(TelaMenu, so_redesenha_o_que_mudou) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    ASSERT_GT(tela.desenha(b.menu(), kInfo, v), 0);
+    ASSERT_GT(tela.desenha(b.menu(), kInfo, 0, v), 0);
 
     v.limpa();
-    EXPECT_EQ(tela.desenha(b.menu(), kInfo, v), 0) << "redesenhou sem nada mudar";
+    EXPECT_EQ(tela.desenha(b.menu(), kInfo, 0, v), 0) << "redesenhou sem nada mudar";
     EXPECT_TRUE(v.textos.empty());
 
     v.limpa();
     b.gira(EventoEncoder::GiroDireita);
-    EXPECT_GT(tela.desenha(b.menu(), kInfo, v), 0) << "nao redesenhou apos mudar";
+    EXPECT_GT(tela.desenha(b.menu(), kInfo, 0, v), 0) << "nao redesenhou apos mudar";
 }
 
 TEST(TelaMenu, apresenta_e_chamado_quando_algo_muda) {
@@ -185,16 +186,16 @@ TEST(TelaMenu, apresenta_e_chamado_quando_algo_muda) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     EXPECT_EQ(v.apresentacoes, 1U);
 
     v.limpa();
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     EXPECT_EQ(v.apresentacoes, 0U) << "apresentou sem ter desenhado nada";
 
     v.limpa();
     b.gira(EventoEncoder::GiroDireita);
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     EXPECT_EQ(v.apresentacoes, 1U);
 }
 
@@ -204,10 +205,10 @@ TEST(TelaMenu, invalida_forca_o_redesenho_completo) {
     Bancada b;
     VisorEspiao v;
     TelaMenu tela;
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     v.limpa();
     tela.invalida();
-    EXPECT_GT(tela.desenha(b.menu(), kInfo, v), 0);
+    EXPECT_GT(tela.desenha(b.menu(), kInfo, 0, v), 0);
     EXPECT_TRUE(v.tem_texto("AJUSTES"));
 }
 
@@ -220,7 +221,7 @@ TEST(TelaMenu, informacao_mostra_unidade_base_e_taxa) {
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
     ASSERT_EQ(b.menu().estado(), EstadoMenu::Informando);
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
 
     EXPECT_TRUE(v.tem_texto("fusca")) << "nao diz QUAL unidade e";
     EXPECT_TRUE(v.tem_texto("2026-09-15"));
@@ -237,7 +238,7 @@ TEST(TelaMenu, o_nome_da_unidade_vem_primeiro) {
     TelaMenu tela;
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
 
     int y_nome = -1;
     int y_base = -1;
@@ -260,7 +261,7 @@ TEST(TelaMenu, a_taxa_do_gps_mantem_a_casa_decimal) {
     degradado.taxa_hz = 3.6F;
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
-    tela.desenha(b.menu(), degradado, v);
+    tela.desenha(b.menu(), degradado, 0, v);
     EXPECT_TRUE(v.tem_texto("3.6"));
     EXPECT_FALSE(v.tem_texto("gps: 4")) << "arredondou e escondeu a queda";
 }
@@ -275,7 +276,7 @@ TEST(TelaMenu, sem_nome_a_tela_diz_sem_nome_em_vez_de_vazio) {
     anonimo.pontos = 100;
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
-    tela.desenha(b.menu(), anonimo, v);
+    tela.desenha(b.menu(), anonimo, 0, v);
     EXPECT_TRUE(v.tem_texto("sem nome"));
 }
 
@@ -285,15 +286,64 @@ TEST(TelaMenu, sair_da_informacao_volta_a_navegar) {
     TelaMenu tela;
     b.avanca_ate(ItemMenu::Informacao);
     b.clica();
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     ASSERT_TRUE(v.tem_texto("18304"));
 
     v.limpa();
     b.gira(EventoEncoder::GiroDireita);
     ASSERT_EQ(b.menu().estado(), EstadoMenu::Navegando);
-    tela.desenha(b.menu(), kInfo, v);
+    tela.desenha(b.menu(), kInfo, 0, v);
     EXPECT_FALSE(v.tem_texto("18304")) << "a informacao ficou na tela";
     EXPECT_TRUE(v.tem_texto("informacao")) << "voltou para o item errado";
+}
+
+TEST(TelaMenu, a_linha_da_base_rola_quando_nao_cabe) {
+    // "base: 2026-09-15  18304 pts" tem 324 px numa tela de 320. E a unica
+    // linha desta tela que estoura, e antes do recorte de verdade ela
+    // perdia glifos nas duas pontas em silencio.
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+
+    tela.desenha(b.menu(), kInfo, 0, v);
+    int x1 = 999;
+    for (const auto& t : v.textos) {
+        if (t.s.find("2026-09-15") != std::string::npos) { x1 = t.x; }
+    }
+    ASSERT_NE(x1, 999);
+    EXPECT_EQ(x1, 0) << "texto que nao cabe comeca na borda esquerda";
+
+    v.limpa();
+    tela.desenha(b.menu(), kInfo,
+                 kPausaRolagemMs + kMsPorPassoRolagem, v);
+    int x2 = 999;
+    for (const auto& t : v.textos) {
+        if (t.s.find("2026-09-15") != std::string::npos) { x2 = t.x; }
+    }
+    ASSERT_NE(x2, 999) << "parou de redesenhar a linha que rola";
+    // O curso aqui e de 4 px (324 - 320), menor que um passo de caractere,
+    // entao o primeiro passo ja alcanca o fim e e limitado ao curso. Se
+    // nao fosse limitado, o texto andaria 12 px e sobraria borda vazia a
+    // direita -- fim do texto ANTES da borda, que parece defeito.
+    EXPECT_EQ(x2, -4) << "nao limitou o passo ao curso restante";
+}
+
+TEST(TelaMenu, as_linhas_que_cabem_ficam_centralizadas_e_paradas) {
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    for (const auto& t : v.textos) {
+        if (t.s.find("unidade") == std::string::npos) { continue; }
+        const int l = largura_da_fonte(Fonte::Texto, t.s.c_str());
+        ASSERT_LE(l, tela::kLargura);
+        EXPECT_EQ(t.x, (tela::kLargura - l) / 2);
+    }
 }
 
 }  // namespace

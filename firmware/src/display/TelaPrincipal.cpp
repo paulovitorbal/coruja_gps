@@ -1,9 +1,16 @@
 #include "display/TelaPrincipal.h"
 
+#include "display/TextoRolante.h"
+
 #include <cstdio>
 #include <cstring>
 
 namespace coruja {
+
+namespace {
+/// Margem esquerda da faixa inferior quando o texto cabe.
+constexpr int kMargemInferior = 8;
+}  // namespace
 namespace {
 
 /// Quantos dias tem o mês, para o relógio poder retroceder o dia ao aplicar
@@ -124,15 +131,25 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
     // tudo por 2 s porque é resposta a uma ação que o motorista acabou de
     // fazer; sem ela, o clique pareceria não ter efeito.
     if (e.houve_aviso_ota && (agora_ms - e.aviso_ota_em_ms) < kAvisoOtaMs) {
-        copia(i.inferior, sizeof i.inferior, "PARE O VEICULO PARA ATUALIZAR");
+        // **Encurtada para caber** (2026-09-30). A frase anterior tinha 348 px
+        // numa tela de 320, e o aviso dura 2 s: rolar os 28 px que faltavam
+        // levaria 2,25 s com a pausa inicial, entao o motorista NUNCA veria
+        // o fim da mensagem. Rolagem nao serve para texto efemero.
+        copia(i.inferior, sizeof i.inferior, "PARE PARA ATUALIZAR");
     } else if (!e.base_disponivel) {
-        copia(i.inferior, sizeof i.inferior, "BASE INDISPONIVEL - sem alertas");
+        // "sem alertas" e inferencia do proprio "base indisponivel", e
+        // levava a frase a 372 px. Mesmo criterio do "sem sinal".
+        copia(i.inferior, sizeof i.inferior, "BASE INDISPONIVEL");
     } else if (!e.tem_fix) {
         char decorrido[16];
         formata_decorrido(agora_ms - e.sem_sinal_desde_ms, decorrido,
                           sizeof decorrido);
-        std::snprintf(i.inferior, sizeof i.inferior,
-                      "SEM SINAL - alertas suspensos   %s", decorrido);
+        // **So "SEM SINAL" e o contador** (decidido pelo autor em
+        // 2026-09-30). O "alertas suspensos" era inferencia do proprio
+        // "sem sinal" e levava a frase a 432 px numa tela de 320 -- o que
+        // custava rolagem para dizer o que o leitor ja sabia.
+        std::snprintf(i.inferior, sizeof i.inferior, "SEM SINAL   %s",
+                      decorrido);
     } else if (e.veredito.tem_alvo) {
         // Ícone e barra. A presença deles **é** o aviso de ponto à frente: o
         // motorista percebe que algo apareceu na faixa antes de ler dígito.
@@ -142,6 +159,18 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
     }
     // Em Zona Segura a faixa fica vazia de propósito: o vazio é a mensagem,
     // e é ele que dá contraste ao alerta.
+
+    // O deslocamento das faixas que rolam sai daqui, junto do resto do
+    // instantâneo, e não no meio do desenho: ele muda com o TEMPO e não com
+    // o conteúdo, e é a comparação com o anterior que decide o redesenho.
+    i.x_superior = rolagem(largura_da_fonte(Fonte::Texto, i.superior),
+                           tela::kLargura, agora_ms).x;
+    const Rolagem rol_inf =
+        rolagem(largura_da_fonte(Fonte::Texto, i.inferior),
+                tela::kLargura - kMargemInferior, agora_ms);
+    // Cabendo, fica na margem esquerda: o contador cresce ao fim da linha, e
+    // centralizado ele arrastaria a frase de lado a cada segundo.
+    i.x_inferior = rol_inf.rolando ? rol_inf.x : kMargemInferior;
     return i;
 }
 
@@ -161,15 +190,26 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         ++regioes;
     }
 
-    if (tudo || std::strcmp(agora.superior, anterior_.superior) != 0) {
+    // As duas faixas rolam quando o texto nao cabe. O `x` entra no
+    // instantaneo porque ele muda com o tempo: sem isso, uma tela que so
+    // redesenha ao mudar de conteudo congelaria a frase no meio.
+    //
+    // ⚠️ **Hoje nenhuma frase desta tela alcanca esse caminho**, e o teste
+    // `nenhuma_frase_da_tela_principal_estoura` existe para manter assim:
+    // a mais larga tem 240 px numa tela de 320, e mesmo o contador de sem
+    // sinal depois de 18 h sem fix da 228. As duas comparacoes ficam como
+    // rede: sem elas, a primeira frase longa que alguem acrescentar volta
+    // a perder glifos em silencio, que e o defeito que a rolagem corrigiu.
+    if (tudo || std::strcmp(agora.superior, anterior_.superior) != 0 ||
+        agora.x_superior != anterior_.x_superior) {
         visor.retangulo(0, tela::kYFaixaSuperior, tela::kLargura,
                         tela::kFaixaSuperior, paleta::kFundo);
-        // A faixa superior tem um ocupante por vez e nada à sua volta:
-        // centralizado ela fica equilibrada com o número, que também é
-        // centralizado, e o olho não precisa procurar onde o texto começa.
-        visor.texto(tela::kLargura / 2, tela::kYFaixaSuperior + 3,
+        // Centralizado quando cabe: a faixa tem um ocupante por vez e nada
+        // a sua volta, e assim ela fica equilibrada com o numero, que
+        // tambem e centralizado. Rolando, o alinhamento e o proprio `x`.
+        visor.texto(agora.x_superior, tela::kYFaixaSuperior + 3,
                     agora.superior, Fonte::Texto, paleta::kTexto,
-                    Alinhamento::Centro);
+                    Alinhamento::Esquerda);
         ++regioes;
     }
 
@@ -205,16 +245,14 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         std::strcmp(agora.inferior, anterior_.inferior) != 0 ||
         agora.icone != anterior_.icone ||
         agora.barra_pct != anterior_.barra_pct ||
-        agora.barra_cor != anterior_.barra_cor;
+        agora.barra_cor != anterior_.barra_cor ||
+        agora.x_inferior != anterior_.x_inferior;
     if (tudo || inferior_mudou) {
         visor.retangulo(0, tela::kYFaixaInferior, tela::kLargura,
                         tela::kFaixaInferior, paleta::kFundo);
         if (agora.inferior[0] != '\0') {
-            // A faixa inferior fica à esquerda: o contador de tempo sem
-            // sinal cresce ao fim da linha, e centralizado ele arrastaria a
-            // frase inteira de lado a cada segundo.
-            visor.texto(8, tela::kYFaixaInferior + 12, agora.inferior,
-                        Fonte::Texto, paleta::kDegradado,
+            visor.texto(agora.x_inferior, tela::kYFaixaInferior + 12,
+                        agora.inferior, Fonte::Texto, paleta::kTexto,
                         Alinhamento::Esquerda);
         } else if (agora.icone != Icone::Nenhum) {
             visor.icone(8, tela::kYFaixaInferior + 2, agora.icone);
