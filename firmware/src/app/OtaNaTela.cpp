@@ -22,6 +22,12 @@ void OtaNaTela::fase(FaseOta fase, unsigned tentativa) {
     if (aviso_novo) {
         estado_.recebidos = 0;
         estado_.total = 0;
+        // **E o motivo junto.** Ele chega atrasado, pelo `falhou()`, e sem
+        // isto sobreviveria a tentativa seguinte: entre o `fase(Falhou)` de
+        // dentro do orquestrador e o `falhou()` da composicao, a tela
+        // mostraria a causa da tentativa PASSADA. Motivo errado e pior que
+        // motivo nenhum -- manda consertar o que nao esta quebrado.
+        estado_.motivo = nullptr;
     }
     padrao_.define_fase(fase, relogio_.agora_ms());
     pinta();
@@ -30,6 +36,16 @@ void OtaNaTela::fase(FaseOta fase, unsigned tentativa) {
 void OtaNaTela::progresso(std::size_t recebidos, std::size_t total) {
     estado_.recebidos = recebidos;
     estado_.total = total;
+    pinta();
+}
+
+void OtaNaTela::falhou(const char* motivo) {
+    // Nao passa pelo `fase()` de proposito: la um aviso novo zera o
+    // progresso, e aqui nao ha progresso novo nenhum -- so o nome da causa
+    // chegando atrasado para uma falha ja anunciada.
+    estado_.fase = FaseOta::Falhou;
+    estado_.motivo = motivo;
+    padrao_.define_fase(FaseOta::Falhou, relogio_.agora_ms());
     pinta();
 }
 

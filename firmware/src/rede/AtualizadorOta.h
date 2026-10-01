@@ -40,6 +40,43 @@ enum class ResultadoOta {
 
 const char* descreve(ResultadoOta resultado);
 
+/// O mesmo resultado, curto o bastante para a faixa de texto da tela.
+///
+/// **Existe separado do `descreve()` porque os dois leitores são outros.** A
+/// frase do log é lida depois, com calma, por quem abre o arquivo; a da tela
+/// é lida de relance por quem está com o aparelho na mão e precisa decidir o
+/// que tentar agora. "chegou integra, mas o cartao nao aceitou" explica bem
+/// no log e não cabe nos 26 caracteres da faixa.
+///
+/// Cada falha tem texto próprio, e isso é o requisito, não um detalhe: senha
+/// errada, servidor fora, sinal instável e cartão ruim se resolvem de jeitos
+/// diferentes. Um "erro na atualização" genérico devolveria o usuário ao log.
+const char* descreve_curto(ResultadoOta resultado);
+
+/// Este resultado pede a atenção do usuário antes de a tela seguir adiante?
+///
+/// **Mora aqui, e não na composição, porque é decisão sobre o enum.** Quem
+/// acrescentar um `ResultadoOta` passa por este `switch` e tem de dizer de
+/// que lado ele cai; um `!= Atualizada` solto no `main.cpp` classificaria o
+/// caso novo sozinho, e em silêncio.
+///
+/// `JaEstavaEmDia` é o que engana: nada foi baixado e ainda assim deu certo.
+inline bool e_falha(ResultadoOta r) {
+    switch (r) {
+        case ResultadoOta::Atualizada:
+        case ResultadoOta::JaEstavaEmDia:
+            return false;
+        case ResultadoOta::SemConfiguracao:
+        case ResultadoOta::FalhaDeRede:
+        case ResultadoOta::FalhaAoConsultar:
+        case ResultadoOta::FalhaAoBaixar:
+        case ResultadoOta::BaseRecusada:
+        case ResultadoOta::FalhaAoGravar:
+            return true;
+    }
+    return true;  // enum fora de faixa: trata como falha, que é o lado seguro
+}
+
 /// Orquestra o ciclo de atualização: conecta, consulta, baixa se preciso,
 /// verifica e **desconecta sempre**.
 ///

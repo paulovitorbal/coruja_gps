@@ -14,18 +14,32 @@ public:
     struct Ret { int x, y, l, a; Cor565 cor; };
     std::vector<Ret> retangulos;
     std::vector<std::string> textos;
+    std::vector<Cor565> cores_de_texto;
     unsigned apresentacoes = 0;
 
     void retangulo(int x, int y, int l, int a, Cor565 c) override {
         retangulos.push_back({x, y, l, a, c});
     }
-    void texto(int, int, const char* s, Fonte, Cor565, Alinhamento) override {
+    void texto(int, int, const char* s, Fonte, Cor565 c, Alinhamento) override {
         textos.emplace_back(s);
+        cores_de_texto.push_back(c);
     }
     void icone(int, int, Icone) override {}
     void apresenta() override { ++apresentacoes; }
 
-    void limpa() { retangulos.clear(); textos.clear(); apresentacoes = 0; }
+    void limpa() {
+        retangulos.clear(); textos.clear();
+        cores_de_texto.clear(); apresentacoes = 0;
+    }
+    /// Cor com que `p` foi escrito, ou `kFundo` se nao foi escrito.
+    Cor565 cor_do_texto(const std::string& p) const {
+        for (std::size_t i = 0; i < textos.size(); ++i) {
+            if (textos[i].find(p) != std::string::npos) {
+                return cores_de_texto[i];
+            }
+        }
+        return paleta::kFundo;
+    }
     bool tem(const std::string& p) const {
         for (const auto& t : textos) {
             if (t.find(p) != std::string::npos) { return true; }
@@ -139,6 +153,75 @@ TEST(TelaOta, ja_em_dia_e_diferente_de_atualizada) {
     tela.desenha(e, v);
     EXPECT_TRUE(v.tem("EM DIA"));
     EXPECT_FALSE(v.tem("ATUALIZADA"));
+}
+
+// --- o motivo da falha ---
+//
+// "FALHOU" sozinho manda o usuario abrir o log para saber o que tentar, e
+// quem esta com o aparelho na mao no carro nao vai abrir log nenhum. Cada
+// falha pede uma acao diferente: senha errada, servidor fora, sinal
+// instavel e cartao ruim nao se resolvem do mesmo jeito.
+
+TEST(TelaOta, a_falha_mostra_o_motivo) {
+    VisorEspiao v;
+    TelaOta tela;
+    EstadoOta e;
+    e.fase = FaseOta::Falhou;
+    e.motivo = "SEM WI-FI";
+    tela.desenha(e, v);
+    EXPECT_TRUE(v.tem("FALHOU"));
+    EXPECT_TRUE(v.tem("SEM WI-FI"));
+}
+
+TEST(TelaOta, falha_sem_motivo_conhecido_ainda_diz_que_falhou) {
+    // O `fase(Falhou)` parte de dentro do orquestrador, antes de alguem
+    // saber o resultado. A tela nao pode ficar em branco nesse intervalo.
+    VisorEspiao v;
+    TelaOta tela;
+    EstadoOta e;
+    e.fase = FaseOta::Falhou;
+    tela.desenha(e, v);
+    EXPECT_TRUE(v.tem("FALHOU"));
+}
+
+TEST(TelaOta, o_motivo_so_aparece_na_falha) {
+    // Um motivo sobrevivente de uma tentativa anterior apareceria sob
+    // "ATUALIZADA", dizendo que deu certo e errado ao mesmo tempo.
+    VisorEspiao v;
+    TelaOta tela;
+    EstadoOta e;
+    e.fase = FaseOta::Concluida;
+    e.motivo = "SEM WI-FI";
+    tela.desenha(e, v);
+    EXPECT_TRUE(v.tem("ATUALIZADA"));
+    EXPECT_FALSE(v.tem("SEM WI-FI"));
+}
+
+TEST(TelaOta, trocar_o_motivo_repinta) {
+    VisorEspiao v;
+    TelaOta tela;
+    EstadoOta e;
+    e.fase = FaseOta::Falhou;
+    e.motivo = "SEM WI-FI";
+    ASSERT_GT(tela.desenha(e, v), 0);
+    v.limpa();
+    e.motivo = "CARTAO NAO GRAVOU";
+    EXPECT_GT(tela.desenha(e, v), 0) << "o motivo mudou e a tela nao mexeu";
+    EXPECT_TRUE(v.tem("CARTAO NAO GRAVOU"));
+}
+
+TEST(TelaOta, o_motivo_e_branco_e_a_palavra_FALHOU_nao) {
+    // Paleta do 4.1: distinguir por MATIZ, nunca por luminancia, porque o
+    // brilho do painel varia. O vermelho carrega "deu errado" e o branco
+    // carrega a informacao, que e o que se le.
+    VisorEspiao v;
+    TelaOta tela;
+    EstadoOta e;
+    e.fase = FaseOta::Falhou;
+    e.motivo = "SEM WI-FI";
+    tela.desenha(e, v);
+    EXPECT_EQ(v.cor_do_texto("FALHOU"), paleta::kBarraPerigo);
+    EXPECT_EQ(v.cor_do_texto("SEM WI-FI"), paleta::kTexto);
 }
 
 // --- o passo de 5% ---

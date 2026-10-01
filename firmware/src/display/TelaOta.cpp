@@ -48,6 +48,10 @@ TelaOta::Instantaneo TelaOta::compoe(const EstadoOta& e) const {
         std::snprintf(i.rotulo, sizeof i.rotulo, "%s", descreve(e.fase));
     }
 
+    if (e.fase == FaseOta::Falhou && e.motivo != nullptr) {
+        std::snprintf(i.motivo, sizeof i.motivo, "%s", e.motivo);
+    }
+
     if (e.fase == FaseOta::Baixando && e.total > 0) {
         const int pct = static_cast<int>(e.recebidos * 100U / e.total);
         const int limitado = pct > 100 ? 100 : pct;
@@ -75,15 +79,29 @@ int TelaOta::desenha(const EstadoOta& estado, Visor& visor) {
     }
 
     if (tudo || std::strcmp(agora.rotulo, anterior_.rotulo) != 0 ||
-        std::strcmp(agora.valor, anterior_.valor) != 0) {
+        std::strcmp(agora.valor, anterior_.valor) != 0 ||
+        std::strcmp(agora.motivo, anterior_.motivo) != 0) {
         visor.retangulo(0, tela::kYAreaNumero, tela::kLargura,
                         tela::kAreaNumero, paleta::kFundo);
 
         const int y_rotulo = tela::kYAreaNumero + 30;
+        // Vermelho só na palavra que diz que deu errado. O motivo, que é o
+        // que se lê, fica branco: §4.1 manda distinguir por MATIZ e nunca
+        // por luminância, porque o brilho do painel varia.
+        const Cor565 cor_rotulo = agora.motivo[0] != '\0' ? paleta::kBarraPerigo
+                                                          : paleta::kTexto;
         visor.texto(tela::kLargura / 2 -
                         largura_da_fonte(Fonte::Texto, agora.rotulo) / 2,
-                    y_rotulo, agora.rotulo, Fonte::Texto, paleta::kTexto,
+                    y_rotulo, agora.rotulo, Fonte::Texto, cor_rotulo,
                     Alinhamento::Esquerda);
+
+        if (agora.motivo[0] != '\0') {
+            visor.texto(tela::kLargura / 2 -
+                            largura_da_fonte(Fonte::Texto, agora.motivo) / 2,
+                        y_rotulo + altura_da_fonte(Fonte::Texto) + 16,
+                        agora.motivo, Fonte::Texto, paleta::kTexto,
+                        Alinhamento::Esquerda);
+        }
 
         if (agora.valor[0] != '\0') {
             const int l = largura_da_fonte(Fonte::NumeroPequeno, agora.valor);

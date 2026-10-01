@@ -13,6 +13,15 @@ struct EstadoOta {
     unsigned    tentativa = 1;
     std::size_t recebidos = 0;
     std::size_t total = 0;      ///< zero até o cabeçalho da base chegar
+
+    /// Por que falhou, curto o bastante para a faixa de texto. Nulo enquanto
+    /// não se sabe — o `Falhou` parte de dentro do orquestrador, antes de
+    /// alguém ter o resultado na mão.
+    ///
+    /// Aponta para literal: quem preenche é a composição, com
+    /// `descreve_curto(ResultadoOta)`, e a `TelaOta` copia o conteúdo em vez
+    /// de guardar o ponteiro.
+    const char* motivo = nullptr;
 };
 
 /// Desenha a atualização em curso, reaproveitando as três faixas do §4.1.
@@ -29,6 +38,10 @@ struct EstadoOta {
 /// não há denominador, e uma barra que enche sozinha sem referência mentiria
 /// sobre o andamento.
 ///
+/// **A falha diz o motivo.** "FALHOU" sozinho manda abrir o log, e ninguém
+/// abre log dentro do carro. Sem rede, servidor fora, download interrompido e
+/// cartão ruim pedem ações diferentes; o nome da causa é o que escolhe a ação.
+///
 /// **O progresso vai à tela de 5 em 5 por cento.** O painel não tem buffer
 /// duplo e cada repintura apaga antes de desenhar; a 1% o rótulo "BAIXANDO"
 /// pisca cem vezes num download. O estado recebido continua exato — quem
@@ -42,6 +55,7 @@ private:
     struct Instantaneo {
         char rotulo[28] = {};
         char valor[8] = {};
+        char motivo[28] = {};
         int  barra_pct = -1;
         bool valido = false;
     };

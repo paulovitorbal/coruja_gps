@@ -27,6 +27,7 @@
 #include <pico/stdlib.h>
 
 #include "app/Aplicacao.h"
+#include "app/EsperaDispensa.h"
 #include "app/OtaNaTela.h"
 #include "app/PilotoAlerta.h"
 #include "armazenamento/CartaoSd.h"
@@ -156,9 +157,11 @@ public:
     AcoesDoAparelho(coruja::CartaoSd& cartao, coruja::AtualizadorOta& ota,
                     coruja::OtaNaTela& ponte, coruja::PilotoAlerta& piloto,
                     coruja::LedRgb& led, coruja::Buzzer& buzzer,
-                    coruja::Pausa& pausa, coruja::LoggerCartao& log)
+                    coruja::Pausa& pausa, coruja::Encoder& encoder,
+                    coruja::LoggerCartao& log)
         : cartao_(cartao), ota_(ota), ponte_(ponte), piloto_(piloto),
-          led_(led), buzzer_(buzzer), pausa_(pausa), log_(log) {}
+          led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
+          log_(log) {}
 
     /// Houve uma atualizacao desde a ultima pergunta?
     ///
@@ -182,8 +185,7 @@ public:
         coruja::Configuracao config;
         if (!carrega_configuracao(cartao_, &config, log_)) {
             log_.error("ota", "sem configuracao utilizavel");
-            ponte_.fase(coruja::FaseOta::Falhou, 1);
-            pausa_.espera_ms(kMostraResultadoMs);
+            mostra_falha(coruja::ResultadoOta::SemConfiguracao);
             return;
         }
 
@@ -198,10 +200,22 @@ public:
             piloto_.define_base(g_pontos, base_.pontos);
         }
 
-        // Segura o resultado na tela: sem isto a tela de dirigir voltaria no
-        // mesmo instante e o usuário não leria nem "ATUALIZADA" nem o motivo
-        // da falha.
-        pausa_.espera_ms(kMostraResultadoMs);
+        // **Fim feliz passa; falha espera.** Sem segurar, a tela de dirigir
+        // voltaria no mesmo instante e nada seria lido. Mas o tempo que
+        // basta para "ATUALIZADA", que é uma palavra só, não basta para uma
+        // falha: ali o usuário precisa ler o motivo e decidir o que tentar,
+        // e quem perdeu a frase não tem como pedir de novo.
+        if (coruja::e_falha(resultado)) {
+            mostra_falha(resultado);
+        } else {
+            pausa_.espera_ms(kMostraResultadoMs);
+        }
+    }
+
+    /// Segura a falha na tela até o usuário dispensá-la no encoder.
+    void mostra_falha(coruja::ResultadoOta resultado) {
+        ponte_.falhou(coruja::descreve_curto(resultado));
+        espera_.ate_dispensar(ponte_);
     }
 
     void testa_alertas() override {
@@ -232,6 +246,7 @@ private:
     coruja::LedRgb&         led_;
     coruja::Buzzer&         buzzer_;
     coruja::Pausa&          pausa_;
+    coruja::EsperaDispensa  espera_;
     coruja::LoggerCartao&   log_;
     BaseCarregada           base_;
     bool                    houve_ota_ = false;
@@ -288,7 +303,7 @@ int main() {
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
     AcoesDoAparelho        acoes(cartao, ota, ponte, piloto, led, buzzer,
-                                 pausa, log);
+                                 pausa, encoder, log);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,

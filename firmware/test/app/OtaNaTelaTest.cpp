@@ -156,4 +156,51 @@ TEST(OtaNaTela, a_falha_deixa_o_LED_vermelho_piscando) {
     EXPECT_TRUE(viu_apagado) << "ficou fixo em vez de piscar";
 }
 
+
+// --- o motivo da falha ---
+
+TEST(OtaNaTela, o_motivo_chega_a_tela) {
+    VisorEspiao v; LedEspiao led; PausaFalsa p;
+    OtaNaTela ponte(v, led, p);
+
+    ponte.fase(FaseOta::Falhou, 1);
+    v.limpa();
+    ponte.falhou("SEM WI-FI");
+
+    EXPECT_TRUE(v.tem("SEM WI-FI"));
+    EXPECT_EQ(ponte.estado().fase, FaseOta::Falhou);
+}
+
+TEST(OtaNaTela, uma_tentativa_NOVA_nao_herda_o_motivo_da_anterior) {
+    // O caso real, e e o que o usuario relatou: clicou duas vezes. A
+    // primeira falhou por um motivo, a segunda por outro -- e entre o
+    // `fase(Falhou)`, que parte de dentro do orquestrador, e o `falhou()`,
+    // que so chega quando `executa()` retorna, a tela mostraria o motivo da
+    // tentativa PASSADA. Motivo errado e pior que motivo nenhum: manda o
+    // usuario consertar o que nao esta quebrado.
+    VisorEspiao v; LedEspiao led; PausaFalsa p;
+    OtaNaTela ponte(v, led, p);
+
+    ponte.fase(FaseOta::Falhou, 1);
+    ponte.falhou("SEM WI-FI");
+
+    ponte.fase(FaseOta::Conectando, 1);   // segunda tentativa comecando
+    v.limpa();
+    ponte.fase(FaseOta::Falhou, 1);
+
+    EXPECT_FALSE(v.tem("SEM WI-FI")) << "o motivo velho sobreviveu";
+    EXPECT_TRUE(v.tem("FALHOU"));
+}
+
+TEST(OtaNaTela, o_sucesso_depois_de_uma_falha_nao_carrega_motivo) {
+    VisorEspiao v; LedEspiao led; PausaFalsa p;
+    OtaNaTela ponte(v, led, p);
+
+    ponte.fase(FaseOta::Falhou, 1);
+    ponte.falhou("SEM WI-FI");
+    ponte.fase(FaseOta::Concluida, 1);
+
+    EXPECT_EQ(ponte.estado().motivo, nullptr);
+}
+
 }  // namespace

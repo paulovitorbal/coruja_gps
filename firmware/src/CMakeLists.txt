@@ -67,6 +67,7 @@ add_library(coruja_ihm STATIC
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
     app/OtaNaTela.cpp
+    app/EsperaDispensa.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A cadencia do buzzer parte da FaixaSonora decidida pelo Zonamento.

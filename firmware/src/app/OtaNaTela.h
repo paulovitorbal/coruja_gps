@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+#include "app/EsperaDispensa.h"
 #include "display/TelaOta.h"
 #include "display/Visor.h"
 #include "led/LedRgb.h"
@@ -26,7 +27,7 @@ namespace coruja {
 /// cor só fosse recalculada nas mudanças de fase, o LED ficaria parado
 /// durante todo um download de 214 KB — que é exatamente a fase mais longa
 /// e a que mais precisa mostrar que algo acontece.
-class OtaNaTela final : public ObservadorOta {
+class OtaNaTela final : public ObservadorOta, public Batimento {
 public:
     OtaNaTela(Visor& visor, LedRgb& led, Pausa& relogio)
         : visor_(visor), led_(led), relogio_(relogio) {}
@@ -34,11 +35,21 @@ public:
     void fase(FaseOta fase, unsigned tentativa) override;
     void progresso(std::size_t recebidos, std::size_t total) override;
 
+    /// Falhou, e agora se sabe por quê.
+    ///
+    /// Separado do `fase(Falhou)` porque chega depois: o orquestrador avisa
+    /// que falhou de dentro, antes de haver um `ResultadoOta`. Quem tem o
+    /// resultado na mão é a composição, e é ela quem completa a tela.
+    ///
+    /// `motivo` precisa sobreviver à chamada — na prática é literal, vindo
+    /// do `descreve_curto()`.
+    void falhou(const char* motivo);
+
     /// Redesenha e atualiza o LED sem que nada tenha mudado.
     ///
     /// Para quem chama entre as notificações — o piscar precisa disso, e as
     /// fases de rede podem passar segundos sem nenhum aviso.
-    void mantem();
+    void mantem() override;
 
     const EstadoOta& estado() const { return estado_; }
 

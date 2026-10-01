@@ -3,6 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <set>
+#include <string>
+
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -579,6 +583,63 @@ TEST(AtualizadorOta, sem_observador_nao_quebra) {
     b.cartao.resposta_le_versao = ErroCartao::Nenhum;
     AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
     EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+}
+
+
+// --- o motivo curto, para a tela ---
+//
+// A tela tem uma faixa de 26 caracteres. As frases do LOG sao escritas para
+// quem le o arquivo depois, com calma; a da TELA e lida de relance por quem
+// esta com o aparelho na mao e precisa decidir o que tentar.
+
+TEST(DescreveCurto, cabe_na_faixa_de_texto_da_tela) {
+    // 320 px / 12 px por caractere = 26. Passar disso trunca em silencio, e
+    // um motivo truncado e pior do que motivo nenhum.
+    for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
+                         ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
+                         ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+        EXPECT_LE(std::strlen(descreve_curto(r)), 26u)
+            << "motivo longo demais: " << descreve_curto(r);
+    }
+}
+
+TEST(DescreveCurto, cada_falha_tem_texto_proprio) {
+    // O ponto inteiro da mudanca. Se duas falhas dessem a mesma frase, o
+    // usuario voltaria a precisar do log para saber qual aconteceu.
+    std::set<std::string> vistos;
+    for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
+                         ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+        EXPECT_TRUE(vistos.insert(descreve_curto(r)).second)
+            << "motivo repetido: " << descreve_curto(r);
+    }
+}
+
+TEST(DescreveCurto, nenhum_resultado_fica_sem_texto) {
+    for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
+                         ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
+                         ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+        EXPECT_GT(std::strlen(descreve_curto(r)), 0u);
+    }
+}
+
+
+TEST(EFalha, os_dois_fins_felizes_nao_sao_falha) {
+    EXPECT_FALSE(e_falha(ResultadoOta::Atualizada));
+    EXPECT_FALSE(e_falha(ResultadoOta::JaEstavaEmDia));
+}
+
+TEST(EFalha, todo_o_resto_e_falha) {
+    // "ja estava em dia" e o caso que engana: nada foi baixado, e mesmo
+    // assim deu certo. Classifica-lo como falha prenderia a tela esperando
+    // o usuario dispensar uma atualizacao que simplesmente nao era precisa.
+    for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
+                         ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+        EXPECT_TRUE(e_falha(r)) << descreve(r);
+    }
 }
 
 }  // namespace

@@ -156,6 +156,22 @@ const char* descreve(ResultadoOta resultado) {
     return "resultado desconhecido";
 }
 
+const char* descreve_curto(ResultadoOta resultado) {
+    // Maiusculas e sem acento, como o resto da tela: a fonte de texto do
+    // §4.1 e um subconjunto gerado, e acento nao esta nele.
+    switch (resultado) {
+        case ResultadoOta::Atualizada:       return "ATUALIZADA";
+        case ResultadoOta::JaEstavaEmDia:    return "JA ESTA EM DIA";
+        case ResultadoOta::SemConfiguracao:  return "SEM CONFIGURACAO";
+        case ResultadoOta::FalhaDeRede:      return "SEM WI-FI";
+        case ResultadoOta::FalhaAoConsultar: return "SERVIDOR NAO RESPONDE";
+        case ResultadoOta::FalhaAoBaixar:    return "DOWNLOAD INCOMPLETO";
+        case ResultadoOta::BaseRecusada:     return "ARQUIVO CORROMPIDO";
+        case ResultadoOta::FalhaAoGravar:    return "CARTAO NAO GRAVOU";
+    }
+    return "ERRO DESCONHECIDO";
+}
+
 ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     // Apelidos locais: o corpo abaixo foi escrito contra parametros e nao
     // muda ao passarem a ser membros. Trocar os nomes seria diff sem ganho.
