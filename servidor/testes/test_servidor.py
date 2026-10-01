@@ -23,9 +23,17 @@ sys.path.insert(0, str(RAIZ))
 import servidor as s  # noqa: E402
 
 
-def base_valida(n_pontos: int = 3, crc: int = 0xDEADBEEF) -> bytes:
-    """Um radares.bin mínimo, só com cabeçalho e registros zerados."""
-    cab = s.CABECALHO.pack(s.MAGIC, 1, 5, 12, n_pontos, crc)
+def base_valida(n_pontos: int = 3, crc: int = 0xDEADBEEF, versao: int = 2,
+                data=(2026, 9, 30)) -> bytes:
+    """Um radares.bin mínimo, só com cabeçalho e registros zerados.
+
+    `versao=1` monta o formato ANTIGO, de 16 bytes e sem data, que o servidor
+    continua tendo de servir: um arquivo v1 parado numa pasta de dados não
+    pode derrubar a rota de versão.
+    """
+    cab = s.CABECALHO_BASE.pack(s.MAGIC, versao, 5, 12, n_pontos, crc)
+    if versao != s.VERSAO_SEM_DATA:
+        cab += struct.pack("<HBB", *data)
     return cab + bytes(n_pontos * 12)
 
 
@@ -134,12 +142,14 @@ class ServidorEmTeste(unittest.TestCase):
 
     def test_head_traz_tamanho_sem_corpo(self):
         # Permite conferir disponibilidade sem baixar 214 KB.
-        self.publica(base_valida(n_pontos=100))
+        # Compara com o tamanho REAL do arquivo, e não com uma conta refeita
+        # aqui: o cabeçalho mudou de tamanho uma vez e vai mudar de novo.
+        conteudo = base_valida(n_pontos=100)
+        self.publica(conteudo)
         r = self.get(s.ROTA_BASE, metodo="HEAD")
         self.assertEqual(r.status, 200)
         self.assertEqual(r.read(), b"")
-        self.assertEqual(int(r.headers["Content-Length"]),
-                         s.CABECALHO.size + 100 * 12)
+        self.assertEqual(int(r.headers["Content-Length"]), len(conteudo))
 
     def test_tipo_de_conteudo_correto(self):
         self.publica()
@@ -170,6 +180,49 @@ class ServidorEmTeste(unittest.TestCase):
 class VersaoDe(unittest.TestCase):
     def test_arquivo_ausente_devolve_none(self):
         self.assertIsNone(s.versao_de(Path("/nao/existe/radares.bin")))
+
+
+class VersaoComData(unittest.TestCase):
+    """A linha de versão é o que uma pessoa lê ao depurar uma atualização.
+
+    O firmware a compara como texto opaco e não interpreta campo nenhum, então
+    o que está em jogo aqui é legibilidade — e o risco é o oposto do óbvio:
+    inventar uma data para um arquivo v1, que não tem nenhuma.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.caminho = Path(self.tmp.name) / s.NOME_BASE
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def versao(self, conteudo):
+        self.caminho.write_bytes(conteudo)
+        return s.versao_de(self.caminho)
+
+    def test_v2_anuncia_a_data_da_base(self):
+        linha = self.versao(base_valida(versao=2, data=(2026, 9, 30)))
+        self.assertIn("formato:2", linha)
+        self.assertIn("data:2026-09-30", linha)
+
+    def test_v1_nao_finge_ter_data(self):
+        linha = self.versao(base_valida(versao=1))
+        self.assertIn("formato:1", linha)
+        self.assertNotIn("data:", linha)
+
+    def test_v2_truncada_antes_da_data_nao_inventa_uma(self):
+        # 18 bytes: o ano chegou, o dia não. Servir "data:2026-09-00" seria
+        # pior do que não servir data nenhuma.
+        linha = self.versao(base_valida(versao=2)[:18])
+        self.assertNotIn("data:", linha)
+
+    def test_a_data_entra_na_comparacao_de_mudanca(self):
+        # Mesma base, data diferente: é uma publicação nova e o aparelho
+        # precisa enxergar isso, senão uma recarga não chega nunca.
+        a = self.versao(base_valida(data=(2026, 9, 29)))
+        b = self.versao(base_valida(data=(2026, 9, 30)))
+        self.assertNotEqual(a, b)
 
 
 if __name__ == "__main__":

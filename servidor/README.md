@@ -34,12 +34,17 @@ bloco de dados** no cabeçalho, e ele responde exatamente à pergunta "os dados
 mudaram?":
 
 ```
-crc32:d290d536 pontos:18294 formato:1
+crc32:d290d536 pontos:18322 formato:2 data:2026-09-30
 ```
 
 Derivar evita a falha clássica de publicar dado novo com versão velha — o
 firmware compararia, veria igual, e nunca baixaria. O firmware **não
 interpreta** essa linha; os campos extras existem para quem for depurar.
+
+O `data:` só aparece a partir do **formato 2**, que é quando a base passou a
+carregar a própria data. Num arquivo do formato 1 o campo some em vez de vir
+zerado: uma data plausível e errada atrapalha mais quem depura do que data
+nenhuma, porque não se denuncia.
 
 Se o arquivo não tiver cabeçalho `RDR1` válido, o servidor cai para um
 `sha256:` do conteúdo e **registra aviso**. Ainda dá detecção de mudança, e o

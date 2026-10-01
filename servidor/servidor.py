@@ -36,10 +36,34 @@ ROTA_BASE = "/radares.bin"
 
 # Cabeçalho do radares.bin, de formato_dados.md §2:
 #   magic[4] | versao u16 | exp_escala u8 | tam_registro u8 | n u32 | crc32 u32
-CABECALHO = struct.Struct("<4sHBBII")
+# Os 16 primeiros bytes do cabeçalho, idênticos nas duas versões do formato.
+# A data da base vem DEPOIS, em quatro bytes, e só existe da versão 2 em
+# diante — ver `formato_dados.md` no repositório do aparelho.
+CABECALHO_BASE = struct.Struct("<4sHBBII")
+DATA_BASE = struct.Struct("<HBB")
+VERSAO_SEM_DATA = 1
 MAGIC = b"RDR1"
 
 log = logging.getLogger("coruja.servidor")
+
+
+def sufixo_de_data(bruto: bytes, versao: int) -> str:
+    """O trecho ` data:AAAA-MM-DD`, ou vazio quando não há data a anunciar.
+
+    Vazio em dois casos, e o segundo é o que importa: a versão 1 não tem o
+    campo, e uma versão 2 TRUNCADA antes dos quatro bytes também não. Montar
+    uma data a partir do que chegou daria algo como `2026-09-00` — uma data
+    plausível e errada é pior para quem depura do que data nenhuma, porque
+    não se denuncia.
+    """
+    if versao == VERSAO_SEM_DATA:
+        return ""
+    fim = CABECALHO_BASE.size + DATA_BASE.size
+    if len(bruto) < fim:
+        log.warning("cabeçalho formato %d sem os bytes da data", versao)
+        return ""
+    ano, mes, dia = DATA_BASE.unpack_from(bruto, CABECALHO_BASE.size)
+    return f" data:{ano:04d}-{mes:02d}-{dia:02d}"
 
 
 def versao_de(caminho: Path) -> str | None:
@@ -59,10 +83,11 @@ def versao_de(caminho: Path) -> str | None:
         log.error("não consegui ler %s: %s", caminho, e)
         return None
 
-    if len(bruto) >= CABECALHO.size:
-        magic, versao, _exp, _tam, n, crc = CABECALHO.unpack_from(bruto)
+    if len(bruto) >= CABECALHO_BASE.size:
+        magic, versao, _exp, _tam, n, crc = CABECALHO_BASE.unpack_from(bruto)
         if magic == MAGIC:
-            return f"crc32:{crc:08x} pontos:{n} formato:{versao}"
+            linha = f"crc32:{crc:08x} pontos:{n} formato:{versao}"
+            return linha + sufixo_de_data(bruto, versao)
 
     # Não é um radares.bin válido. Ainda assim serve uma versão estável, para
     # que o firmware ao menos detecte mudança — e o log diz que algo está
