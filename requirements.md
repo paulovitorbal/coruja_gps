@@ -980,16 +980,33 @@ Comportamento obrigatório nas condições de falha:
   geográficos devem seguir o RF02.2 — operar sobre diferenças de coordenadas, nunca
   sobre valores absolutos em `float`.
 
-* **[RNF09] Faixa Térmica:** o painel de um veículo exposto ao sol ultrapassa 60 °C.
-  Todos os componentes devem ser especificados para operação até **85 °C**, e o
-  capacitor eletrolítico para **105 °C**.
+* **[RNF09] Faixa Térmica:** a superfície do painel de um veículo exposto ao sol
+  atinge **92 °C** — medição com termômetro infravermelho em São Paulo, após 5 h, pelo
+  canal Manual do Mundo. A revisão anterior dizia "ultrapassa 60 °C", o que subestimava
+  em mais de 30 °C. Todos os componentes devem ser especificados para operação até
+  **85 °C**, e o capacitor eletrolítico para **105 °C**.
 
   ⚠️ **O módulo GPS é o componente térmico limitante do projeto.** O datasheet
   UBX-15031086 (Tabelas 9 e 10) especifica para o NEO-M8N temperatura de operação de
   −40 a **+85 °C** e de **armazenamento igualmente limitada a +85 °C** — diferente do
-  NEO-M8M, que vai a 105 °C de armazenamento. Não há margem acima de 85 °C nem com o
-  aparelho desligado, e um painel fechado ao sol no verão brasileiro chega perto disso.
-  Considerar montagem que evite incidência solar direta sobre o módulo.
+  NEO-M8M, que vai a 105 °C de armazenamento. **A 92 °C o módulo está 7 °C FORA da
+  faixa de armazenamento**, e não há margem nem com o aparelho desligado. Registrado
+  como **R-65**.
+
+  📐 **A assimetria que decide o projeto da montagem:** o aparelho **opera** com o
+  veículo ligado — ar-condicionado funcionando, cabine refrigerada — e **armazena**
+  desligado, parado ao sol. O limite que aperta é portanto o de **armazenamento**, não
+  o de operação. Isso inverte a prioridade: proteger o módulo do sol **parado** importa
+  mais que dissipar calor em funcionamento.
+
+  ⚠️ **A remoção do aparelho ao estacionar NÃO é mitigação admissível.** Contraria a
+  premissa do produto — estar sempre pronto para uso. Exigir conexão ao entrar no
+  veículo elimina a razão de o aparelho existir, porque o celular com Waze já cumpre o
+  papel sem esse atrito. Decisão do autor em 2026-10-01.
+
+  As mitigações admissíveis são de montagem, e estão em `montagem.md` §4: prateleira
+  no chassi e não na tampa, folga de ar entre a caixa e o painel, face solar clara e
+  ventilação por convecção. A campanha de medição que fecha o requisito é **M-08**.
 
 * **[RNF10] Verificação:** antes de considerar uma funcionalidade concluída:
   * **Testes unitários** do parser NMEA (incluindo checksum inválido, campos vazios,

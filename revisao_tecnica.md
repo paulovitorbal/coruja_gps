@@ -113,6 +113,7 @@ de leitura continua sendo o veredito.
 | 2026-09-16 | **R-20** *(resolvido)* e **R-26** | `formato_dados.md` §0.2 · `requirements.md` RF03.5/RF03.10 | Significado real dos códigos `TYPE` obtido da fonte da base: as contagens batem na unidade. **Minhas duas inferências de rótulo estavam erradas** — `TYPE=2` é semáforo com radar e `TYPE=5` é radar móvel. RF03.10 anulado por falta de dados. |
 | 2026-09-15 | **R-20** *(corrigido)* + **R-25** *(novo)* | `requirements.md` RF03.5, RF03.9, RF03.10 | Teste de pareamento de `TYPE=5` refeito após erro de método meu — evidência é mista, não negativa. Requisito mantido pelo autor; média diferida por ausência de trechos no DF (5 pontos). Paleta do LED reduzida de 9 para 5 estados. |
 | 2026-09-15 | **R-23** *(novo)* | `requirements.md` RF03.6 a RF03.8 | Tolerância legal e buzzer escalonado especificados pelo autor. A ancoragem literal dos percentuais no limite da via deixaria as faixas vazias em 82,5% dos radares; reancorada em `V_infra`. Aproximação silenciada. |
+| 2026-10-01 | **R-65** *(novo)* | `requirements.md` RNF09 · `montagem.md` §4 | Painel ao sol medido em **92 °C** (infravermelho, São Paulo, 5 h) contra os "ultrapassa 60 °C" do requisito. O NEO-M8N fica **7 °C fora da faixa de ARMAZENAMENTO** — o aparelho desligado já está fora de especificação. Remoção ao estacionar vetada pelo autor por contrariar a premissa do produto. Mitigado por montagem: prateleira migra da tampa para o chassi. |
 | 2026-09-15 | **R-21** | `requirements.md` RF01.4 + RF01.5 | **4 Hz nominal com piso de 3 Hz confirmado pelo autor.** A banda de tolerância gerou requisito novo de monitoramento da taxa efetiva — que serve primariamente como verificação de que a configuração UBX do RF01.2 foi aplicada. |
 
 ## Legenda de confiança da evidência
@@ -1521,6 +1522,78 @@ oscilar no veículo, soldar **1 a 10 nF** (τ de 10 a 100 µs) resolve sem redes
 confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** contra
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
+
+## R-65 — O NEO-M8N fica fora da faixa de ARMAZENAMENTO no painel ao sol
+
+- **Onde:** `requirements.md` RNF09 · `montagem.md` §4
+- **Confiança:** 🟡 Datasheet confirmado; temperatura de fonte externa, não medida no aparelho
+- **Status:** ⏳ **ABERTO** — mitigado por montagem, pendente de medição (**M-08**)
+
+**O defeito.** O RNF09 afirmava que o painel "ultrapassa 60 °C" e que um painel ao sol
+no verão brasileiro "chega perto" dos 85 °C do módulo. Medição com termômetro
+infravermelho em São Paulo, após 5 h de sol, deu **92 °C na superfície do painel**.
+
+O número do requisito estava subestimado em mais de 30 °C, e a conclusão qualitativa
+estava errada na direção que importa: **não chega perto, passa** — por 7 °C.
+
+E o limite excedido é o de **armazenamento**, não o de operação:
+
+| | NEO-M8N | NEO-M8M |
+| :--- | :---: | :---: |
+| Operação | −40 a +85 °C | −40 a +85 °C |
+| **Armazenamento** | **+85 °C** | **+105 °C** |
+
+Ou seja: o aparelho desligado, parado, já está fora da especificação. Não existe
+estado em que a condição seja segura pelo datasheet.
+
+**A assimetria que ninguém tinha notado.** O aparelho **opera** com o carro ligado, e
+aí o ar-condicionado refrigera a cabine. Ele **armazena** desligado, parado ao sol.
+Logo o limite que aperta é o de armazenamento — e é justamente nesse eixo que o M8M
+tem 20 °C mais de margem que o M8N que está em mãos.
+
+**O que o 92 °C é, exatamente.** Superfície de um plástico escuro, fosco e absorvedor,
+ao sol direto, incapaz de dissipar o que absorve — o pior ponto do veículo. O ar da
+cabine fica bem abaixo (47 °C após 1 h, medição da Arizona State). A temperatura que o
+**módulo** atinge depende de três variáveis, e as três são de projeto:
+
+| Variável | Alavanca |
+| :--- | :--- |
+| Condução dos 92 °C | **folga de ar** entre a caixa e o painel — é o acoplamento mais forte |
+| Absortividade própria | **face solar clara** (a tampa da Patola já é a peça cinza) |
+| Troca de ar | **ventilação por convecção** — caixa selada ao sol é estufa |
+
+**Mitigação recusada, e a recusa é de produto.** Remover o aparelho ao estacionar
+resolveria termicamente e foi **vetada pelo autor**: contraria a premissa de estar
+sempre pronto para uso. Exigir conexão ao entrar no carro faz o celular com Waze ganhar
+por atrito, e o aparelho perde a razão de existir. Uma mitigação que destrói o requisito
+que a motivou não é mitigação.
+
+**Mitigação adotada — e ela conserta um erro do plano de montagem.** O `montagem.md`
+punha a prateleira do GPS **na tampa**, com módulo e antena juntos. A tampa é a face
+solar: era o pior lugar possível para o componente termicamente limitante.
+
+A prateleira migra para o **chassi**, em camadas (§4 do `montagem.md`):
+
+- antena no topo da prateleira, vendo o zênite através de **folga de ar** até a tampa;
+- a prateleira de FR4 passa a ser **escudo de radiação** entre a tampa quente e o módulo;
+- módulo **sob** a prateleira, na sombra dela.
+
+Ganho adicional, e foi objeção do autor que o revelou: **com a prateleira no chassi, a
+abertura da tampa não mexe no conjunto GPS.** O coaxial nunca flexiona. A entrada de RF
+do módulo alimenta o LNA por *bias tee* e é sensível a ESD; o conector é a peça mais
+frágil da montagem. Uma versão intermediária desta proposta separava antena e módulo
+entre tampa e chassi — e teria posto a peça mais frágil a flexionar a cada manutenção.
+
+**Candidato para a v2:** trocar para o **NEO-M8M** pela faixa de armazenamento. ⚠️ Antes
+de adotar, confirmar que ele atende **GPS+GLONASS concorrente** na taxa do RF01.4; o
+**R-21** ancorou o teto de 5 Hz para o M8N, não para o M8M. A placa em mãos é a
+GY-GPSV3-NEO M8N (R-14), então é troca de placa, não de configuração.
+
+**Postura, e ela é explícita.** Limite de datasheet não é precipício: 92 °C ocasionais
+aceleram envelhecimento, não matam o módulo na hora. Como isto é projeto de estudo e não
+produto em série, a posição é **medir o real (M-08), reduzir o que é barato reduzir,
+registrar o risco, e saber do que suspeitar** se o GPS degradar em janeiro. O que não é
+defensável é não saber que o risco existe.
 
 ## R-64 — A fonte de 56×94 do §4.1 não cabe uma velocidade de três dígitos
 

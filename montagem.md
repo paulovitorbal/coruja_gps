@@ -127,22 +127,81 @@ adesivo para isso**.
 
 ## 4. A prateleira do módulo GPS
 
-**Placa perfurada de fibra presa na tampa com espaçadores**, com o módulo em cima e o
-patch cerâmico voltado para o céu. O ponto de metal no centro do cerâmico é o pino de
-alimentação do patch, e confirma qual face vai para cima.
+> ⚠️ **Revisado em 2026-10-01 (R-65).** A versão anterior punha a prateleira **na
+> tampa**. A tampa é a face solar, e isso colocava o componente termicamente limitante
+> do projeto no ponto mais quente da caixa. A prateleira passa a nascer do **chassi**.
 
-Por que na tampa e não no chassi: é o único lugar que garante o patch no zênite com a
-caixa na orientação da seção 1.
+**Placa perfurada de fibra sobre colunas que nascem do chassi**, com a antena no topo
+olhando o zênite e o módulo **sob** ela. O ponto de metal no centro do cerâmico é o
+pino de alimentação do patch, e confirma qual face vai para cima.
 
-### Cuidados mecânicos
+### 4.1 Vista lateral — corte pelo lado de 85 × 85
 
-- **Quatro pontos de apoio, não dois.** A tampa é ABS fino, e a prateleira é massa em
-  balanço sobre placa flexível num ambiente que vibra.
-- **Espaçadores curtos.** Quanto menor o braço, menor o risco de ressonância.
+```
+                                ↑  céu · satélites
+                                │
+          ╔══════════════════════════════════════════════╗
+          ║ ===  rasgo alto                              ║   TAMPA · cinza-claro
+          ║                                              ║   face solar · só plástico
+          ║ ·  ·  ·  ·  folga de ar  ·  ·  ·  ·  ·  ·  · ║   QUEBRA TÉRMICA
+  ┌─────┐ ║        ┌──────────────────────────┐          ║
+  │     │ ║        │   ANTENA   ·   cerâmica  │          ║   vê o zênite
+  │  D  │ ║ ┏━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━┓ ║
+  │  I  │ ║ ┃ Kapton                                   ┃ ║   PRATELEIRA · FR4
+  │  S  │ ║ ┃        ┌───────────────────────┐         ┃ ║   escudo de radiação
+  │  P  │ ║ ┃        │   NEO-M8N  ·  sombra  │         ┃ ║
+  │  L  │ ║ ┗━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━┛ ║
+  │  A  │ ║      ┃                           ┃           ║   colunas · do chassi
+  │  Y  │ ║   ┌──┃────────┐     ┌────────────┃─────────┐ ║
+  │     │ ║   │ step-down │     │   Pico 2 W           │ ║
+  └─────┘ ║   └───────────┘     └──────────────────────┘ ║
+          ║ ════════════════════════════════════════════ ║   CHASSI · perfurada
+          ║ ===  rasgo baixo                             ║
+          ╚══════════════════════════════════════════════╝   fundo ABS · VHB
+               oo                                 oo         pés · folga de ar
+          ════════════════════════════════════════════════════
+                         PAINEL   ·   92 °C
+```
+
+### 4.2 As camadas, e o que cada uma resolve
+
+| Camada | Função |
+| :--- | :--- |
+| **Tampa** | Face solar. Só plástico, cor clara, **nada metálico** acima do cerâmico. |
+| **Folga de ar** | Quebra térmica entre a tampa aquecida e a antena. Custa zero em RF. |
+| **Antena cerâmica** | No topo da prateleira. Precisa de vista de céu; é peça feita para viver no painel. |
+| **Prateleira (FR4)** | **Escudo de radiação** — bloqueia o infravermelho que a tampa reemite para baixo. Kapton na face de cima (§5). |
+| **Módulo NEO-M8N** | **Sob** a prateleira, na sombra dela. É o componente térmico limitante (RNF09, R-65). |
+| **Colunas** | Nascem do **chassi**, não da tampa. |
+| **Chassi** | Pico e step-down (§2). |
+| **Pés** | Folga de ar contra o painel — corta a condução dos 92 °C, que é o acoplamento mais forte. |
+
+### 4.3 Os quatro ganhos de nascer do chassi
+
+1. **A abertura da tampa não mexe no conjunto GPS.** É o ganho mais importante e veio
+   de uma objeção do autor. A entrada de RF alimenta o LNA por *bias tee* e é sensível
+   a ESD, e o conector é a peça mais frágil da montagem. Com a prateleira na tampa, ele
+   flexionava a cada manutenção. Agora fica imóvel depois de montado uma vez.
+2. **O módulo sai da face solar** — era o pior lugar para o componente limitante.
+3. **A prateleira vira escudo** entre a tampa quente e o módulo.
+4. **Antena e módulo seguem lado a lado**, com coaxial curto e sem esforço no conector.
+
+> 💡 Uma versão intermediária desta proposta separava antena (na tampa) e módulo (no
+> chassi). Resolvia a térmica e **punha a peça mais frágil a flexionar** a cada abertura.
+> Registrado para não ser reinventado.
+
+### 4.4 Cuidados mecânicos
+
+- **Quatro pontos de apoio, não dois.** Massa em balanço sobre placa fina num ambiente
+  que vibra.
+- **Colunas curtas.** Quanto menor o braço, menor o risco de ressonância.
 - Nada metálico entre o patch e o céu. A tampa tem de seguir sendo só plástico na
   área acima do cerâmico.
+- **Dois rasgos de ventilação**, um baixo e um alto, criando convecção. Caixa selada ao
+  sol é estufa, e o interior de carro não é ambiente sujo o bastante para justificar
+  vedação.
 
-### 4.1 Blindagem contra EMI — adiada até haver medição
+### 4.5 Blindagem contra EMI — adiada até haver medição
 
 A intenção inicial era fita aluminizada aterrada na face inferior da prateleira.
 **Decisão: montar sem, medir, e só então decidir.**
@@ -162,6 +221,14 @@ passando ao lado do indutor do conversor é tapar a janela e deixar a porta aber
 Somando, o ganho é incerto — um plano condutor próximo pode **desafinar** o patch, que
 é projetado para um plano de terra específico — enquanto os modos de falha são
 concretos (seção 6.3).
+
+> 🔎 **E há um terceiro motivo, que só apareceu ao reler a lista de materiais.** O item
+> 2 é um NEO-M8N **com antena ativa externa SMA** — a antena é peça separada, num cabo.
+> Logo o caminho de RF até o módulo é **coaxial, que é blindado**, e não um patch nu
+> numa placa a centímetros do conversor chaveado. Isso já resolve boa parte do que
+> motivou a ideia da folha, e resolve melhor do que a folha resolveria.
+
+
 
 **Se a medição indicar problema**, atacar nesta ordem, que é a de efeito decrescente:
 
@@ -184,7 +251,7 @@ concretos (seção 6.3).
 5. Só então a folha. E nesse caso, **fita de cobre com adesivo condutivo**, nunca
    alumínio (seção 6.3).
 
-### 4.2 Como medir, em vez de supor
+### 4.6 Como medir, em vez de supor
 
 Não testar a mitigação — **testar a fonte de ruído**. Mesmo local, mesma vista de céu,
 mesmo módulo, comparando o C/N0 médio da mensagem **GSV** (o parser do projeto já a
@@ -207,7 +274,7 @@ Sem diferença, o chaveamento não está acoplando e a folha não tem o que reso
 > janela demarcada — se tiver, a posição da caixa no painel passa a ser a variável
 > dominante.
 
-### 4.3 Uma propriedade da arquitetura a não perder
+### 4.7 Uma propriedade da arquitetura a não perder
 
 O CYW43 transmite em 2,4 GHz a centímetros de um front-end que trabalha em 1575 MHz
 com sinal na casa de −130 dBm. Transmissor forte e próximo dessensibiliza receptor
@@ -223,10 +290,10 @@ quebrar essa propriedade sem perceber.**
 
 | Onde | Como | Por quê |
 | :--- | :--- | :--- |
-| Entre o módulo GPS e a prateleira | **Kapton** na face superior | Isola o módulo das ilhas de cobre da placa. Nada a ver com EMI — vale independentemente da seção 4.1. |
+| Entre o módulo GPS e a prateleira | **Kapton** na face superior | Isola o módulo das ilhas de cobre da placa. Nada a ver com EMI — vale independentemente da seção 4.5. |
 | Sob cada placa, no chassi | **espaçador de ≥ 3 mm** | O lado de baixo de placa perfurada é um tapete de perna cortada. Perna encostando em qualquer coisa é curto esperando a hora. |
 | Face do cobre do chassi | voltada para **baixo**, contra o ABS | Evita um plano de pontos condutores soltos virado para dentro da caixa. |
-| Entre ilhas de cobre e qualquer folha metálica | Kapton, ou placa sem cobre | Caso a blindagem da seção 4.1 venha a ser adotada. |
+| Entre ilhas de cobre e qualquer folha metálica | Kapton, ou placa sem cobre | Caso a blindagem da seção 4.5 venha a ser adotada. |
 
 > ❌ **Nunca colar placa direto com VHB.** A fita tem 1 a 2 mm e as pernas de solda são
 > mais altas que isso: a placa ficaria apoiada nas pontas de solda, que é o pior apoio
@@ -270,7 +337,7 @@ adesivo.
 
 ### 6.3 ⚠️ Fita aluminizada
 
-Se a blindagem da seção 4.1 vier a ser adotada, **não usar alumínio**:
+Se a blindagem da seção 4.5 vier a ser adotada, **não usar alumínio**:
 
 - A maioria das fitas de alumínio tem **adesivo acrílico isolante**. Tiras sobrepostas
   **não** se conectam, e o resultado são ilhas isoladas em vez de um plano. É o erro
@@ -319,7 +386,7 @@ solda**, e é a falha mais provável da montagem a médio prazo.
 | :--- | :--- |
 | **Âncoras de abraçadeira** coladas no chassi, com os fios passando por elas | Transfere o esforço da junta de solda para a âncora. Custa centavos e é o item de melhor relação da lista. |
 | **VCC trançado com GND** nos fios do GPS | Reduz a área do laço, que é o que acopla ruído. |
-| **Par do GPS curto**, longe do indutor do step-down e das linhas SPI do display | Os fios do GPS atravessam a região ruidosa e são tanto condutor quanto antena (seção 4.1). |
+| **Par do GPS curto**, longe do indutor do step-down e das linhas SPI do display | Os fios do GPS atravessam a região ruidosa e são tanto condutor quanto antena (seção 4.5). |
 | Folga suficiente para **abrir a tampa** sem tracionar nada | A prateleira do GPS está na tampa: ela se move junto, e o fio dela é o que mais sofre. |
 | Fio do display sem dobra fechada no **flex** | O flex do TFT flexiona; cola ou dobra rígida criam ponto de fadiga. |
 
@@ -348,9 +415,11 @@ os **R-NN** de `revisao_tecnica.md`.
 | **M-03** | Dimensões externas do módulo do display, **com o flex** | Confere se display e encoder cabem confortáveis na face de 123 × 85. Pelo olho cabem, mas a conta não foi feita com a peça na mão. |
 | **M-04** | Parafuso que acompanha a caixa | Define o furo do chassi (seção 3). |
 | **M-05** | Ordem dos eixos confirmada na peça | Como duas medidas são 85 mm, a dúvida é só qual face leva os 123 mm. A orientação da seção 1 assume o que foi descrito. |
-| **M-06** | A/B de C/N0 pela GSV, USB × step-down | Decide a blindagem da seção 4.1. |
+| **M-06** | A/B de C/N0 pela GSV, USB × step-down | Decide a blindagem da seção 4.5. |
 | **M-07** | Para-brisa do veículo é atérmico? | Se for, domina tudo o que está na seção 4. |
+| **M-08** | **Campanha térmica:** um dia inteiro parado ao sol, na posição de montagem real, registrando temperatura a cada minuto | Fecha o **R-65**. O RP2350 tem sensor de temperatura **no próprio die**, no canal 4 do ADC, e o firmware não usa o ADC para nada — há um termômetro ocioso dentro do aparelho e um `LoggerCartao` que já grava no cartão. É o único número que importa, e substitui toda a especulação. ⚠️ O sensor lê a pastilha, que corre acima do ambiente por autoaquecimento: caracterizar o desvio uma vez em ambiente conhecido. |
 | **R-13** | Corrente agregada e temperatura do LDO do display | Já aberto em `revisao_tecnica.md`; a caixa fechada muda o regime térmico e torna a medição mais relevante, não menos. |
 
-> ⚠️ Fora **M-06** e **M-07**, nada aqui exige o veículo. M-01 a M-05 são régua e
-> paquímetro, e **M-01 a M-04 precisam estar fechados antes de cortar o chassi**.
+> ⚠️ **M-01 a M-05** são régua e paquímetro, e **M-01 a M-04 precisam estar fechados
+> antes de cortar o chassi**. **M-06, M-07 e M-08** exigem o veículo — e o M-08 exige
+> um dia de sol, então vale deixar o registro pronto antes do próximo verão.
