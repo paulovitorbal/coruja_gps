@@ -141,6 +141,63 @@ TEST(TelaOta, ja_em_dia_e_diferente_de_atualizada) {
     EXPECT_FALSE(v.tem("ATUALIZADA"));
 }
 
+// --- o passo de 5% ---
+//
+// O painel nao tem buffer duplo: cada redesenho APAGA a faixa e pinta por
+// cima, e o olho pega esse intervalo. Pior, a faixa do meio carrega o rotulo
+// "BAIXANDO", que nao muda durante o download e mesmo assim some e volta a
+// cada repintura -- texto piscando incomoda muito mais que barra crescendo.
+//
+// Quantizar o percentual troca ~100 repinturas por 21. O aparelho continua
+// sabendo o progresso exato; o que se arredonda e o que vai para a tela.
+
+TEST(TelaOta, o_download_inteiro_cabe_em_vinte_e_uma_repinturas) {
+    // O numero que importa: 0, 5, ... 100 sao 21 estados distintos. Alimenta
+    // de 1 em 1 por cento, que e mais fino do que a rede jamais entrega.
+    VisorEspiao v;
+    TelaOta tela;
+    int repinturas = 0;
+    for (std::size_t i = 0; i <= 100; ++i) {
+        if (tela.desenha(baixando(i, 100), v) > 0) { ++repinturas; }
+    }
+    EXPECT_EQ(repinturas, 21);
+}
+
+TEST(TelaOta, entre_dois_multiplos_de_cinco_a_tela_fica_parada) {
+    // O coracao da mudanca. 45, 46, 47, 48 e 49 por cento desenham a MESMA
+    // coisa, entao so o primeiro deles pode chegar ao painel.
+    VisorEspiao v;
+    TelaOta tela;
+    ASSERT_GT(tela.desenha(baixando(45, 100), v), 0);
+    for (std::size_t i = 46; i <= 49; ++i) {
+        v.limpa();
+        EXPECT_EQ(tela.desenha(baixando(i, 100), v), 0)
+            << "repintou em " << i << "%";
+    }
+    v.limpa();
+    EXPECT_GT(tela.desenha(baixando(50, 100), v), 0) << "nao repintou em 50%";
+}
+
+TEST(TelaOta, o_percentual_arredonda_para_BAIXO) {
+    // Para baixo, nunca para o mais proximo: 49% virando 50% anunciaria
+    // progresso que nao houve. Prometer a mais e o jeito de a barra parecer
+    // travada no fim, que e justo quando o usuario pensa em desligar.
+    VisorEspiao v;
+    TelaOta tela;
+    tela.desenha(baixando(49, 100), v);
+    EXPECT_TRUE(v.tem("45%"));
+    EXPECT_FALSE(v.tem("50%"));
+}
+
+TEST(TelaOta, o_fim_do_download_mostra_cem_por_cento) {
+    // Arredondar para baixo nao pode comer o 100%: parar em 95% deixaria a
+    // barra pela metade enquanto a fase seguinte ja comecou.
+    VisorEspiao v;
+    TelaOta tela;
+    tela.desenha(baixando(100, 100), v);
+    EXPECT_TRUE(v.tem("100%"));
+}
+
 TEST(TelaOta, so_redesenha_o_que_mudou) {
     VisorEspiao v;
     TelaOta tela;

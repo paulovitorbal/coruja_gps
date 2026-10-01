@@ -36,8 +36,9 @@ void OtaNaTela::progresso(std::size_t recebidos, std::size_t total) {
 void OtaNaTela::mantem() { pinta(); }
 
 void OtaNaTela::pinta() {
-    // A tela só redesenha o que mudou, então chamar isto a cada pedaço do
-    // download é barato: a barra só vai ao painel quando o pixel dela muda.
+    // A tela só redesenha o que mudou, e o progresso dela anda de 5 em 5 por
+    // cento — então chamar isto a cada pedaço do download é barato. Vale
+    // chamar de qualquer forma: o LED pisca por tempo, não por evento.
     tela_.desenha(estado_, visor_);
     led_.define_cor(padrao_.cor(relogio_.agora_ms()));
 }

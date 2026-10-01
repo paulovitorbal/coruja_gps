@@ -13,6 +13,23 @@ constexpr int kBarraX = 56;
 constexpr int kBarraL = tela::kLargura - kBarraX - 8;
 constexpr int kBarraA = 28;
 
+/// De quanto em quanto o progresso vai para a tela.
+///
+/// **É uma decisão de desenho, não de rede.** O aparelho continua sabendo o
+/// progresso exato — o que se arredonda é só o que se mostra.
+///
+/// O painel não tem buffer duplo: cada repintura APAGA a faixa e desenha por
+/// cima, e o olho pega esse intervalo. A faixa do meio é a pior, porque leva
+/// junto o rótulo "BAIXANDO", que não muda durante o download e mesmo assim
+/// sumiria e voltaria a cada por cento — texto piscando incomoda bem mais do
+/// que barra crescendo.
+///
+/// Em passos de 1% são ~100 repinturas num download; em passos de 5%, 21. E
+/// 21 degraus ainda são mais do que a barra consegue mostrar: ela tem 256 px
+/// de largura, então cada degrau são ~13 px, folgados para o olho perceber
+/// que algo anda.
+constexpr int kPassoProgressoPct = 5;
+
 }  // namespace
 
 void TelaOta::invalida() { anterior_ = Instantaneo{}; }
@@ -33,7 +50,11 @@ TelaOta::Instantaneo TelaOta::compoe(const EstadoOta& e) const {
 
     if (e.fase == FaseOta::Baixando && e.total > 0) {
         const int pct = static_cast<int>(e.recebidos * 100U / e.total);
-        i.barra_pct = pct > 100 ? 100 : pct;
+        const int limitado = pct > 100 ? 100 : pct;
+        // Para BAIXO, nunca para o mais próximo: 49% virando 50% anunciaria
+        // progresso que não houve. Como 100 é múltiplo de 5, o fim do
+        // download continua chegando aos 100% exatos.
+        i.barra_pct = limitado / kPassoProgressoPct * kPassoProgressoPct;
         std::snprintf(i.valor, sizeof i.valor, "%d%%", i.barra_pct);
     }
     return i;

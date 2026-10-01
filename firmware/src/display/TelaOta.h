@@ -28,6 +28,11 @@ struct EstadoOta {
 /// **Sem barra enquanto o total é desconhecido.** Antes do cabeçalho da base
 /// não há denominador, e uma barra que enche sozinha sem referência mentiria
 /// sobre o andamento.
+///
+/// **O progresso vai à tela de 5 em 5 por cento.** O painel não tem buffer
+/// duplo e cada repintura apaga antes de desenhar; a 1% o rótulo "BAIXANDO"
+/// pisca cem vezes num download. O estado recebido continua exato — quem
+/// arredonda é o desenho, e para baixo.
 class TelaOta {
 public:
     int desenha(const EstadoOta& estado, Visor& visor);
