@@ -235,6 +235,7 @@ Leia nesta ordem:
 | **`bom_schematic.md`** | Lista de materiais e roteamento pino a pino, com as pinagens físicas conferidas nas placas. |
 | **`formato_dados.md`** | Formato binário `radares.bin`, estratégia de carga em RAM e busca geográfica em dois estágios. |
 | **`revisao_tecnica.md`** | Revisão técnica com rastreabilidade: o que foi achado, decidido e o que segue aberto. |
+| **`montagem.md`** | Montagem física na caixa Patola PB-111: chassi, fixação, prateleira do GPS, isolamento e passagem de cabos. |
 | **`roteiro_bancada.html`** | Procedimento de medição para imprimir, com quadro de registro das leituras. |
 
 ## Estado
