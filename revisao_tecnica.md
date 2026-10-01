@@ -113,6 +113,7 @@ de leitura continua sendo o veredito.
 | 2026-09-16 | **R-20** *(resolvido)* e **R-26** | `formato_dados.md` §0.2 · `requirements.md` RF03.5/RF03.10 | Significado real dos códigos `TYPE` obtido da fonte da base: as contagens batem na unidade. **Minhas duas inferências de rótulo estavam erradas** — `TYPE=2` é semáforo com radar e `TYPE=5` é radar móvel. RF03.10 anulado por falta de dados. |
 | 2026-09-15 | **R-20** *(corrigido)* + **R-25** *(novo)* | `requirements.md` RF03.5, RF03.9, RF03.10 | Teste de pareamento de `TYPE=5` refeito após erro de método meu — evidência é mista, não negativa. Requisito mantido pelo autor; média diferida por ausência de trechos no DF (5 pontos). Paleta do LED reduzida de 9 para 5 estados. |
 | 2026-09-15 | **R-23** *(novo)* | `requirements.md` RF03.6 a RF03.8 | Tolerância legal e buzzer escalonado especificados pelo autor. A ancoragem literal dos percentuais no limite da via deixaria as faixas vazias em 82,5% dos radares; reancorada em `V_infra`. Aproximação silenciada. |
+| 2026-10-01 | **R-66** *(novo)* · **ADR 0011** | `bom_schematic.md` item 2 · `docs/adr/0011` · `montagem.md` §0 | Conector da antena medido a paquímetro: **U.FL de ~2 mm com rabicho de 8 cm**, não SMA. Terceira divergência BOM × peça no mesmo dia, e as duas últimas me fizeram propor arranjos impossíveis. **ADR 0011:** monta-se com o que já existe e as mitigações do R-65 são contingentes a medição — o gatilho é observar problema, não concluir que seriam boa ideia. |
 | 2026-10-01 | **R-65** *(novo)* | `requirements.md` RNF09 · `montagem.md` §4 | Painel ao sol medido em **92 °C** (infravermelho, São Paulo, 5 h) contra os "ultrapassa 60 °C" do requisito. O NEO-M8N fica **7 °C fora da faixa de ARMAZENAMENTO** — o aparelho desligado já está fora de especificação. Remoção ao estacionar vetada pelo autor por contrariar a premissa do produto. Mitigado por montagem: prateleira migra da tampa para o chassi. |
 | 2026-09-15 | **R-21** | `requirements.md` RF01.4 + RF01.5 | **4 Hz nominal com piso de 3 Hz confirmado pelo autor.** A banda de tolerância gerou requisito novo de monitoramento da taxa efetiva — que serve primariamente como verificação de que a configuração UBX do RF01.2 foi aplicada. |
 
@@ -1523,11 +1524,49 @@ confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** c
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
 
+## R-66 — A BOM divergiu das peças em mãos em três pontos num só dia
+
+- **Onde:** `bom_schematic.md`
+- **Confiança:** ✅ Três divergências confirmadas, duas delas com consequência
+- **Status:** ⏳ **ABERTO** — inspeção pendente
+
+**O sintoma.** Em 2026-10-01 a documentação discordou da peça física três vezes:
+
+| Item | A BOM dizia | A peça é | Consequência |
+| :--- | :--- | :--- | :--- |
+| Torres da Patola | "torres de fixação para placa" *(descrição da revenda)* | torres da **tampa** | plano de fixação refeito |
+| Local do conversor (item 22) | "montado **fora** do gabinete" | **dentro**, desde o ADR 0009 | linha obsoleta, contradizia o item 19 |
+| Conector da antena (item 2) | "antena ativa externa **SMA**" | **U.FL**, rabicho de **8 cm** | **duas propostas nasceram mortas** |
+
+**Por que importa.** As duas últimas me levaram a propor arranjos que não funcionam —
+caixa na coluna A e antena remota — porque eu inferi fato físico de documento em vez de
+conferir a peça. É a mesma forma do **R-63** (três pinos desconectados, cinco hipóteses
+erradas antes de olhar o fio) e do card detect do **ADR 0010** (quatro diagnósticos
+sobre uma leitura não conferida).
+
+A BOM foi escrita em 2026-09-15, antes de quase tudo existir fisicamente. Ela
+envelheceu enquanto a montagem avançava, e agora que praticamente tudo está comprado e
+montado, ela é a única fonte que **ninguém reconferiu contra o hardware**.
+
+**A inspeção.** Meia hora com paquímetro, conferindo contra a peça em mãos:
+
+- [ ] **conector por conector** — família, gênero e diâmetro
+- [ ] **comprimento de cabo por comprimento de cabo** — o que é roteável e o que não é
+- [ ] encapsulamento e marcação dos semicondutores
+- [ ] o que está **soldado direto** e o que é desconectável
+- [ ] revisar as linhas que o ADR 0009 e o ADR 0010 deveriam ter superado
+
+**Regra que sai disto.** Não planejar montagem sobre descrição de revenda nem sobre
+linha de BOM que antecede a compra. Fato físico se confere na peça — e as três vezes
+de hoje custaram duas propostas inteiras.
+
 ## R-65 — O NEO-M8N fica fora da faixa de ARMAZENAMENTO no painel ao sol
 
 - **Onde:** `requirements.md` RNF09 · `montagem.md` §4
 - **Confiança:** 🟡 Datasheet confirmado; temperatura de fonte externa, não medida no aparelho
-- **Status:** ⏳ **ABERTO** — mitigado por montagem, pendente de medição (**M-08**)
+- **Status:** ⏳ **ABERTO E ACEITO** — **ADR 0011**: monta-se com o que já existe e as
+  mitigações são contingentes a medição (**M-08**, **M-06**). Risco conhecido, não
+  defeito a corrigir agora.
 
 **O defeito.** O RNF09 afirmava que o painel "ultrapassa 60 °C" e que um painel ao sol
 no verão brasileiro "chega perto" dos 85 °C do módulo. Medição com termômetro
@@ -1583,6 +1622,50 @@ abertura da tampa não mexe no conjunto GPS.** O coaxial nunca flexiona. A entra
 do módulo alimenta o LNA por *bias tee* e é sensível a ESD; o conector é a peça mais
 frágil da montagem. Uma versão intermediária desta proposta separava antena e módulo
 entre tampa e chassi — e teria posto a peça mais frágil a flexionar a cada manutenção.
+
+### A ordem de grandeza das mitigações — e ela não é óbvia
+
+A primeira versão deste achado listava só mitigações de montagem, o que passava a
+impressão errada. Com o cabo da antena medido em **8 cm** (ver abaixo), a exigência de
+vista de céu **prega a caixa no ponto mais ensolarado do carro** — e isso não tem saída
+por geometria.
+
+| Ordem | Mitigação | Rende |
+| :---: | :--- | :--- |
+| **1ª** | **Antena de cabo longo + bulkhead SMA** (`montagem.md` §4.8) | **dezenas de °C** — a caixa deixa de precisar de céu e vai para a sombra |
+| 2ª | Não conduzir: pés + manta isolante refletiva | o acoplamento mais forte depois da posição |
+| 2ª | Não absorver: face solar clara, parede dupla, sombra | a entrada dominante é radiante |
+| 3ª | Ventilar | acopla o interior ao ar da cabine (47–60 °C) |
+| 4ª | Dissipador interno | ~3,5 °C de origem própria (2 W em 0,056 m²) |
+
+⚠️ **Dissipador SOB a caixa foi considerado e recusado.** O problema é calor *entrando*:
+alumínio (~200 W/m·K) entre o painel de 92 °C e a caixa de ABS (~0,2 W/m·K) troca um
+isolante por um condutor mil vezes melhor, e anodizado preto ao sol é absorvedor solar
+quase ideal. É problema de **isolar**, não de dissipar. Os pés funcionam pelo motivo
+oposto: minimizam área de contato e deixam ar parado, que é o melhor isolante de graça.
+
+### O cabo da antena tem 8 cm, e isso matou duas propostas
+
+Medido pelo autor: a fêmea do módulo é **U.FL / IPEX MHF1**, ~2 mm de diâmetro a
+paquímetro, com **30 ciclos de encaixe** no datasheet da Hirose. A BOM dizia "antena
+ativa externa SMA" (corrigido em 2026-10-01).
+
+Duas propostas desta sessão nasceram mortas sobre essa suposição:
+
+| Proposta | Por que morreu |
+| :--- | :--- |
+| Caixa na **coluna A** | Ganho térmico e acústico reais, mas o teto bloqueia o zênite, e em superfície vertical não se tem tampa-para-o-céu e display-para-o-motorista ao mesmo tempo. Some o airbag de cortina e a zona de impacto de cabeça. |
+| **Antena remota** no painel, caixa na sombra | 8 cm não chegam a lugar nenhum. |
+
+**O que sobreviveu da coluna A:** o **buzzer**. Ele já tem **2 m de cabo próprio** na
+BOM — a posição dele sempre foi livre, e levá-lo para perto do ouvido ataca o **R-32**
+sem compra nenhuma. Está soldado direto desde 2026-09-25, então é decisão de uma vez só.
+
+**Lição de método, e é a terceira do mesmo tipo hoje.** Inferi fato físico de documento
+em vez de conferir a peça: as torres da Patola (descrição da revenda), o local do conversor
+(linha obsoleta após o ADR 0009) e o conector da antena. As duas últimas me fizeram
+propor coisa que não funciona. Mesma forma do R-63 e do card detect do ADR 0010.
+Registrado como item de inspeção **R-66**.
 
 **Candidato para a v2:** trocar para o **NEO-M8M** pela faixa de armazenamento. ⚠️ Antes
 de adotar, confirmar que ele atende **GPS+GLONASS concorrente** na taxa do RF01.4; o

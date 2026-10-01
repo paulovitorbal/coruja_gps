@@ -15,7 +15,7 @@
 | Item | Componente | Especificação Técnica / Detalhes | Função no Projeto | Status |
 | :---: | :--- | :--- | :--- | :---: |
 | 1 | **Raspberry Pi Pico 2 W** | Microcontrolador Dual-Core RP2350 com Wi-Fi (pinos macho pré-soldados) | Cérebro do sistema, processamento NMEA e conectividade sem fio. | 🟢 entregue |
-| 2 | **Módulo GPS u-blox NEO-M8N** | Conector serial UART com antena ativa externa SMA | Rastrear velocidade, coordenadas e rumo em tempo real. | 🔵 comprado |
+| 2 | **Módulo GPS u-blox NEO-M8N** | ⚠️ **CORRIGIDO 2026-10-01:** UART, e antena ativa em **patch cerâmico com rabicho de 8 cm e conector U.FL / IPEX MHF1** — a fêmea da placa mede ~2 mm a paquímetro. **Não é SMA**, e não há cabo roteável: 8 cm não saem de dentro do gabinete. **30 ciclos de encaixe** (datasheet Hirose) — conector de montagem, não de manutenção. Ver `montagem.md` §4.8 | Rastrear velocidade, coordenadas e rumo em tempo real. | 🔵 comprado |
 | 3 | **Leitor Micro SD Adafruit 4682** | Breakout board nativo para nível lógico de 3,3 V (*3V ONLY!*) | Interface física para o cartão de memória. | 🟢 entregue |
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. | 🟢 entregue |
 | 5 | **Display IPS TFT 2,4"** | `GMT024-08-SPI8P ver. 1.3`, controlador **ST7789V**, **240×320** nativo (usado deitado, 320×240), SPI de **8 pinos — sem MISO** | Exibir velocidade, limites e alertas visuais. | 🟢 recebido, controlador confirmado |

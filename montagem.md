@@ -7,7 +7,29 @@
 
 ---
 
-## 0. Por que este documento existe
+## 0. Estado desta montagem — leia antes do resto
+
+> ### ✋ Monta-se com o que já existe. O resto é contingente.
+>
+> **Decisão do autor em 2026-10-01, registrada no [ADR 0011](docs/adr/0011-medir-antes-de-mitigar.md).**
+>
+> A montagem a executar **agora** usa a **Patola PB-111** comprada e o módulo
+> **GY-GPSV3-NEO M8N** com o **patch cerâmico de 8 cm direto no U.FL**.
+>
+> As mitigações térmicas discutidas em 2026-10-01 — antena de cabo longo com
+> bulkhead SMA, caixa impressa em ASA ou PC, tampa de parede dupla em colmeia,
+> ventilação, manta isolante, dissipador interno, troca para NEO-M8M — **não
+> são backlog**. O gatilho é **observar problema**, e os instrumentos são o
+> **M-08** e o **M-06** (§9). Nada se compra, imprime ou refaz antes de haver
+> número.
+
+| Tier | O quê | Quando |
+| :--- | :--- | :--- |
+| ✅ **Agora** | Chassi + VHB (§2, §3) · prateleira no chassi em camadas (§4) · Kapton (§5) · patch de 8 cm direto no U.FL · **buzzer levado para perto do ouvido** (2 m de cabo já na BOM, ataca o R-32) | executar |
+| 🔶 **Barato, oportunista** | Pés com folga de ar · manta isolante refletiva sob a caixa · rasgos de ventilação | se der na mão, sem prioridade |
+| ⏸️ **Contingente** | **Antena de cabo longo + bulkhead SMA** (§4.8 — primeira ordem) · caixa impressa · colmeia · dissipador interno · NEO-M8M | só se o M-08 ou o M-06 acusarem |
+
+## 0.1 Por que este documento existe
 
 O projeto documentava o circuito e a fiação, e **nada** sobre como as peças se
 prendem umas às outras e à caixa. Isso virou problema concreto na hora de montar:
@@ -285,6 +307,74 @@ A arquitetura resolveu isso antes de existir hardware. **Mudanças futuras não 
 quebrar essa propriedade sem perceber.**
 
 ---
+
+### 4.8 O caminho da v2: bulkhead SMA na parede ⏸️ contingente
+
+> ⏸️ **Não executar agora** — ADR 0011. Registrado porque é a mitigação de
+> **primeira ordem** do R-65 e a ordem de grandeza não é óbvia.
+
+O conector do módulo é **U.FL / IPEX MHF1**, confirmado a paquímetro em
+~2 mm de diâmetro na fêmea da placa. O datasheet da Hirose especifica **30
+ciclos de encaixe** para a vida inteira da peça: é conector de montagem, não
+de manutenção.
+
+> ⚠️ A BOM dizia "antena ativa externa SMA". Estava errado, e o erro fez duas
+> propostas desta sessão nascerem mortas — caixa na coluna A e antena remota,
+> ambas supondo cabo roteável onde há 8 cm.
+
+```
+   módulo ──U.FL── rabicho curto ──SMA fêmea de painel │ parede de 85 × 85
+                                                        │
+                                   antena externa ──────┘
+```
+
+Quatro coisas de uma vez:
+
+1. O **U.FL é encaixado uma única vez**, na montagem, e fica aliviado de
+   tração — nunca mais tocado.
+2. A **fronteira de manutenção passa a ser SMA**, rosqueado e robusto.
+3. A **antena troca por fora**, sem abrir a caixa.
+4. **Abrir a tampa deixa de tocar em RF** — resolve a objeção original de
+   forma mais completa que a prateleira no chassi, que elimina o
+   flexionamento mas deixa o conector exposto ao serviço.
+
+**E destrava o que importa:** com SMA na parede, entra qualquer puck
+automotivo de 3 a 5 m, e **a caixa deixa de precisar de vista de céu**. Ela
+vai para onde é fresco e cômodo — baixa, na sombra da aba do painel. Com 8 cm,
+a exigência de céu prega a caixa no ponto mais ensolarado do carro, e é por
+isso que esta é a única mitigação de primeira ordem.
+
+A perda do cabo longo é quase de graça porque a antena é **ativa**: pela
+fórmula de Friis, perda que vem **depois** de um LNA de 20 a 28 dB entra
+dividida por algumas centenas. É a razão de existirem antenas ativas — com
+antena passiva, 5 m seriam proibitivos.
+
+#### Manuseio do U.FL, nas duas ou três vezes
+
+- **Perpendicular, pressão no corpo do conector.** Nunca empurrar nem puxar
+  pelo cabo — é assim que essas peças morrem.
+- **Soltar reto para cima**, com extrator ou alavancando sob o invólucro.
+- **Alívio de tração a um ou dois centímetros**, para o esforço morrer na
+  âncora. ⚠️ Se usar adesivo, **cura neutra** (§6.1): acetoxi a um centímetro
+  de uma entrada de RF é a pior combinação do documento.
+- **Raio de curva mínimo de ~5 mm.** Coaxial de 1,13 mm dobrado rente ao corpo
+  fratura a malha.
+- Com pulseira ESD: o pino central vai à entrada do LNA pelo *bias tee*.
+- Tranquilidade: **30 ciclos é o orçamento, não 2.** Bancada, desmontagem e
+  montagem definitiva não chegam perto.
+
+#### O que comprar
+
+**Rabicho U.FL macho → SMA fêmea de bulkhead**, 10 a 20 cm, com porca e
+arruela para furo de ~6,3 mm numa face de 85 × 85, que hoje não tem nada.
+
+> ⚠️ **SMA, não RP-SMA.** A maioria dos rabichos é RP-SMA porque o mercado é
+> Wi-Fi. São parecidos e incompatíveis, e antena GPS automotiva é SMA **macho**
+> — a parede precisa de SMA **fêmea** de verdade, com soquete e não com pino.
+
+As duas arquiteturas são **mutuamente exclusivas**: o patch de 8 cm termina em
+U.FL e não entra num bulkhead SMA. Adotando a v2, ele vira antena de bancada e
+sobressalente.
 
 ## 5. Isolamento elétrico
 

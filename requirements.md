@@ -1004,9 +1004,22 @@ Comportamento obrigatório nas condições de falha:
   veículo elimina a razão de o aparelho existir, porque o celular com Waze já cumpre o
   papel sem esse atrito. Decisão do autor em 2026-10-01.
 
-  As mitigações admissíveis são de montagem, e estão em `montagem.md` §4: prateleira
-  no chassi e não na tampa, folga de ar entre a caixa e o painel, face solar clara e
-  ventilação por convecção. A campanha de medição que fecha o requisito é **M-08**.
+  📋 **O requisito é aceito em aberto, não pendente — ver
+  [ADR 0011](docs/adr/0011-medir-antes-de-mitigar.md).** A montagem a executar usa a caixa e o
+  módulo já comprados, e as mitigações são **contingentes a medição**: o gatilho é
+  observar problema, não concluir que seriam boa ideia. O aparelho opera fora da
+  especificação do módulo durante o teste, e esse é o custo aceito.
+
+  Mitigações, em ordem de grandeza — e a primeira é de outra ordem que as demais:
+
+  1. **Antena de cabo longo com bulkhead SMA** (`montagem.md` §4.8). Com os **8 cm** do
+     rabicho U.FL em mãos, a exigência de vista de céu prega a caixa no ponto mais
+     ensolarado do veículo. Soltar essa amarra vale dezenas de graus.
+  2. Montagem: prateleira no chassi e não na tampa, folga de ar contra o painel, face
+     solar clara, ventilação por convecção (`montagem.md` §4). Vale graus.
+
+  As campanhas que fecham o requisito são **M-08** (temperatura interna real) e **M-06**
+  (C/N0 por posição).
 
 * **[RNF10] Verificação:** antes de considerar uma funcionalidade concluída:
   * **Testes unitários** do parser NMEA (incluindo checksum inválido, campos vazios,
