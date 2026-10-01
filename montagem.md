@@ -169,8 +169,18 @@ concretos (seção 6.3).
    caminho dominante e custa centavos.
 2. **Distância e orientação** entre o conversor e a antena.
 3. **Roteamento dos fios** (seção 7).
-4. **O laço do conversor.** Em placa perfurada o laço entrada-chave-diodo costuma ser
-   enorme, e ele é o radiador — a fonte, não o sintoma.
+4. **O laço de alta `di/dt` do conversor.** É o laço *capacitor de entrada → chave de
+   cima → chave de baixo → volta ao capacitor*, onde a corrente é picada; não é o
+   indutor, cuja função é justamente alisá-la. Uma espira com corrente variando rápido
+   é um dipolo magnético, e o campo irradiado é proporcional à **área** do laço — o
+   mesmo princípio da nota do cabo trançado de 12 V em `bom_schematic.md`, vista do
+   lado da emissão em vez da captação.
+
+   **Como o conversor é módulo pronto, esse laço está no PCB dele e fora de alcance.**
+   O que está em alcance é impedir que ele **vaze para a fiação**: com capacitância de
+   entrada insuficiente no módulo, parte da corrente picada vem dos fios de 12 V e o
+   laço cresce para incluí-los. Um eletrolítico de bulk mais um cerâmico **nos
+   terminais de entrada do módulo** mantêm a corrente picada local a ele.
 5. Só então a folha. E nesse caso, **fita de cobre com adesivo condutivo**, nunca
    alumínio (seção 6.3).
 
