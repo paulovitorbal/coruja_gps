@@ -340,7 +340,7 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
       <span class="tag">R-17 · ~10 min</span></div>
 
     <h3>Corrente do buzzer</h3>
-    <p>Aqui a medida direta funciona: o buzzer opera em 5 V e não há problema de margem.</p>
+    <p>Aqui a medida direta funciona, e <strong>a medição é no trilho de 12&nbsp;V</strong> — o buzzer foi para 12&nbsp;V no ADR 0009. Não há problema de margem no amperímetro.</p>
     <div class="warn">
       <span class="wl">Corrigido na rev. 4 — o valor esperado mudou</span>
       <p>A rev. 2 desta folha dizia <strong>20 a 50 mA</strong>, número do <span class="u">SFM-27</span>.
@@ -359,7 +359,10 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
       <p>Em modo reverso o coletor entrega ~7,8 mA, e o SFM-20B precisa de ~10 mA: o
         buzzer sairia <strong>mais fraco, não mudo</strong>. Com o SFM-27 de 50 mA seria
         evidente. O buzzer escolhido torna esse erro <strong>mais difícil de notar</strong>
-        — teste as duas orientações de propósito e fique com a mais alta.</p>
+        — razão a mais para determinar a pinagem <strong>antes</strong> de montar, pela
+        ruptura reversa descrita adiante. 🔴 <strong>Não</strong> tente as duas
+        orientações no circuito do buzzer: ele está em 12&nbsp;V e a orientação errada
+        degrada a peça (R-67).</p>
     </div>
 
     <div class="note">
@@ -398,16 +401,56 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
     <p>O pino que dá ~0,7 V para os <strong>dois</strong> outros é a base. Em TO-92 dessas
       famílias é o pino central, e o teste confirma.</p>
 
-    <p><strong>Distinguir coletor de emissor</strong> é mais difícil com multímetro
-      simples — as tensões de junção diferem pouco demais. Dois caminhos:</p>
+    <div class="warn">
+      <span class="wl">🔴 NUNCA teste as duas orientações no circuito real</span>
+      <p>A redação anterior desta folha dizia que não havia risco em tentar as duas
+        orientações a 5&nbsp;V. <strong>O buzzer está em 12&nbsp;V desde o ADR 0009.</strong>
+        Invertido, quem bloqueia é a junção <strong>base-emissor</strong>, cujo
+        <span class="u">V<sub>EBO</sub></span> é de <strong>6&nbsp;V</strong> no 2N2222 e
+        <strong>5&nbsp;V</strong> no BC337 — o dobro do que aguenta, e nos dois estados do
+        GPIO. Degrada o hFE permanentemente, e um transistor degradado ainda satura numa
+        chave: <strong>o dano não aparece</strong>. Corrigido em 2026-10-03, R-67.</p>
+    </div>
+
+    <p><strong>Distinguir coletor de emissor</strong> pela tensão de junção não funciona
+      — a diferença fica em poucos milivolts, dentro do ruído. E o teste funcional
+      depende de ganho, que é onde ele falha na prática. Use a <strong>ruptura
+      reversa</strong>, que não depende de nenhum dos dois:</p>
+
+    <p>As duas junções da base rompem em tensões muito diferentes: <strong>base-emissor
+      em ~6&nbsp;V</strong>, <strong>base-coletor em 60 a 75&nbsp;V</strong>. Aplique
+      12&nbsp;V reversos com corrente limitada e veja qual grampeia.</p>
+
     <ul class="plain">
-      <li>Se o seu aparelho tem <strong>soquete hFE</strong> com furos marcados
-        <span class="u">NPN E-B-C</span>: insira conforme o datasheet. Ganho entre 100 e
-        400 confirma a orientação. Perto de zero significa C e E trocados.</li>
-      <li>Sem soquete: confie no datasheet e verifique <strong>funcionalmente</strong>.
-        Com C e E invertidos o transistor opera em modo reverso, com ganho de 2 a 5 em vez
-        de ~200. <strong>Não há risco em tentar as duas orientações</strong> a 5 V.</li>
+      <li><strong>12&nbsp;V através de um resistor de ≥ 47&nbsp;kΩ</strong> num pino de
+        ponta; <strong>base no GND</strong>; o outro pino de ponta <strong>solto</strong>.
+        Meça o pino sob teste contra o GND.</li>
+      <li><strong>~6 a 9&nbsp;V → EMISSOR</strong> (grampeou). <strong>~12&nbsp;V →
+        COLETOR</strong> (não rompe).</li>
+      <li>Repita no outro pino: têm de dar resultados <strong>opostos</strong>.</li>
+      <li>Se o aparelho tiver <strong>soquete hFE</strong>, ele também serve e é ainda
+        mais simples: 100 a 400 é a orientação correta, perto de 3 é a invertida.</li>
     </ul>
+
+    <div class="warn">
+      <span class="wl">O resistor é a proteção, não o limite da fonte</span>
+      <p>Com 47&nbsp;kΩ a corrente na ruptura fica em ~130&nbsp;µA — a ordem em que o
+        próprio datasheet especifica o parâmetro, e não destrutiva. Com 1&nbsp;kΩ seriam
+        6&nbsp;mA e a junção degrada. <strong>Confira com os olhos que o resistor está em
+        série antes de energizar.</strong></p>
+    </div>
+
+    <div class="warn">
+      <span class="wl">✅ Já medido — peça marcada <span class="u">2N2222 / A331</span></span>
+      <p>Em 2026-10-03: <strong>NPN</strong>, base no pino central, e com a
+        <strong>face chata voltada para o observador e as pernas para baixo</strong> a
+        ordem é <strong>E – B – C</strong> (esquerda → direita). Medições: esquerda
+        9,13&nbsp;V, direita 11,47&nbsp;V.</p>
+      <p>A marcação <strong>não tinha prefixo de fabricante</strong>, então o método
+        "leia a marcação e puxe o datasheet daquela variante" <strong>não resolveu</strong>
+        — <span class="u">2N2222A</span> puro é o número JEDEC genérico e não identifica a
+        disposição dos pinos. Só a medição resolveu.</p>
+    </div>
   </section>
 
   <!-- ============ 03 ============ -->
@@ -514,7 +557,7 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
             <td colspan="3"><input type="text" id="cor-sol" placeholder="sim / não — descreva"></td></tr>
 
           <tr><td class="grp" colspan="4">R-17 · Buzzer e transistor</td></tr>
-          <tr><td class="lbl">Corrente do buzzer <span class="hint">série, modo mA, 5 V; ~10 mA no SFM-20B</span></td>
+          <tr><td class="lbl">Corrente do buzzer <span class="hint">série, modo mA, <strong>12 V</strong>; ~10 mA no SFM-20B</span></td>
             <td><input type="text" id="r17-i"></td>
             <td class="lbl">Modelo do buzzer e do transistor</td>
             <td><input type="text" id="r17-mod" placeholder="SFM-20B + BC337"></td></tr>

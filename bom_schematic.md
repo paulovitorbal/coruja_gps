@@ -265,21 +265,79 @@ SFM-20B precisa de          ≈  10 mA
 
 > ⚠️ **No SFM-20B o sintoma é sutil, não óbvio.** Com 10 mA de carga o modo reverso
 > quase dá conta: o buzzer sairia **mais fraco**, não mudo. Com o SFM-27 de 50 mA seria
-> evidente. O buzzer escolhido torna esse erro **mais difícil de notar** — vale o teste
-> deliberado das duas orientações.
+> evidente. O buzzer escolhido torna esse erro **mais difícil de notar** — razão a mais
+> para determinar a pinagem **antes** de montar, pela ruptura reversa descrita adiante.
+> 🔴 **Não** tente as duas orientações no circuito do buzzer: ele está em 12 V e a
+> orientação errada degrada a peça (R-67).
 
-Outro motivo para não deixar invertido: em modo reverso quem bloqueia é a junção
-base-emissor, e o `V_EBO` do 2N2222 é **6 V**. Com o trilho de 5 V sobra **1 V de
-margem**, que não existe na orientação correta.
+#### 🔴 Inverter C e E DESTRÓI a peça — o buzzer está em 12 V
 
-**Como determinar, na bancada (§02 da folha):**
+> ⚠️ **Corrigido em 2026-10-03 (R-67).** A redação anterior dizia que não havia risco em
+> tentar as duas orientações, e que o trilho era de 5 V. **O trilho é de 12 V desde o
+> ADR 0009** — é a razão de os 12 V entrarem no gabinete.
 
-1. **Ache a base.** Modo teste de diodo: o pino que dá ~0,7 V para os **dois** outros é
-   a base. Deve ser o central.
-2. **Distinga C de E.** Com **soquete hFE** (`NPN E-B-C`), insira nas duas orientações:
-   ganho de 100 a 400 é a correta, perto de 3 é a invertida. Teste definitivo.
-3. **Sem soquete**, teste funcionalmente e inverta se sair fraco. **Não há risco** em
-   tentar as duas orientações a 5 V e 10 mA.
+Em modo reverso quem bloqueia a alimentação é a junção **base-emissor**, e ela é frágil:
+
+| Peça | `V_EBO` | Aplicado a 12 V | |
+| :--- | ---: | ---: | :--- |
+| 2N2222 | 6 V | ~12 V | **2× o limite** |
+| BC337 | 5 V | ~12 V | **2,4× o limite** |
+
+E nos **dois** estados do GPIO: com o pino baixo o emissor fica em ~12 V contra base em
+0 V; com o pino alto, ~12 V contra 3,3 V. Não há estado seguro.
+
+A corrente fica limitada pelo buzzer, então **degrada em vez de destruir** — ruptura
+reversa de base-emissor derruba o hFE permanentemente. O que é pior para diagnosticar:
+um transistor com hFE degradado ainda satura numa chave, então **o dano também não
+aparece**. Soma-se ao sintoma sutil descrito acima.
+
+#### ✅ Pinagem MEDIDA desta peça — 2026-10-03
+
+A peça em mãos traz `2N2222` na primeira linha e `A331` na segunda — **sem prefixo de
+fabricante**, logo é o número JEDEC genérico e **o método "leia a marcação e puxe o
+datasheet daquela variante" NÃO funcionou**: `2N2222A` puro não identifica a disposição.
+
+Determinada por medição:
+
+| | Resultado |
+| :--- | :--- |
+| Tipo | **NPN** — conduz com a ponta vermelha no central para os dois outros |
+| Base | **pino central**, ~0,44 V nas duas junções |
+| Ponta a ponta | aberto nos dois sentidos — sem curto |
+| **Face chata para o observador, pernas para baixo** | **E – B – C** (esquerda → direita) |
+
+#### Como determinar na bancada — teste de ruptura reversa
+
+**Substitui o teste funcional**, que não depende mais de ganho, saturação nem modo
+reverso. As duas junções da base rompem em tensões muito diferentes: **base-emissor em
+~6 V, base-coletor em 60 a 75 V.**
+
+1. **Ache a base.** Teste de diodo: o pino que dá ~0,7 V para os **dois** outros com a
+   ponta **vermelha** nele. Deve ser o central. (Se conduzir com a **preta** no central,
+   a peça é **PNP** e não é o que está escrito nela.)
+2. **12 V através de ≥ 47 kΩ** num pino de ponta, **base no GND**, o outro pino de
+   ponta **solto**. Meça o pino sob teste contra o GND.
+
+| Leitura | Pino |
+| ---: | :--- |
+| ~6 a 9 V | **EMISSOR** — grampeou |
+| ~12 V | **COLETOR** — não rompe |
+
+3. Repita no outro pino. Os dois têm de dar resultados **opostos**.
+
+> ⚠️ **O resistor é a proteção, não o limite de corrente da fonte.** Com 47 kΩ a
+> corrente na ruptura fica em ~130 µA, a ordem em que o datasheet especifica o
+> parâmetro — não destrutiva. Com 1 kΩ seriam 6 mA e a junção degrada. Conferir com os
+> olhos que o resistor está em série antes de energizar.
+
+**Medição real desta peça (2026-10-03):** esquerda 9,13 V, direita 11,47 V. Diferença de
+2,3 V, inequívoca. Os 11,47 V em vez de 12 V se explicam pela impedância de entrada do
+multímetro (~1 MΩ carregando os 47 kΩ), não por condução da junção.
+
+> 📋 **O teste de saturação foi tentado antes e NÃO discriminou:** as duas orientações
+> deram ~35 mA. A causa não foi apurada — provavelmente a base não estava sendo
+> acionada, ou duas pernas caíram no mesmo trilho da protoboard. Fica o registro de que
+> o teste de ruptura é mais robusto justamente por não depender de ganho.
 
 ### ⛔ Nota — o diodo do buzzer foi REMOVIDO (item 14)
 
@@ -1047,8 +1105,10 @@ justamente para que a escolha errada seja visível onde se escolhe. Ver **R-33**
   **JST-XH macho**, fio **negativo (−)** no pino negativo. Ver o RNF05 e o R-32 para
   posição e orientação, que são requisito acústico e não acabamento.
 
-> ⚠️ *Confirmar a pinagem do transistor no datasheet.* A ordem E-B-C do BC337 e do
-> 2N2222 **difere** da do BC547 descrita na revisão 1. Não assuma a mesma disposição.
+> ✅ **Pinagem MEDIDA em 2026-10-03** na peça marcada `2N2222 / A331`: NPN, base no
+> pino central, e **E – B – C** com a face chata voltada para o observador e as pernas
+> para baixo. Ver a nota do item 10. O datasheet não resolvia — a marcação não traz
+> prefixo de fabricante, e `2N2222A` puro não identifica a disposição (R-67).
 >
 > *Nota de montagem:* o JST-XH não tem trava mecânica forte como um Molex. Prenda o
 > cabo com abraçadeira perto do gabinete para que vibração e tração no cabo do painel

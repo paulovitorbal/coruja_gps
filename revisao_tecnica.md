@@ -113,6 +113,7 @@ de leitura continua sendo o veredito.
 | 2026-09-16 | **R-20** *(resolvido)* e **R-26** | `formato_dados.md` §0.2 · `requirements.md` RF03.5/RF03.10 | Significado real dos códigos `TYPE` obtido da fonte da base: as contagens batem na unidade. **Minhas duas inferências de rótulo estavam erradas** — `TYPE=2` é semáforo com radar e `TYPE=5` é radar móvel. RF03.10 anulado por falta de dados. |
 | 2026-09-15 | **R-20** *(corrigido)* + **R-25** *(novo)* | `requirements.md` RF03.5, RF03.9, RF03.10 | Teste de pareamento de `TYPE=5` refeito após erro de método meu — evidência é mista, não negativa. Requisito mantido pelo autor; média diferida por ausência de trechos no DF (5 pontos). Paleta do LED reduzida de 9 para 5 estados. |
 | 2026-09-15 | **R-23** *(novo)* | `requirements.md` RF03.6 a RF03.8 | Tolerância legal e buzzer escalonado especificados pelo autor. A ancoragem literal dos percentuais no limite da via deixaria as faixas vazias em 82,5% dos radares; reancorada em `V_infra`. Aproximação silenciada. |
+| 2026-10-03 | **R-67** *(novo)* | `bom_schematic.md` item 10 · `roteiro_bancada.html` §02 | Procedimento de bancada mandava tentar as duas orientações do transistor "sem risco a 5 V" — mas o **ADR 0009 levou o buzzer para 12 V** em setembro, e invertido isso aplica o dobro do `V_EBO` na junção base-emissor. Degrada o hFE sem o dano aparecer. Substituído por **teste de ruptura reversa**, que não depende de ganho. Pinagem desta peça MEDIDA: `2N2222 / A331`, NPN, **E-B-C** com a face chata para o observador. |
 | 2026-10-01 | **R-66** *(novo)* · **ADR 0011** | `bom_schematic.md` item 2 · `docs/adr/0011` · `montagem.md` §0 | Conector da antena medido a paquímetro: **U.FL de ~2 mm com rabicho de 8 cm**, não SMA. Terceira divergência BOM × peça no mesmo dia, e as duas últimas me fizeram propor arranjos impossíveis. **ADR 0011:** monta-se com o que já existe e as mitigações do R-65 são contingentes a medição — o gatilho é observar problema, não concluir que seriam boa ideia. |
 | 2026-10-01 | **R-65** *(novo)* | `requirements.md` RNF09 · `montagem.md` §4 | Painel ao sol medido em **92 °C** (infravermelho, São Paulo, 5 h) contra os "ultrapassa 60 °C" do requisito. O NEO-M8N fica **7 °C fora da faixa de ARMAZENAMENTO** — o aparelho desligado já está fora de especificação. Remoção ao estacionar vetada pelo autor por contrariar a premissa do produto. Mitigado por montagem: prateleira migra da tampa para o chassi. |
 | 2026-09-15 | **R-21** | `requirements.md` RF01.4 + RF01.5 | **4 Hz nominal com piso de 3 Hz confirmado pelo autor.** A banda de tolerância gerou requisito novo de monitoramento da taxa efetiva — que serve primariamente como verificação de que a configuração UBX do RF01.2 foi aplicada. |
@@ -1523,6 +1524,69 @@ oscilar no veículo, soldar **1 a 10 nF** (τ de 10 a 100 µs) resolve sem redes
 confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** contra
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
+
+## R-67 — O procedimento de bancada do transistor ficou perigoso quando o buzzer foi para 12 V
+
+- **Onde:** `bom_schematic.md` nota do item 10 · `roteiro_bancada.html` §02
+- **Confiança:** ✅ Aritmética sobre datasheet, e a pinagem foi medida
+- **Status:** ✅ **CORRIGIDO** — procedimento substituído; pinagem desta peça registrada
+
+**O defeito.** Os dois documentos mandavam determinar coletor e emissor
+**funcionalmente**, tentando as duas orientações no circuito real, e afirmavam:
+
+> *"**Não há risco** em tentar as duas orientações a **5 V** e 10 mA"*
+
+E a nota do item 10 justificava: *"o `V_EBO` do 2N2222 é 6 V. Com o trilho de 5 V sobra
+1 V de margem."*
+
+**O buzzer não está em 5 V.** O **ADR 0009** o levou para **12 V** — é inclusive a razão
+de os 12 V entrarem no gabinete, e a própria seção de fiação do mesmo documento avisa em
+negrito *"É 12 V, não 5 V"*. As duas frases são anteriores ao ADR e não foram revistas.
+
+**A consequência.** Invertido, quem bloqueia a alimentação é a junção base-emissor:
+
+| Peça | `V_EBO` | Aplicado | |
+| :--- | ---: | ---: | :--- |
+| 2N2222 | 6 V | ~12 V | 2× |
+| BC337 | 5 V | ~12 V | 2,4× |
+
+Nos **dois** estados do GPIO. A corrente fica limitada pelo buzzer, então degrada em vez
+de destruir — e ruptura reversa de base-emissor derruba o hFE permanentemente. **Um
+transistor degradado ainda satura numa chave**, então o dano não aparece. Soma-se ao
+sintoma sutil que a mesma nota já descrevia para o SFM-20B: seguir o procedimento
+documentado podia estragar a peça *e* esconder que estragou.
+
+**O método primário também falhou.** Os documentos mandavam "leia a marcação e puxe o
+datasheet daquela variante", listando `P2N2222A`, `PN2222A` e `2N2222A`. A peça em mãos
+traz `2N2222` / `A331` — **sem prefixo de fabricante**. Um `2N2222A` puro é o número
+JEDEC genérico e não identifica a disposição dos pinos. O procedimento presumia que a
+marcação sempre discriminaria a variante, e ela não discrimina.
+
+**A substituição: ruptura reversa.** As duas junções da base rompem em tensões muito
+diferentes — base-emissor em ~6 V, base-coletor em 60 a 75 V. Aplicando 12 V reversos
+com 47 kΩ em série, o emissor grampeia e o coletor não.
+
+É melhor que o teste funcional por não depender de **ganho, saturação nem modo reverso**
+— e isso não é teórico: o teste de saturação foi tentado nesta peça e **não
+discriminou**, dando ~35 mA nas duas orientações. A causa não foi apurada.
+
+**Pinagem medida (2026-10-03), peça marcada `2N2222 / A331`:**
+
+| | |
+| :--- | :--- |
+| Tipo | **NPN** — conduz com a vermelha no central para os dois outros |
+| Base | **pino central** |
+| Ruptura, pino esquerdo | **9,13 V** → emissor |
+| Ruptura, pino direito | **11,47 V** → coletor |
+| **Face chata para o observador, pernas para baixo** | **E – B – C** |
+
+Os 11,47 V em vez de 12 V são a impedância de entrada do multímetro (~1 MΩ) carregando
+os 47 kΩ, não condução da junção.
+
+**A regra que sai disto.** Quando um ADR move uma tensão de trilho, **toda afirmação de
+margem que cita aquela tensão fica suspeita** — e margens aparecem em notas de segurança,
+que é onde errar custa peça. O ADR 0009 mudou 5 V para 12 V em setembro, e duas frases
+de "não há risco" sobreviveram três semanas em dois documentos diferentes.
 
 ## R-66 — A BOM divergiu das peças em mãos em três pontos num só dia
 
