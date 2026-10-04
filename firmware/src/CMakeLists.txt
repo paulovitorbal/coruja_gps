@@ -24,6 +24,7 @@ add_library(coruja_nucleo STATIC
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
     nucleo/Zonamento.cpp
+    nucleo/DetectorInfracao.cpp
     nucleo/MonitorTaxa.cpp
     nucleo/Ubx.cpp
     nucleo/PeriodoDoDia.cpp

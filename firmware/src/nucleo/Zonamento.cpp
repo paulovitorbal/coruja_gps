@@ -178,6 +178,9 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
     Candidato margem;
     Candidato semaforo;
     Candidato conforme;
+    // Atravessa as categorias: e a resposta a "de qual radar eu passei
+    // perto", que nao e a mesma pergunta que "qual e o mais grave".
+    Candidato mais_proximo;
 
     for (std::size_t i = primeiro_com_lat_ge(base, n, t.lat - margem_lat);
          i < n && base[i].lat <= lat_maxima; ++i) {
@@ -203,6 +206,8 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
         // dentro dele é o **único** ponto que impede um semáforo de virar
         // Perigo. Testar `limite == 0` aqui antes duplicaria a regra e
         // deixaria a guarda como código morto, que ninguém percebe quebrar.
+        mais_proximo.considera(i, d);
+
         if (e_perigo(t.velocidade_kmh, p.limite)) {
             perigo.considera(i, d);
         } else if (p.limite == kSemLimite) {
@@ -236,6 +241,14 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
 
     Veredito v;
     v.zona = zona;
+    // Preenchido ANTES do retorno antecipado seria codigo morto: sem
+    // candidato escolhido tambem nao ha mais proximo, porque os dois saem do
+    // mesmo laco e dos mesmos filtros.
+    if (mais_proximo.tem) {
+        v.tem_mais_proximo = true;
+        v.mais_proximo = base[mais_proximo.indice];
+        v.dist_mais_proximo_m = mais_proximo.distancia;
+    }
     if (escolhido == nullptr) {
         tem_alvo_ = false;
         zona_ = Zona::Segura;

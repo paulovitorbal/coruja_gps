@@ -43,6 +43,21 @@ struct Veredito {
     float       distancia_m = 0.0F;
     /// `V_infra` do alvo, para a tela poder mostrar a margem que resta.
     float       v_infra_kmh = 0.0F;
+
+    /// O candidato **mais próximo**, que em geral NÃO é o `alvo`.
+    ///
+    /// O alvo vence por **gravidade** (RF03.4), não por distância: dois
+    /// radares na janela com limites diferentes põem em Perigo o mais
+    /// distante, e é ele que vira alvo. Para a tela isso está certo — a multa
+    /// em curso é o que importa.
+    ///
+    /// **Mas quem registra infração consumada precisa do outro.** "Passei a
+    /// menos de 50 m deste radar acima do V_infra dele" é pergunta por ponto,
+    /// e respondê-la pelo alvo atribuiria a passagem ao radar errado. Sai de
+    /// graça: a máquina já computa os quatro candidatos.
+    bool        tem_mais_proximo = false;
+    Ponto       mais_proximo{};
+    float       dist_mais_proximo_m = 0.0F;
 };
 
 // --------------------------------------------------------------- constantes

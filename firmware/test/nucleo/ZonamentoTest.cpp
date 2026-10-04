@@ -635,4 +635,77 @@ TEST(Zonamento, descricoes_cobrem_todos_os_estados) {
     }
 }
 
+
+// --- o candidato mais proximo, que nao e o alvo ---
+//
+// O alvo vence por GRAVIDADE (RF03.4). Quem registra infracao consumada
+// precisa saber de qual radar passou perto, e essa e outra pergunta.
+
+TEST(MaquinaZona, o_mais_proximo_nao_e_o_alvo_quando_o_distante_e_mais_grave) {
+    // O cenario que a propria precedencia do RF03.4 descreve: dois radares
+    // na janela, o DISTANTE em Perigo e o PROXIMO conforme. O alvo tem de
+    // ser o distante, e o mais_proximo tem de ser o outro.
+    // Ordenada por latitude, como a busca binaria exige. Indo para o norte,
+    // o de 80 fica a ~111 m e o de 60 a ~223 m -- os dois dentro dos 300 m.
+    const Ponto base[] = {
+        {-19.80000F, -44.00000F,  80, 0, TipoPonto::RadarFixo, Sentido::Omnidirecional},
+        {-19.79900F, -44.00000F,  60, 0, TipoPonto::RadarFixo, Sentido::Omnidirecional},
+    };
+    Telemetria t;
+    t.lat = -19.80100F;
+    t.lon = -44.00000F;
+    // V_infra(60) = 66 e V_infra(80) = 86, com desconto de 6 km/h.
+    // A 70: conforme no de 80, e PERIGO no de 60, que esta mais longe.
+    t.velocidade_kmh = 70.0F;
+    t.rumo_graus = 0.0F;        // indo para o norte, os dois a frente
+    t.rumo_valido = true;
+
+    MaquinaZona m;
+    const auto v = m.avalia(t, base, 2, 0);
+
+    ASSERT_TRUE(v.tem_alvo);
+    ASSERT_TRUE(v.tem_mais_proximo);
+    EXPECT_EQ(v.zona, Zona::Perigo);
+    EXPECT_EQ(v.alvo.limite, 60) << "o alvo tem de ser o DISTANTE, que e o grave";
+    EXPECT_EQ(v.mais_proximo.limite, 80) << "o mais proximo e o outro";
+    EXPECT_LT(v.dist_mais_proximo_m, v.distancia_m)
+        << "por definicao o mais proximo esta mais perto que o alvo";
+}
+
+TEST(MaquinaZona, com_um_ponto_so_o_mais_proximo_e_o_alvo) {
+    const Ponto base[] = {
+        {-19.79900F, -44.00000F, 60, 0, TipoPonto::RadarFixo, Sentido::Omnidirecional},
+    };
+    Telemetria t;
+    t.lat = -19.80000F;
+    t.lon = -44.00000F;
+    t.velocidade_kmh = 50.0F;
+    t.rumo_graus = 0.0F;
+    t.rumo_valido = true;
+
+    MaquinaZona m;
+    const auto v = m.avalia(t, base, 1, 0);
+
+    ASSERT_TRUE(v.tem_mais_proximo);
+    EXPECT_FLOAT_EQ(v.dist_mais_proximo_m, v.distancia_m);
+    EXPECT_EQ(v.mais_proximo.limite, v.alvo.limite);
+}
+
+TEST(MaquinaZona, sem_candidato_nao_ha_mais_proximo) {
+    const Ponto base[] = {
+        {-10.00000F, -44.00000F, 60, 0, TipoPonto::RadarFixo, Sentido::Omnidirecional},
+    };
+    Telemetria t;
+    t.lat = -19.80000F;
+    t.lon = -44.00000F;
+    t.velocidade_kmh = 50.0F;
+    t.rumo_valido = true;
+
+    MaquinaZona m;
+    const auto v = m.avalia(t, base, 1, 0);
+
+    EXPECT_FALSE(v.tem_alvo);
+    EXPECT_FALSE(v.tem_mais_proximo);
+}
+
 }  // namespace
