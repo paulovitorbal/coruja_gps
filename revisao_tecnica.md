@@ -15,7 +15,7 @@
 | Severidade | Documentado | Pendente de bancada | Significado |
 | :--- | :---: | :---: | :--- |
 | 🔴 **Bloqueador** | 8 de 8 | — *(R-05 medido em 19/09)* | Queima componente, ou o requisito não roda no hardware. R-05, R-06, R-14 e R-21 fechados. |
-| 🟠 **Relevante** | 28 de 28 | 2 medições (R-13, R-17) + 3 inspeções (R-14, display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
+| 🟠 **Relevante** | 28 de 28 | 2 medições (R-13, R-17) + 2 inspeções (display, serigrafia do GPS) + 1 julgamento subjetivo (R-32, audibilidade) | Circuito liga, comportamento sai errado ou falha em silêncio. **R-22 a R-26**. |
 | 🟡 **Lacuna** | 9 de 9 | — | Requisito que não existia. |
 | ⚪ **Editorial** | 5 de 5 | — | Erro de texto ou numeração. |
 
@@ -33,7 +33,7 @@
 
 | Item | Verificação |
 | :--- | :--- |
-| **R-14** | Confirmar o encapsulamento de 3 pinos junto ao VCC da placa GPS. Sem regulador, os 5 V destroem o módulo. 30 segundos. |
+| ~~**R-14**~~ | ✅ **CONFIRMADO em 2026-10-04.** Regulador presente: SOT-23-**5** marcado `LB2k` — não 3 pinos, como esta linha supunha. Medido com fonte de bancada a 3,3 V: `VCC` 3,29 V, saída 3,19 V no **pino 4**, consumo **42 mA**. A queda de 0,10 V a 42 mA são 2,4 Ω equivalentes; trilha cai microvolts. **5 V liberados.** |
 
 **❓ Decisões de produto — não bloqueiam nada:**
 
@@ -113,6 +113,7 @@ de leitura continua sendo o veredito.
 | 2026-09-16 | **R-20** *(resolvido)* e **R-26** | `formato_dados.md` §0.2 · `requirements.md` RF03.5/RF03.10 | Significado real dos códigos `TYPE` obtido da fonte da base: as contagens batem na unidade. **Minhas duas inferências de rótulo estavam erradas** — `TYPE=2` é semáforo com radar e `TYPE=5` é radar móvel. RF03.10 anulado por falta de dados. |
 | 2026-09-15 | **R-20** *(corrigido)* + **R-25** *(novo)* | `requirements.md` RF03.5, RF03.9, RF03.10 | Teste de pareamento de `TYPE=5` refeito após erro de método meu — evidência é mista, não negativa. Requisito mantido pelo autor; média diferida por ausência de trechos no DF (5 pontos). Paleta do LED reduzida de 9 para 5 estados. |
 | 2026-09-15 | **R-23** *(novo)* | `requirements.md` RF03.6 a RF03.8 | Tolerância legal e buzzer escalonado especificados pelo autor. A ancoragem literal dos percentuais no limite da via deixaria as faixas vazias em 82,5% dos radares; reancorada em `V_infra`. Aproximação silenciada. |
+| 2026-10-04 | **R-14** *(fechado)* | `revisao_tecnica.md` · `bom_schematic.md` §3 | Regulador da placa GPS **confirmado por medição**: SOT-23-5 marcado `LB2k`, 3,29 V na entrada e **3,19 V na saída** a 42 mA. Queda de 0,10 V nessa corrente só vem de elemento ativo em série. **5 V liberados.** A marcação não identificou a peça e a pinagem típica de datasheet errou o pino de saída — resolveu-se medindo. |
 | 2026-10-03 | **R-67** *(novo)* | `bom_schematic.md` item 10 · `roteiro_bancada.html` §02 | Procedimento de bancada mandava tentar as duas orientações do transistor "sem risco a 5 V" — mas o **ADR 0009 levou o buzzer para 12 V** em setembro, e invertido isso aplica o dobro do `V_EBO` na junção base-emissor. Degrada o hFE sem o dano aparecer. Substituído por **teste de ruptura reversa**, que não depende de ganho. Pinagem desta peça MEDIDA: `2N2222 / A331`, NPN, **E-B-C** com a face chata para o observador. |
 | 2026-10-01 | **R-66** *(novo)* · **ADR 0011** | `bom_schematic.md` item 2 · `docs/adr/0011` · `montagem.md` §0 | Conector da antena medido a paquímetro: **U.FL de ~2 mm com rabicho de 8 cm**, não SMA. Terceira divergência BOM × peça no mesmo dia, e as duas últimas me fizeram propor arranjos impossíveis. **ADR 0011:** monta-se com o que já existe e as mitigações do R-65 são contingentes a medição — o gatilho é observar problema, não concluir que seriam boa ideia. |
 | 2026-10-01 | **R-65** *(novo)* | `requirements.md` RNF09 · `montagem.md` §4 | Painel ao sol medido em **92 °C** (infravermelho, São Paulo, 5 h) contra os "ultrapassa 60 °C" do requisito. O NEO-M8N fica **7 °C fora da faixa de ARMAZENAMENTO** — o aparelho desligado já está fora de especificação. Remoção ao estacionar vetada pelo autor por contrariar a premissa do produto. Mitigado por montagem: prateleira migra da tampa para o chassi. |
@@ -1524,6 +1525,61 @@ oscilar no veículo, soldar **1 a 10 nF** (τ de 10 a 100 µs) resolve sem redes
 confirma: o pior caso medido do `(0,0)`, já na volta rápida, foi **5,75 ms** contra
 1 ms de amostragem — **5,8× de folga**. Polling a 1 ms basta, e a interrupção de borda
 deixa de ser pendência e passa a ser desnecessária.
+
+## R-14 — fechado: o LDO da placa GPS existe, e a pinagem não era a típica
+
+- **Onde:** `bom_schematic.md` §3, árvore de decisão de alimentação
+- **Confiança:** ✅ Medido na peça, com fonte de bancada
+- **Status:** ✅ **FECHADO** — 5 V liberados
+
+**O que se queria saber.** A placa GY-GPSV3-NEO M8N tem regulador entre o `VCC` do
+header e o chip u-blox? O chip é de 3,6 V máximo; sem LDO, os 5 V da decisão do R-14 o
+destroem.
+
+**O componente.** SOT-23-**5** marcado `LB2k`, com o `VCC` entrando numa perna da ponta
+do lado de três. A linha de inspeção dizia "encapsulamento de 3 pinos" — são cinco. Não
+muda a conclusão, mas mostra que o texto descrevia o que se imaginava.
+
+⚠️ **A marcação não identificou a peça.** O banco de códigos SMD dá `LB2K` como um
+XC6219B27ADR da Torex, LDO de 2,75 V, mas em **USP-6B, de seis pinos**. Código de
+marcação não é único entre fabricantes, e com o encapsulamento divergindo a
+identificação não vale.
+
+**E a pinagem típica de datasheet também errou.** A suposição (1=IN, 2=GND, 3=EN, 4=NC,
+5=OUT) previa a saída no pino 5. Medido, o pino 5 está em **0 V** e a saída é o **4**.
+Terceira vez na semana em que presumir layout típico falha e a medição corrige — mesma
+família do R-66.
+
+| Pino | Função | Evidência |
+| :---: | :--- | :--- |
+| 1 | `Vin` | curto com `VCC` na continuidade |
+| 2 | `GND` | |
+| 3 | `EN`, amarrado no `Vin` | curto com `VCC` — montagem "sempre ligado" |
+| **4** | **`Vout`** | **3,19 V** com 3,29 V na entrada |
+| 5 | — | 0 V |
+
+**As medidas,** fonte de bancada a 3,3 V com limite de corrente em 150 mA:
+
+| | |
+| :--- | ---: |
+| `VCC` no header | **3,29 V** |
+| Saída, pino 4 | **3,19 V** |
+| Consumo | **42 mA** · 0,141 W |
+
+**Por que 0,10 V de queda prova regulação.** A 42 mA são 2,4 Ω equivalentes. Trilha de
+PCB nessa corrente cai microvolts; só elemento ativo em série produz isso. E a
+continuidade já mostrara a saída **aberta** em relação ao `VCC`, descartando passagem
+direta.
+
+**O dropout é a previsão de setembro se cumprindo.** O R-14 concluiu que a 3,3 V este
+LDO viveria em dropout, e foi por isso que a operação ficou em 5 V. Sobrarem 0,10 V de
+margem é exatamente isso.
+
+**Consumo abaixo do orçado.** A BOM previa ~82 mA para o bloco — 67 de pico mais ~15 de
+LNA de antena. Com 42 mA medidos **sem antena**, a dissipação do LDO em 5 V fica em
+**0,071 W**, cerca de 18 °C de elevação num SOT-23-5, e o uso do limite típico de
+150 mA cai para **28%**. Mesmo somando o LNA, 57 mA seguem bem abaixo do orçamento —
+folga confortável até no painel quente do R-65.
 
 ## R-67 — O procedimento de bancada do transistor ficou perigoso quando o buzzer foi para 12 V
 

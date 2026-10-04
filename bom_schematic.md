@@ -859,6 +859,10 @@ UBX do RF01.2. Dano zero, sintoma confuso.
 
 **Placa adquirida: GY-GPSV3-NEO M8N** (breakout estilo Arduino, informado pelo autor).
 
+> ✅ **MEDIDO em 2026-10-04 — o regulador existe e os 5 V estão liberados.** SOT-23-5
+> marcado `LB2k`, saída no **pino 4**. Com 3,29 V na entrada: **3,19 V na saída, 42 mA**.
+> A árvore de decisão abaixo fica como registro do raciocínio; a resposta está no R-14.
+
 O datasheet oficial do CI u-blox (UBX-15031086, Tabela 10) especifica:
 
 | Parâmetro | Min | Típico | Máx | Máx. absoluto |
