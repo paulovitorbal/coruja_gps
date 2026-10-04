@@ -26,6 +26,12 @@
 | Tier | O quê | Quando |
 | :--- | :--- | :--- |
 | ✅ **Agora** | Chassi + VHB (§2, §3) · prateleira no chassi em camadas (§4) · Kapton (§5) · patch de 8 cm direto no U.FL · **buzzer levado para perto do ouvido** (2 m de cabo já na BOM, ataca o R-32) | executar |
+
+> 🔧 **Estado em 2026-10-03:** o ramo do buzzer está montado e funcionando. O
+> transistor **2N2222 (TO-92, marcado `2N2222 / A331`)** não está na placa perfurada —
+> vive **suspenso nos fios**, isolado com Kapton. Pinagem **E – B – C** com a face chata
+> para o observador, **medida** e registrada no R-67. Falta ancorar o fio contra
+> vibração (§7) e medir o `V_CE` com o buzzer tocando, como referência.
 | 🔶 **Barato, oportunista** | Pés com folga de ar · manta isolante refletiva sob a caixa · rasgos de ventilação | se der na mão, sem prioridade |
 | ⏸️ **Contingente** | **Antena de cabo longo + bulkhead SMA** (§4.8 — primeira ordem) · caixa impressa · colmeia · dissipador interno · NEO-M8M | só se o M-08 ou o M-06 acusarem |
 
@@ -477,6 +483,7 @@ solda**, e é a falha mais provável da montagem a médio prazo.
 | **Âncoras de abraçadeira** coladas no chassi, com os fios passando por elas | Transfere o esforço da junta de solda para a âncora. Custa centavos e é o item de melhor relação da lista. |
 | **VCC trançado com GND** nos fios do GPS | Reduz a área do laço, que é o que acopla ruído. |
 | **Par do GPS curto**, longe do indutor do step-down e das linhas SPI do display | Os fios do GPS atravessam a região ruidosa e são tanto condutor quanto antena (seção 4.5). |
+| **Ancorar o fio dos dois lados do transistor do buzzer**, a 1 ou 2 cm do corpo | ⚠️ **O transistor não está na placa** — está preso direto aos fios, isolado com Kapton, e o corpo pende das próprias três pernas. É a **única massa não apoiada** da montagem, e as pernas são o único suporte. Vibração mais ciclagem térmica trincam a junta, e a falha é **intermitente**: buzzer que às vezes não toca é alerta que às vezes não acontece. |
 | Folga suficiente para **abrir a tampa** sem tracionar nada | A prateleira do GPS está na tampa: ela se move junto, e o fio dela é o que mais sofre. |
 | Fio do display sem dobra fechada no **flex** | O flex do TFT flexiona; cola ou dobra rígida criam ponto de fadiga. |
 
