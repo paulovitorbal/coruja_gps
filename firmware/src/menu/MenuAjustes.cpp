@@ -157,6 +157,11 @@ AcaoMenu MenuAjustes::avalia(EventoEncoder evento, bool parado,
             return AcaoMenu::AtualizarBase;
         case ItemMenu::TestarAlertas:
             return AcaoMenu::TestarAlertas;
+        case ItemMenu::Viagem:
+            // Nao fecha o menu: alternar viagem e instantaneo, e manter o
+            // item a vista deixa o novo estado visivel na segunda linha --
+            // que e a confirmacao de que o clique pegou.
+            return AcaoMenu::AlternarViagem;
         case ItemMenu::Informacao:
             estado_ = EstadoMenu::Informando;
             return AcaoMenu::Nenhuma;
@@ -177,6 +182,7 @@ const char* MenuAjustes::rotulo(ItemMenu i) const {
         case ItemMenu::Volume:        return "volume";
         case ItemMenu::AtualizarBase: return "atualizar base";
         case ItemMenu::TestarAlertas: return "testar alertas";
+        case ItemMenu::Viagem:        return "viagem";
         case ItemMenu::Informacao:    return "informacao";
         case ItemMenu::Sair:          return "sair";
     }
@@ -195,6 +201,12 @@ void MenuAjustes::valor(ItemMenu i, char* destino,
             break;
         case ItemMenu::Volume:
             std::snprintf(destino, capacidade, "%u%%", cfg_.volume_buzzer);
+            break;
+        case ItemMenu::Viagem:
+            // "iniciar", "aguardando" ou "parar": a segunda linha diz o que
+            // o clique vai FAZER, nao o estado em que se esta. Rotulo de
+            // acao e o que o item de menu promete.
+            copia_texto(destino, capacidade, descreve(viagem_));
             break;
         default:
             destino[0] = '\0';

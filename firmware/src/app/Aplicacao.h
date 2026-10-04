@@ -8,6 +8,7 @@
 #include "display/TelaMenu.h"
 #include "display/TelaPrincipal.h"
 #include "encoder/Encoder.h"
+#include "app/DiarioBordo.h"
 #include "menu/MenuAjustes.h"
 #include "nucleo/DetectorParado.h"
 #include "nucleo/GravadorConfig.h"
@@ -107,6 +108,7 @@ private:
     AcoesAplicacao& acoes_;
     Logger&        log_;
     DetectorParado detector_;
+    DiarioBordo    diario_;
     MenuAjustes    menu_;
     Visor*         visor_;
     TelaPrincipal  tela_;

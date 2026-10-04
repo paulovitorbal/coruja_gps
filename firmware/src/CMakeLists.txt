@@ -71,6 +71,7 @@ add_library(coruja_ihm STATIC
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
     app/OtaNaTela.cpp
+    app/DiarioBordo.cpp
     app/EsperaDispensa.cpp
 )
 target_include_directories(coruja_ihm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

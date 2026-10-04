@@ -16,7 +16,8 @@ Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
                      const Configuracao& inicial, char* trabalho,
                      std::size_t capacidade, Visor* visor)
     : gps_(gps), encoder_(encoder), piloto_(piloto), brilho_(brilho),
-      cartao_(cartao), acoes_(acoes), log_(log), menu_(inicial),
+      cartao_(cartao), acoes_(acoes), log_(log), diario_(cartao, log),
+      menu_(inicial),
       visor_(visor), trabalho_(trabalho), capacidade_(capacidade) {
     // O que veio do cartao vale desde a primeira volta, antes de qualquer
     // evento: um aparelho que so obedece ao arquivo depois que alguem mexe
@@ -48,6 +49,7 @@ void Aplicacao::executa(AcaoMenu acao) {
         }
         case AcaoMenu::AtualizarBase: acoes_.atualiza_base(); break;
         case AcaoMenu::TestarAlertas: acoes_.testa_alertas(); break;
+        case AcaoMenu::AlternarViagem: diario_.alterna_viagem(); break;
         case AcaoMenu::Nenhuma:       break;
     }
 }
@@ -112,7 +114,14 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
     // Primeiro o alerta, sempre. Ele nao pode esperar o menu.
     piloto_.passo(agora_ms);
 
-    if (gps_.tem_fix(agora_ms)) {
+    const bool tem_fix = gps_.tem_fix(agora_ms);
+
+    // **Os dois registros em cartao vem logo depois do alerta, e antes do
+    // menu.** Uma infracao consumada nao pode esperar o usuario soltar o
+    // encoder, e o ponto de viagem tem hora marcada.
+    diario_.passo(piloto_.veredito(), gps_.telemetria(), tem_fix, agora_ms);
+
+    if (tem_fix) {
         detector_.atualiza(gps_.telemetria().velocidade_kmh, agora_ms);
         houve_fix_ = true;
     } else {
@@ -127,6 +136,7 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
     }
 
     menu_.define_periodo(piloto_.periodo());
+    menu_.define_estado_viagem(diario_.estado_viagem());
     brilho_.define_periodo(piloto_.periodo());
 
     // Drena a fila do encoder. Um detente perdido por volta seria um

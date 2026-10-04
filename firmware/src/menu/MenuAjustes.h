@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "encoder/EventoEncoder.h"
+#include "nucleo/AcumuladorViagem.h"
 #include "nucleo/Configuracao.h"
 #include "nucleo/PeriodoDoDia.h"
 
@@ -22,10 +23,11 @@ enum class ItemMenu : std::uint8_t {
     Volume,
     AtualizarBase,
     TestarAlertas,
+    Viagem,         ///< inicia ou encerra o registro de trajeto
     Informacao,
     Sair,
 };
-constexpr std::size_t kItensMenu = 7;
+constexpr std::size_t kItensMenu = 8;
 
 enum class EstadoMenu : std::uint8_t {
     Fechado,
@@ -40,6 +42,7 @@ enum class AcaoMenu : std::uint8_t {
     Gravar,          ///< os ajustes mudaram e precisam ir ao cartao
     AtualizarBase,   ///< iniciar o OTA
     TestarAlertas,   ///< acender o LED e tocar o buzzer para conferencia
+    AlternarViagem,  ///< iniciar se parada, encerrar se gravando
 };
 
 /// O menu de ajustes com o carro parado.
@@ -64,6 +67,13 @@ public:
 
     /// Qual preset de brilho o item edita. `Desconhecido` edita o de dia.
     void define_periodo(PeriodoDoDia p) { periodo_ = p; }
+
+    /// O estado da viagem, que o menu exibe mas nao controla.
+    ///
+    /// O menu pede `AlternarViagem` e quem executa decide o que fazer; o
+    /// estado volta por aqui. Mesma razao do brilho externo: o menu mostra,
+    /// outro manda.
+    void define_estado_viagem(EstadoViagem e) { viagem_ = e; }
 
     /// Registra um ajuste de brilho feito **fora** do menu.
     ///
@@ -101,6 +111,7 @@ private:
     EstadoMenu estado_ = EstadoMenu::Fechado;
     ItemMenu item_ = ItemMenu::Brilho;
     PeriodoDoDia periodo_ = PeriodoDoDia::Desconhecido;
+    EstadoViagem viagem_ = EstadoViagem::Parada;
     std::uint32_t ultimo_evento_ms_ = 0;
     bool alterado_ = false;
 };

@@ -62,6 +62,7 @@ add_executable(testes
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
     app/OtaNaTelaTest.cpp
+    app/DiarioBordoTest.cpp
     app/EsperaDispensaTest.cpp
     led/PadraoLedTest.cpp
     led/PadraoLedOtaTest.cpp
