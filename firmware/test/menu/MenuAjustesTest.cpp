@@ -369,4 +369,71 @@ TEST(MenuAjustes, ValorCabeEmBufferPequenoSemEstourar) {
     EXPECT_EQ(std::string(buf).size(), 2U);
 }
 
+
+// --- o item de viagem ---
+//
+// Reproduz, passo a passo, o que o autor fez no carro em 2026-10-04: abrir
+// o menu, andar ate `viagem`, clicar. Faltava este teste quando a
+// funcionalidade foi entregue, e o relato de "nao aconteceu nada" veio
+// justamente daqui.
+
+TEST(MenuAjustes, o_item_viagem_e_alcancavel_e_tem_rotulo) {
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+    EXPECT_STREQ(c.menu().rotulo(ItemMenu::Viagem), "viagem");
+}
+
+TEST(MenuAjustes, a_segunda_linha_de_viagem_nao_e_vazia) {
+    // Item de acao sem valor deixa a linha de baixo em branco, e o clique
+    // fica sem confirmacao visual nenhuma.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+    EXPECT_EQ(c.valor(ItemMenu::Viagem), "iniciar");
+}
+
+TEST(MenuAjustes, clicar_em_viagem_pede_AlternarViagem) {
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+    EXPECT_EQ(c.clica(), AcaoMenu::AlternarViagem);
+}
+
+TEST(MenuAjustes, clicar_em_viagem_NAO_entra_em_edicao) {
+    // O `default` do switch de clique manda editar. Se o caso de `Viagem`
+    // sumisse, o item cairia nele e o menu entraria em modo de edicao --
+    // girar passaria a mexer num valor inexistente em vez de andar.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+    c.clica();
+    EXPECT_EQ(c.menu().estado(), EstadoMenu::Navegando);
+}
+
+TEST(MenuAjustes, clicar_em_viagem_NAO_fecha_o_menu) {
+    // Manter o item a vista e o que deixa o novo estado visivel na segunda
+    // linha, que e a confirmacao de que o clique pegou.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+    c.clica();
+    EXPECT_TRUE(c.menu().aberto());
+}
+
+TEST(MenuAjustes, a_segunda_linha_segue_o_estado_informado) {
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Viagem);
+
+    c.menu().define_estado_viagem(EstadoViagem::Aguardando);
+    EXPECT_EQ(c.valor(ItemMenu::Viagem), "aguardando");
+
+    c.menu().define_estado_viagem(EstadoViagem::Gravando);
+    EXPECT_EQ(c.valor(ItemMenu::Viagem), "parar");
+
+    c.menu().define_estado_viagem(EstadoViagem::Parada);
+    EXPECT_EQ(c.valor(ItemMenu::Viagem), "iniciar");
+}
+
 }  // namespace

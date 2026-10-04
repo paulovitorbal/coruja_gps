@@ -85,6 +85,9 @@ public:
                                std::size_t pontos);
 
     const MenuAjustes& menu() const { return menu_; }
+
+    /// Estado do registro de viagem, para teste e para a tela.
+    EstadoViagem estado_viagem() const { return diario_.estado_viagem(); }
     const DetectorParado& detector() const { return detector_; }
 
     /// Qual tela esta no ar. Exposto para teste: e a decisao que o laco

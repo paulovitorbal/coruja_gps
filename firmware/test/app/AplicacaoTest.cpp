@@ -625,4 +625,61 @@ TEST(Aplicacao, o_giro_que_abre_o_menu_nao_mexe_no_brilho) {
         << "o giro que abre o menu tambem mexeu no brilho";
 }
 
+
+// --- o item de viagem, fim a fim ---
+//
+// Reproduz o que o autor fez no carro em 2026-10-04: com fix adquirido,
+// abrir o menu, andar ate `viagem` e clicar. A costura entre o menu e o
+// `DiarioBordo` nao tinha teste quando a funcionalidade foi entregue.
+
+TEST(Aplicacao, clicar_em_viagem_inicia_o_registro) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);              // parado, menu liberado
+
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre
+    app.passo(4050);
+    ASSERT_TRUE(app.menu().aberto());
+
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::Viagem; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(4100 + static_cast<std::uint32_t>(i) * 50);
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::Viagem);
+
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(5200);
+
+    EXPECT_NE(app.estado_viagem(), EstadoViagem::Parada)
+        << "o clique nao iniciou a viagem";
+}
+
+TEST(Aplicacao, a_segunda_linha_de_viagem_muda_depois_do_clique) {
+    // O que o autor relatou nao ter visto. Antes do clique a linha diz
+    // "iniciar"; depois tem de dizer outra coisa, senao o clique nao tem
+    // confirmacao nenhuma na tela.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    b.encoder.enfileira(EventoEncoder::GiroDireita);
+    app.passo(4050);
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::Viagem; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(4100 + static_cast<std::uint32_t>(i) * 50);
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::Viagem);
+
+    char antes[32];
+    app.menu().valor(ItemMenu::Viagem, antes, sizeof antes);
+    EXPECT_STREQ(antes, "iniciar");
+
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(5200);
+    app.passo(5300);          // uma volta a mais: o menu le o estado no topo
+
+    char depois[32];
+    app.menu().valor(ItemMenu::Viagem, depois, sizeof depois);
+    EXPECT_STRNE(depois, "iniciar") << "a segunda linha nao mudou";
+}
+
 }  // namespace
