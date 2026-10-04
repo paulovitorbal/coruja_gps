@@ -1,0 +1,135 @@
+#include "nucleo/AcumuladorViagem.h"
+
+#include <cstdio>
+
+#include "nucleo/DetectorParado.h"
+
+namespace coruja {
+
+const char* descreve(EstadoViagem e) {
+    switch (e) {
+        case EstadoViagem::Parada:     return "iniciar";
+        case EstadoViagem::Aguardando: return "aguardando";
+        case EstadoViagem::Gravando:   return "parar";
+    }
+    return "?";
+}
+
+void AcumuladorViagem::inicia(float dist_inicial_km) {
+    estado_ = EstadoViagem::Aguardando;
+    dist_km_ = dist_inicial_km;
+    tem_passo_anterior_ = false;
+    minuto_aberto_ = false;
+    contando_parado_ = false;
+    nome_[0] = '\0';
+}
+
+void AcumuladorViagem::para() {
+    estado_ = EstadoViagem::Parada;
+    minuto_aberto_ = false;
+    tem_passo_anterior_ = false;
+    contando_parado_ = false;
+}
+
+void AcumuladorViagem::monta_nome(const Telemetria& t) {
+    std::snprintf(nome_, sizeof nome_, "%04u%02u%02u_%02u%02u%02u.log",
+                  static_cast<unsigned>(t.ano), static_cast<unsigned>(t.mes),
+                  static_cast<unsigned>(t.dia), static_cast<unsigned>(t.hora),
+                  static_cast<unsigned>(t.minuto),
+                  static_cast<unsigned>(t.segundo));
+}
+
+void AcumuladorViagem::abre_minuto(const Telemetria& t) {
+    minuto_aberto_ = true;
+    ano_ = t.ano; mes_ = t.mes; dia_ = t.dia;
+    hora_ = t.hora; minuto_ = t.minuto;
+    soma_vel_ = 0.0F;
+    amostras_ = 0;
+}
+
+void AcumuladorViagem::fecha_minuto() {
+    ponto_.ano = ano_; ponto_.mes = mes_; ponto_.dia = dia_;
+    ponto_.hora = hora_; ponto_.minuto = minuto_;
+    ponto_.lat = ultima_lat_;
+    ponto_.lon = ultima_lon_;
+    ponto_.v_media_kmh =
+        amostras_ > 0 ? soma_vel_ / static_cast<float>(amostras_) : 0.0F;
+    ponto_.dist_km = dist_km_;
+}
+
+EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
+                                        std::uint32_t agora_ms) {
+    if (estado_ == EstadoViagem::Parada) {
+        return EventoViagem::Nada;
+    }
+
+    if (!tem_fix || !t.data_valida) {
+        // **Não se zera o passo de integração aqui.** A primeira versão
+        // zerava, e a mutação mostrou que era código morto: o teto de
+        // `kMaxPassoIntegracaoMs` já corta qualquer buraco longo. Pior, zerar
+        // descartava buracos CURTOS que valia a pena integrar — um segundo
+        // sem sentença, com velocidade conhecida dos dois lados, estima-se
+        // bem melhor do que se despreza.
+        //
+        // Sem fix não há prova de estar parado: contar o túnel como parada
+        // encerraria a viagem no meio de uma estrada.
+        contando_parado_ = false;
+        return EventoViagem::Nada;
+    }
+
+    if (estado_ == EstadoViagem::Aguardando) {
+        monta_nome(t);
+        estado_ = EstadoViagem::Gravando;
+        abre_minuto(t);
+        ultima_lat_ = t.lat;
+        ultima_lon_ = t.lon;
+        soma_vel_ += t.velocidade_kmh;
+        ++amostras_;
+        anterior_ms_ = agora_ms;
+        tem_passo_anterior_ = true;
+        return EventoViagem::Abre;
+    }
+
+    // --- integração da distância ---
+    if (tem_passo_anterior_) {
+        const std::uint32_t passo_ms = agora_ms - anterior_ms_;
+        if (passo_ms <= kMaxPassoIntegracaoMs) {
+            dist_km_ += t.velocidade_kmh *
+                        (static_cast<float>(passo_ms) / 3600000.0F);
+        }
+    }
+    anterior_ms_ = agora_ms;
+    tem_passo_anterior_ = true;
+
+    // --- virada do minuto ---
+    EventoViagem evento = EventoViagem::Nada;
+    if (minuto_aberto_ && t.minuto != minuto_) {
+        fecha_minuto();
+        abre_minuto(t);
+        evento = EventoViagem::Grava;
+    } else if (!minuto_aberto_) {
+        abre_minuto(t);
+    }
+
+    soma_vel_ += t.velocidade_kmh;
+    ++amostras_;
+    ultima_lat_ = t.lat;
+    ultima_lon_ = t.lon;
+
+    // --- encerramento automático ---
+    if (t.velocidade_kmh < kVelocidadeParadoKmh) {
+        if (!contando_parado_) {
+            contando_parado_ = true;
+            parado_desde_ms_ = agora_ms;
+        } else if (agora_ms - parado_desde_ms_ >= kParadoEncerraViagemMs) {
+            para();
+            return EventoViagem::Encerra;
+        }
+    } else {
+        contando_parado_ = false;
+    }
+
+    return evento;
+}
+
+}  // namespace coruja
