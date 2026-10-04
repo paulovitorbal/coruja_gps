@@ -263,12 +263,23 @@ modo reverso, ganho ~3      ≈  7,8 mA de coletor
 SFM-20B precisa de          ≈  10 mA
 ```
 
-> ⚠️ **No SFM-20B o sintoma é sutil, não óbvio.** Com 10 mA de carga o modo reverso
-> quase dá conta: o buzzer sairia **mais fraco**, não mudo. Com o SFM-27 de 50 mA seria
-> evidente. O buzzer escolhido torna esse erro **mais difícil de notar** — razão a mais
-> para determinar a pinagem **antes** de montar, pela ruptura reversa descrita adiante.
-> 🔴 **Não** tente as duas orientações no circuito do buzzer: ele está em 12 V e a
-> orientação errada degrada a peça (R-67).
+> ✅ **O sintoma real a 12 V, OBSERVADO em 2026-10-03: o buzzer fica LIGADO DIRETO,
+> ignorando o firmware.** Não é "mais fraco", que era a previsão anterior desta nota.
+>
+> A previsão de som fraco vale a **5 V**, onde C e E trocados colocam o transistor em
+> modo reverso com ganho de 2 a 5 — ele quase dá conta dos 10 mA do SFM-20B. A **12 V**
+> o que domina é outra coisa: a junção **base-emissor entra em ruptura** (medida em
+> 9,13 V nesta peça) e abre um caminho de corrente que **o GPIO não interrompe**. O
+> buzzer toca desde que o aparelho liga, e nada no software o cala.
+>
+> 🟢 **Isso é uma boa notícia de diagnóstico.** Os 12 V transformaram uma falha sutil
+> numa falha óbvia: a 5 V o erro passaria despercebido como "buzzer meio fraco", e a
+> 12 V é impossível não notar. O que torna o erro perigoso para a peça é o que o torna
+> visível.
+>
+> 🔴 Mesmo assim, **não** tente as duas orientações no circuito do buzzer para
+> descobrir qual é — determine a pinagem **antes** de montar, pela ruptura reversa
+> descrita adiante. A orientação errada degrada o hFE permanentemente (R-67).
 
 #### 🔴 Inverter C e E DESTRÓI a peça — o buzzer está em 12 V
 

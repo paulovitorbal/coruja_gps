@@ -1583,6 +1583,28 @@ discriminou**, dando ~35 mA nas duas orientações. A causa não foi apurada.
 Os 11,47 V em vez de 12 V são a impedância de entrada do multímetro (~1 MΩ) carregando
 os 47 kΩ, não condução da junção.
 
+**O sintoma real, observado em 2026-10-03.** A montagem foi feita com C e E trocados, e
+o resultado **não** foi o "som mais fraco" que esta nota previa: **o buzzer ficou ligado
+direto, desde que o aparelho energiza, ignorando o firmware.** Trocar as duas pernas
+resolveu na hora.
+
+A previsão de som fraco descrevia o **modo reverso**, que é o que domina a 5 V. A 12 V
+quem domina é a **ruptura da junção base-emissor** — medida em 9,13 V nesta peça —, que
+abre um caminho de corrente do trilho ao terra que o GPIO não tem como interromper.
+
+| Trilho | C e E trocados produzem |
+| :--- | :--- |
+| 5 V | modo reverso, ganho 2 a 5 → **som mais fraco** (sutil) |
+| **12 V** | **ruptura base-emissor → buzzer SEMPRE LIGADO** (óbvio) |
+
+🟢 **Os 12 V transformaram uma falha sutil numa falha evidente.** A mesma tensão que
+torna o erro perigoso para a peça é a que o denuncia na primeira vez que se liga o
+aparelho. A 5 V o defeito teria sobrevivido à montagem como "esse buzzer é fraquinho".
+
+**Fica como sintoma de diagnóstico:** buzzer ligado direto e indiferente ao software é
+**coletor e emissor trocados**, não polaridade do buzzer — piezo ativo invertido fica
+**mudo**, nunca ligado.
+
 **A regra que sai disto.** Quando um ADR move uma tensão de trilho, **toda afirmação de
 margem que cita aquela tensão fica suspeita** — e margens aparecem em notas de segurança,
 que é onde errar custa peça. O ADR 0009 mudou 5 V para 12 V em setembro, e duas frases

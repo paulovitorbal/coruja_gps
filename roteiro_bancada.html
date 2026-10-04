@@ -358,11 +358,19 @@ Vf = Vcc − Vr        (tensão direta do LED)</div></li>
       <span class="wl">Com o SFM-20B o sintoma de C/E trocados é sutil</span>
       <p>Em modo reverso o coletor entrega ~7,8 mA, e o SFM-20B precisa de ~10 mA: o
         buzzer sairia <strong>mais fraco, não mudo</strong>. Com o SFM-27 de 50 mA seria
-        evidente. O buzzer escolhido torna esse erro <strong>mais difícil de notar</strong>
-        — razão a mais para determinar a pinagem <strong>antes</strong> de montar, pela
-        ruptura reversa descrita adiante. 🔴 <strong>Não</strong> tente as duas
-        orientações no circuito do buzzer: ele está em 12&nbsp;V e a orientação errada
-        degrada a peça (R-67).</p>
+        evidente.</p>
+      <p>✅ <strong>Mas o sintoma real a 12&nbsp;V é outro, e foi observado em
+        2026-10-03: o buzzer fica LIGADO DIRETO, ignorando o firmware.</strong> O som
+        fraco descreve o modo reverso, que domina a 5&nbsp;V. A 12&nbsp;V quem domina é a
+        <strong>ruptura da junção base-emissor</strong>, que abre um caminho de corrente
+        que o GPIO não interrompe.</p>
+      <p>🟢 Os 12&nbsp;V transformaram uma falha sutil numa falha óbvia — a mesma tensão
+        que torna o erro perigoso para a peça é a que o denuncia ao ligar. 🔴 Ainda assim,
+        <strong>não</strong> descubra a pinagem tentando as duas orientações no circuito:
+        a errada degrada o hFE permanentemente (R-67). Determine antes, pela ruptura
+        reversa descrita adiante.</p>
+      <p><strong>Buzzer ligado direto e indiferente ao software = C e E trocados.</strong>
+        Não é polaridade do buzzer: piezo ativo invertido fica <strong>mudo</strong>.</p>
     </div>
 
     <div class="note">
