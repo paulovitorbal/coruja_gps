@@ -75,7 +75,7 @@ if ! cmake --build "$BUILD" -j8 > /tmp/libera-fw.log 2>&1; then
 fi
 
 # --- 6. verifica que o binario carrega a tag ---------------------------------
-if ! strings "$UF2" | grep -qx "$TAG $(date '+%d/%m/%y')"; then
+if ! strings "$UF2" | grep -qx "$TAG"; then
     echo "ERRO: o .uf2 nao carrega '$TAG'. O que ele tem:" >&2
     strings "$UF2" | grep -E "^(v[0-9]|sem-git|[0-9a-f]{7})" | head -3 >&2
     echo "A tag foi criada; remova com: git tag -d $TAG" >&2
@@ -85,9 +85,9 @@ fi
 echo
 echo "OK — $TAG liberada e verificada no binario"
 echo "   $UF2"
-echo "   $(strings "$UF2" | grep -x "$TAG $(date '+%d/%m/%y')")"
+echo "   versao no binario: $(strings "$UF2" | grep -x "$TAG")"
 echo "   $(ls -l "$UF2" | awk '{print $5" bytes"}')"
 echo
-echo "A tela de informacao vai mostrar:  fw: $TAG $(date '+%d/%m/%y')"
+echo "A tela de informacao vai mostrar:  fw: $TAG"
 echo
 echo "Para publicar depois:  git push --follow-tags"

@@ -34,7 +34,7 @@ struct InfoAparelho {
     /// taxa instantânea tem lugar próprio na tela de dirigir.
     float         taxa_hz = 0.0F;
 
-    /// Identificação do build, do `git describe`, mais a data.
+    /// Identificação do build, do `git describe`.
     ///
     /// | O que aparece | O que significa |
     /// | :--- | :--- |

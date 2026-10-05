@@ -32,14 +32,16 @@ if(NOT RC EQUAL 0 OR DESCRICAO STREQUAL "")
     set(DESCRICAO "sem-git")
 endif()
 
-string(TIMESTAMP DATA "%d/%m/%y")
-
 set(CONTEUDO
 "#pragma once
 // GERADO PELO BUILD — não edite. Ver cmake/gera_versao.cmake.
 namespace coruja {
-/// `git describe` da árvore no momento do build, mais a data.
-constexpr const char* kVersaoBuild = \"${DESCRICAO} ${DATA}\";
+/// `git describe` da árvore no momento do build.
+///
+/// Sem a data de propósito: o `describe` já identifica o build sem
+/// ambiguidade, e a data do commit se consulta no git quando interessa.
+/// Na faixa de 26 caracteres da tela, oito deles custam caro.
+constexpr const char* kVersaoBuild = \"${DESCRICAO}\";
 }  // namespace coruja
 ")
 
