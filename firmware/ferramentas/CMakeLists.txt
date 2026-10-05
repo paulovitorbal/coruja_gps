@@ -3,6 +3,9 @@
 add_executable(monitor_alertas monitor_alertas.cpp)
 target_link_libraries(monitor_alertas PRIVATE coruja_nucleo coruja_log)
 
-add_executable(previa_produto previa_produto.cpp VisorTerminal.cpp)
+# A previa passa pela `Aplicacao`, entao precisa dos portes de host: cartao
+# em diretorio, encoder no teclado, UART na pty.
+add_executable(previa_produto previa_produto.cpp VisorTerminal.cpp
+               PortesHost.cpp)
 target_link_libraries(previa_produto PRIVATE
     coruja_ihm coruja_gps_cfg coruja_nucleo coruja_log)

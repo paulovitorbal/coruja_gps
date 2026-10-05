@@ -236,6 +236,7 @@ Leia nesta ordem:
 | **`formato_dados.md`** | Formato binário `radares.bin`, estratégia de carga em RAM e busca geográfica em dois estágios. |
 | **`revisao_tecnica.md`** | Revisão técnica com rastreabilidade: o que foi achado, decidido e o que segue aberto. |
 | **`montagem.md`** | Montagem física na caixa Patola PB-111: chassi, fixação, prateleira do GPS, isolamento e passagem de cabos. |
+| **`previa_host.md`** | O produto inteiro rodando no host contra o simulador: o que a primeira integração validou, o defeito que achou e o que ela ainda não exercita. |
 | **`roteiro_bancada.html`** | Procedimento de medição para imprimir, com quadro de registro das leituras. |
 
 ## Estado

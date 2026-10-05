@@ -98,6 +98,16 @@ public:
 
     /// A taxa que a tela de informacao esta mostrando, congelada na entrada.
     float info_taxa_hz() const { return info_.taxa_hz; }
+
+    /// Distancia acumulada da viagem em curso, para a previa no host.
+    float dist_viagem_km() const { return diario_.dist_viagem_km(); }
+
+    /// Inicia ou encerra o registro de viagem, como o item de menu faria.
+    ///
+    /// Existe para a **previa no host** poder exercitar a gravacao sem
+    /// depender do `DetectorParado` -- o caminho pelo menu tem suite propria,
+    /// e misturar os dois na previa trocaria o que se quer observar.
+    void alterna_viagem() { diario_.alterna_viagem(); }
     const DetectorParado& detector() const { return detector_; }
 
     /// Qual tela esta no ar. Exposto para teste: e a decisao que o laco

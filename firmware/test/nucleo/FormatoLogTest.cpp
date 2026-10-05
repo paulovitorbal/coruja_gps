@@ -90,6 +90,38 @@ TEST(FormatoLog, o_rumo_e_arredondado_e_nao_truncado) {
     EXPECT_NE(std::string(linha).find(";257;"), std::string::npos);
 }
 
+TEST(FormatoLog, rumo_quase_360_vira_ZERO_e_nao_360) {
+    // Achado pela previa no host em 2026-10-05: o Eixao corre quase
+    // norte-sul, e uma passagem saiu com `rumo 360` no arquivo. Nao existe:
+    // a faixa e 0 a 359. O arredondamento de 359,7 da 360,2, e o corte para
+    // inteiro deixa 360 -- um digito do sentinela 999 de rumo invalido.
+    auto r = infracao_exemplo();
+    for (float g : {359.5F, 359.7F, 359.99F}) {
+        r.momento.rumo_graus = g;
+        char linha[kTamLinhaInfracao];
+        formata_infracao(r, linha, sizeof linha);
+        EXPECT_NE(std::string(linha).find(";0;"), std::string::npos)
+            << g << " graus viraram: " << linha;
+        EXPECT_EQ(std::string(linha).find(";360;"), std::string::npos)
+            << "escreveu 360, que nao e rumo";
+    }
+}
+
+TEST(FormatoLog, os_rumos_das_bordas_saem_certos) {
+    auto r = infracao_exemplo();
+    const struct { float entra; const char* sai; } casos[] = {
+        {0.0F, ";0;"}, {0.4F, ";0;"}, {0.5F, ";1;"},
+        {180.0F, ";180;"}, {359.0F, ";359;"}, {359.4F, ";359;"},
+    };
+    for (const auto& c : casos) {
+        r.momento.rumo_graus = c.entra;
+        char linha[kTamLinhaInfracao];
+        formata_infracao(r, linha, sizeof linha);
+        EXPECT_NE(std::string(linha).find(c.sai), std::string::npos)
+            << c.entra << " deveria sair como " << c.sai << ": " << linha;
+    }
+}
+
 // --- o que acontece quando nao cabe ---
 
 TEST(FormatoLog, nao_coube_devolve_zero_em_vez_de_truncar) {

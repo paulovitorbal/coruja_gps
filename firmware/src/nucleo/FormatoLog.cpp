@@ -32,7 +32,14 @@ std::size_t formata_infracao(const RegistroInfracao& r, char* destino,
         static_cast<double>(m.lat), static_cast<double>(m.lon),
         // Rumo inválido vira 999: parado o NEO-M8N deixa o campo vazio, e
         // gravar zero diria "apontando para o norte", que é afirmação falsa.
-        m.rumo_valido ? static_cast<unsigned>(m.rumo_graus + 0.5F) : 999U,
+        //
+        // O `% 360` fecha o círculo, e não é hipótese: a prévia no host de
+        // 2026-10-05 gravou `rumo 360` numa passagem do Eixão. Arredondar
+        // 359,7 dá 360,2, e o corte para inteiro deixa 360 — que não é rumo,
+        // e fica a um dígito do sentinela 999.
+        m.rumo_valido
+            ? static_cast<unsigned>(m.rumo_graus + 0.5F) % 360U
+            : 999U,
         static_cast<double>(m.velocidade_kmh),
         static_cast<double>(r.v_max_kmh),
         static_cast<double>(r.v_infra_kmh),
