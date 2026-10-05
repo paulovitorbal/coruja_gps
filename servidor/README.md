@@ -15,7 +15,7 @@ aponta o próprio pipeline para cá.
 
 ```sh
 docker compose up -d
-curl -i http://localhost:8080/radares.versao
+curl -i http://localhost:8081/radares.versao
 ```
 
 Publique a base copiando o `radares.bin` para `./dados/`. O arquivo é
@@ -61,13 +61,13 @@ são duas linhas:
 
 ```
 radares.seudominio.com {
-    reverse_proxy localhost:8080
+    reverse_proxy localhost:8081
 }
 ```
 
 ### Teste em rede local
 
-Para o Pico alcançar o serviço pelo Wi-Fi o compose publica em `0.0.0.0:8080`,
+Para o Pico alcançar o serviço pelo Wi-Fi o compose publica em `0.0.0.0:8081`,
 e o `coruja.cfg` precisa de URLs em `http://`. O gerador recusa HTTP por
 padrão; a saída existe e é deliberadamente incômoda:
 
@@ -80,7 +80,7 @@ aviso dentro do próprio `coruja.cfg` — de modo que um arquivo de teste não s
 disfarce de definitivo meses depois.
 
 Ao sair da rede local: proxy reverso com TLS na frente e a porta de volta para
-`127.0.0.1:8080`.
+`127.0.0.1:8081`.
 
 ## Decisões que valem conhecer
 

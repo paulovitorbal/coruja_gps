@@ -1,7 +1,7 @@
 # Sobe a API que o Coruja GPS consome.
 #
 #   docker compose up -d
-#   curl -i http://localhost:8080/radares.versao
+#   curl -i http://localhost:8081/radares.versao
 #
 # Publique a base copiando o radares.bin para ./dados/ — o pipeline que gera
 # o arquivo não é assunto deste serviço, e é por isso que ele pode viver no
@@ -23,8 +23,16 @@ services:
       # aceitável em rede aberta nem exposto à internet.
       #
       # Para sair da rede local, ponha um proxy reverso com TLS na frente e
-      # volte esta linha para "127.0.0.1:8080:8080". Ver o README.
-      - "8080:8080"
+      # volte esta linha para "127.0.0.1:${CORUJA_PORTA_HOST:-8081}:8080".
+      # Ver o README.
+      #
+      # A porta de FORA e variavel, e a de dentro nao. Porta publicada e
+      # valor de implantacao: fixa-la aqui obrigava a editar este arquivo em
+      # cada servidor -- e como ele vive no repositorio PUBLICO, incluido
+      # como submodulo, isso deixava o submodulo sujo para sempre. Com a
+      # variavel, cada maquina ajusta pelo ambiente ou por um `.env` ao lado,
+      # sem tocar no versionado.
+      - "${CORUJA_PORTA_HOST:-8081}:8080"
 
     volumes:
       # Somente leitura: o serviço nunca escreve. Se ele for comprometido,
