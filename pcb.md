@@ -297,6 +297,46 @@ terra do GPS volta a depender só da face de baixo.
 
 ---
 
+## 7.6 Arquivos de fabricação
+
+Não são versionados: saem inteiros do `.kicad_pcb`, que é. Regerar:
+
+```sh
+cd kicad
+kicad-cli pcb export gerbers -o fabricacao/ --no-protel-ext coruja.kicad_pcb
+kicad-cli pcb export drill   -o fabricacao/ --format excellon \
+    --excellon-separate-th --generate-map --map-format gerberx2 coruja.kicad_pcb
+kicad-cli pcb export pos     -o fabricacao/coruja-posicoes.csv \
+    --format csv --units mm --side both coruja.kicad_pcb
+```
+
+**Apague as camadas vazias antes de enviar.** O KiCad gera 26 arquivos; 14 saem
+vazios porque a placa é toda de furo passante e tem serigrafia só na face de
+cima. Camada vazia no pacote faz o fabricante perguntar — ou cobrar por um
+processo que não existe. O que se envia são 12:
+
+```
+F_Cu  B_Cu  F_Mask  B_Mask  F_Silkscreen  Edge_Cuts
+PTH.drl  NPTH.drl  + os dois mapas de furação  + job  + posições
+```
+
+### Conferência do pacote, 2026-10-05
+
+Arquivo gerado não é arquivo correto. O pacote foi comparado com a placa:
+
+| | |
+| :--- | :--- |
+| Furos PTH | **155 na placa, 155 no arquivo**, idênticos diâmetro a diâmetro |
+| Furos NPTH | **9 e 9**, idem |
+| Contorno no Gerber | **120,00 × 120,00 mm** |
+| Posições | 21 peças |
+
+Os 9 NPTH se explicam: 2 do leitor microSD (M2.5), 4 do GPS (M2.5), 2 do
+conversor (M3) e **1 do porta-fusível**, que tem fixação própria — este último
+surpreendeu na conferência e foi conferido antes de ser aceito.
+
+---
+
 ## 8. O que falta
 
 1. **Desenhar a placa** (`.kicad_pcb`): contorno, posicionamento, roteamento.

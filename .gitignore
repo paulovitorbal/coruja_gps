@@ -29,3 +29,7 @@ kicad/*.net
 kicad/.history/
 kicad/*.lck
 kicad/~*
+
+# Pacote de fabricacao: 100% derivado do .kicad_pcb, que e versionado.
+# Regerar com os comandos no pcb.md.
+kicad/fabricacao/
