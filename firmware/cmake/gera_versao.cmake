@@ -13,23 +13,23 @@
 #  como novo e recompilaria tudo que o inclui, a cada build.
 # =============================================================================
 
+# `git describe` em vez do hash cru. Ele diz as três coisas de uma vez:
+#
+#   v0.1.0                 → exatamente na tag. Firmware liberado.
+#   v0.1.0-3-ga996cb1      → três commits depois dela. Build de trabalho.
+#   v0.1.0-3-ga996cb1*     → e com alterações não comitadas.
+#   a996cb1                → nenhuma tag alcançável (--always).
+#
+# O asterisco é `--dirty=*` em vez do `-dirty` padrão: a faixa de texto da
+# tela tem 26 caracteres, e seis deles custam caro. Sem a marca, um build com
+# alterações locais se apresentaria como a tag limpa — mentira justo na hora
+# de diagnosticar.
 execute_process(
-    COMMAND git -C "${FONTE}" rev-parse --short=7 HEAD
-    OUTPUT_VARIABLE HASH OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND git -C "${FONTE}" describe --tags --always --dirty=*
+    OUTPUT_VARIABLE DESCRICAO OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET RESULT_VARIABLE RC)
-if(NOT RC EQUAL 0 OR HASH STREQUAL "")
-    set(HASH "sem-git")
-endif()
-
-# Árvore suja vira um asterisco. Sem isso, um build com alterações locais
-# se apresentaria como o commit limpo — e seria mentira na hora de diagnosticar.
-execute_process(
-    COMMAND git -C "${FONTE}" status --porcelain
-    OUTPUT_VARIABLE SUJA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-if(SUJA STREQUAL "")
-    set(MARCA "")
-else()
-    set(MARCA "*")
+if(NOT RC EQUAL 0 OR DESCRICAO STREQUAL "")
+    set(DESCRICAO "sem-git")
 endif()
 
 string(TIMESTAMP DATA "%d/%m/%y")
@@ -38,8 +38,8 @@ set(CONTEUDO
 "#pragma once
 // GERADO PELO BUILD — não edite. Ver cmake/gera_versao.cmake.
 namespace coruja {
-/// Hash curto do commit, `*` se a árvore tinha alterações, e a data.
-constexpr const char* kVersaoBuild = \"${HASH}${MARCA} ${DATA}\";
+/// `git describe` da árvore no momento do build, mais a data.
+constexpr const char* kVersaoBuild = \"${DESCRICAO} ${DATA}\";
 }  // namespace coruja
 ")
 

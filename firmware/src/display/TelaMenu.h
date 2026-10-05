@@ -34,7 +34,13 @@ struct InfoAparelho {
     /// taxa instantânea tem lugar próprio na tela de dirigir.
     float         taxa_hz = 0.0F;
 
-    /// Identificação do build: hash curto, `*` se a árvore estava suja, data.
+    /// Identificação do build, do `git describe`, mais a data.
+    ///
+    /// | O que aparece | O que significa |
+    /// | :--- | :--- |
+    /// | `v0.1.0` | exatamente na tag — firmware liberado |
+    /// | `v0.1.0-3-ga996cb1` | três commits depois dela — build de trabalho |
+    /// | `v0.1.0-3-ga996cb1*` | e com alterações não comitadas |
     ///
     /// **Existe por um incidente.** Em 2026-10-04 uma gravação não pegou, o
     /// aparelho ficou com firmware de cinco dias antes, e não havia como
