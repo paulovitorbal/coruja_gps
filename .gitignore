@@ -18,3 +18,14 @@ servidor/dados/*
 # Atalho para a pty do simulador, recriado a cada execucao.
 simulador/serial
 .venv/
+
+# KiCad: artefatos gerados e sujeira da ferramenta. O .kicad_sch e o
+# .kicad_sym SAO versionados — saem do netlist.py e sao o projeto.
+kicad/coruja_esquematico.pdf
+kicad/*-backups/
+kicad/fp-info-cache
+kicad/*.kicad_prl
+kicad/*.net
+kicad/.history/
+kicad/*.lck
+kicad/~*
