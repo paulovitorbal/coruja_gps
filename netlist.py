@@ -21,7 +21,7 @@ PECAS = [
      # VCC, RX, TX, GND. A suposicao anterior era VCC, GND, TX, RX -- os pinos
      # 2 e 4 estavam trocados. A CONFIRMAR na serigrafia quando a placa chegar,
      # como foi feito com o KY-040 e o leitor SD, que ambos divergiam. Ver R-34.
-     "GPS NEO-M8N (GY-GPSV3)", {}, ["VCC 5V", "RX", "TX", "GND"]),
+     "GPS NEO-M8N (GY-GPS6MV2)", {}, ["VCC 5V", "RX", "TX", "GND"]),
 
     # Pinagem RELIDA na placa física em 2026-09-20: são **9 pinos**, da
     # esquerda para a direita olhando de frente. A revisão anterior listava 8

@@ -73,12 +73,26 @@ def exporta(projeto: pathlib.Path, destino: pathlib.Path) -> None:
         raise SystemExit(f"kicad-cli falhou:\n{r.stdout}\n{r.stderr}")
 
 
+#: Biblioteca própria do projeto, gerada por `gera_footprint.py`.
+PROPRIA = pathlib.Path(__file__).parent / "kicad"
+
+
+def _raiz_da_lib(lib: str) -> pathlib.Path:
+    """Onde cada biblioteca de footprint mora.
+
+    A `coruja` é do projeto; as outras, da instalação. O mesmo caso à parte
+    existe no `fp-lib-table`, e os dois têm de concordar — se discordarem, a
+    verificação aprova um caminho que o KiCad não acha.
+    """
+    return PROPRIA if lib == "coruja" else FOOTPRINTS
+
+
 def confere_footprints() -> list[str]:
-    """Todo footprint referenciado existe na biblioteca instalada."""
+    """Todo footprint referenciado existe, na biblioteca que o declara."""
     faltam = []
     for peca, (ref, _, fp, _) in sorted(MAPA.items()):
         lib, _, nome = fp.partition(":")
-        if not (FOOTPRINTS / f"{lib}.pretty" / f"{nome}.kicad_mod").exists():
+        if not (_raiz_da_lib(lib) / f"{lib}.pretty" / f"{nome}.kicad_mod").exists():
             faltam.append(f"{ref} ({peca}): footprint inexistente — {fp}")
     return faltam
 

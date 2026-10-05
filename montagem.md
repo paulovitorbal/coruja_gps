@@ -14,7 +14,7 @@
 > **Decisão do autor em 2026-10-01, registrada no [ADR 0011](docs/adr/0011-medir-antes-de-mitigar.md).**
 >
 > A montagem a executar **agora** usa a **Patola PB-111** comprada e o módulo
-> **GY-GPSV3-NEO M8N** com o **patch cerâmico de 8 cm direto no U.FL**.
+> **GY-GPS6MV2-NEO M8N** com o **patch cerâmico de 8 cm direto no U.FL**.
 >
 > As mitigações térmicas discutidas em 2026-10-01 — antena de cabo longo com
 > bulkhead SMA, caixa impressa em ASA ou PC, tampa de parede dupla em colmeia,

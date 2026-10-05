@@ -1,0 +1,244 @@
+(footprint "Conversor_LM2596"
+	(version 20251024)
+	(generator "coruja_gps")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Modulo step-down 12V->5V, 42.9 x 21.35 x 13.3 mm, apoiado em espacador de 2 mm. Ligado por jumper: as ilhas ficam FORA do contorno porque nao se solda sob o modulo. Medido a paquimetro em 2026-10-05.")
+	(tags "conversor step-down lm2596 modulo coruja_gps")
+	(property "Reference" "REF**"
+		(at 0 -13.275 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "Conversor_LM2596"
+		(at 0 13.275 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "Conversor step-down 12V->5V (LM2596, nao isolado)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_line
+		(start -21.45 -10.675)
+		(end 21.45 -10.675)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 21.45 -10.675)
+		(end 21.45 10.675)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 21.45 10.675)
+		(end -21.45 10.675)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -21.45 10.675)
+		(end -21.45 -10.675)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -21.45 -10.675)
+		(end 21.45 -10.675)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start 21.45 -10.675)
+		(end 21.45 10.675)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start 21.45 10.675)
+		(end -21.45 10.675)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start -21.45 10.675)
+		(end -21.45 -10.675)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start -25.38 -10.925)
+		(end 25.38 -10.925)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 25.38 -10.925)
+		(end 25.38 10.925)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 25.38 10.925)
+		(end -25.38 10.925)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -25.38 10.925)
+		(end -25.38 -10.925)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(pad "" np_thru_hole circle
+		(at -15.475 -8.15)
+		(size 3.55 3.55)
+		(drill 3.55)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at 15.475 8.15)
+		(size 3.55 3.55)
+		(drill 3.55)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "1" thru_hole rect
+		(at 24.13 8.89)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "IN+"
+		(at 26.53 8.89 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "2" thru_hole circle
+		(at 24.13 -8.89)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "IN-"
+		(at 26.53 -8.89 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "3" thru_hole circle
+		(at -24.13 8.89)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "OUT+"
+		(at -26.53 8.89 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "4" thru_hole circle
+		(at -24.13 -8.89)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "OUT-"
+		(at -26.53 -8.89 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(fp_text user "h=13.3+2mm"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.12)
+			)
+		)
+	)
+	(embedded_fonts no)
+)

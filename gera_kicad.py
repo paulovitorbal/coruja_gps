@@ -28,6 +28,7 @@ import pathlib
 import uuid
 
 from kicad_mapa import MAPA, no_kicad, pinos, titulo_da_peca
+import kicad_sym
 from kicad_sym import FONTE, PASSO, VERSAO, representantes, simbolo
 from netlist import NETS
 from expressao_s import Txt, despeja
@@ -261,9 +262,17 @@ PROJETO = """{
 #: kicad-cli roda sem a configuração global do usuário.
 def _tabela_fp() -> str:
     libs = sorted({fp.partition(":")[0] for _, _, fp, _ in MAPA.values()})
+
+    def _uri(b: str) -> str:
+        # A biblioteca própria mora NO PROJETO; as outras, na instalação do
+        # KiCad. Apontar `coruja` para KICAD10_FOOTPRINT_DIR acharia um
+        # diretório inexistente e o footprint sumiria sem erro no esquemático.
+        raiz = "${KIPRJMOD}" if b == "coruja" else "${KICAD10_FOOTPRINT_DIR}"
+        return f"{raiz}/{b}.pretty"
+
     linhas = "\n".join(
         f'\t(lib (name "{b}")(type "KiCad")'
-        f'(uri "${{KICAD10_FOOTPRINT_DIR}}/{b}.pretty")(options "")(descr ""))'
+        f'(uri "{_uri(b)}")(options "")(descr ""))'
         for b in libs)
     return "(fp_lib_table\n\t(version 7)\n" + linhas + "\n)\n"
 
@@ -278,8 +287,24 @@ TABELA_SIM = """(sym_lib_table
 def main() -> None:
     destino = pathlib.Path(__file__).parent / "kicad"
     destino.mkdir(exist_ok=True)
+
+    # A biblioteca sai JUNTO, de propósito. O esquemático embute uma cópia de
+    # cada símbolo, e o KiCad compara as duas: se forem geradas por comandos
+    # separados, basta alguém rodar um e não o outro para elas divergirem.
+    #
+    # Aconteceu em 2026-10-05, ao renomear o módulo GPS: o título da peça mudou,
+    # o esquemático foi regerado e a biblioteca não. Quem acusou foi o ERC, com
+    # `lib_symbol_mismatch` — nada mais teria acusado.
+    kicad_sym.main()
+
     (destino / "coruja.kicad_sch").write_text(despeja(esquematico()) + "\n")
-    (destino / "coruja.kicad_pro").write_text(PROJETO)
+    # ⚠️ O .kicad_pro só é criado se NÃO existir. O KiCad o reescreve ao abrir
+    # o projeto, acrescentando classes de rede, regras de projeto e
+    # preferências — 9 KB contra os 350 bytes do nosso mínimo. Sobrescrever
+    # apagaria tudo isso sem aviso.
+    projeto = destino / "coruja.kicad_pro"
+    if not projeto.exists():
+        projeto.write_text(PROJETO)
     (destino / "sym-lib-table").write_text(TABELA_SIM)
     (destino / "fp-lib-table").write_text(_tabela_fp())
 

@@ -1,0 +1,266 @@
+(footprint "GPS_GY_GPS6MV2"
+	(version 20251024)
+	(generator "coruja_gps")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Modulo GPS GY-GPS6MV2 com u-blox NEO-M8N, 36.4 x 26 mm. Montado em espacador (4 furos M4, vao 28 x 18 mm) e ligado por jumper; as ilhas ficam FORA do contorno porque nao se solda sob o modulo. U.FL marcado na camada de fabricacao: o rabicho tem 8 cm. Medido a paquimetro e conferido em gabarito 1:1, 2026-10-05.")
+	(tags "gps gy-gps6mv2 neo-m8n ublox modulo coruja_gps")
+	(property "Reference" "REF**"
+		(at 0 -15.6 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "GPS_GY_GPS6MV2"
+		(at 0 15.6 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" "GPS NEO-M8N (GY-GPS6MV2)"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_line
+		(start -18.2 -13)
+		(end 18.2 -13)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 18.2 -13)
+		(end 18.2 13)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start 18.2 13)
+		(end -18.2 13)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -18.2 13)
+		(end -18.2 -13)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+	)
+	(fp_line
+		(start -18.2 -13)
+		(end 18.2 -13)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start 18.2 -13)
+		(end 18.2 13)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start 18.2 13)
+		(end -18.2 13)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start -18.2 13)
+		(end -18.2 -13)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+	)
+	(fp_line
+		(start -22.13 -13.25)
+		(end 22.13 -13.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 22.13 -13.25)
+		(end 22.13 13.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start 22.13 13.25)
+		(end -22.13 13.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(fp_line
+		(start -22.13 13.25)
+		(end -22.13 -13.25)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+	)
+	(pad "" np_thru_hole circle
+		(at -15.85 10.65)
+		(size 2.7 2.7)
+		(drill 2.7)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at 15.85 10.65)
+		(size 2.7 2.7)
+		(drill 2.7)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at -15.85 -10.65)
+		(size 2.7 2.7)
+		(drill 2.7)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "" np_thru_hole circle
+		(at 15.85 -10.65)
+		(size 2.7 2.7)
+		(drill 2.7)
+		(layers "F&B.Cu" "*.Mask")
+	)
+	(pad "1" thru_hole rect
+		(at 20.88 3.7)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "VCC"
+		(at 23.48 3.7 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "2" thru_hole circle
+		(at 20.88 1.16)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "RX"
+		(at 23.48 1.16 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "3" thru_hole circle
+		(at 20.88 -1.38)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "TX"
+		(at 23.48 -1.38 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(pad "4" thru_hole circle
+		(at 20.88 -3.92)
+		(size 2 2)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+	)
+	(fp_text user "GND"
+		(at 23.48 -3.92 0)
+		(layer "F.SilkS")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(fp_circle
+		(center -14.95 5.7)
+		(end -13.45 5.7)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill none)
+		(layer "F.Fab")
+	)
+	(fp_text user "U.FL (rabicho 8cm)"
+		(at -4.95 5.7 0)
+		(layer "F.Fab")
+		(effects
+			(font
+				(size 0.9 0.9)
+				(thickness 0.12)
+			)
+		)
+	)
+	(embedded_fonts no)
+)

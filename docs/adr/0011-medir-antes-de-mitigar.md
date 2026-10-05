@@ -38,7 +38,7 @@ plausível montado sobre leitura não conferida.
 **Montar e testar com o que já existe**, por decisão do autor:
 
 * caixa **Patola PB-111** comprada;
-* módulo **GY-GPSV3-NEO M8N** com o **patch cerâmico de 8 cm** direto no U.FL.
+* módulo **GY-GPS6MV2-NEO M8N** com o **patch cerâmico de 8 cm** direto no U.FL.
 
 **As mitigações acima não são backlog.** Elas são **contingentes**, e o
 gatilho é **observar problema** — não a passagem do tempo nem a conclusão de

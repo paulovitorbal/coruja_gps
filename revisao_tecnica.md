@@ -63,7 +63,7 @@
 | **RF03.8** | **Zona de Aproximação silenciosa** — buzzer exclusivo da Zona de Perigo. | 2026-09-15 |
 | **L-08** | **C++17 com Pico SDK** — dual core real e orçamento de memória. Teste de heap do MicroPython dispensado. | 2026-09-15 |
 | **R-06** | **Conector JST-XH** de 2 vias no lugar do Jack P2. | 2026-09-15 |
-| **R-14** | **GPS alimentado em 5 V** — placa GY-GPSV3-NEO M8N tem LDO embarcado. | 2026-09-15 |
+| **R-14** | **GPS alimentado em 5 V** — placa GY-GPS6MV2-NEO M8N tem LDO embarcado. | 2026-09-15 |
 | **R-19** | **Zona de Semáforo silenciosa**, LED amarelo/vermelho alternando a 2 Hz. | 2026-09-15 |
 | **R-21** | **GPS+GLONASS a 4 Hz nominal, piso de 3 Hz.** Gerou o RF01.5. | 2026-09-15 |
 
@@ -108,7 +108,7 @@ de leitura continua sendo o veredito.
 | 2026-09-15 | **TODOS** | `requirements.md` rev. 2 + `bom_schematic.md` rev. 2 | Os 34 itens aplicados aos documentos de origem, com tabelas de rastreabilidade em cada um. Originais preservados em `.bak`. |
 | 2026-09-15 | **R-06** | `bom_schematic.md` §5 + `requirements.md` RNF05 | **Conector JST-XH confirmado pelo autor** em lugar do Jack P2. Suposição fechada. |
 | 2026-09-15 | **R-14** *(reformulado)* | `bom_schematic.md` §3 | Faixa do chip (2,7–3,6 V) informada pelo autor revelou que a suposição de 3,3 V era mal fundamentada. Virou árvore de decisão por regulador da placa. |
-| 2026-09-15 | **R-14** | `bom_schematic.md` §3 | **5 V decidido.** Placa identificada como GY-GPSV3-NEO M8N, família com LDO embarcado — alimentar em 5 V é a configuração de projeto da placa, funciona com qualquer LDO e alivia ~82 mA do regulador do Pico. |
+| 2026-09-15 | **R-14** | `bom_schematic.md` §3 | **5 V decidido.** Placa identificada como GY-GPS6MV2-NEO M8N, família com LDO embarcado — alimentar em 5 V é a configuração de projeto da placa, funciona com qualquer LDO e alivia ~82 mA do regulador do Pico. |
 | 2026-09-15 | **R-21, R-22** *(novos)* | `revisao_tecnica.md` | Datasheet oficial UBX-15031086 analisado. Teto de 5 Hz em GPS+GLONASS e faixa de entrada dos GPIO do GPS. Correntes, temperatura e config padrão agora ancoradas em datasheet. |
 | 2026-09-16 | **R-20** *(resolvido)* e **R-26** | `formato_dados.md` §0.2 · `requirements.md` RF03.5/RF03.10 | Significado real dos códigos `TYPE` obtido da fonte da base: as contagens batem na unidade. **Minhas duas inferências de rótulo estavam erradas** — `TYPE=2` é semáforo com radar e `TYPE=5` é radar móvel. RF03.10 anulado por falta de dados. |
 | 2026-09-15 | **R-20** *(corrigido)* + **R-25** *(novo)* | `requirements.md` RF03.5, RF03.9, RF03.10 | Teste de pareamento de `TYPE=5` refeito após erro de método meu — evidência é mista, não negativa. Requisito mantido pelo autor; média diferida por ausência de trechos no DF (5 pontos). Paleta do LED reduzida de 9 para 5 estados. |
@@ -1361,7 +1361,7 @@ divergiram do documentado** quando o autor conferiu a peça física:
 | :--- | :--- | :--- |
 | Leitor microSD | 6 pinos, `VCC GND CLK DI DO CS` | **8 pinos**, com nomes duplos |
 | KY-040 | `CLK DT SW + GND` | **`GND + SW DT CLK`** — invertido |
-| **GY-GPSV3 (GPS)** | **nada — não havia tabela** | a confirmar |
+| **GY-GPS6MV2 (GPS)** | **nada — não havia tabela** | a confirmar |
 
 O GPS era o único **sem tabela de pinagem física**, apesar de ser o módulo onde um erro de
 `VCC`/`GND` seria destrutivo. E o `gera_fritzing.py` assumia `VCC, GND, TX, RX`, enquanto a
@@ -1532,7 +1532,7 @@ deixa de ser pendência e passa a ser desnecessária.
 - **Confiança:** ✅ Medido na peça, com fonte de bancada
 - **Status:** ✅ **FECHADO** — 5 V liberados
 
-**O que se queria saber.** A placa GY-GPSV3-NEO M8N tem regulador entre o `VCC` do
+**O que se queria saber.** A placa GY-GPS6MV2-NEO M8N tem regulador entre o `VCC` do
 header e o chip u-blox? O chip é de 3,6 V máximo; sem LDO, os 5 V da decisão do R-14 o
 destroem.
 
@@ -1812,7 +1812,7 @@ Registrado como item de inspeção **R-66**.
 **Candidato para a v2:** trocar para o **NEO-M8M** pela faixa de armazenamento. ⚠️ Antes
 de adotar, confirmar que ele atende **GPS+GLONASS concorrente** na taxa do RF01.4; o
 **R-21** ancorou o teto de 5 Hz para o M8N, não para o M8M. A placa em mãos é a
-GY-GPSV3-NEO M8N (R-14), então é troca de placa, não de configuração.
+GY-GPS6MV2-NEO M8N (R-14), então é troca de placa, não de configuração.
 
 **Postura, e ela é explícita.** Limite de datasheet não é precipício: 92 °C ocasionais
 aceleram envelhecimento, não matam o módulo na hora. Como isto é projeto de estudo e não

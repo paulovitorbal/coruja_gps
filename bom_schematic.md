@@ -15,7 +15,7 @@
 | Item | Componente | Especificação Técnica / Detalhes | Função no Projeto | Status |
 | :---: | :--- | :--- | :--- | :---: |
 | 1 | **Raspberry Pi Pico 2 W** | Microcontrolador Dual-Core RP2350 com Wi-Fi (pinos macho pré-soldados) | Cérebro do sistema, processamento NMEA e conectividade sem fio. | 🟢 entregue |
-| 2 | **Módulo GPS u-blox NEO-M8N** | ⚠️ **CORRIGIDO 2026-10-01:** UART, e antena ativa em **patch cerâmico com rabicho de 8 cm e conector U.FL / IPEX MHF1** — a fêmea da placa mede ~2 mm a paquímetro. **Não é SMA**, e não há cabo roteável: 8 cm não saem de dentro do gabinete. **30 ciclos de encaixe** (datasheet Hirose) — conector de montagem, não de manutenção. Ver `montagem.md` §4.8 | Rastrear velocidade, coordenadas e rumo em tempo real. | 🔵 comprado |
+| 2 | **Módulo GPS u-blox NEO-M8N** em placa **GY-GPS6MV2** — ℹ️ **não é erro:** essa placa é vendida com vários chips u-blox (do 6M ao M8N) e a versão **M8N** foi a escolhida na compra. O nome da placa é da família, não do chip; não "corrigir" para NEO-6M. | ⚠️ **CORRIGIDO 2026-10-01:** UART, e antena ativa em **patch cerâmico com rabicho de 8 cm e conector U.FL / IPEX MHF1** — a fêmea da placa mede ~2 mm a paquímetro. **Não é SMA**, e não há cabo roteável: 8 cm não saem de dentro do gabinete. **30 ciclos de encaixe** (datasheet Hirose) — conector de montagem, não de manutenção. Ver `montagem.md` §4.8 | Rastrear velocidade, coordenadas e rumo em tempo real. | 🔵 comprado |
 | 3 | **Leitor Micro SD Adafruit 4682** | Breakout board nativo para nível lógico de 3,3 V (*3V ONLY!*) | Interface física para o cartão de memória. | 🟢 entregue |
 | 4 | **Cartão Micro SD** | 8 GB ou 16 GB, formatado em **FAT32** | Armazenar `radares.bin` (214 KB) e `wifi.cfg`. | 🟢 entregue |
 | 5 | **Display IPS TFT 2,4"** | `GMT024-08-SPI8P ver. 1.3`, controlador **ST7789V**, **240×320** nativo (usado deitado, 320×240), SPI de **8 pinos — sem MISO** | Exibir velocidade, limites e alertas visuais. | 🟢 recebido, controlador confirmado |
@@ -818,7 +818,7 @@ livre desde 2026-09-22. Ver ADR 0010.
 
 ### ⚠️ 3. Módulo GPS NEO-M8N (UART0)
 
-#### 🆕 ⚠️ Pinagem física do GY-GPSV3 (da foto do anúncio, **não confirmada na placa**)
+#### 🆕 ⚠️ Pinagem física do GY-GPS6MV2 (da foto do anúncio, **não confirmada na placa**)
 
 Da esquerda para a direita, olhando de frente:
 
@@ -857,7 +857,7 @@ UBX do RF01.2. Dano zero, sintoma confuso.
 
 #### ⚠️ Alimentação: a faixa do chip não é a faixa da placa
 
-**Placa adquirida: GY-GPSV3-NEO M8N** (breakout estilo Arduino, informado pelo autor).
+**Placa adquirida: GY-GPS6MV2-NEO M8N** (breakout estilo Arduino, informado pelo autor).
 
 > ✅ **MEDIDO em 2026-10-04 — o regulador existe e os 5 V estão liberados.** SOT-23-5
 > marcado `LB2k`, saída no **pino 4**. Com 3,29 V na entrada: **3,19 V na saída, 42 mA**.
@@ -869,7 +869,7 @@ O datasheet oficial do CI u-blox (UBX-15031086, Tabela 10) especifica:
 | :--- | :---: | :---: | :---: | :---: |
 | `VCC` NEO-M8N | **2,7 V** | **3,0 V** | **3,6 V** | 3,6 V |
 
-**Esse é o limite do CI, não da placa.** A GY-GPSV3, como toda a família GY-*, traz
+**Esse é o limite do CI, não da placa.** A GY-GPS6MV2, como toda a família GY-*, traz
 **regulador LDO embarcado** justamente para aceitar os 5 V do ecossistema Arduino — é a
 razão de existir do breakout.
 
@@ -1180,7 +1180,7 @@ Antes de ligar o circuito pela primeira vez:
 | R-05 — 330 Ω apaga verde e azul do LED RGB | BOM itens 11 e 12; seção 4; nota crítica |
 | R-06 — Jack P2 curto-circuita 5 V no GND | Seção 5 — ✅ **fechado de vez**: o buzzer é soldado desde 2026-09-25, e o item 18 foi dispensado. *(A versão anterior desta linha citava o item 19, que é o conector de entrada, não o do buzzer.)* |
 | R-13 — Orçamento de corrente do `3V3_OUT` | Nota na seção 3; checklist |
-| R-14 — Alimentação do GPS indefinida | Seção 3 — ✅ **5 V decidido** (GY-GPSV3 tem LDO embarcado) |
+| R-14 — Alimentação do GPS indefinida | Seção 3 — ✅ **5 V decidido** (GY-GPS6MV2 tem LDO embarcado) |
 | R-22 — GPIO de 3,3 V excede `VIN` do GPS | Seção 3 — resistor de 1 kΩ em série no `GPIO 0 → GPS RX` |
 | R-15 — Mutex no SPI0 compartilhado | ✅ **Anulado em 29/09/2026:** display migrou para o SPI1; não há barramento compartilhado a proteger (seção 2) |
 | R-16 — Justificativa incorreta do diodo | Nota do BOM item 15 |
@@ -1202,7 +1202,7 @@ Antes de ligar o circuito pela primeira vez:
 330 Ω. O `GPIO 14` liberado foi usado pelo **card detect** do leitor SD entre
 2026-09-17 e 2026-09-22, e com a remoção dele (ADR 0010) **voltou a ficar livre**.
 
-Pendente na seção 3: **confirmar visualmente que a placa GY-GPSV3 tem regulador de
+Pendente na seção 3: **confirmar visualmente que a placa GY-GPS6MV2 tem regulador de
 3 pinos junto ao VCC** antes de aplicar os 5 V. Verificação de 30 segundos; errar custa
 o módulo.
 

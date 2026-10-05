@@ -35,6 +35,23 @@ formato de arquivo do KiCad — s-expressão. Ele preserva quais átomos estavam
 entre aspas, e isso não é detalhe: o KiCad distingue `passive` de `"passive"`,
 e recusa a biblioteca inteira quando o que espera entre aspas vem nu.
 
+### Os gabaritos 1:1 cumpriram o papel e foram removidos
+
+Durante a medição dos módulos existiram folhas HTML em escala 1:1, geradas por
+um script, para imprimir e pôr a peça em cima. Elas acharam coisa: confirmaram
+o contorno do leitor microSD e do GPS, reprovaram os furos de um footprint de
+terceiro, e mostraram que a peça real tem quinas arredondadas onde o arquivo
+desenhava chanfro.
+
+Foram apagadas em 2026-10-05, junto com o gerador, depois que todas as medidas
+fecharam. Os comentários que dizem "confirmado no gabarito 1:1" pelo código e
+pelo `medidas.py` continuam verdadeiros — referem-se ao que foi feito, não a um
+arquivo que ainda exista. **Não procure por eles.**
+
+Se algum módulo novo entrar no projeto, vale recriar: um gabarito impresso custa
+uma folha de papel e responde o que o paquímetro sozinho não responde, que é se
+a geometria inteira fecha de uma vez.
+
 ### Reproduzir
 
 ```sh
@@ -216,7 +233,7 @@ ganho. **O Pico foi a exceção, não a regra.**
 | Peça | Existe footprint oficial? | O que foi usado, e por quê |
 | :--- | :--- | :--- |
 | **Pico 2 W** | ✅ `Module:RaspberryPi_Pico_Common_THT` | adotado — é produto padronizado |
-| GPS GY-GPSV3 | ❌ | `RF_GPS` só tem **módulo nu** (`ublox_SAM-M8Q`, `ORG1510`), não a placa de breakout. Barra de 1×4 |
+| GPS GY-GPS6MV2 | ❌ | `RF_GPS` só tem **módulo nu** (`ublox_SAM-M8Q`, `ORG1510`), não a placa de breakout. Barra de 1×4 |
 | Leitor microSD | ❌ | `Connector_Card` só tem **soquete nu** (Hirose DM3AT, Molex). O nosso é breakout com regulador. Barra de 1×9 |
 | Display ST7789V | ❌ | nada para a placa de breakout. Barra de 1×8 |
 | Encoder KY-040 | ❌ | `Rotary_Encoder` só tem **encoder nu** (Alps EC11E, Bourns PEC12R). O KY-040 é módulo com pull-ups. Barra de 1×5 |
@@ -247,6 +264,36 @@ motorista. Se os dois são fixados na caixa e não na placa, a barra de pinos
 deixa de ser "onde o módulo encaixa" e passa a ser "conector para o chicote" —
 muda o tipo de peça e muda o desenho. **Decisão pendente**, e ela precede o
 contorno da placa.
+
+---
+
+## 7.5 Dois pontos que quem montar precisa saber
+
+Ambos são consequência do roteamento feito à mão em 2026-10-05 e **não aparecem
+em lugar nenhum além do arquivo da placa**.
+
+### ⚠️ O pino 1 do J3 tem conexão sólida com o terra
+
+O conector do display é o único ponto da placa sem alívio térmico. Ele foi feito
+assim de propósito: naquela posição, o pad é o primeiro de uma fila de oito a
+2,54 mm, com o vizinho em outra rede, e não sobrava cobre para os dois raios
+térmicos que a verificação exige.
+
+**Na prática:** aquele pino suga calor do plano inteiro. Soldá-lo exige ferro
+com reserva térmica e mais tempo que os demais. Se a solda não molhar, o
+problema é esse — não é falta de fluxo nem pad oxidado.
+
+Os outros sete pinos do mesmo conector continuam com alívio térmico normal.
+
+### A ilha de terra do GPS é costurada por uma trilha
+
+O pad de terra do módulo GPS (J1, pino 4) ficou numa ilha de cobre de `F.Cu`
+separada do plano. Uma trilha de 11,6 mm leva até uma via em (101,0; 81,5), que
+fecha no plano de `B.Cu`.
+
+Funciona e foi verificado, mas é mais frágil que um pad em plano contínuo:
+**quem mexer no roteamento daquela região precisa preservar essa trilha**, ou o
+terra do GPS volta a depender só da face de baixo.
 
 ---
 

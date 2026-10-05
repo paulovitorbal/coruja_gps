@@ -63,11 +63,18 @@ MAPA = {
     # fileiras vêm a 17,78 mm por construção.
     "PICO": ("U1", "Pico", "Module:RaspberryPi_Pico_Common_THT", 40),
 
-    "GPS":  ("J1", "GPS_NEO_M8N", HDR.format(4), 4),
-    "SD":   ("J2", "Leitor_microSD", HDR.format(9), 9),
+    # GY-GPS6MV2 com NEO-M8N. Footprint próprio: espaçador M4 e jumper,
+    # com o U.FL marcado na camada de fabricação.
+    "GPS":  ("J1", "GPS_NEO_M8N", "coruja:GPS_GY_GPS6MV2", 4),
+    # Adafruit 4682. Footprint próprio: a barra de 9 pinos vem com o
+    # contorno do módulo e os furos de fixação, que a barra genérica
+    # não carrega. Geometria do arquivo da Adafruit, conferida na peça.
+    "SD":   ("J2", "Leitor_microSD", "coruja:Leitor_microSD_Adafruit4682", 9),
     "TFT":  ("J3", "Display_ST7789V", HDR.format(8), 8),
     "ENC":  ("J4", "Encoder_KY040", HDR.format(5), 5),
-    "CONV": ("J5", "Conversor_12V_5V", HDR.format(4), 4),
+    # Sem barra de pinos: quatro furos nas quinas, para jumper, e dois
+    # furos de M3. Footprint próprio, de medida a paquímetro.
+    "CONV": ("J5", "Conversor_12V_5V", "coruja:Conversor_LM2596", 4),
     "LED":  ("J6", "LED_RGB_AC", HDR.format(4), 4),
     "BZ":   ("J7", "Buzzer", HDR.format(2), 2),
 
