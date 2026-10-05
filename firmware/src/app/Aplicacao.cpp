@@ -73,10 +73,20 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
         menu_no_ar_ = aberto;
     }
 
-    if (aberto) {
-        // A taxa vem do monitor a cada volta: ela muda sozinha, e mostrar
-        // a de quando o menu abriu seria mostrar o passado.
+    // **A taxa congela na ENTRADA da tela de informação.** A primeira versão
+    // a atualizava a cada volta, com a justificativa de que mostrar a de
+    // quando o menu abriu "seria mostrar o passado". Estava errado: esta é a
+    // única tela do aparelho onde se LÊ em vez de relancear, e número
+    // tremendo enquanto se lê é ruído, não informação. A taxa instantânea já
+    // tem lugar próprio na tela de dirigir.
+    const bool informando =
+        aberto && menu_.estado() == EstadoMenu::Informando;
+    if (informando && !informando_antes_) {
         info_.taxa_hz = gps_.monitor().taxa_hz();
+    }
+    informando_antes_ = informando;
+
+    if (aberto) {
         std::snprintf(info_.nome, sizeof info_.nome, "%s",
                       menu_.ajustes().nome);
         tela_menu_.desenha(menu_, info_, agora_ms, *visor_);
@@ -108,6 +118,11 @@ void Aplicacao::define_base_carregada(const CabecalhoBase& cabecalho,
     info_.mes = cabecalho.mes;
     info_.dia = cabecalho.dia;
     info_.pontos = pontos;
+}
+
+void Aplicacao::define_versao(const char* v) {
+    std::snprintf(info_.versao, sizeof info_.versao, "%s",
+                  v != nullptr ? v : "?");
 }
 
 void Aplicacao::passo(std::uint32_t agora_ms) {

@@ -26,7 +26,21 @@ struct InfoAparelho {
     std::uint8_t  mes = 0;
     std::uint8_t  dia = 0;
     std::size_t   pontos = 0;
+
+    /// Taxa do GPS **congelada na entrada** da tela de informação.
+    ///
+    /// Era ao vivo, e estava errado: esta é a única tela do aparelho onde se
+    /// lê em vez de relancear, e número tremendo enquanto se lê é ruído. A
+    /// taxa instantânea tem lugar próprio na tela de dirigir.
     float         taxa_hz = 0.0F;
+
+    /// Identificação do build: hash curto, `*` se a árvore estava suja, data.
+    ///
+    /// **Existe por um incidente.** Em 2026-10-04 uma gravação não pegou, o
+    /// aparelho ficou com firmware de cinco dias antes, e não havia como
+    /// saber — nem o log do cartão distinguia. Meia hora foi gasta lendo
+    /// código que estava correto.
+    char          versao[24] = {};
 };
 
 /// Desenha o menu de ajustes do carro parado.
@@ -72,7 +86,7 @@ private:
         /// do autor, 2026-09-30). Juntas davam 324 px numa tela de 320 —
         /// era a única linha do aparelho que precisava rolar, e rolar 4 px
         /// parece tremor, não rolagem. Separadas, as duas cabem.
-        char       info[4][40] = {};
+        char       info[5][40] = {};
         EstadoMenu estado = EstadoMenu::Fechado;
         bool       valido = false;
     };

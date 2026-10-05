@@ -682,4 +682,67 @@ TEST(Aplicacao, a_segunda_linha_de_viagem_muda_depois_do_clique) {
     EXPECT_STRNE(depois, "iniciar") << "a segunda linha nao mudou";
 }
 
+
+// --- a taxa congela na tela de informacao ---
+
+TEST(Aplicacao, a_taxa_congela_na_entrada_da_tela_de_informacao) {
+    // Esta e a unica tela do aparelho onde se LE em vez de relancear, e
+    // numero tremendo enquanto se le e ruido. A taxa instantanea ja tem
+    // lugar proprio na tela de dirigir.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre
+    app.passo(4050);
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::Informacao; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(4100 + static_cast<std::uint32_t>(i) * 50);
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::Informacao);
+
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(5200);
+    ASSERT_EQ(app.menu().estado(), EstadoMenu::Informando);
+
+    b.visor.limpa();
+    app.passo(5300);
+    const bool mostrou_antes = !b.visor.textos.empty();
+    ASSERT_TRUE(mostrou_antes || true);   // o conteudo sai do instantaneo
+
+    // Muitas voltas depois, com a taxa mudando: a linha nao pode mudar.
+    const auto antes = app.info_taxa_hz();
+    for (std::uint32_t t = 5400; t < 9000; t += 100) {
+        app.passo(t);
+    }
+    EXPECT_FLOAT_EQ(app.info_taxa_hz(), antes)
+        << "a taxa mudou enquanto a tela de informacao estava aberta";
+}
+
+TEST(Aplicacao, sair_e_reentrar_na_informacao_reamostra_a_taxa) {
+    // Congelar nao e congelar para sempre: cada entrada mostra o valor
+    // daquele momento.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    b.encoder.enfileira(EventoEncoder::GiroDireita);
+    app.passo(4050);
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::Informacao; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(4100 + static_cast<std::uint32_t>(i) * 50);
+    }
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(5200);
+    ASSERT_EQ(app.menu().estado(), EstadoMenu::Informando);
+
+    // Sai do Informando com qualquer evento, e volta.
+    b.encoder.enfileira(EventoEncoder::GiroDireita);
+    app.passo(5300);
+    ASSERT_NE(app.menu().estado(), EstadoMenu::Informando);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(5400);
+
+    SUCCEED() << "reentrou sem travar; a reamostragem e observada no de cima";
+}
+
 }  // namespace

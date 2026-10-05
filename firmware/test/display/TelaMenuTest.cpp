@@ -375,4 +375,61 @@ TEST(TelaMenu, as_linhas_que_cabem_ficam_centralizadas_e_paradas) {
     }
 }
 
+
+// --- identificacao do build ---
+//
+// Existe por um incidente: em 2026-10-04 uma gravacao nao pegou, o aparelho
+// ficou com firmware de cinco dias antes, e nao havia como saber. Nem o log
+// do cartao distinguia as versoes.
+
+TEST(TelaMenu, a_tela_de_informacao_mostra_a_versao_do_firmware) {
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+    ASSERT_EQ(b.menu().estado(), EstadoMenu::Informando);
+
+    InfoAparelho info = kInfo;
+    std::snprintf(info.versao, sizeof info.versao, "9eb2e15 04/10/26");
+    tela.desenha(b.menu(), info, 0, v);
+
+    EXPECT_TRUE(v.tem_texto("fw: 9eb2e15 04/10/26"))
+        << "sem a versao nao da para saber o que esta rodando";
+}
+
+TEST(TelaMenu, versao_vazia_vira_interrogacao_e_nao_linha_em_branco) {
+    // Linha em branco pareceria defeito de desenho; `?` diz que o dado nao
+    // chegou, que e outra coisa.
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+
+    InfoAparelho info = kInfo;
+    info.versao[0] = '\0';
+    tela.desenha(b.menu(), info, 0, v);
+    EXPECT_TRUE(v.tem_texto("fw: ?"));
+}
+
+TEST(TelaMenu, as_cinco_linhas_cabem_na_area_do_numero) {
+    // 5x20 de altura mais 4x10 de vao dao 140 px nos 166 disponiveis. Se a
+    // conta estourar, a ultima linha sai da area e some por clipagem.
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    for (const auto& t : v.textos) {
+        if (t.s.rfind("fw:", 0) == 0) {
+            EXPECT_LT(t.y + altura_da_fonte(Fonte::Texto),
+                      tela::kYAreaNumero + tela::kAreaNumero)
+                << "a linha da versao passou da area";
+        }
+    }
+}
+
 }  // namespace

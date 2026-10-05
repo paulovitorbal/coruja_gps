@@ -5,6 +5,17 @@ cmake_minimum_required(VERSION 3.13)
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
 
+# Identificacao do build, regenerada a cada compilacao. Ver
+# cmake/gera_versao.cmake para o motivo de nao ser na configuracao.
+set(CORUJA_VERSAO_H ${CMAKE_BINARY_DIR}/gerado/VersaoBuild.h)
+add_custom_target(coruja_versao ALL
+    COMMAND ${CMAKE_COMMAND}
+            -DFONTE=${CMAKE_CURRENT_SOURCE_DIR}
+            -DSAIDA=${CORUJA_VERSAO_H}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gera_versao.cmake
+    BYPRODUCTS ${CORUJA_VERSAO_H}
+    COMMENT "Gerando identificacao de build")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -56,6 +67,11 @@ else()
     else()
         add_executable(coruja_gps src/main.cpp)
     endif()
+    # O header de versao e gerado no build, entao o executavel depende do
+    # alvo que o produz e precisa do diretorio onde ele cai.
+    add_dependencies(coruja_gps coruja_versao)
+    target_include_directories(coruja_gps PRIVATE ${CMAKE_BINARY_DIR}/gerado)
+
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
         coruja_ota coruja_gps_cfg

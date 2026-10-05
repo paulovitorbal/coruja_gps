@@ -81,6 +81,13 @@ public:
     /// `Aplicacao` recebe o `PilotoAlerta` ja alimentado e nao tem como
     /// saber a versao nem a contagem. A taxa do GPS, essa sim, ela le do
     /// monitor a cada volta.
+    /// Identificação do build, mostrada na tela de informação.
+    ///
+    /// Vem da composição porque o header gerado só é incluído pelo
+    /// `main.cpp` — assim a tela segue testável com valor controlado, e o
+    /// alvo de host não depende de um arquivo que o build gera.
+    void define_versao(const char* v);
+
     void define_base_carregada(const CabecalhoBase& cabecalho,
                                std::size_t pontos);
 
@@ -88,6 +95,9 @@ public:
 
     /// Estado do registro de viagem, para teste e para a tela.
     EstadoViagem estado_viagem() const { return diario_.estado_viagem(); }
+
+    /// A taxa que a tela de informacao esta mostrando, congelada na entrada.
+    float info_taxa_hz() const { return info_.taxa_hz; }
     const DetectorParado& detector() const { return detector_; }
 
     /// Qual tela esta no ar. Exposto para teste: e a decisao que o laco
@@ -118,6 +128,8 @@ private:
     TelaMenu       tela_menu_;
     /// Para detectar a TRANSICAO entre as duas telas, nao o estado.
     bool           menu_no_ar_ = false;
+    /// Idem, para a entrada na tela de informacao, onde a taxa congela.
+    bool           informando_antes_ = false;
     /// Clique recusado por veiculo em movimento (RF05.1). A tela mostra o
     /// aviso por 2 s; sem ele o clique pareceria nao ter efeito.
     std::uint32_t  aviso_ota_em_ms_ = 0;

@@ -28,6 +28,7 @@
 
 #include "app/Aplicacao.h"
 #include "app/EsperaDispensa.h"
+#include "VersaoBuild.h"
 #include "app/OtaNaTela.h"
 #include "app/PilotoAlerta.h"
 #include "armazenamento/CartaoSd.h"
@@ -309,6 +310,7 @@ int main() {
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,
                           config, g_trabalho_cfg, sizeof g_trabalho_cfg,
                           &visor);
+    app.define_versao(coruja::kVersaoBuild);
     app.define_base_carregada(base.cabecalho, base.pontos);
 
     log.info("boot", "pronto");

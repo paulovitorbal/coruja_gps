@@ -49,6 +49,10 @@ TelaMenu::Instantaneo TelaMenu::compoe(const MenuAjustes& menu,
         // apareceriam como 4.
         std::snprintf(i.info[3], sizeof i.info[3], "gps: %.1f Hz",
                       static_cast<double>(info.taxa_hz));
+        // Por ultimo porque e a linha que menos se consulta -- e a que mais
+        // importa quando algo nao bate com o que se espera do firmware.
+        std::snprintf(i.info[4], sizeof i.info[4], "fw: %s",
+                      info.versao[0] != '\0' ? info.versao : "?");
     }
 
     return i;
@@ -102,13 +106,13 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
             // Três linhas em corpo de texto: aqui se lê, não se relanceia.
             // É a única tela do aparelho com essa premissa, e ela só é
             // válida porque o carro está parado.
-            // Quatro linhas centralizadas na area: 4x20 de altura mais
-            // 3x10 de vao dao 110 px nos 166 disponiveis.
+            // Cinco linhas centralizadas na area: 5x20 de altura mais
+            // 4x10 de vao dao 140 px nos 166 disponiveis.
             const int passo = altura_da_fonte(Fonte::Texto) + 10;
-            const int altura_bloco = 4 * altura_da_fonte(Fonte::Texto) +
-                                     3 * 10;
+            const int altura_bloco = 5 * altura_da_fonte(Fonte::Texto) +
+                                     4 * 10;
             int y = tela::kYAreaNumero + (tela::kAreaNumero - altura_bloco) / 2;
-            for (int l = 0; l < 4; ++l) {
+            for (int l = 0; l < 5; ++l) {
                 // A linha da base passa de 320 px com uma versao datada e
                 // 18 mil pontos, e e a unica desta tela que rola. Cabendo,
                 // `rolagem` devolve o `x` centralizado.
