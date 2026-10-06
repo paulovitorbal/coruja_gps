@@ -28,7 +28,13 @@ import viagem  # noqa: E402
 
 TOKEN = "segredo-do-carro-para-teste"
 TOKEN_OUTRO = "segredo-da-bancada-para-teste"
-APARELHOS = {TOKEN: "carro", TOKEN_OUTRO: "bancada"}
+
+#: A pasta e a IMPRESSAO do token, derivada -- nao ha nome a configurar.
+#: Calculada aqui em vez de fixada: fixar faria um teste de hash disfarcado
+#: de teste de pagina.
+PASTA = s.impressao_do_token(TOKEN)
+PASTA_OUTRO = s.impressao_do_token(TOKEN_OUTRO)
+APARELHOS = {TOKEN: PASTA, TOKEN_OUTRO: PASTA_OUTRO}
 
 
 def viagem_sintetica(inicio="2026-10-06T12:38:00Z", pontos=22,
@@ -60,8 +66,8 @@ class PaginaEmTeste(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dados = Path(self.tmp.name)
         self.recebidos = self.dados / "recebidos"
-        (self.recebidos / "carro").mkdir(parents=True)
-        (self.recebidos / "bancada").mkdir(parents=True)
+        (self.recebidos / PASTA).mkdir(parents=True)
+        (self.recebidos / PASTA_OUTRO).mkdir(parents=True)
 
         self.srv = s.cria_servidor(self.dados, 0, "127.0.0.1", APARELHOS,
                                    self.recebidos)
@@ -121,7 +127,7 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertEqual(cookie, "")
 
     def test_mapa_sem_sessao_e_recusado(self):
-        self.poe_viagem("carro", "20261006_123858.log")
+        self.poe_viagem(PASTA, "20261006_123858.log")
         st, _corpo, _ = self.pede("GET", s.ROTA_VIAGENS + "/20261006_123858.log")
         self.assertEqual(st, 401)
 
@@ -147,31 +153,31 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertIn("Path=/viagens", bruto)
 
     def test_lista_as_viagens_do_aparelho(self):
-        self.poe_viagem("carro", "20261006_123858.log")
-        self.poe_viagem("carro", "20261004_225323.log")
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        self.poe_viagem(PASTA, "20261004_225323.log")
         _st, cookie = self.entra()
         st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
         self.assertEqual(st, 200)
         self.assertIn("20261006_123858.log", corpo)
         self.assertIn("20261004_225323.log", corpo)
-        self.assertIn("carro", corpo)
+        self.assertIn(PASTA, corpo)
 
     def test_NAO_lista_as_viagens_de_outro_aparelho(self):
         # O que a separação por pasta existe para garantir, visto de fora.
-        self.poe_viagem("bancada", "20261006_999999.log")
+        self.poe_viagem(PASTA_OUTRO, "20261006_999999.log")
         _st, cookie = self.entra(TOKEN)
         _st2, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
         self.assertNotIn("20261006_999999.log", corpo)
 
     def test_nao_abre_o_mapa_de_viagem_de_outro(self):
-        self.poe_viagem("bancada", "20261006_999999.log")
+        self.poe_viagem(PASTA_OUTRO, "20261006_999999.log")
         _st, cookie = self.entra(TOKEN)
         st, _corpo, _ = self.pede(
             "GET", s.ROTA_VIAGENS + "/20261006_999999.log", cookie=cookie)
         self.assertEqual(st, 404)
 
     def test_a_listagem_mostra_os_numeros_da_viagem(self):
-        self.poe_viagem("carro", "20261006_123858.log")
+        self.poe_viagem(PASTA, "20261006_123858.log")
         _st, cookie = self.entra()
         _st2, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
         self.assertIn("km", corpo)
@@ -183,7 +189,7 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertIn("enviar dados", corpo)
 
     def test_sair_derruba_a_sessao(self):
-        self.poe_viagem("carro", "20261006_123858.log")
+        self.poe_viagem(PASTA, "20261006_123858.log")
         _st, cookie = self.entra()
         self.pede("POST", s.ROTA_VIAGENS + "/sair", "", cookie=cookie)
         st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
@@ -210,8 +216,8 @@ class PaginaEmTeste(unittest.TestCase):
 
     def test_coruja_log_e_infracoes_nao_sao_viagens(self):
         # Eles chegam na mesma pasta, pelo envio, e não são trajetos.
-        (self.recebidos / "carro" / "coruja.log").write_text("qualquer coisa")
-        (self.recebidos / "carro" / "infracoes.log").write_text("outra")
+        (self.recebidos / PASTA / "coruja.log").write_text("qualquer coisa")
+        (self.recebidos / PASTA / "infracoes.log").write_text("outra")
         _st, cookie = self.entra()
         _st2, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
         self.assertNotIn("coruja.log", corpo)
@@ -220,8 +226,8 @@ class PaginaEmTeste(unittest.TestCase):
     def test_arquivo_ilegivel_nao_derruba_a_listagem(self):
         # Cartão puxado no meio da gravação, ou envio truncado. As outras
         # viagens continuam valendo.
-        self.poe_viagem("carro", "20261006_123858.log")
-        (self.recebidos / "carro" / "20261005_000000.log").write_text("lixo\n")
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        (self.recebidos / PASTA / "20261005_000000.log").write_text("lixo\n")
         _st, cookie = self.entra()
         st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
         self.assertEqual(st, 200)

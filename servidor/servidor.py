@@ -130,10 +130,28 @@ ESPERA_APOS_ERRO_S = 1.0
 #: Onde mora a lista de aparelhos, quando ninguem diz outra coisa.
 ARQUIVO_APARELHOS = "aparelhos.cfg"
 
-#: Nome de aparelho aceito. Ele vira **nome de diretorio** em `recebidos/`,
-#: entao a lista branca aqui e o que impede um nome de configuracao de virar
-#: travessia de caminho — mesma razao do `PADRAO_NOME`.
-PADRAO_APARELHO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+#: Quantos digitos hexadecimais da impressao do token nomeiam a pasta.
+#:
+#: 16 digitos sao 64 bits. Para um punhado de aparelhos a chance de dois
+#: tokens caírem na mesma pasta e desprezivel -- e, mesmo assim, o leitor
+#: confere e recusa, porque "desprezivel" nao e "impossivel" e a consequencia
+#: seria dois carros gravando um por cima do outro.
+DIGITOS_IMPRESSAO = 16
+
+
+def impressao_do_token(token: str) -> str:
+    """O nome de pasta de um aparelho, derivado do segredo dele.
+
+    **Derivado, e nao configurado**: nao ha nome para manter em lugar nenhum,
+    e trocar o token troca a pasta -- que e o comportamento certo, porque um
+    token novo e outro aparelho do ponto de vista de quem recebe.
+
+    ⚠️ **O token NAO vira nome de pasta.** Ele e a credencial que tambem
+    ENVIA; escrito no disco apareceria em `ls`, em qualquer backup e no log
+    deste servidor, e quem o lesse poderia subir viagem falsa. A impressao
+    identifica sem revelar.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:DIGITOS_IMPRESSAO]
 
 #: Abaixo disto o token e curto demais para servir de segredo. Nao recusa:
 #: avisa. Quem escolhe o segredo e o dono do servidor, e travar a subida por
@@ -156,7 +174,7 @@ SECOES_CONHECIDAS = frozenset({"mapa"})
 class ListaDeAparelhos(NamedTuple):
     """O que o `aparelhos.cfg` descreve."""
 
-    #: {token: nome do aparelho}
+    #: {token: impressao do token} — a impressao e o nome da pasta
     por_token: dict[str, str]
     #: a secao `[mapa]`, com a chave do provedor de tiles
     mapa: dict[str, str]
@@ -165,33 +183,33 @@ class ListaDeAparelhos(NamedTuple):
 def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
     """Le o `aparelhos.cfg`.
 
-    Formato `nome=token`, uma por linha; `#` comenta, linha em branco passa.
-    A divisao e no PRIMEIRO `=`, porque um token pode conter o separador.
+    **Um token por linha**, e so. `#` comenta, linha em branco passa. Nao ha
+    nome a configurar: a pasta de cada aparelho e a IMPRESSAO do token dele --
+    ver `impressao_do_token`.
 
-    Depois dos aparelhos pode vir `[mapa]`, com ajustes da pagina de viagens:
+    Depois dos tokens pode vir `[mapa]`, com ajustes da pagina de viagens:
 
-        carro-paulo=HBu2kQ...
-        bancada=9xT1pR...
+        HBu2kQ3pR8tL5nW...
+        9xT1pRvM2kS7bY4...
 
         [mapa]
         thunderforest=abc123...
 
-    Os aparelhos sao indexados por TOKEN e nao por nome porque e assim que a
-    consulta acontece: chega um segredo e a pergunta e "de quem e este". O
-    caminho inverso nunca e percorrido.
+    Indexado por TOKEN porque e assim que a consulta acontece: chega um
+    segredo e a pergunta e "de quem e este". O caminho inverso nunca e
+    percorrido.
 
-    Levanta `ErroDeAparelhos` em nome invalido, nome repetido, token repetido
-    ou secao desconhecida. **Token repetido e o que mais importa recusar**:
-    dois aparelhos com o mesmo segredo tornam a atribuicao ambigua, e o
-    proposito da lista e justamente saber de quem veio o arquivo.
+    Levanta `ErroDeAparelhos` em token repetido, impressao repetida ou secao
+    desconhecida. **Token repetido e o que mais importa recusar**: dois
+    aparelhos com o mesmo segredo tornam a atribuicao ambigua, e o proposito
+    da lista e justamente saber de quem veio o arquivo.
     """
     if not caminho.is_file():
         return ListaDeAparelhos({}, {})
 
     por_token: dict[str, str] = {}
     mapa: dict[str, str] = {}
-    nomes: set[str] = set()
-    secao = ""   # vazio = a lista de aparelhos
+    secao = ""   # vazio = a lista de tokens
 
     for n_linha, bruta in enumerate(
             caminho.read_text(encoding="utf-8").splitlines(), start=1):
@@ -207,30 +225,35 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
                     f"(conhecidas: {', '.join(sorted(SECOES_CONHECIDAS))})")
             continue
 
-        if "=" not in linha:
-            raise ErroDeAparelhos(
-                f"{caminho}:{n_linha}: esperava 'chave=valor'")
-        esquerda, direita = (parte.strip() for parte in linha.split("=", 1))
-
         if secao == "mapa":
-            mapa[esquerda.lower()] = direita
+            if "=" not in linha:
+                raise ErroDeAparelhos(
+                    f"{caminho}:{n_linha}: em [mapa], esperava 'chave=valor'")
+            chave, valor = (parte.strip() for parte in linha.split("=", 1))
+            mapa[chave.lower()] = valor
             continue
 
-        nome, token = esquerda, direita
-        if not PADRAO_APARELHO.match(nome):
+        token = linha
+        # Um `=` fora da secao [mapa] quase certamente e o formato ANTIGO,
+        # `nome=token`, que existiu entre 2026-10-06 e a mesma data. Recusar
+        # com a explicacao custa menos que aceitar e gravar na pasta errada.
+        if "=" in token:
             raise ErroDeAparelhos(
-                f"{caminho}:{n_linha}: nome '{nome}' invalido "
-                "(letras, digitos, hifen e sublinhado; ate 32)")
-        if not token:
-            raise ErroDeAparelhos(f"{caminho}:{n_linha}: '{nome}' sem token")
-        if nome in nomes:
-            raise ErroDeAparelhos(f"{caminho}:{n_linha}: '{nome}' repetido")
+                f"{caminho}:{n_linha}: um token por linha, sem 'nome='. "
+                "A pasta de cada aparelho sai da impressao do proprio token.")
         if token in por_token:
             raise ErroDeAparelhos(
-                f"{caminho}:{n_linha}: o token de '{nome}' e igual ao de "
-                f"'{por_token[token]}'; nao daria para saber quem enviou")
-        nomes.add(nome)
-        por_token[token] = nome
+                f"{caminho}:{n_linha}: token repetido; nao daria para saber "
+                "qual aparelho enviou")
+        impressao = impressao_do_token(token)
+        if impressao in por_token.values():
+            # 64 bits nao colidem na pratica, mas "na pratica" nao e "nunca",
+            # e a consequencia seria dois carros gravando um por cima do
+            # outro -- em silencio.
+            raise ErroDeAparelhos(
+                f"{caminho}:{n_linha}: a impressao '{impressao}' colide com a "
+                "de outro token. Gere outro segredo.")
+        por_token[token] = impressao
 
     return ListaDeAparelhos(por_token, mapa)
 

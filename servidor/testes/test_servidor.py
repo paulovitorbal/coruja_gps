@@ -39,6 +39,18 @@ def base_valida(n_pontos: int = 3, crc: int = 0xDEADBEEF, versao: int = 2,
     return cab + bytes(n_pontos * 12)
 
 
+TOKEN = "segredo-de-teste-do-carro"
+TOKEN_OUTRO = "segredo-de-teste-da-bancada"
+
+#: A pasta de cada aparelho é a IMPRESSÃO do token, derivada. Os testes a
+#: calculam em vez de fixar a string: fixar faria um teste de hash disfarçado
+#: de teste de servidor, e mudar `DIGITOS_IMPRESSAO` quebraria tudo por um
+#: motivo que não é o que se está verificando.
+PASTA = s.impressao_do_token(TOKEN)
+PASTA_OUTRO = s.impressao_do_token(TOKEN_OUTRO)
+APARELHOS = {TOKEN: PASTA, TOKEN_OUTRO: PASTA_OUTRO}
+
+
 class ServidorEmTeste(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -227,11 +239,6 @@ class VersaoComData(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
-TOKEN = "segredo-de-teste-do-carro"
-TOKEN_OUTRO = "segredo-de-teste-da-bancada"
-APARELHOS = {TOKEN: "carro", TOKEN_OUTRO: "bancada"}
-
-
 class Recepcao(unittest.TestCase):
     """A rota que recebe log, viagem e infração do aparelho.
 
@@ -288,7 +295,8 @@ class Recepcao(unittest.TestCase):
     def envia(self, nome, corpo, **kw):
         return self.pede("PUT", s.ROTA_ENVIO + nome, corpo, **kw)
 
-    def recebidos(self, aparelho="carro"):
+    def recebidos(self, aparelho=None):
+        aparelho = aparelho if aparelho is not None else PASTA
         pasta = self.dados / s.SUBDIR_ENVIO / aparelho
         return sorted(p.name for p in pasta.iterdir()) if pasta.is_dir() else []
 
@@ -379,7 +387,7 @@ class Recepcao(unittest.TestCase):
     def test_o_arquivo_salvo_e_identico_ao_enviado(self):
         corpo = bytes(range(256)) * 13
         self.envia("coruja.log", corpo)
-        self.assertEqual((self.dados / s.SUBDIR_ENVIO / "carro" / "coruja.log")
+        self.assertEqual((self.dados / s.SUBDIR_ENVIO / PASTA / "coruja.log")
                          .read_bytes(), corpo)
 
     def test_salva_na_subpasta_e_nao_junto_da_base(self):
@@ -388,7 +396,7 @@ class Recepcao(unittest.TestCase):
         # distância de ser servido como dado oficial.
         self.envia("infracoes.log", b"dado")
         self.assertFalse((self.dados / "infracoes.log").exists())
-        self.assertTrue((self.dados / s.SUBDIR_ENVIO / "carro"
+        self.assertTrue((self.dados / s.SUBDIR_ENVIO / PASTA
                          / "infracoes.log").is_file())
 
     def test_crc_consultado_bate_com_o_do_envio(self):
@@ -415,7 +423,7 @@ class Recepcao(unittest.TestCase):
     def test_reenvio_sobrescreve(self):
         self.envia("coruja.log", b"velho")
         self.envia("coruja.log", b"novo")
-        self.assertEqual((self.dados / s.SUBDIR_ENVIO / "carro" / "coruja.log")
+        self.assertEqual((self.dados / s.SUBDIR_ENVIO / PASTA / "coruja.log")
                          .read_bytes(), b"novo")
         self.assertEqual(self.recebidos(), ["coruja.log"])
 
@@ -426,7 +434,7 @@ class Recepcao(unittest.TestCase):
         st, resp = self.envia("coruja.log", corpo)
         self.assertEqual(st, 201)
         self.assertEqual(resp.decode().strip(), f"{zlib.crc32(corpo):08x}")
-        self.assertEqual((self.dados / s.SUBDIR_ENVIO / "carro" / "coruja.log")
+        self.assertEqual((self.dados / s.SUBDIR_ENVIO / PASTA / "coruja.log")
                          .stat().st_size, len(corpo))
 
     # -- corpo malformado --
@@ -488,7 +496,7 @@ class Recepcao(unittest.TestCase):
             c.close()
 
         self.assertEqual(
-            (self.dados / s.SUBDIR_ENVIO / "carro" / "20261006_143000.log")
+            (self.dados / s.SUBDIR_ENVIO / PASTA / "20261006_143000.log")
             .read_bytes(), bom)
 
     def test_sucesso_nao_deixa_parcial_para_tras(self):
@@ -530,7 +538,7 @@ class Recepcao(unittest.TestCase):
 
         st, _ = self.envia("infracoes.log", b"dado")
         self.assertEqual(st, 201)
-        self.assertTrue((caixa / "carro" / "infracoes.log").is_file())
+        self.assertTrue((caixa / PASTA / "infracoes.log").is_file())
         # Nada foi escrito no diretório da base.
         self.assertEqual(sorted(p.name for p in self.dados.iterdir()), [])
 
@@ -627,9 +635,9 @@ class Recepcao(unittest.TestCase):
         self.envia("infracoes.log", b"da bancada", token=TOKEN_OUTRO)
 
         raiz = self.dados / s.SUBDIR_ENVIO
-        self.assertEqual((raiz / "carro" / "infracoes.log").read_bytes(),
+        self.assertEqual((raiz / PASTA / "infracoes.log").read_bytes(),
                          b"do carro")
-        self.assertEqual((raiz / "bancada" / "infracoes.log").read_bytes(),
+        self.assertEqual((raiz / PASTA_OUTRO / "infracoes.log").read_bytes(),
                          b"da bancada")
 
     def test_um_aparelho_nao_le_o_crc_do_outro(self):
@@ -655,11 +663,24 @@ class Recepcao(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertEqual(consultado, crc_a)
 
-    def test_o_nome_do_aparelho_nao_vaza_na_resposta(self):
-        # A resposta é só o CRC. Devolver o nome não serviria a ninguém e
+    def test_o_token_nao_vira_nome_de_pasta(self):
+        # O ponto inteiro da impressão: o segredo também SERVE PARA ENVIAR, e
+        # escrito no disco apareceria em `ls`, em backup e no log.
+        self.envia("coruja.log", b"dado")
+        tudo = [p.name for p in (self.dados / s.SUBDIR_ENVIO).iterdir()]
+        self.assertNotIn(TOKEN, tudo)
+        self.assertIn(PASTA, tudo)
+
+    def test_a_impressao_nao_revela_o_token(self):
+        # Hexadecimal de 16 dígitos, e nada do segredo dentro.
+        self.assertRegex(PASTA, r"^[0-9a-f]{16}$")
+        self.assertNotIn(PASTA, TOKEN)
+
+    def test_o_aparelho_nao_vaza_na_resposta(self):
+        # A resposta é só o CRC. Devolver a pasta não serviria a ninguém e
         # contaria a quem tem UM token quantos aparelhos existem.
         _, corpo = self.envia("coruja.log", b"dado")
-        self.assertNotIn(b"carro", corpo)
+        self.assertNotIn(PASTA.encode(), corpo)
 
 
 class AparelhoDeTokenVazio(unittest.TestCase):
@@ -741,29 +762,36 @@ class LeAparelhos(unittest.TestCase):
         self.caminho.write_text(texto, encoding="utf-8")
         return s.le_aparelhos(self.caminho)
 
-    def test_le_nome_e_token(self):
-        self.assertEqual(self.le("carro=abc\nbancada=def\n"),
-                         {"abc": "carro", "def": "bancada"})
+    def test_um_token_por_linha(self):
+        r = self.le("abc\ndef\n")
+        self.assertEqual(set(r), {"abc", "def"})
+
+    def test_a_pasta_e_a_impressao_do_token(self):
+        # Derivada, não configurada: não há nome para manter em lugar nenhum.
+        r = self.le("abc\n")
+        self.assertEqual(r["abc"], s.impressao_do_token("abc"))
 
     def test_indexa_por_token_porque_e_assim_que_se_pergunta(self):
         # Chega um segredo e a pergunta é "de quem é este". O caminho inverso
         # nunca é percorrido.
-        self.assertEqual(self.le("carro=abc\n")["abc"], "carro")
+        self.assertIn("abc", self.le("abc\n"))
 
     def test_ignora_comentario_e_linha_em_branco(self):
         self.assertEqual(
-            self.le("# os aparelhos\n\ncarro=abc\n\n   # outro\n"),
-            {"abc": "carro"})
+            set(self.le("# os aparelhos\n\nabc\n\n   # outro\n")), {"abc"})
 
     def test_apara_espacos(self):
-        self.assertEqual(self.le("  carro  =  abc  \n"), {"abc": "carro"})
-
-    def test_divide_no_primeiro_igual(self):
-        # Um token pode conter `=` -- base64 termina em `=` o tempo todo.
-        self.assertEqual(self.le("carro=a=b=c\n"), {"a=b=c": "carro"})
+        self.assertEqual(set(self.le("   abc   \n")), {"abc"})
 
     def test_aceita_ultima_linha_sem_quebra(self):
-        self.assertEqual(self.le("carro=abc"), {"abc": "carro"})
+        self.assertEqual(set(self.le("abc")), {"abc"})
+
+    def test_o_formato_antigo_e_recusado_com_explicacao(self):
+        # `nome=token` existiu por algumas horas em 2026-10-06. Aceitar
+        # calado gravaria na pasta errada; a mensagem diz o que fazer.
+        with self.assertRaises(s.ErroDeAparelhos) as e:
+            self.le("carro=abc\n")
+        self.assertIn("um token por linha", str(e.exception))
 
     def test_arquivo_ausente_e_lista_vazia_e_nao_erro(self):
         # É o caso de quem só distribui a base. Exigir o arquivo obrigaria a
@@ -774,68 +802,67 @@ class LeAparelhos(unittest.TestCase):
     def test_arquivo_so_de_comentario_e_lista_vazia(self):
         self.assertEqual(self.le("# nada aqui ainda\n"), {})
 
-    def test_linha_sem_igual_e_erro(self):
+    def test_linha_sem_igual_dentro_de_mapa_e_erro(self):
+        # Fora da seção, uma linha sem `=` é um token -- é o formato. Dentro
+        # dela, é ajuste pela metade.
         with self.assertRaises(s.ErroDeAparelhos):
-            self.le("carro\n")
-
-    def test_token_vazio_e_erro(self):
-        # Aceitar viraria um aparelho que autentica com string vazia.
-        with self.assertRaises(s.ErroDeAparelhos):
-            self.le("carro=\n")
+            self.le_tudo("[mapa]\nthunderforest\n")
 
     def test_token_repetido_e_erro(self):
         # O que mais importa recusar: dois aparelhos com o mesmo segredo
         # tornam a atribuição ambígua, e saber de quem veio o arquivo é o
         # propósito inteiro da lista.
         with self.assertRaises(s.ErroDeAparelhos) as e:
-            self.le("carro=abc\nbancada=abc\n")
-        self.assertIn("quem enviou", str(e.exception))
+            self.le("abc\nabc\n")
+        self.assertIn("qual aparelho", str(e.exception))
 
-    def test_nome_repetido_e_erro(self):
-        with self.assertRaises(s.ErroDeAparelhos):
-            self.le("carro=abc\ncarro=def\n")
+    def test_a_impressao_nunca_vira_caminho_para_fora(self):
+        # O nome da pasta é derivado, não escrito por alguém: hexadecimal
+        # puro não tem `..`, nem barra, nem espaço. É o que substituiu a
+        # lista branca de nomes que existia quando a pasta era configurada.
+        for token in ("../fora", "a/b", "..", "com espaco", "/abs",
+                      "x" * 500, "ç€emoji😀"):
+            with self.subTest(token=token):
+                self.assertRegex(s.impressao_do_token(token),
+                                 r"^[0-9a-f]{16}$")
 
-    def test_nome_que_viraria_travessia_de_caminho_e_erro(self):
-        # O nome vira DIRETÓRIO em `recebidos/`. A lista branca aqui é o que
-        # impede uma linha de configuração de virar escrita em qualquer
-        # lugar do disco.
-        for nome in ("..", "../fora", "a/b", "/abs", "com espaco",
-                     "a" * 33, "", ".oculto"):
-            with self.subTest(nome=nome):
-                with self.assertRaises(s.ErroDeAparelhos):
-                    self.le(nome + "=abc\n")
+    def test_tokens_diferentes_dao_pastas_diferentes(self):
+        pastas = {s.impressao_do_token(f"token-{i}") for i in range(200)}
+        self.assertEqual(len(pastas), 200)
 
-    def test_nomes_razoaveis_passam(self):
-        for nome in ("carro", "carro-2", "carro_2", "Bancada", "x", "a" * 32):
-            with self.subTest(nome=nome):
-                self.assertEqual(self.le(nome + "=abc\n"), {"abc": nome})
+    def test_a_impressao_e_estavel_entre_execucoes(self):
+        # Se mudasse, as viagens já recebidas sumiriam da página -- elas
+        # estariam numa pasta que ninguém mais procura.
+        self.assertEqual(s.impressao_do_token("abc"),
+                         s.impressao_do_token("abc"))
 
     # -- a secao [mapa] --
 
     def test_le_a_chave_do_mapa(self):
-        r = self.le_tudo("carro=abc\n\n[mapa]\nthunderforest=xyz123\n")
-        self.assertEqual(r.por_token, {"abc": "carro"})
+        r = self.le_tudo("abc\n\n[mapa]\nthunderforest=xyz123\n")
+        self.assertEqual(set(r.por_token), {"abc"})
         self.assertEqual(r.mapa, {"thunderforest": "xyz123"})
 
     def test_sem_secao_de_mapa_o_dicionario_vem_vazio(self):
-        self.assertEqual(self.le_tudo("carro=abc\n").mapa, {})
+        self.assertEqual(self.le_tudo("abc\n").mapa, {})
 
-    def test_a_secao_separa_aparelhos_de_ajustes(self):
+    def test_a_secao_separa_tokens_de_ajustes(self):
         # O risco de juntar os dois num arquivo só: uma chave de serviço
-        # externo virar aparelho, e passar a autenticar envios.
-        r = self.le_tudo("carro=abc\n[mapa]\nthunderforest=xyz\n")
+        # externo virar token de aparelho, e passar a autenticar envios.
+        r = self.le_tudo("abc\n[mapa]\nthunderforest=xyz\n")
         self.assertNotIn("xyz", r.por_token)
+        self.assertNotIn("thunderforest=xyz", r.por_token)
         self.assertEqual(len(r.por_token), 1)
 
     def test_secao_desconhecida_e_erro(self):
         # `[mapas]` em vez de `[mapa]` deixaria a chave cair num balde
         # ignorado, e o sintoma seria um mapa em branco sem explicação.
         with self.assertRaises(s.ErroDeAparelhos) as e:
-            self.le_tudo("carro=abc\n[mapas]\nthunderforest=xyz\n")
+            self.le_tudo("abc\n[mapas]\nthunderforest=xyz\n")
         self.assertIn("desconhecida", str(e.exception))
 
     def test_a_secao_nao_diferencia_maiuscula(self):
-        r = self.le_tudo("carro=abc\n[MAPA]\nThunderforest=xyz\n")
+        r = self.le_tudo("abc\n[MAPA]\nThunderforest=xyz\n")
         self.assertEqual(r.mapa, {"thunderforest": "xyz"})
 
     def test_valor_do_mapa_preserva_maiuscula(self):
@@ -848,7 +875,7 @@ class LeAparelhos(unittest.TestCase):
         # O arquivo é editado à mão e o erro impede o servidor de subir;
         # dizer "erro no arquivo" mandaria procurar.
         with self.assertRaises(s.ErroDeAparelhos) as e:
-            self.le("carro=abc\nbancada=def\nlixo\n")
+            self.le("abc\ndef\ncarro=ghi\n")
         self.assertIn(":3", str(e.exception))
 
 

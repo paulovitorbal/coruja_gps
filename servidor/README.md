@@ -149,13 +149,21 @@ Ao sair da rede local: proxy reverso com TLS na frente e a porta de volta para
 
 ## Quem pode falar com o servidor
 
-A lista fica no `aparelhos.cfg`, ao lado do `docker-compose.yml`:
+A lista fica no `aparelhos.cfg`, ao lado do `docker-compose.yml` — **um token
+por linha, e só**:
 
 ```
-# nome=token
-carro-paulo=HBu2kQ...
-bancada=9xT1pR...
+HBu2kQ3pR8tL5nW...
+9xT1pRvM2kS7bY4...
 ```
+
+Não há nome a configurar. A pasta de cada aparelho em `recebidos/` é a
+**impressão** do token: os 16 primeiros dígitos do SHA-256 dele.
+
+> ⚠️ **Por que a impressão, e não o token.** O token é a credencial que também
+> *envia*. Escrito como nome de pasta, ele apareceria em `ls`, em qualquer
+> backup e no log deste servidor — e quem o lesse poderia subir viagem falsa.
+> A impressão identifica sem revelar.
 
 ```sh
 cp aparelhos.cfg.exemplo aparelhos.cfg
@@ -168,8 +176,8 @@ O `aparelhos.cfg` **não é versionado**; o `.exemplo` é.
 No `coruja.cfg` do cartão, do outro lado:
 
 ```
-token_aparelho=HBu2kQ...
-url_envio=http://servidor.da.rede:8081/envio/
+token_aparelho=HBu2kQ3pR8tL5nW...
+url_envio=https://seu.dominio/envio/
 ```
 
 ### O que a lista liga, e o que ela fecha
@@ -200,18 +208,24 @@ que uma rota não existe já é informação sobre o servidor.
 ### Dois aparelhos não podem dividir o mesmo token
 
 O servidor **recusa subir** nesse caso. Com segredos iguais não dá para saber
-quem enviou — que é a pergunta inteira que a lista existe para responder. Nome
-repetido e nome que viraria caminho (`..`, `a/b`) também derrubam a subida, em
-vez de serem corrigidos por adivinhação.
+quem enviou — que é a pergunta inteira que a lista existe para responder.
+
+Travessia de caminho deixou de ser possível por construção: o nome da pasta é
+hexadecimal derivado, não texto que alguém escreveu. Não há `..` nem barra que
+possa entrar nele.
+
+Trocar o token de um aparelho muda a pasta, e as viagens antigas ficam na
+pasta velha. É o comportamento certo: um segredo novo é outro aparelho do
+ponto de vista de quem recebe.
 
 ### Cada aparelho tem a própria pasta
 
 ```
 recebidos/
-├── carro-paulo/
+├── a3f2c91e7b40d85c/      ← impressão do token de um aparelho
 │   ├── infracoes.log
 │   └── 20261006_143000.log
-└── bancada/
+└── 7e01bd44af93c2a8/
     └── coruja.log
 ```
 

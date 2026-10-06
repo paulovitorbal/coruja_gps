@@ -3,11 +3,24 @@
 # Copie para `aparelhos.cfg` (ao lado deste arquivo) e troque os segredos.
 # O `aparelhos.cfg` NÃO é versionado — ele contém os segredos de verdade.
 #
-#   nome=token
+# **Um token por linha, e só.** Não há nome a configurar: a pasta de cada
+# aparelho em `recebidos/` é a IMPRESSÃO do token — os 16 primeiros dígitos
+# do SHA-256 dele.
 #
-# O `nome` vira o diretório em `recebidos/<nome>/`, e é o que separa os
-# registros de cada aparelho. Letras, dígitos, hífen e sublinhado, até 32.
-# O `token` é o que o aparelho manda; vai no `token_aparelho` do coruja.cfg.
+#     recebidos/
+#     ├── a3f2c91e7b40d85c/      ← um aparelho
+#     │   ├── 20261006_123858.log
+#     │   └── infracoes.log
+#     └── 7e01bd44af93c2a8/      ← outro
+#
+# ⚠️ POR QUE A IMPRESSÃO, E NÃO O TOKEN. O token é a credencial que também
+# ENVIA. Escrito como nome de pasta, ele apareceria em `ls`, em qualquer
+# backup e no log deste servidor — e quem o lesse poderia subir viagem falsa.
+# A impressão identifica sem revelar.
+#
+# Trocar o token de um aparelho muda a pasta dele, e as viagens antigas ficam
+# na pasta velha. É o comportamento certo: um segredo novo é outro aparelho
+# do ponto de vista de quem recebe.
 #
 # ⚠️ ENQUANTO ESTE ARQUIVO NÃO EXISTIR, ou não tiver nenhuma entrada:
 #
@@ -17,7 +30,7 @@
 #   - a recepção fica FECHADA. Sem lista não há a quem atribuir o arquivo, e
 #     gravar sem saber de quem veio derrota o propósito da funcionalidade.
 #
-# Com pelo menos uma entrada, TODAS as rotas passam a exigir token conhecido,
+# Com pelo menos um token, TODAS as rotas passam a exigir um conhecido,
 # inclusive a raiz. Um aparelho com o `token_aparelho` errado — ou sem ele —
 # para de conseguir até baixar a base.
 #
@@ -25,31 +38,31 @@
 # nesse caso: com segredos iguais não dá para saber quem enviou, que é a
 # pergunta inteira que esta lista existe para responder.
 #
-# ⚠️ O token viaja EM CLARO — o aparelho não fala TLS — e na rota de download
-# vai dentro da URL. Ele não protege o conteúdo de quem escuta a rede; existe
-# para que a URL não seja um depósito aberto a quem a descobrir.
+# ⚠️ O token viaja EM CLARO entre a borda e este servidor — o Cloudflare
+# termina o TLS. Do aparelho até a borda vai cifrado.
 #
 # Gere segredos longos e aleatórios, um por aparelho:
 #
 #     python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 
-carro-paulo=troque-me-por-algo-longo-e-aleatorio
-bancada=troque-me-tambem-e-por-outro-diferente
+troque-me-por-um-segredo-longo-e-aleatorio
+troque-me-tambem-e-por-outro-diferente
 
-# --- ajustes da pagina de viagens -------------------------------------
+
+# --- ajustes da página de viagens -------------------------------------
 #
-# A pagina em /viagens mostra os trajetos que cada aparelho enviou, com mapa
-# e reproducao. Quem entra informa o TOKEN do aparelho; a sessao usa um
-# identificador aleatorio, e o token nao vai para o navegador.
+# A página em /viagens mostra os trajetos que cada aparelho enviou, com mapa
+# e reprodução. Quem entra informa o TOKEN do aparelho; a sessão usa um
+# identificador aleatório, e o token não vai para o navegador.
 [mapa]
 
 # Chave do Thunderforest, para o tema Atlas. Cadastro gratuito em
-# thunderforest.com (150 mil tiles/mes).
+# thunderforest.com (150 mil tiles/mês).
 #
-# SEM ELA a pagina continua funcionando, com o tile padrao do OpenStreetMap:
-# o trajeto e o conteudo, o tema e a aparencia.
+# SEM ELA a página continua funcionando, com o tile padrão do OpenStreetMap:
+# o trajeto é o conteúdo, o tema é a aparência.
 #
-# ATENCAO: a chave viaja na URL dos tiles que o NAVEGADOR busca, entao fica
-# visivel a quem abrir o inspetor. E assim com todo provedor com chave; a
-# protecao real e a cota e o limite de dominio no painel deles.
+# ⚠️ A chave viaja na URL dos tiles que o NAVEGADOR busca, então fica visível
+# a quem abrir o inspetor. É assim com todo provedor com chave; a proteção
+# real é a cota e o limite de domínio no painel deles.
 #thunderforest=troque-me-pela-sua-chave
