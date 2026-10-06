@@ -29,6 +29,10 @@ log_level=info
 
 # Devolve a versão disponível: uma linha de texto qualquer, comparada
 # como texto com a que o aparelho guardou.
+#
+# Em https:// o aparelho VERIFICA o certificado contra tres raizes
+# embutidas no firmware, e recusa quem nao se encaixa. Isso exige o
+# relogio acertado -- ver servidor_ntp acima.
 url_versao=https://exemplo/radares.versao
 # Entrega o radares.bin. O RF05.2 exige HTTPS.
 url_base=https://exemplo/radares.bin
@@ -52,6 +56,23 @@ url_base=https://exemplo/radares.bin
 # escuta a rede -- existe para que a URL nao seja aberta a quem a
 # descobrir.
 #token_aparelho=troque-me-por-algo-longo-e-aleatorio
+
+# De onde vem a hora. Vazio usa pool.ntp.br.
+#
+# Isto NAO e enfeite: o aparelho valida o certificado do servidor
+# contra a data, e o RP2350 nao tem bateria no relogio -- todo boot
+# comeca sem hora. Sem acertar, TODO certificado e recusado por
+# 'ainda nao vale' e o OTA para.
+#
+# O NTP vem antes do GPS de proposito: atualizar so acontece com
+# Wi-Fi, ou seja, com o carro parado onde ha rede -- garagem,
+# estacionamento coberto. E exatamente onde o GPS nao pega.
+#
+# ATENCAO: NTP e UDP sem autenticacao. Quem controla a rede escolhe
+# a hora que o aparelho acredita, e com ela pode fazer um
+# certificado vencido parecer valido. Aponte para um servidor da
+# propria rede se isso incomodar.
+#servidor_ntp=pool.ntp.br
 
 # --- envio de dados ao servidor (opcional) ----------------------
 #

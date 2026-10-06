@@ -21,6 +21,9 @@ add_library(coruja_nucleo STATIC
     nucleo/Texto.cpp
     nucleo/Nmea.cpp
     nucleo/Url.cpp
+    nucleo/TempoUtc.cpp
+    nucleo/ArenaMemoria.cpp
+    nucleo/SincronizadorHora.cpp
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
     nucleo/Zonamento.cpp
@@ -45,7 +48,7 @@ target_include_directories(coruja_gps_cfg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_gps_cfg PUBLIC coruja_nucleo coruja_log)
 
 add_library(coruja_ota STATIC rede/AtualizadorOta.cpp rede/RemessaDados.cpp
-                            rede/RespostaHttp.cpp)
+                            rede/RespostaHttp.cpp rede/Sntp.cpp)
 target_include_directories(coruja_ota PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_ota PUBLIC coruja_nucleo coruja_log)
 
@@ -72,6 +75,7 @@ add_library(coruja_ihm STATIC
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
     app/OtaNaTela.cpp
+    app/EmprestimoDaBase.cpp
     app/RemessaNaTela.cpp
     app/DiarioBordo.cpp
     app/EsperaDispensa.cpp
@@ -87,6 +91,7 @@ if(NOT CORUJA_TESTES)
         encoder/EncoderKy040.cpp
         buzzer/BuzzerGpio.cpp
         placa/PausaReal.cpp
+        placa/RelogioAon.cpp
         gps/UartPico.cpp
         display/RetroiluminacaoPwm.cpp
         display/PainelSt7789.cpp
@@ -95,7 +100,9 @@ if(NOT CORUJA_TESTES)
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(coruja_portes PUBLIC
-        coruja_ihm coruja_log pico_stdlib hardware_pwm hardware_gpio hardware_spi)
+        coruja_ihm coruja_log pico_stdlib hardware_pwm hardware_gpio hardware_spi
+        # o relogio que atravessa a ligacao: no RP2350 e o POWMAN, nao o RTC
+        pico_aon_timer)
 
     # coruja_armazenamento: cartao microSD e FAT32.
     #
@@ -126,13 +133,23 @@ if(NOT CORUJA_TESTES)
     # CYW43 e o lwIP inteiros — quem nao atualiza nao deveria pagar por eles.
     add_library(coruja_rede STATIC
         rede/RedeWifi.cpp
-        rede/ClienteHttp.cpp
-        rede/ClienteEnvio.cpp
+        rede/ClienteTls.cpp
+        rede/ClienteSntp.cpp
+        rede/PlataformaMbedtls.cpp
     )
     # O ".." e onde mora o lwipopts.h, que o proprio lwIP inclui por nome.
     target_include_directories(coruja_rede PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    # O mbedTLS precisa saber onde esta a NOSSA configuracao, e ela vale para
+    # tudo que o compilar -- inclusive os fontes do proprio lwIP que falam
+    # TLS. Por isso vai como definicao PUBLICA e nao como include local.
+    target_compile_definitions(coruja_rede PUBLIC
+        MBEDTLS_CONFIG_FILE="mbedtls_config.h")
+
     target_link_libraries(coruja_rede PUBLIC
         coruja_nucleo coruja_log coruja_armazenamento pico_stdlib
-        pico_cyw43_arch_lwip_poll pico_lwip_http)
+        pico_cyw43_arch_lwip_poll pico_lwip_http
+        # altcp sobre mbedTLS: e o que deixa o mesmo cliente falar TCP cru
+        # ou TLS conforme o alocador que recebe.
+        pico_lwip_mbedtls pico_mbedtls pico_rand)
 endif()

@@ -43,33 +43,6 @@ const char* descreve(ErroUrl erro);
 /// falhar com a mensagem do DNS, não com uma regra inventada aqui.
 ErroUrl analisa_url(const char* texto, Url* destino);
 
-/// Nome do parâmetro de consulta que carrega o segredo do aparelho.
-///
-/// ⚠️ **Existe por limitação do lwIP, não por gosto.** O `ClienteHttp` usa o
-/// `http_client`, que monta a requisição internamente: a `httpc_connection_t`
-/// não tem campo para cabeçalho próprio e a biblioteca não oferece gancho. A
-/// alternativa seria reescrever o transporte do OTA sobre TCP cru — o código
-/// mais arriscado e menos testável do projeto — para trocar o lugar de uma
-/// string. O `ClienteEnvio`, que já é TCP cru, usa o cabeçalho.
-///
-/// ⚠️ Token em URL aparece em log de acesso e de proxy. O servidor aceita as
-/// duas formas, e o cabeçalho tem precedência.
-constexpr const char* kParametroToken = "t";
-
-/// Acrescenta `?t=<token>` ao caminho de `url`, no lugar certo.
-///
-/// `token` vazio ou nulo **não é erro**: a URL fica como estava. Um servidor
-/// sem lista de aparelhos não exige token, e obrigar a configurar um para
-/// baixar a base quebraria quem só distribui.
-///
-/// Devolve `false` se não couber em `kMaxUrl` — e aí quem chama tem de
-/// abortar, porque uma URL truncada vira um pedido a outro lugar.
-///
-/// Respeita um `?` que já exista: emenda com `&`. Sem isso, uma `url_base`
-/// com parâmetro próprio viraria dois `?` e o servidor leria o segundo como
-/// parte do valor do primeiro.
-bool acrescenta_token(Url* url, const char* token);
-
 /// Quantos caracteres do caminho podem ir para o log: tudo antes do `?`.
 ///
 /// ⚠️ **O segredo do aparelho viaja na consulta.** Registrar `url.caminho`

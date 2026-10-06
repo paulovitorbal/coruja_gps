@@ -192,20 +192,14 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         return ResultadoOta::SemConfiguracao;
     }
 
-    // O segredo do aparelho vai na URL, e nao em cabecalho: o `http_client`
-    // do lwIP monta a requisicao internamente e nao aceita cabecalho
-    // proprio. Ver `kParametroToken`.
+    // O segredo do aparelho NAO entra na URL: ele vai no cabecalho
+    // `X-Coruja-Token`, que o `ClienteTls` acrescenta a toda requisicao.
     //
-    // Token vazio deixa as URLs intactas de proposito -- um servidor sem
-    // lista de aparelhos nao exige nada, e quem so distribui a base nao
-    // precisa configurar segredo nenhum.
-    if (!acrescenta_token(&url_versao, cfg.token_aparelho) ||
-        !acrescenta_token(&url_base, cfg.token_aparelho)) {
-        // Truncar faria o pedido ir para outro lugar, com o segredo cortado
-        // no meio -- e o sintoma seria um 401 que nao aponta para o tamanho.
-        log.error("ota", "URL com o token nao cabe no limite");
-        return ResultadoOta::SemConfiguracao;
-    }
+    // Houve uma versao em que ele vinha aqui, como `?t=`, porque o
+    // `http_client` do lwIP montava o pedido internamente e nao tinha onde
+    // encaixar cabecalho proprio. Com TLS esse transporte foi reescrito, o
+    // gancho passou a existir, e o segredo saiu da URL -- onde entrava no log
+    // de acesso do servidor e de qualquer proxy no caminho.
 
     log.info("ota", "==== atualizacao solicitada ====");
 

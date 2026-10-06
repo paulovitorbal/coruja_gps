@@ -182,22 +182,21 @@ ele que o servidor sabe qual unidade está falando, e é o que faz os registros
 de dois carros não se misturarem. Se o servidor tiver lista de aparelhos, ele
 recusa até o download da base sem token.
 
-Como ele chega lá muda com a rota, e a razão é do lwIP:
+Ele vai no cabeçalho `X-Coruja-Token`, em **todas** as rotas.
 
-| Rota | Onde vai | Por quê |
-| :--- | :--- | :--- |
-| envio (`PUT`) | cabeçalho `X-Coruja-Token` | o cliente é TCP cru e monta o pedido |
-| base (`GET`) | `?t=` na URL | o `http_client` do lwIP não aceita cabeçalho próprio |
+Houve uma versão em que ia como `?t=` na URL dos GET, porque o `http_client`
+do lwIP montava o pedido internamente e não tinha onde encaixar cabeçalho
+próprio. Com TLS o transporte foi reescrito sobre `altcp`, o gancho passou a
+existir, e o segredo saiu da URL — onde entrava no log de acesso do servidor
+e de qualquer proxy no caminho.
 
-> ⚠️ Token em URL entra no log de acesso do servidor e de qualquer proxy no
-> caminho. O firmware **mascara a consulta no próprio log** — a linha de
-> `GET` mostra o caminho até o `?` e para aí, pela mesma regra que esconde a
-> senha de Wi-Fi: o log vai para o cartão, e o cartão sai do carro.
-
-> 🔴 **O envio não fala TLS.** O token e o conteúdo viajam em claro, e o
-> conteúdo diz onde o carro esteve e quando. O token existe para que a URL não
-> seja um depósito aberto a quem a descobrir — não para proteger de quem
-> escuta a rede. Fora da rede local, proxy reverso com TLS na frente.
+> ✅ **O envio fala TLS** desde 2026-10-06, pelo mesmo `ClienteTls` do
+> download. O certificado é verificado contra três raízes embutidas no
+> firmware, e `MBEDTLS_SSL_VERIFY_REQUIRED` faz o handshake abortar quando
+> não bate — o padrão do lwIP é `OPTIONAL`, que verifica e deixa passar.
+>
+> ⚠️ Isso exige **o relógio acertado**: sem hora, todo certificado é recusado
+> por "ainda não vale". Ver `servidor_ntp`.
 
 Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue: o
 `coruja.log` e o registro da viagem em curso continuam sendo escritos enquanto

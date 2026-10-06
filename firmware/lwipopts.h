@@ -55,3 +55,29 @@
 
 // O cliente HTTP do lwIP, usado pelo ClienteHttp.
 #define LWIP_HTTPC_HAVE_FILE_IO     0
+
+// ---------------------------------------------------------------------- TLS
+//
+// A camada `altcp` e uma indirecao sobre o TCP: o mesmo codigo de cliente
+// fala com `tcp_*` cru ou com TLS por cima, conforme o alocador que recebe.
+// E o que permite ter UM cliente HTTP em vez de dois.
+#define LWIP_ALTCP                  1
+#define LWIP_ALTCP_TLS              1
+#define LWIP_ALTCP_TLS_MBEDTLS      1
+
+// 🔴 ABORTAR o handshake quando o certificado nao valida.
+//
+// **O padrao do lwIP e `MBEDTLS_SSL_VERIFY_OPTIONAL`** (ver
+// `altcp_tls_mbedtls_opts.h`), e `OPTIONAL` nao significa "verifica menos":
+// significa que o mbedTLS verifica, guarda o resultado em
+// `mbedtls_ssl_get_verify_result()` e **deixa a conexao seguir**. O lwIP
+// nunca consulta esse resultado. Ou seja, com o padrao, um certificado
+// forjado, vencido ou de outra autoridade e aceito em silencio -- e o TLS
+// inteiro vira teatro.
+//
+// Este projeto embute tres raizes de proposito; recusar quem nao se encaixa
+// nelas e o ponto. A linha abaixo e o que faz isso acontecer.
+//
+// O identificador vem do mbedTLS e nao esta definido aqui: macro so e
+// expandida no ponto de uso, e la o `mbedtls/ssl.h` ja entrou.
+#define ALTCP_MBEDTLS_AUTHMODE      MBEDTLS_SSL_VERIFY_REQUIRED

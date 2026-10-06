@@ -61,20 +61,67 @@ Se o arquivo não tiver cabeçalho `RDR1` válido, o servidor cai para um
 `sha256:` do conteúdo e **registra aviso**. Ainda dá detecção de mudança, e o
 log diz que algo está errado com o arquivo.
 
-## 🔴 HTTPS não vem incluso
+## HTTPS: o aparelho fala TLS, este servidor não
 
-O RF05.2 exige HTTPS, e este servidor fala **HTTP puro**. Em HTTP, quem
-estiver na mesma rede pode substituir a base de radares que o aparelho vai
-baixar — e o aparelho confiaria nela.
+Este servidor fala **HTTP puro**, de propósito: quem termina o TLS é o
+**Cloudflare**, na frente dele. O aparelho abre `https://` até a borda do
+Cloudflare, e de lá até aqui o tráfego anda por onde você escolher — túnel,
+proxy reverso, rede interna.
 
-Para uso fora da rede local, ponha um **proxy reverso** na frente. Com Caddy
-são duas linhas:
+```
+aparelho  --https-->  Cloudflare  --http-->  este servidor
+          TLS 1.2                  seu túnel
+          ECDHE-ECDSA
+```
+
+### O que o firmware exige do que estiver na frente
+
+Medido contra `coruja.bpldev.com` em 2026-10-06. Mudar qualquer um destes
+itens **para o aparelho**, não para o navegador:
+
+| Item | Exigência | Por quê |
+| :--- | :--- | :--- |
+| Protocolo | **TLS 1.2** tem de continuar aceito | o firmware não fala 1.3 — ver abaixo |
+| Chave da folha | ECDSA ou RSA | o `mbedtls_config.h` só tem esses dois |
+| Autoridade | GTS Root R4, ISRG Root X1 ou X2 | são as três raízes embutidas |
+| SNI | obrigatório | o firmware manda; sem ele o Cloudflare não escolhe certificado |
+| Compressão | o firmware pede `identity` | ele não descomprime, e o CRC não bateria |
+
+> ⚠️ **TLS 1.3 ficou de fora e não por preferência.** Nesta versão do mbedTLS
+> ele exige a camada PSA, que não cabe no orçamento de RAM do RP2350. Se um
+> dia o Cloudflare passar a exigir 1.3, o aparelho para — e o sintoma é um
+> handshake recusado sem motivo aparente.
+
+### 🔴 Quem escolhe a autoridade é o Cloudflare
+
+No plano gratuito ele alterna entre Google Trust Services e Let's Encrypt a
+critério dele. Por isso são **três** raízes embutidas e não uma: uma rotação
+do lado deles mataria o OTA — que é justamente como o aparelho se conserta em
+campo.
+
+Se um dia aparecer uma quarta autoridade, há um teste que avisa **antes** de o
+aparelho descobrir:
+
+```sh
+CORUJA_URL=https://coruja.bpldev.com \
+    python3 -m unittest discover -s scripts/testes
+```
+
+Ele busca a cadeia que o servidor serve de verdade e valida contra o pacote
+que o firmware compila. Vale rodar antes de cada lançamento.
+
+### Sem Cloudflare
+
+Um proxy reverso resolve igual. Com Caddy são duas linhas:
 
 ```
 radares.seudominio.com {
     reverse_proxy localhost:8081
 }
 ```
+
+Aí a autoridade passa a ser a do Caddy — Let's Encrypt, por padrão —, que já
+está entre as três embutidas.
 
 ### Teste em rede local
 

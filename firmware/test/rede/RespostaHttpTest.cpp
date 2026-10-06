@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -194,6 +195,277 @@ TEST(LeCrcHex, ponteiro_nulo_nao_quebra) {
     std::uint32_t v = 0;
     EXPECT_FALSE(le_crc_hex(nullptr, 8, &v));
     EXPECT_FALSE(le_crc_hex("59921050", 8, nullptr));
+}
+
+
+// ===================================================================
+// LeitorRespostaHttp: a resposta que chega aos pedaços, pela rede
+// ===================================================================
+
+struct Coletor {
+    std::string corpo;
+    static void ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
+        static_cast<Coletor*>(ctx)->corpo.append(
+            reinterpret_cast<const char*>(b), n);
+    }
+};
+
+/// Alimenta a resposta inteira em blocos de `passo` bytes.
+///
+/// O tamanho do bloco é parâmetro de propósito: a rede entrega onde quiser, e
+/// um leitor que só funcione com a resposta inteira de uma vez funciona no
+/// teste e falha no fio.
+bool alimenta_em_blocos(LeitorRespostaHttp& leitor, const std::string& bruto,
+                        std::size_t passo, Coletor* c) {
+    for (std::size_t i = 0; i < bruto.size(); i += passo) {
+        const std::size_t n = std::min(passo, bruto.size() - i);
+        if (!leitor.alimenta(
+                reinterpret_cast<const std::uint8_t*>(bruto.data() + i), n,
+                Coletor::ao_receber, c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+TEST(LeitorResposta, corpo_com_content_length) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nola, mundo!";
+    for (std::size_t passo : {1U, 3U, 7U, 64U, 999U}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, passo, &c)) << passo;
+        EXPECT_EQ(leitor.status(), 200u) << passo;
+        EXPECT_EQ(c.corpo, "ola, mundo!") << passo;
+        EXPECT_TRUE(leitor.completa()) << passo;
+        EXPECT_EQ(leitor.recebidos(), 11u) << passo;
+        EXPECT_EQ(leitor.content_length(), 11);
+    }
+}
+
+TEST(LeitorResposta, corpo_em_pedacos) {
+    // O Cloudflare decide sozinho entre Content-Length e pedaços, e a escolha
+    // muda com compressão e versão. Um cliente que só entendesse o primeiro
+    // gravaria os cabeçalhos de pedaço dentro do radares.bin.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n\r\n"
+        "5\r\nabcde\r\n"
+        "3\r\nfgh\r\n"
+        "0\r\n\r\n";
+    for (std::size_t passo : {1U, 2U, 5U, 13U, 999U}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, passo, &c)) << passo;
+        EXPECT_EQ(c.corpo, "abcdefgh") << "passo " << passo;
+        EXPECT_TRUE(leitor.completa()) << passo;
+        EXPECT_EQ(leitor.recebidos(), 8u) << passo;
+    }
+}
+
+TEST(LeitorResposta, pedaco_grande_em_hexadecimal) {
+    // `1000` é 4096, não mil. Ler como decimal daria um corpo truncado que
+    // ainda assim "funcionaria" -- e o CRC acusaria sem dizer por quê.
+    std::string dados(4096, 'x');
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "1000\r\n" + dados + "\r\n0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 100, &c));
+    EXPECT_EQ(c.corpo.size(), 4096u);
+    EXPECT_TRUE(leitor.completa());
+}
+
+TEST(LeitorResposta, tamanho_de_pedaco_com_letra_hexadecimal) {
+    // Os tamanhos dos outros testes são só dígitos, e isso os deixa cegos: a
+    // conta `valor*16 + digito` dá o mesmo resultado para "1000" quer os
+    // dígitos a-f sejam reconhecidos, quer não. Só uma LETRA distingue
+    // hexadecimal de decimal -- uma campanha de mutação mostrou isso.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "a\r\n0123456789\r\n"
+        "F\r\n" + std::string(15, 'x') + "\r\n"
+        "0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 3, &c));
+    EXPECT_EQ(c.corpo, "0123456789" + std::string(15, 'x'));
+    EXPECT_EQ(leitor.recebidos(), 25u);
+    EXPECT_TRUE(leitor.completa());
+}
+
+TEST(LeitorResposta, pedaco_de_255_bytes) {
+    // `ff` em minúscula, o outro lado da mesma cegueira.
+    const std::string dados(255, 'z');
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "ff\r\n" + dados + "\r\n0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 17, &c));
+    EXPECT_EQ(c.corpo, dados);
+}
+
+TEST(LeitorResposta, content_length_sem_digito_nao_vira_corpo_vazio) {
+    // Um proxy mandando algo estranho. Tratar como zero DESCARTARIA o corpo
+    // em silêncio -- e o radares.bin chegaria vazio sem ninguém saber por
+    // quê. Sem dígito, o tamanho é desconhecido: lê até fechar.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\ncorpo de verdade";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 6, &c));
+    EXPECT_EQ(leitor.content_length(), -1);
+    EXPECT_EQ(c.corpo, "corpo de verdade");
+}
+
+TEST(LeitorResposta, content_length_vazio_tambem) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length:\r\n\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 4, &c));
+    EXPECT_EQ(leitor.content_length(), -1);
+    EXPECT_EQ(c.corpo, "abc");
+}
+
+TEST(LeitorResposta, pedaco_com_extensao_e_aceito) {
+    // `; nome=valor` depois do tamanho é legal e ninguém usa -- até alguém
+    // usar.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "4;qualquer=coisa\r\nabcd\r\n0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 3, &c));
+    EXPECT_EQ(c.corpo, "abcd");
+}
+
+TEST(LeitorResposta, cabecalho_em_minuscula_tambem_vale) {
+    // O Cloudflare manda em minúscula; o servidor de referência, capitalizado.
+    // Comparar byte a byte funcionaria contra um e falharia contra o outro.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\ncontent-length: 3\r\n\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 5, &c));
+    EXPECT_EQ(c.corpo, "abc");
+    EXPECT_EQ(leitor.content_length(), 3);
+}
+
+TEST(LeitorResposta, chunked_em_minuscula_e_com_outras_codificacoes) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\ntransfer-encoding: gzip, chunked\r\n\r\n"
+        "2\r\noi\r\n0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 4, &c));
+    EXPECT_EQ(c.corpo, "oi");
+}
+
+TEST(LeitorResposta, sem_content_length_nem_pedacos_vai_ate_fechar) {
+    // HTTP/1.0 e algumas respostas de erro. O fim é o fechamento da conexão,
+    // que quem sabe é a camada de transporte -- por isso `completa()` é
+    // falso aqui, e isso não é erro.
+    const std::string bruto = "HTTP/1.1 200 OK\r\nServer: x\r\n\r\ncorpo solto";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 6, &c));
+    EXPECT_EQ(c.corpo, "corpo solto");
+    EXPECT_FALSE(leitor.completa());
+    EXPECT_EQ(leitor.content_length(), -1);
+}
+
+TEST(LeitorResposta, corpo_vazio_com_content_length_zero) {
+    const std::string bruto = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 7, &c));
+    EXPECT_EQ(leitor.status(), 204u);
+    EXPECT_TRUE(leitor.completa());
+    EXPECT_TRUE(c.corpo.empty());
+}
+
+TEST(LeitorResposta, nao_entrega_corpo_alem_do_content_length) {
+    // Byte a mais depois do corpo -- `keep-alive` mal fechado, ou lixo. Ele
+    // não pode entrar no radares.bin.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabcLIXO DEPOIS";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 2, &c));
+    EXPECT_EQ(c.corpo, "abc");
+    EXPECT_EQ(leitor.recebidos(), 3u);
+}
+
+TEST(LeitorResposta, status_de_erro_e_lido_e_o_corpo_tambem) {
+    const std::string bruto =
+        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 5\r\n\r\nnops!";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 9, &c));
+    EXPECT_EQ(leitor.status(), 401u);
+    EXPECT_EQ(c.corpo, "nops!");
+}
+
+TEST(LeitorResposta, resposta_sem_linha_de_status_e_recusada) {
+    const std::string bruto = "ISTO NAO E HTTP\r\n\r\ncorpo";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 4, &c));
+}
+
+TEST(LeitorResposta, cabecalho_sem_fim_e_recusado_e_nao_estoura) {
+    // Um servidor hostil mandando cabeçalho infinito não pode consumir a
+    // RAM do aparelho nem escrever além do buffer.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\n" + std::string(8000, 'x') + "\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 128, &c));
+}
+
+TEST(LeitorResposta, tamanho_de_pedaco_invalido_e_recusado) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "zzz\r\nabc\r\n0\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 5, &c));
+}
+
+TEST(LeitorResposta, reiniciar_limpa_tudo) {
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    alimenta_em_blocos(leitor, "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc",
+                       4, &c);
+    ASSERT_EQ(leitor.status(), 200u);
+
+    leitor.reinicia();
+    EXPECT_EQ(leitor.status(), 0u);
+    EXPECT_EQ(leitor.recebidos(), 0u);
+    EXPECT_FALSE(leitor.completa());
+    EXPECT_EQ(leitor.content_length(), -1);
+
+    Coletor c2;
+    ASSERT_TRUE(alimenta_em_blocos(
+        leitor, "HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\noi", 3, &c2));
+    EXPECT_EQ(leitor.status(), 201u);
+    EXPECT_EQ(c2.corpo, "oi");
+}
+
+TEST(LeitorResposta, o_corpo_que_vem_colado_nos_cabecalhos_nao_se_perde) {
+    // O caso mais comum na rede real: o primeiro segmento TCP traz os
+    // cabeçalhos e o começo do corpo juntos.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(c.corpo, "0123456789");
 }
 
 }  // namespace

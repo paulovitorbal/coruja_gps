@@ -747,6 +747,7 @@ poderia haver: a origem dos dados é de quem monta o aparelho.
 | `url_base` | entrega o `radares.bin`; HTTPS obrigatório (RF05.2) |
 | `url_envio` | para onde subir log, viagens e infrações. **Vazia desliga o recurso** |
 | `token_aparelho` | identifica a unidade no servidor, em **todas** as requisições |
+| `servidor_ntp` | de onde vem a hora que julga o prazo do certificado. Vazio: `pool.ntp.br` |
 | `log_to_sd` | grava o log em `coruja.log` no cartão. `true`/`false` ou `1`/`0`. **Padrão: desligado** |
 | `log_level` | `debug`, `info`, `warning` (ou `warn`), `error`. **Padrão: `info`** |
 

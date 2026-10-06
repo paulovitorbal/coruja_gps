@@ -104,6 +104,13 @@ struct Configuracao {
     /// forma; mas quem puser um proxy reverso na frente deve saber disso.
     char token_aparelho[kMaxToken + 1] = {};
 
+    /// Servidor de hora. Vazio usa `kServidorNtpPadrao` (`pool.ntp.br`).
+    ///
+    /// Existe porque o relógio decide se um certificado está no prazo, e uma
+    /// rede que bloqueie o pool público deixaria o aparelho sem hora e sem
+    /// TLS. Quem tem servidor de hora na própria rede aponta para ele.
+    char servidor_ntp[kMaxUrl + 1] = {};
+
     /// Escrever todas as mensagens de log também no cartão.
     ///
     /// Desligado por padrão, e a razão não é economia de código: gravar log a

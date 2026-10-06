@@ -200,6 +200,13 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
             continue;
         }
 
+        if (igual(chave, nc, "servidor_ntp")) {
+            if (!copia(r.config.servidor_ntp, kMaxUrl, valor, nv)) {
+                ++r.diagnostico.valores_longos;
+            }
+            continue;
+        }
+
         if (igual(chave, nc, "token_aparelho")) {
             // Nunca imprimir o valor: e um segredo, como a senha de Wi-Fi.
             if (!copia(r.config.token_aparelho, kMaxToken, valor, nv)) {

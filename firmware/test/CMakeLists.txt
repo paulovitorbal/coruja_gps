@@ -52,6 +52,10 @@ add_executable(testes
     log/LoggerCartaoTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
+    nucleo/TempoUtcTest.cpp
+    nucleo/ArenaMemoriaTest.cpp
+    nucleo/SincronizadorHoraTest.cpp
+    rede/SntpTest.cpp
     nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
@@ -64,6 +68,7 @@ add_executable(testes
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
     app/OtaNaTelaTest.cpp
+    app/EmprestimoDaBaseTest.cpp
     app/RemessaNaTelaTest.cpp
     app/DiarioBordoTest.cpp
     app/EsperaDispensaTest.cpp

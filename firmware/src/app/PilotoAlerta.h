@@ -33,6 +33,18 @@ public:
     /// `Zonamento` guarda o alvo por índice, e os índices mudam.
     void define_base(const Ponto* base, std::size_t quantos);
 
+    /// Larga a base e **para de alertar** até receber outra.
+    ///
+    /// Existe para o `EmprestimoDaBase`: durante uma sessão TLS a memória da
+    /// base vira área de trabalho do mbedTLS, e um piloto segurando aquele
+    /// ponteiro leria coordenadas de dentro de um handshake. O `passo()` já
+    /// trata base ausente como ausência de alerta — é o mesmo caminho de
+    /// quando não há cartão.
+    void solta_base() { define_base(nullptr, 0); }
+
+    /// Tem base para consultar?
+    bool tem_base() const { return base_ != nullptr && quantos_ > 0; }
+
     /// Uma volta do laço.
     void passo(std::uint32_t agora_ms);
 

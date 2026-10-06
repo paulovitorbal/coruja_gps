@@ -586,40 +586,39 @@ class Recepcao(unittest.TestCase):
                           "/radares.bin/../../servidor.py"):
             self.assertEqual(self.pede("GET", tentativa)[0], 404, tentativa)
 
-    # -- o token também vai na URL --
+    # -- o token vai SÓ no cabeçalho --
 
-    def test_token_pode_vir_na_consulta(self):
-        # O cliente de download do aparelho usa o `http_client` do lwIP, que
-        # monta a requisição internamente e não aceita cabeçalho próprio.
+    def test_token_na_url_nao_autentica(self):
+        # Houve uma versão que aceitava `?t=`, por limitação do cliente de
+        # download do aparelho. Com TLS o transporte foi reescrito e o gancho
+        # de cabeçalho passou a existir; aceitar a URL só manteria o segredo
+        # indo parar no log de acesso do servidor e de qualquer proxy.
         (self.dados / s.NOME_BASE).write_bytes(base_valida())
-        rota = f"{s.ROTA_VERSAO}?{s.PARAMETRO_TOKEN}={TOKEN}"
-        self.assertEqual(self.pede("GET", rota, token=None)[0], 200)
+        for rota in (f"{s.ROTA_VERSAO}?t={TOKEN}",
+                     f"{s.ROTA_VERSAO}?token={TOKEN}",
+                     f"{s.ROTA_BASE}?t={TOKEN}"):
+            self.assertEqual(self.pede("GET", rota, token=None)[0], 401, rota)
 
-    def test_token_errado_na_consulta_e_recusado(self):
-        rota = f"{s.ROTA_VERSAO}?{s.PARAMETRO_TOKEN}=nao-presta"
-        self.assertEqual(self.pede("GET", rota, token=None)[0], 401)
+    def test_envio_com_token_so_na_url_e_recusado(self):
+        rota = f"{s.ROTA_ENVIO}coruja.log?t={TOKEN}"
+        st, _ = self.pede("PUT", rota, b"dado", token=None)
+        self.assertEqual(st, 401)
+        self.assertEqual(self.recebidos(), [])
 
     def test_a_consulta_nao_atrapalha_a_rota(self):
-        # A rota é o caminho; o `?t=` não pode fazer `/radares.versao` deixar
-        # de ser `/radares.versao`.
+        # O `?` continua sendo ignorado para efeito de ROTA: `/radares.versao`
+        # com query ainda é `/radares.versao`, só que a credencial tem de vir
+        # no cabeçalho.
         (self.dados / s.NOME_BASE).write_bytes(base_valida())
-        rota = f"{s.ROTA_VERSAO}?{s.PARAMETRO_TOKEN}={TOKEN}&v=2"
-        st, corpo = self.pede("GET", rota, token=None)
+        st, corpo = self.pede("GET", s.ROTA_VERSAO + "?v=2", token=TOKEN)
         self.assertEqual(st, 200)
         self.assertIn(b"crc32:", corpo)
 
-    def test_envio_tambem_aceita_token_na_consulta(self):
-        rota = f"{s.ROTA_ENVIO}coruja.log?{s.PARAMETRO_TOKEN}={TOKEN}"
-        st, _ = self.pede("PUT", rota, b"dado", token=None)
+    def test_envio_com_consulta_na_url_funciona_pelo_cabecalho(self):
+        st, _ = self.pede("PUT", s.ROTA_ENVIO + "coruja.log?v=1", b"dado",
+                          token=TOKEN)
         self.assertEqual(st, 201)
         self.assertEqual(self.recebidos(), ["coruja.log"])
-
-    def test_cabecalho_tem_precedencia_sobre_a_consulta(self):
-        # Se os dois vierem, vale o cabeçalho. Um `?t=` velho preso numa URL
-        # salva não pode anular a credencial que o cliente mandou agora.
-        rota = f"{s.ROTA_ENVIO}coruja.log?{s.PARAMETRO_TOKEN}=lixo"
-        st, _ = self.pede("PUT", rota, b"dado", token=TOKEN)
-        self.assertEqual(st, 201)
 
     # -- um aparelho não enxerga o outro --
 

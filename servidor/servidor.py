@@ -30,7 +30,6 @@ import sys
 import hmac
 import re
 import threading
-import urllib.parse
 import zlib
 from pathlib import Path
 
@@ -84,21 +83,6 @@ PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
 #: deposito aberto para qualquer um que a descubra — que e um problema real e
 #: diferente.
 CABECALHO_TOKEN = "X-Coruja-Token"
-
-#: O mesmo segredo, aceito tambem como parametro de consulta: `?t=<token>`.
-#:
-#: ⚠️ **Existe por limitacao do firmware, nao por gosto.** O cliente de
-#: download do aparelho usa o `http_client` do lwIP, que monta a requisicao
-#: internamente e nao oferece gancho para cabecalho proprio — a estrutura
-#: `httpc_connection_t` simplesmente nao tem o campo. A alternativa seria
-#: reescrever o transporte do OTA sobre TCP cru, que e o codigo mais
-#: arriscado e menos testavel do projeto.
-#:
-#: ⚠️ **Token em URL aparece em log de acesso e de proxy**, ao contrario de
-#: token em cabecalho. Aqui isso pesa menos do que pareceria, porque tudo
-#: trafega em claro de qualquer forma; mas e um custo real, e quem puser um
-#: proxy reverso na frente deve saber que o segredo vai para o log dele.
-PARAMETRO_TOKEN = "t"
 
 #: Onde mora a lista de aparelhos, quando ninguem diz outra coisa.
 ARQUIVO_APARELHOS = "aparelhos.cfg"
@@ -316,18 +300,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         return nome if PADRAO_NOME.match(nome) else None
 
     def _token_enviado(self) -> str:
-        """O segredo da requisição: cabeçalho, ou `?t=` se não vier nele.
+        """O segredo da requisição. **Só o cabeçalho.**
 
-        O cabeçalho tem precedência. Aceitar os dois existe porque o cliente
-        de download do aparelho não consegue mandar cabeçalho — ver
-        `PARAMETRO_TOKEN`.
+        Houve uma versão que também o aceitava como `?t=` na URL, porque o
+        cliente de download do aparelho usava o `http_client` do lwIP, que
+        monta a requisição internamente e não tem campo para cabeçalho
+        próprio. Com TLS esse transporte foi reescrito sobre TCP, o gancho
+        passou a existir, e o `?t=` saiu: token em URL entra no log de acesso
+        do servidor e de qualquer proxy no caminho, ao contrário de token em
+        cabeçalho.
         """
-        do_cabecalho = self.headers.get(CABECALHO_TOKEN, "")
-        if do_cabecalho:
-            return do_cabecalho
-        partes = urllib.parse.urlsplit(self.path)
-        valores = urllib.parse.parse_qs(partes.query).get(PARAMETRO_TOKEN, [])
-        return valores[0] if valores else ""
+        return self.headers.get(CABECALHO_TOKEN, "")
 
     def _aparelho(self) -> str | None:
         """Qual aparelho mandou esta requisição, ou `None` se não se sabe.

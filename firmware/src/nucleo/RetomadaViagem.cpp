@@ -2,22 +2,15 @@
 
 #include <cstdio>
 
+#include "nucleo/TempoUtc.h"
+
 namespace coruja {
 
 namespace {
 
-/// Dias desde 1970-01-01, pelo algoritmo `days_from_civil` de Howard
-/// Hinnant. Adotado em vez de escrito: contar dias com bissexto e virada de
-/// século à mão é erro clássico, e este algoritmo é verificável contra
-/// qualquer biblioteca de data.
-std::int32_t dias_desde_epoca(int ano, unsigned mes, unsigned dia) {
-    ano -= mes <= 2 ? 1 : 0;
-    const int era = (ano >= 0 ? ano : ano - 399) / 400;
-    const auto yoe = static_cast<unsigned>(ano - era * 400);
-    const unsigned doy = (153U * (mes + (mes > 2 ? -3U : 9U)) + 2U) / 5U + dia - 1U;
-    const unsigned doe = yoe * 365U + yoe / 4U - yoe / 100U + doy;
-    return era * 146097 + static_cast<int>(doe) - 719468;
-}
+// `dias_desde_epoca` vive em `TempoUtc.h` desde 2026-10-06. Estava aqui
+// dentro, privado; a sincronizacao de hora precisou do mesmo algoritmo e
+// copia-lo seria garantir que as duas versoes divergissem.
 
 bool data_plausivel(const EstadoViagemSalvo& e) {
     return e.ano >= 2020 && e.ano <= 2099 && e.mes >= 1 && e.mes <= 12 &&

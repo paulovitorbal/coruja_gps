@@ -30,6 +30,7 @@
 #include "app/EsperaDispensa.h"
 #include "VersaoBuild.h"
 #include "app/OtaNaTela.h"
+#include "app/EmprestimoDaBase.h"
 #include "app/RemessaNaTela.h"
 #include "app/PilotoAlerta.h"
 #include "armazenamento/CartaoSd.h"
@@ -50,8 +51,11 @@
 #include "nucleo/LeitorConfig.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
-#include "rede/ClienteEnvio.h"
-#include "rede/ClienteHttp.h"
+#include "nucleo/SincronizadorHora.h"
+#include "placa/RelogioAon.h"
+#include "rede/ClienteSntp.h"
+#include "rede/ClienteTls.h"
+#include "rede/PlataformaMbedtls.h"
 #include "rede/RemessaDados.h"
 #include "rede/RedeWifi.h"
 
@@ -155,6 +159,28 @@ bool carrega_configuracao(coruja::CartaoSd& cartao,
 ///
 /// Vive aqui, na composição, porque as duas ações precisam de coisas que a
 /// `Aplicacao` não tem e não deveria ter: rede, cartão e o orquestrador do
+/// Reconstroi a base no vetor depois de ele ter sido emprestado ao TLS.
+///
+/// E o `carrega_base` de sempre, so que atras da interface que o
+/// `EmprestimoDaBase` exige -- e e o que torna impossivel devolver o ponteiro
+/// sem recarregar.
+class RecarregadorDoCartao final : public coruja::RecarregadorBase {
+public:
+    explicit RecarregadorDoCartao(coruja::CartaoSd& cartao)
+        : cartao_(cartao) {}
+
+    std::size_t recarrega(coruja::Logger& log) override {
+        ultima_ = carrega_base(cartao_, log);
+        return ultima_.pontos;
+    }
+
+    const BaseCarregada& ultima() const { return ultima_; }
+
+private:
+    coruja::CartaoSd& cartao_;
+    BaseCarregada     ultima_;
+};
+
 /// OTA numa; LED e buzzer na outra.
 class AcoesDoAparelho final : public coruja::AcoesAplicacao {
 public:
@@ -164,11 +190,61 @@ public:
                     coruja::PilotoAlerta& piloto,
                     coruja::LedRgb& led, coruja::Buzzer& buzzer,
                     coruja::Pausa& pausa, coruja::Encoder& encoder,
-                    coruja::LoggerCartao& log)
+                    coruja::LoggerCartao& log, coruja::ClienteTls& http,
+                    coruja::SincronizadorHora& sincronizador,
+                    RecarregadorDoCartao& recarregador,
+                    coruja::LeitorGps& gps)
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
-          log_(log) {}
+          log_(log), http_(http), sincronizador_(sincronizador),
+          recarregador_(recarregador), gps_(gps) {}
+
+    /// Prepara tudo que uma sessao de rede precisa, e desfaz no fim.
+    ///
+    /// Isto existe porque TRES coisas tem de acontecer na ordem certa em
+    /// volta de qualquer conexao TLS, e esquecer qualquer uma delas produz um
+    /// defeito que nao se parece com a causa:
+    ///
+    /// 1. **acertar o relogio** -- sem hora, todo certificado e recusado por
+    ///    "ainda nao vale", e a mensagem nao diz que o problema e a data;
+    /// 2. **emprestar a memoria da base** -- o buffer de 16 KiB do mbedTLS
+    ///    nao cabe no que sobra, e o vetor de radares esta ocioso;
+    /// 3. **soltar o alocador e recarregar a base** no fim, inclusive quando
+    ///    a sessao falha.
+    ///
+    /// Como classe com destrutor, e nao tres chamadas soltas, porque o passo
+    /// 3 nao pode depender de alguem lembrar.
+    class SessaoDeRede {
+    public:
+        SessaoDeRede(AcoesDoAparelho& dono, const coruja::Configuracao& cfg)
+            : dono_(dono),
+              emprestimo_(dono.piloto_, dono.recarregador_, g_pontos,
+                          coruja::kCapacidadeFirmware, dono.log_) {
+            const auto origem = dono_.sincronizador_.sincroniza(
+                cfg.servidor_ntp, dono_.gps_.telemetria(), dono_.log_);
+            static_cast<void>(origem);
+            coruja::define_hora_utc(dono_.sincronizador_.hora_utc());
+            coruja::inicia_plataforma_mbedtls(&emprestimo_.arena());
+        }
+
+        ~SessaoDeRede() {
+            // A ORDEM IMPORTA de verdade aqui, ao contrario do construtor: o
+            // cliente guarda a configuracao de TLS DENTRO da arena, e a arena
+            // deixa de existir quando o emprestimo acaba. Liberar depois
+            // seria escrever no vetor de radares ja recarregado.
+            dono_.http_.libera_configuracao();
+            coruja::encerra_plataforma_mbedtls();
+            // o `emprestimo_` recarrega a base no proprio destrutor, agora
+        }
+
+        SessaoDeRede(const SessaoDeRede&) = delete;
+        SessaoDeRede& operator=(const SessaoDeRede&) = delete;
+
+    private:
+        AcoesDoAparelho&         dono_;
+        coruja::EmprestimoDaBase emprestimo_;
+    };
 
     /// Houve uma atualizacao desde a ultima pergunta?
     ///
@@ -196,16 +272,19 @@ public:
             return;
         }
 
-        const auto resultado = ota_.executa(config, log_);
+        coruja::ResultadoOta resultado;
+        {
+            SessaoDeRede sessao(*this, config);
+            resultado = ota_.executa(config, log_);
+        }
         log_.descarrega();
 
-        // **Recarrega a base só quando ela mudou.** Recarregar sempre custaria
-        // ~1 s de leitura de cartão por clique, e depois de "já estava em dia"
-        // não há nada de novo para ler.
-        if (resultado == coruja::ResultadoOta::Atualizada) {
-            base_ = carrega_base(cartao_, log_);
-            piloto_.define_base(g_pontos, base_.pontos);
-        }
+        // **A base ja foi recarregada pela SessaoDeRede**, sempre -- nao so
+        // quando a atualizacao deu certo. O motivo mudou: antes era economia
+        // (recarregar depois de "ja estava em dia" nao traria nada); agora e
+        // obrigacao, porque a memoria do vetor foi emprestada ao TLS e o que
+        // sobrou dela e resto de handshake.
+        base_ = recarregador_.ultima();
 
         // **Fim feliz passa; falha espera.** Sem segurar, a tela de dirigir
         // voltaria no mesmo instante e nada seria lido. Mas o tempo que
@@ -248,7 +327,11 @@ public:
         const bool log_estava_no_cartao = config.log_para_cartao;
         log_.grava_no_cartao(false);
 
-        const auto resultado = remessa_.executa(config, log_);
+        coruja::ResultadoRemessa resultado;
+        {
+            SessaoDeRede sessao(*this, config);
+            resultado = remessa_.executa(config, log_);
+        }
 
         log_.grava_no_cartao(log_estava_no_cartao);
         log_.descarrega();
@@ -299,6 +382,10 @@ private:
     coruja::Pausa&          pausa_;
     coruja::EsperaDispensa  espera_;
     coruja::LoggerCartao&   log_;
+    coruja::ClienteTls&     http_;
+    coruja::SincronizadorHora& sincronizador_;
+    RecarregadorDoCartao&      recarregador_;
+    coruja::LeitorGps&         gps_;
     BaseCarregada           base_;
     bool                    houve_ota_ = false;
 };
@@ -329,7 +416,9 @@ int main() {
     coruja::UartPico         uart;
     coruja::LeitorGps        gps(uart);
     coruja::RedeWifi         rede;
-    coruja::ClienteHttp      http;
+    coruja::ClienteTls       http;
+    coruja::ClienteSntp      ntp;
+    coruja::RelogioAon       relogio;
 
     log.info("boot", "coruja gps");
     cartao.inicia(log);
@@ -351,13 +440,20 @@ int main() {
     const BaseCarregada base = carrega_base(cartao, log);
     piloto.define_base(g_pontos, base.pontos);
 
+    // O relogio comeca ZERADO: o RP2350 nao tem bateria nele, e zero e
+    // exatamente o que se quer dizer -- ninguem acertou a hora nesta ligacao.
+    relogio.inicia();
+    http.define_token(config.token_aparelho);
+
+    coruja::SincronizadorHora   sincronizador(relogio, ntp);
+    RecarregadorDoCartao        recarregador(cartao);
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
-    coruja::ClienteEnvio   envio;
-    coruja::RemessaDados   remessa(cartao, rede, envio, &ponte_remessa);
+    coruja::RemessaDados   remessa(cartao, rede, http, &ponte_remessa);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
-                                 piloto, led, buzzer, pausa, encoder, log);
+                                 piloto, led, buzzer, pausa, encoder, log,
+                                 http, sincronizador, recarregador, gps);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,

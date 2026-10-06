@@ -11,7 +11,6 @@ class Logger;
 enum class ErroHttp {
     Nenhum,
     UrlInvalida,
-    TlsNaoSuportado,   ///< URL `https`: este cliente não fala TLS
     NaoIniciou,        ///< o pedido nem saiu (DNS, memória, socket)
     TempoEsgotado,
     StatusNaoOk,       ///< respondeu, mas não com 200
@@ -22,7 +21,6 @@ inline const char* descreve(ErroHttp erro) {
     switch (erro) {
         case ErroHttp::Nenhum:          return "ok";
         case ErroHttp::UrlInvalida:     return "URL invalida";
-        case ErroHttp::TlsNaoSuportado: return "https: este cliente nao fala TLS";
         case ErroHttp::NaoIniciou:      return "o pedido nao saiu (DNS? memoria?)";
         case ErroHttp::TempoEsgotado:   return "tempo esgotado";
         case ErroHttp::StatusNaoOk:     return "servidor respondeu com status != 200";
@@ -39,6 +37,11 @@ struct ResultadoHttp {
 };
 
 /// Quem busca bytes de uma URL.
+///
+/// Houve um `TlsNaoSuportado` neste enum, de quando o cliente recusava
+/// `https` em vez de baixar em claro. Ele saiu com a adoção do `ClienteTls`:
+/// valor de erro que não pode mais acontecer confunde quem lê o `switch` e
+/// faz procurar um caminho que não existe.
 ///
 /// A entrega é por retorno de chamada e não por buffer: a base tem 214 KB e
 /// não há onde guardá-la inteira ao lado dos 281 KB que a própria base
