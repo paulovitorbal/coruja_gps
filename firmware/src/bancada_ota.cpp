@@ -9,7 +9,7 @@
 //   girar    ajusta o brilho, como no produto com o carro andando
 //
 // O que roda é o que vai para o produto: `AtualizadorOta`, `TelaOta`,
-// `PadraoLedOta` e `OtaNaTela`, mais `CartaoSd`, `RedeWifi` e `ClienteHttp`.
+// `PadraoLedOta` e `OtaNaTela`, mais `CartaoSd`, `RedeWifi` e `ClienteTls`.
 // Não há GPS — ele ainda não foi montado, e a atualização não precisa dele.
 //
 // Entre cliques a tela mostra a última fase e o LED a acompanha, então o
@@ -34,7 +34,8 @@
 #include "nucleo/LeitorConfig.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
-#include "rede/ClienteHttp.h"
+#include "rede/ClienteTls.h"
+#include "rede/PlataformaMbedtls.h"
 #include "rede/RedeWifi.h"
 
 namespace {
@@ -92,7 +93,7 @@ int main() {
     coruja::EncoderKy040       encoder;
     coruja::Brilho             brilho;
     coruja::RedeWifi           rede;
-    coruja::ClienteHttp        http;
+    coruja::ClienteTls         http;
     coruja::PausaReal          pausa;
 
     log.info("boot", "coruja - bancada de atualizacao (OTA na tela)");
@@ -102,6 +103,16 @@ int main() {
     coruja::VisorSt7789 visor{painel};
     coruja::OtaNaTela   ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
+
+    // A bancada NAO empresta a memoria da base nem acerta o relogio: ela
+    // existe para olhar a tela do OTA, e carregar a base inteira so para
+    // emprestar o buffer sairia do proposito.
+    //
+    // ⚠️ Consequencia: aqui o mbedTLS aloca na pilha de sistema, e uma URL
+    // `https` pode faltar memoria. Com `http` a bancada funciona igual. E
+    // sem relogio acertado, TODO certificado e recusado por "ainda nao
+    // vale" -- em `https` a bancada so serve para ver a tela de FALHA.
+    coruja::inicia_plataforma_mbedtls(nullptr);
 
     // A configuração é lida aqui só para as preferências de log e o brilho
     // gravado; o que vale para o Wi-Fi é relido a cada clique.
