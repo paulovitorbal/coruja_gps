@@ -563,6 +563,74 @@ class Recepcao(unittest.TestCase):
             # E sem token nem chega a existir a resposta de "não existe".
             self.assertEqual(self.pede("GET", rota, token=None)[0], 401, rota)
 
+    # -- o corpo nao lido nao pode contaminar o pedido seguinte --
+
+    def test_put_recusado_nao_contamina_o_pedido_seguinte(self):
+        r"""O defeito que só a produção mostrou, em 2026-10-06.
+
+        Um `PUT` de um byte recusado com 401, e o `GET` logo depois voltando
+        `501 Unsupported method ('xGET')` -- o `x` era o corpo do PUT, que
+        ficou na conexão porque a recusa acontece ANTES de ler o corpo.
+
+        Os testes não pegavam: cada caso abria conexão nova. O Cloudflare
+        reaproveita.
+        """
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        c = self.conexao()
+        try:
+            # 1) PUT recusado, com corpo que o servidor nao le
+            c.putrequest("PUT", s.ROTA_ENVIO + "coruja.log",
+                         skip_accept_encoding=True)
+            c.putheader("Content-Length", "1")
+            c.endheaders()
+            c.send(b"x")
+            r1 = c.getresponse()
+            r1.read()
+            self.assertEqual(r1.status, 401)
+            # O servidor TEM de fechar: o byte `x` continua no fluxo.
+            self.assertEqual(r1.getheader("Connection", "").lower(), "close")
+        finally:
+            c.close()
+
+    def test_a_conexao_e_reaproveitada_quando_o_corpo_FOI_lido(self):
+        # Fechar sempre seria caro: o aparelho manda varios arquivos em
+        # sequencia, e cada fechamento custa um aperto de mao novo.
+        c = self.conexao()
+        try:
+            for i in range(3):
+                corpo = f"envio {i}".encode()
+                c.putrequest("PUT", s.ROTA_ENVIO + "coruja.log",
+                             skip_accept_encoding=True)
+                c.putheader(s.CABECALHO_TOKEN, TOKEN)
+                c.putheader("Content-Length", str(len(corpo)))
+                c.endheaders()
+                c.send(corpo)
+                r = c.getresponse()
+                lido = r.read()
+                self.assertEqual(r.status, 201, f"volta {i}")
+                self.assertNotEqual(r.getheader("Connection", "").lower(),
+                                    "close", f"fechou na volta {i}")
+                self.assertEqual(lido.decode().strip(),
+                                 f"{zlib.crc32(corpo):08x}")
+        finally:
+            c.close()
+
+    def test_content_length_malformado_tambem_fecha(self):
+        # Nao da para saber quantos bytes sobraram; reaproveitar seria apostar.
+        c = self.conexao()
+        try:
+            c.putrequest("PUT", s.ROTA_ENVIO + "coruja.log",
+                         skip_accept_encoding=True)
+            c.putheader(s.CABECALHO_TOKEN, TOKEN)
+            c.putheader("Content-Length", "muitos")
+            c.endheaders()
+            r = c.getresponse()
+            r.read()
+            self.assertEqual(r.status, 400)
+            self.assertEqual(r.getheader("Connection", "").lower(), "close")
+        finally:
+            c.close()
+
     # -- a validação vale para TODAS as rotas --
 
     def test_a_raiz_tambem_exige_token(self):

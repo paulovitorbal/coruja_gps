@@ -370,11 +370,39 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # O RF05.2 aborta se `Content-Length` faltar.
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         if not so_cabecalho:
             self.wfile.write(corpo)
 
+    def _descarta_corpo(self) -> None:
+        """Fecha a conexao quando o corpo do pedido nao foi lido.
+
+        ⚠️ **Isto nao e zelo; e correcao.** Recusar um PUT sem ler o corpo
+        deixa os bytes dele na conexao. Com `keep-alive` -- e o Cloudflare usa
+        -- o pedido SEGUINTE chega grudado nesse resto, e o servidor ve um
+        metodo inventado:
+
+            Unsupported method ('xGET')
+
+        Apareceu assim, em producao, no deploy de 2026-10-06: um `PUT` de um
+        byte recusado com 401, e o `GET /radares.versao` logo depois voltando
+        501. Em teste nao aparecia, porque cada caso abria conexao nova.
+
+        Drenar o corpo seria a alternativa, e e pior: o teto de
+        `TAMANHO_MAXIMO` existe justamente para NAO ler o que nao se quer, e
+        um corpo enorme recusado passaria a ser lido inteiro assim mesmo.
+        """
+        try:
+            resta = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            resta = 1          # malformado: trate como se houvesse corpo
+        if resta > 0:
+            self.close_connection = True
+
     def _erro(self, codigo: int, msg: str, so_cabecalho: bool) -> None:
+        self._descarta_corpo()
         self._responde(codigo, (msg + "\n").encode(), "text/plain; charset=utf-8",
                        so_cabecalho)
 
