@@ -5,6 +5,14 @@
 **contorno** de cada módulo, para que o posicionamento na placa acuse
 sobreposição. Ver `pcb.md` §7.
 
+> 📦 **Os números não moram mais aqui.** Desde 2026-10-05 as medidas vivem num
+> arquivo legível por programa, junto da cadeia de geração, que não é
+> distribuída com este repositório. O que ficou aqui é o que tem valor
+> independente da ferramenta: **o protocolo de medição e as lições**.
+>
+> As tabelas da seção 4 continuam como formulário — servem para medir um módulo
+> novo antes de os números irem para lá.
+
 > 📌 Enquanto uma linha estiver vazia, ela é **desconhecida** — não presumida.
 > Nada aqui deve ser preenchido por datasheet ou por foto. O que não foi medido
 > fica em branco, e o footprint correspondente não é gerado.

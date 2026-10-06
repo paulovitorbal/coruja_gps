@@ -1,39 +1,48 @@
 # 🔧 Placa do coruja_gps — projeto no KiCad
 
 **Projeto de estudo.** Ferramenta: KiCad 10.0.6.
-**Estado em 2026-10-05:** biblioteca de símbolos e esquemático gerados e
-verificados. **A placa (`.kicad_pcb`) ainda não existe.**
+**Estado em 2026-10-05:** esquemático e placa fechados, roteados e verificados.
+
+> 📦 **O que este repositório distribui é o projeto do KiCad**, em `kicad/`:
+> esquemático, placa, biblioteca de símbolos e os três footprints próprios.
+> Abre e edita sem depender de mais nada.
+>
+> **A cadeia de geração não é distribuída.** Ela vive fora deste repositório,
+> por decisão do autor em 2026-10-05. Este documento descreve como o projeto
+> foi produzido e o que foi verificado — não é manual de reprodução.
 
 ---
 
 ## 1. De onde vem o desenho
 
 ```
-bom_schematic.md          revisado por gente; é a fonte de verdade da fiação
+bom_schematic.md     revisado por gente; é a fonte de verdade da fiação
       │
       ▼
-netlist.py                PECAS, CONN, NETS — transcrição única
+netlist.py           PECAS, CONN, NETS — transcrição única  (neste repositório)
       │
-      ├─────────────► gera_fritzing.py ──► .fzz          (desenho de protoboard)
+      ├──────────► gerador do Fritzing ──► .fzz   (desenho de protoboard)
       │
       ▼
-kicad_mapa.py             tradução: referência, símbolo, footprint, pad
+   tradução          referência, símbolo, footprint, pad
       │
-      ├─► kicad_sym.py  ──► kicad/coruja.kicad_sym       (16 símbolos)
-      └─► gera_kicad.py ──► kicad/coruja.kicad_sch       (21 peças)
+      ├─► símbolos  ──► kicad/coruja.kicad_sym      (16 símbolos)
+      ├─► footprints──► kicad/coruja.pretty/        (3 próprios, medidos)
+      ├─► esquemático ► kicad/coruja.kicad_sch      (21 peças)
+      └─► placa     ──► kicad/coruja.kicad_pcb      (120 × 120 mm)
                               │
                               ▼
-                        verifica_kicad.py                 ⬅ a verificação que vale
+                        verificação                 ⬅ a que vale
 ```
 
 **Nada é desenhado à mão.** Quem muda a fiação muda o `bom_schematic.md`, depois
 o `netlist.py`, e regera. Duas transcrições da mesma netlist divergiriam, e
 divergiriam em silêncio.
 
-O `expressao_s.py`, usado pelos três geradores, é o leitor e escritor do
-formato de arquivo do KiCad — s-expressão. Ele preserva quais átomos estavam
-entre aspas, e isso não é detalhe: o KiCad distingue `passive` de `"passive"`,
-e recusa a biblioteca inteira quando o que espera entre aspas vem nu.
+Os geradores compartilham um leitor e escritor do formato do KiCad —
+s-expressão — que preserva **quais átomos estavam entre aspas**. Isso não é
+detalhe: o KiCad distingue `passive` de `"passive"`, e recusa a biblioteca
+inteira quando o que espera entre aspas vem nu.
 
 ### Os gabaritos 1:1 cumpriram o papel e foram removidos
 
@@ -45,21 +54,22 @@ desenhava chanfro.
 
 Foram apagadas em 2026-10-05, junto com o gerador, depois que todas as medidas
 fecharam. Os comentários que dizem "confirmado no gabarito 1:1" pelo código e
-pelo `medidas.py` continuam verdadeiros — referem-se ao que foi feito, não a um
+pelos geradores continuam verdadeiros — referem-se ao que foi feito, não a um
 arquivo que ainda exista. **Não procure por eles.**
 
 Se algum módulo novo entrar no projeto, vale recriar: um gabarito impresso custa
 uma folha de papel e responde o que o paquímetro sozinho não responde, que é se
 a geometria inteira fecha de uma vez.
 
-### Reproduzir
+### E se a fiação mudar
 
-```sh
-cd dispositivo
-python3 kicad_sym.py        # biblioteca de símbolos
-python3 gera_kicad.py       # esquemático, projeto e tabelas de biblioteca
-python3 verifica_kicad.py   # confere contra o netlist.py — sai 0 se bate
-```
+Quem muda a fiação muda o `bom_schematic.md`, depois o `netlist.py`, e pede ao
+autor que regere. **Não se edita o `.kicad_sch` à mão** — a próxima geração
+apagaria a edição, e o desenho passaria a discordar da netlist em silêncio.
+
+⚠️ A **placa** é exceção: o roteamento foi feito à mão no editor e não existe
+em fonte nenhuma. O gerador se recusa a sobrescrever um `.kicad_pcb` que tenha
+trilhas, justamente por isso.
 
 ---
 
@@ -68,7 +78,7 @@ python3 verifica_kicad.py   # confere contra o netlist.py — sai 0 se bate
 As outras provam que o arquivo é **bem formado**: o símbolo carrega, o
 esquemático abre, o ERC passa. Nenhuma delas prova que está **certo**.
 
-O `verifica_kicad.py` faz o próprio KiCad exportar a netlist dele e compara nó
+A verificação faz o próprio KiCad exportar a netlist dele e compara nó
 a nó com o `netlist.py`:
 
 ```
@@ -95,7 +105,7 @@ SPI0_SCK:  nó da fonte ausente no esquematico: ('J2', 24)
 ...
 ```
 
-Morto. É o erro exato que o `kicad_mapa.py` avisa que "troca metade das
+Morto. É o erro exato que a tradução avisa que "troca metade das
 ligações **sem gerar erro**".
 
 ---
@@ -109,7 +119,7 @@ Registrados porque todos são do tipo que passa despercebido.
 | 1 | Footprint de resistor com nome errado (faltava `_Horizontal`) | conferência de existência de cada footprint na biblioteca |
 | 2 | Escritor de s-expressão tirava as aspas das strings | KiCad recusava a biblioteca com "não foi possível carregar", sem dizer onde |
 | 3 | `(offset ...)` dentro de `pin_numbers`, que só aceita `hide` | idem — mesma mensagem genérica |
-| 4 | **O Pico inteiro sem ligação** no esquemático | `verifica_kicad.py`; o KiCad achou o arquivo perfeito |
+| 4 | **O Pico inteiro sem ligação** no esquemático | a verificação contra o `netlist.py`; o KiCad achou o arquivo perfeito |
 | 5 | Símbolo compartilhado com descrição diferente entre biblioteca e esquemático | ERC: `lib_symbol_mismatch` |
 
 O **#4** é o que justifica todo o resto. A netlist chama a peça de `PICO`; o
@@ -164,7 +174,7 @@ referencia `Device:R` abre numa máquina e não abre na outra. Por isso a
 biblioteca vai junto.
 
 Footprint é geometria de fabricação, que não convém reinventar — e os nomes
-daquela biblioteca são estáveis. O `verifica_kicad.py` confere que cada um
+daquela biblioteca são estáveis. A verificação confere que cada um
 existe antes de qualquer outra coisa.
 
 ### 4.4 Um símbolo por peça, com nome de pino de verdade
