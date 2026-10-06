@@ -54,10 +54,10 @@ std::size_t formata_ponto_viagem(const PontoViagem& p, char* destino,
     if (destino == nullptr || capacidade == 0) { return 0; }
     const int n = std::snprintf(
         destino, capacidade,
-        "%04u-%02u-%02uT%02u:%02u:00Z;%.5f;%.5f;%.1f;%.2f\n",
+        "%04u-%02u-%02uT%02u:%02u:%02uZ;%.5f;%.5f;%.1f;%.2f\n",
         static_cast<unsigned>(p.ano), static_cast<unsigned>(p.mes),
         static_cast<unsigned>(p.dia), static_cast<unsigned>(p.hora),
-        static_cast<unsigned>(p.minuto),
+        static_cast<unsigned>(p.minuto), static_cast<unsigned>(p.segundo),
         static_cast<double>(p.lat), static_cast<double>(p.lon),
         static_cast<double>(p.v_media_kmh), static_cast<double>(p.dist_km));
     return coube(n, capacidade);

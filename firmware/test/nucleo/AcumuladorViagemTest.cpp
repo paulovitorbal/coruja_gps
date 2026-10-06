@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 namespace {
 
 using namespace coruja;
@@ -62,58 +64,116 @@ TEST(AcumuladorViagem, parar_volta_a_parada) {
     EXPECT_EQ(a.alimenta(em(17, 31, 0, 50.0F), true, 61000), EventoViagem::Nada);
 }
 
-// --- o ponto por minuto ---
+// --- a fatia de seis segundos ---
+//
+// Dez por minuto desde 2026-10-06. A conta que condenou a taxa anterior:
+// 120 km/h sao 2 km por MINUTO, e um vertice a cada dois quilometros nao
+// descreve trajeto -- numa via expressa vira uma reta entre pontos que
+// ignoram as curvas e as alcas por onde o carro passou.
 
-TEST(AcumuladorViagem, grava_na_virada_do_minuto_com_o_carimbo_do_minuto_descrito) {
+TEST(AcumuladorViagem, grava_na_virada_da_fatia_com_o_carimbo_da_fatia_descrita) {
     AcumuladorViagem a;
     a.inicia();
-    a.alimenta(em(17, 30, 10, 60.0F), true, 1000);        // abre
-    EXPECT_EQ(a.alimenta(em(17, 30, 40, 60.0F), true, 31000), EventoViagem::Nada);
-    ASSERT_EQ(a.alimenta(em(17, 31, 2, 60.0F), true, 53000), EventoViagem::Grava);
+    a.alimenta(em(17, 30, 6, 60.0F), true, 1000);         // abre a fatia :06
+    EXPECT_EQ(a.alimenta(em(17, 30, 10, 60.0F), true, 5000), EventoViagem::Nada)
+        << ":10 ainda esta na fatia que vai de :06 a :11";
+    ASSERT_EQ(a.alimenta(em(17, 30, 12, 60.0F), true, 7000), EventoViagem::Grava);
 
     const auto& p = a.ultimo_ponto();
     EXPECT_EQ(p.hora, 17);
-    EXPECT_EQ(p.minuto, 30) << "a linha descreve o minuto que FECHOU";
+    EXPECT_EQ(p.minuto, 30);
+    EXPECT_EQ(p.segundo, 6) << "o carimbo e o INICIO da fatia que fechou";
     EXPECT_EQ(p.ano, 2026);
     EXPECT_EQ(p.mes, 10);
     EXPECT_EQ(p.dia, 4);
 }
 
-TEST(AcumuladorViagem, a_media_e_das_amostras_do_minuto) {
+TEST(AcumuladorViagem, as_fatias_caem_em_segundos_REDONDOS) {
+    // Seis divide sessenta, e e por isso que os carimbos sao :00, :06, :12...
+    // Uma janela deslizante desde o clique daria carimbos que nao se alinham
+    // entre viagens, e comparar dois arquivos viraria adivinhacao.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 3, 50.0F), true, 1000);   // abre na fatia :00
+    std::vector<int> carimbos;
+    for (int s = 6; s < 60; s += 6) {
+        if (a.alimenta(em(17, 30, s, 50.0F), true, 1000U + s * 1000U)
+                == EventoViagem::Grava) {
+            carimbos.push_back(a.ultimo_ponto().segundo);
+        }
+    }
+    EXPECT_EQ(carimbos, (std::vector<int>{0, 6, 12, 18, 24, 30, 36, 42, 48}));
+}
+
+TEST(AcumuladorViagem, dez_gravacoes_por_minuto) {
+    // O numero que o autor pediu, afirmado diretamente.
+    AcumuladorViagem a;
+    a.inicia();
+    int gravacoes = 0;
+    // Um minuto inteiro, amostrando a 4 Hz como o GPS entrega.
+    for (int ds = 0; ds < 240; ++ds) {
+        const auto s = static_cast<std::uint8_t>(ds / 4);
+        if (a.alimenta(em(17, 30, s, 50.0F), true, 1000U + ds * 250U)
+                == EventoViagem::Grava) {
+            ++gravacoes;
+        }
+    }
+    // Nove fechadas dentro do minuto; a decima fecha na virada para :31.
+    EXPECT_EQ(gravacoes, 9);
+    ASSERT_EQ(a.alimenta(em(17, 31, 0, 50.0F), true, 61000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 54);
+}
+
+TEST(AcumuladorViagem, a_virada_do_minuto_fecha_a_fatia) {
+    // A fatia :54 do minuto 30 e a :54 do minuto 31 tem o mesmo indice.
+    // Comparar so o indice daria falso negativo e juntaria os dois minutos
+    // numa linha so.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 54, 60.0F), true, 1000);
+    ASSERT_EQ(a.alimenta(em(17, 31, 56, 60.0F), true, 63000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().minuto, 30);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 54);
+}
+
+TEST(AcumuladorViagem, a_media_e_das_amostras_da_fatia) {
     AcumuladorViagem a;
     a.inicia();
     a.alimenta(em(17, 30, 0, 40.0F), true, 1000);
-    a.alimenta(em(17, 30, 20, 60.0F), true, 21000);
-    a.alimenta(em(17, 30, 40, 80.0F), true, 41000);
-    ASSERT_EQ(a.alimenta(em(17, 31, 0, 10.0F), true, 61000), EventoViagem::Grava);
+    a.alimenta(em(17, 30, 2, 60.0F), true, 3000);
+    a.alimenta(em(17, 30, 4, 80.0F), true, 5000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 10.0F), true, 7000), EventoViagem::Grava);
 
     EXPECT_FLOAT_EQ(a.ultimo_ponto().v_media_kmh, 60.0F)
-        << "(40+60+80)/3; o 10 pertence ao minuto seguinte";
+        << "(40+60+80)/3; o 10 pertence a fatia seguinte";
 }
 
-TEST(AcumuladorViagem, a_posicao_do_ponto_e_a_do_FIM_do_minuto) {
+TEST(AcumuladorViagem, a_posicao_do_ponto_e_a_do_FIM_da_fatia) {
     AcumuladorViagem a;
     a.inicia();
     a.alimenta(em(17, 30, 0, 60.0F, -19.800F, -44.000F), true, 1000);
-    a.alimenta(em(17, 30, 50, 60.0F, -19.810F, -44.020F), true, 51000);
-    ASSERT_EQ(a.alimenta(em(17, 31, 0, 60.0F, -19.900F, -44.100F), true, 61000),
+    a.alimenta(em(17, 30, 4, 60.0F, -19.810F, -44.020F), true, 5000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 60.0F, -19.900F, -44.100F), true, 7000),
               EventoViagem::Grava);
 
     EXPECT_FLOAT_EQ(a.ultimo_ponto().lat, -19.810F);
     EXPECT_FLOAT_EQ(a.ultimo_ponto().lon, -44.020F);
 }
 
-TEST(AcumuladorViagem, minuto_inteiro_sem_fix_nao_produz_linha) {
+TEST(AcumuladorViagem, fatia_inteira_sem_fix_nao_produz_linha) {
     AcumuladorViagem a;
     a.inicia();
     a.alimenta(em(17, 30, 0, 60.0F), true, 1000);
-    // Tunel: nada chega durante o minuto 31.
-    for (std::uint32_t ms = 61000; ms < 121000; ms += 1000) {
+    // Tunel: nada chega durante as fatias :06 e :12.
+    for (std::uint32_t ms = 7000; ms < 19000; ms += 500) {
         EXPECT_EQ(a.alimenta(Telemetria{}, false, ms), EventoViagem::Nada);
     }
-    // Volta no minuto 32: fecha o 30, que tinha amostras. O 31 nao sai.
-    ASSERT_EQ(a.alimenta(em(17, 32, 5, 60.0F), true, 125000), EventoViagem::Grava);
-    EXPECT_EQ(a.ultimo_ponto().minuto, 30);
+    // Volta em :18: fecha a :00, que tinha amostras. As duas do meio nao saem.
+    ASSERT_EQ(a.alimenta(em(17, 30, 18, 60.0F), true, 19000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 0);
 }
 
 // --- distancia ---

@@ -43,8 +43,15 @@ constexpr const char* kCabecalhoInfracoes =
     "# coruja_gps infracoes v1\n"
     "utc;lat;lon;rumo;v_radar;v_max;v_infra;limite;radar_lat;radar_lon;dist_min\n";
 
+/// ⚠️ **v2, e a mudança não está nas colunas.** Elas são as mesmas; o que
+/// mudou foi o significado do carimbo. Na v1 o segundo era sempre `00`,
+/// porque a linha descrevia um minuto inteiro; na v2 ele é o início da fatia
+/// de seis segundos. Um leitor de v1 interpreta um arquivo v2 sem errar
+/// nada — mas quem for comparar taxas entre arquivos precisa saber qual é
+/// qual, e sem a versão na primeira linha teria de adivinhar pelos
+/// intervalos.
 constexpr const char* kCabecalhoViagem =
-    "# coruja_gps viagem v1\n"
+    "# coruja_gps viagem v2\n"
     "utc;lat;lon;v_media;dist_km\n";
 
 /// Buffers mínimos. Dimensionados pelo pior caso de cada campo, com folga.

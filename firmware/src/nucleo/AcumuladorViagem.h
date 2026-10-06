@@ -14,14 +14,47 @@ enum class EstadoViagem : std::uint8_t {
 
 const char* descreve(EstadoViagem e);
 
-/// Um minuto de viagem, pronto para virar linha.
+/// Quantos segundos cada linha do registro descreve.
 ///
-/// O carimbo identifica o **minuto descrito**, sempre com segundo zero: a
-/// linha é o minuto, não um instante dentro dele. Posição e distância são as
-/// do **fim** do minuto; a velocidade é a média dele.
+/// Dez amostras por minuto, por decisão do autor em 2026-10-06. Antes era
+/// uma, e a conta que condenou aquela taxa é direta:
+///
+///     120 km/h = 2 km por MINUTO
+///
+/// Um vértice a cada dois quilômetros não descreve trajeto nenhum — numa via
+/// expressa o traçado vira uma reta entre pontos que ignoram as curvas, as
+/// alças e os retornos por onde o carro de fato passou. Serve para somar
+/// quilômetros; não serve para ver por onde se andou.
+///
+/// A 6 s, a mesma velocidade dá **200 m** entre vértices. Em cidade, a 50
+/// km/h, dá 83 m.
+///
+/// Seis divide sessenta, e é isso que mantém os carimbos **redondos**: as
+/// fatias caem em `:00, :06, :12 … :54`, e não numa janela deslizante que
+/// começa onde o clique calhou.
+///
+/// ⚠️ O custo é dez vezes mais escrita no cartão. Uma viagem de uma hora
+/// passa de 60 para 600 linhas (~27 KB). O tamanho não é o problema — o
+/// número de operações é: cada ponto **monta o volume, abre, acrescenta,
+/// fecha e desmonta** (ver `CartaoSd::acrescenta_arquivo`), e isso passa de
+/// uma para dez vezes por minuto. São dez atualizações de diretório por
+/// minuto no mesmo setor de FAT, e cartão tem ciclos finitos.
+///
+/// Aceito com conhecimento de causa: o aparelho é de estudo, o cartão é
+/// barato e substituível, e um trajeto que não dá para ver não serve para
+/// nada. Se virar problema, o conserto é acumular N pontos em RAM e gravar
+/// em lote — o que troca desgaste por perder o último lote num corte de
+/// energia.
+constexpr std::uint8_t kSegundosPorAmostra = 6;
+
+/// Uma fatia de viagem, pronta para virar linha.
+///
+/// O carimbo identifica a **fatia descrita** — `:00`, `:06`, `:12`… —, não um
+/// instante dentro dela. Posição e distância são as do **fim** da fatia; a
+/// velocidade é a média dela.
 struct PontoViagem {
     std::uint16_t ano = 0;
-    std::uint8_t  mes = 0, dia = 0, hora = 0, minuto = 0;
+    std::uint8_t  mes = 0, dia = 0, hora = 0, minuto = 0, segundo = 0;
     float lat = 0.0F;
     float lon = 0.0F;
     float v_media_kmh = 0.0F;
@@ -48,7 +81,7 @@ constexpr std::uint32_t kParadoEncerraViagemMs = 5U * 60U * 1000U;
 /// normal e corta qualquer buraco real.
 constexpr std::uint32_t kMaxPassoIntegracaoMs = 2000;
 
-/// Acumula uma viagem: um ponto por minuto, com média e distância.
+/// Acumula uma viagem: dez pontos por minuto, com média e distância.
 ///
 /// ## Três decisões que não são óbvias
 ///
@@ -58,16 +91,16 @@ constexpr std::uint32_t kMaxPassoIntegracaoMs = 2000;
 /// parado acumula distância fantasma — num semáforo de dois minutos o
 /// aparelho "andaria" dezenas de metros sem sair do lugar.
 ///
-/// **O ponto sai na virada do minuto UTC, não a cada 60 s desde o clique.**
-/// Os carimbos saem redondos, e a média passa a ser exatamente "o minuto de
-/// `:00` a `:59`" em vez de uma janela deslizante sem significado.
+/// **O ponto sai na virada da fatia UTC, não a cada N segundos desde o
+/// clique.** Os carimbos saem redondos, e a média passa a ser exatamente "de
+/// `:06` a `:11`" em vez de uma janela deslizante sem significado.
 ///
-/// **Minuto sem fix não produz linha.** Não há coordenada para gravar, e
+/// **Fatia sem fix não produz linha.** Não há coordenada para gravar, e
 /// inventar a última conhecida poria no arquivo posição que o aparelho não
 /// mediu. O buraco no horário é o registro de que houve buraco.
 ///
-/// ⚠️ O minuto em curso quando a viagem termina **não é gravado** — faltam
-/// segundos para ele fechar. É perda de no máximo 59 s de trajeto, e vale
+/// ⚠️ A fatia em curso quando a viagem termina **não é gravada** — faltam
+/// segundos para ela fechar. É perda de no máximo 5 s de trajeto, e vale
 /// para os dois fins: o clique em "parar" e o corte de energia. A distância
 /// acumulada continua em `dist_km()`, que é o que vai ao arquivo de estado.
 class AcumuladorViagem {
@@ -92,8 +125,10 @@ public:
 
 private:
     void monta_nome(const Telemetria& t);
-    void abre_minuto(const Telemetria& t);
-    void fecha_minuto();
+    void abre_amostra(const Telemetria& t);
+    void fecha_amostra();
+    /// Qual fatia de `kSegundosPorAmostra` segundos este instante ocupa.
+    static std::uint8_t fatia_de(const Telemetria& t);
 
     EstadoViagem estado_ = EstadoViagem::Parada;
     char         nome_[24] = {};
@@ -103,9 +138,11 @@ private:
     std::uint32_t anterior_ms_ = 0;
 
     // Minuto em curso
-    bool          minuto_aberto_ = false;
+    bool          amostra_aberta_ = false;
     std::uint16_t ano_ = 0;
     std::uint8_t  mes_ = 0, dia_ = 0, hora_ = 0, minuto_ = 0;
+    /// A fatia que esta aberta, de 0 a 59/kSegundosPorAmostra-1.
+    std::uint8_t  fatia_ = 0;
     float         soma_vel_ = 0.0F;
     std::uint32_t amostras_ = 0;
     float         ultima_lat_ = 0.0F;

@@ -19,14 +19,14 @@ void AcumuladorViagem::inicia(float dist_inicial_km) {
     estado_ = EstadoViagem::Aguardando;
     dist_km_ = dist_inicial_km;
     tem_passo_anterior_ = false;
-    minuto_aberto_ = false;
+    amostra_aberta_ = false;
     contando_parado_ = false;
     nome_[0] = '\0';
 }
 
 void AcumuladorViagem::para() {
     estado_ = EstadoViagem::Parada;
-    minuto_aberto_ = false;
+    amostra_aberta_ = false;
     tem_passo_anterior_ = false;
     contando_parado_ = false;
 }
@@ -39,17 +39,26 @@ void AcumuladorViagem::monta_nome(const Telemetria& t) {
                   static_cast<unsigned>(t.segundo));
 }
 
-void AcumuladorViagem::abre_minuto(const Telemetria& t) {
-    minuto_aberto_ = true;
+std::uint8_t AcumuladorViagem::fatia_de(const Telemetria& t) {
+    return static_cast<std::uint8_t>(t.segundo / kSegundosPorAmostra);
+}
+
+void AcumuladorViagem::abre_amostra(const Telemetria& t) {
+    amostra_aberta_ = true;
     ano_ = t.ano; mes_ = t.mes; dia_ = t.dia;
     hora_ = t.hora; minuto_ = t.minuto;
+    fatia_ = fatia_de(t);
     soma_vel_ = 0.0F;
     amostras_ = 0;
 }
 
-void AcumuladorViagem::fecha_minuto() {
+void AcumuladorViagem::fecha_amostra() {
     ponto_.ano = ano_; ponto_.mes = mes_; ponto_.dia = dia_;
     ponto_.hora = hora_; ponto_.minuto = minuto_;
+    // O segundo e o INICIO da fatia, nao o instante da ultima amostra: a
+    // linha descreve a fatia inteira, e um carimbo em `:07` sugeriria um
+    // instante medido.
+    ponto_.segundo = static_cast<std::uint8_t>(fatia_ * kSegundosPorAmostra);
     ponto_.lat = ultima_lat_;
     ponto_.lon = ultima_lon_;
     ponto_.v_media_kmh =
@@ -80,7 +89,7 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
     if (estado_ == EstadoViagem::Aguardando) {
         monta_nome(t);
         estado_ = EstadoViagem::Gravando;
-        abre_minuto(t);
+        abre_amostra(t);
         ultima_lat_ = t.lat;
         ultima_lon_ = t.lon;
         soma_vel_ += t.velocidade_kmh;
@@ -101,14 +110,19 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
     anterior_ms_ = agora_ms;
     tem_passo_anterior_ = true;
 
-    // --- virada do minuto ---
+    // --- virada da fatia ---
+    //
+    // Compara minuto E fatia: so a fatia daria falso negativo na virada do
+    // minuto, quando ela volta de 9 para 0 sem passar por valor diferente
+    // de algum ja visto.
     EventoViagem evento = EventoViagem::Nada;
-    if (minuto_aberto_ && t.minuto != minuto_) {
-        fecha_minuto();
-        abre_minuto(t);
+    const std::uint8_t fatia_agora = fatia_de(t);
+    if (amostra_aberta_ && (t.minuto != minuto_ || fatia_agora != fatia_)) {
+        fecha_amostra();
+        abre_amostra(t);
         evento = EventoViagem::Grava;
-    } else if (!minuto_aberto_) {
-        abre_minuto(t);
+    } else if (!amostra_aberta_) {
+        abre_amostra(t);
     }
 
     soma_vel_ += t.velocidade_kmh;

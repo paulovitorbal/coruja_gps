@@ -35,3 +35,21 @@
 
 carro-paulo=troque-me-por-algo-longo-e-aleatorio
 bancada=troque-me-tambem-e-por-outro-diferente
+
+# --- ajustes da pagina de viagens -------------------------------------
+#
+# A pagina em /viagens mostra os trajetos que cada aparelho enviou, com mapa
+# e reproducao. Quem entra informa o TOKEN do aparelho; a sessao usa um
+# identificador aleatorio, e o token nao vai para o navegador.
+[mapa]
+
+# Chave do Thunderforest, para o tema Atlas. Cadastro gratuito em
+# thunderforest.com (150 mil tiles/mes).
+#
+# SEM ELA a pagina continua funcionando, com o tile padrao do OpenStreetMap:
+# o trajeto e o conteudo, o tema e a aparencia.
+#
+# ATENCAO: a chave viaja na URL dos tiles que o NAVEGADOR busca, entao fica
+# visivel a quem abrir o inspetor. E assim com todo provedor com chave; a
+# protecao real e a cota e o limite de dominio no painel deles.
+#thunderforest=troque-me-pela-sua-chave

@@ -733,6 +733,11 @@ class LeAparelhos(unittest.TestCase):
         self.caminho = Path(self.tmp.name) / "aparelhos.cfg"
 
     def le(self, texto):
+        """Só os aparelhos. A seção `[mapa]` tem testes próprios."""
+        self.caminho.write_text(texto, encoding="utf-8")
+        return s.le_aparelhos(self.caminho).por_token
+
+    def le_tudo(self, texto):
         self.caminho.write_text(texto, encoding="utf-8")
         return s.le_aparelhos(self.caminho)
 
@@ -763,7 +768,8 @@ class LeAparelhos(unittest.TestCase):
     def test_arquivo_ausente_e_lista_vazia_e_nao_erro(self):
         # É o caso de quem só distribui a base. Exigir o arquivo obrigaria a
         # criar um vazio para nada.
-        self.assertEqual(s.le_aparelhos(self.caminho), {})
+        self.assertEqual(s.le_aparelhos(self.caminho).por_token, {})
+        self.assertEqual(s.le_aparelhos(self.caminho).mapa, {})
 
     def test_arquivo_so_de_comentario_e_lista_vazia(self):
         self.assertEqual(self.le("# nada aqui ainda\n"), {})
@@ -803,6 +809,40 @@ class LeAparelhos(unittest.TestCase):
         for nome in ("carro", "carro-2", "carro_2", "Bancada", "x", "a" * 32):
             with self.subTest(nome=nome):
                 self.assertEqual(self.le(nome + "=abc\n"), {"abc": nome})
+
+    # -- a secao [mapa] --
+
+    def test_le_a_chave_do_mapa(self):
+        r = self.le_tudo("carro=abc\n\n[mapa]\nthunderforest=xyz123\n")
+        self.assertEqual(r.por_token, {"abc": "carro"})
+        self.assertEqual(r.mapa, {"thunderforest": "xyz123"})
+
+    def test_sem_secao_de_mapa_o_dicionario_vem_vazio(self):
+        self.assertEqual(self.le_tudo("carro=abc\n").mapa, {})
+
+    def test_a_secao_separa_aparelhos_de_ajustes(self):
+        # O risco de juntar os dois num arquivo só: uma chave de serviço
+        # externo virar aparelho, e passar a autenticar envios.
+        r = self.le_tudo("carro=abc\n[mapa]\nthunderforest=xyz\n")
+        self.assertNotIn("xyz", r.por_token)
+        self.assertEqual(len(r.por_token), 1)
+
+    def test_secao_desconhecida_e_erro(self):
+        # `[mapas]` em vez de `[mapa]` deixaria a chave cair num balde
+        # ignorado, e o sintoma seria um mapa em branco sem explicação.
+        with self.assertRaises(s.ErroDeAparelhos) as e:
+            self.le_tudo("carro=abc\n[mapas]\nthunderforest=xyz\n")
+        self.assertIn("desconhecida", str(e.exception))
+
+    def test_a_secao_nao_diferencia_maiuscula(self):
+        r = self.le_tudo("carro=abc\n[MAPA]\nThunderforest=xyz\n")
+        self.assertEqual(r.mapa, {"thunderforest": "xyz"})
+
+    def test_valor_do_mapa_preserva_maiuscula(self):
+        # A chave da API diferencia maiúscula; só o NOME do ajuste é
+        # normalizado.
+        r = self.le_tudo("[mapa]\nthunderforest=AbCdEf123\n")
+        self.assertEqual(r.mapa["thunderforest"], "AbCdEf123")
 
     def test_a_mensagem_de_erro_diz_a_linha(self):
         # O arquivo é editado à mão e o erro impede o servidor de subir;

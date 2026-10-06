@@ -14,6 +14,13 @@ E, **opcionalmente**, recebe de volta o que o aparelho registrou:
 | `PUT /envio/<nome>` | grava o arquivo e devolve `201` com o **CRC-32** do que chegou |
 | `GET /envio/<nome>` | devolve `200` com o CRC-32 do que está **guardado** |
 
+E uma página para olhar o que chegou:
+
+| Rota | Faz |
+| :--- | :--- |
+| `GET /viagens` | formulário do token, ou a lista de trajetos |
+| `GET /viagens/<nome>` | o mapa, com reprodução de `1x` a `16x` |
+
 Quem pode falar com o servidor sai de uma lista `nome=token` — ver *Quem pode
 falar com o servidor*, logo abaixo. **Com a lista preenchida, todas as rotas
 passam a exigir token, inclusive a raiz.**
@@ -285,6 +292,75 @@ meio não pode deixar meio arquivo com o nome definitivo — e, pior, um reenvio
 que falha não pode destruir a cópia boa que já estava lá, porque o aparelho
 pode já ter apagado a dele.
 
+## A página de viagens
+
+```
+http://localhost:8081/viagens
+```
+
+Informe o **token do aparelho** e veja os trajetos que ele enviou, com mapa e
+reprodução.
+
+### `1x` é tempo real
+
+Uma viagem de 22 minutos leva 22 minutos em `1x`, e 1,4 minuto em `16x`.
+Decisão do autor em 2026-10-06, tomada sabendo disso: o nome tinha de
+significar o que diz.
+
+| | `1x` | `2x` | `4x` | `8x` | `16x` |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| viagem de 22 min | 22 min | 11 min | 5,5 min | 2,8 min | 1,4 min |
+
+### A posição entre registros é interpolada
+
+O aparelho grava **dez pontos por minuto** (formato v2; a v1, de um por
+minuto, continua sendo lida). Entre dois registros a página desenha
+interpolação linear — o carro não andou em linha reta a velocidade constante,
+e a página diz isso em letras no painel.
+
+> ⚠️ **O Leaflet.TimeDimension não interpola sozinho.** Eu supus que sim; o
+> `_getFeatureBetweenDates` dele **fatia** a lista de coordenadas e põe o
+> marcador na última do pedaço. Com um ponto por minuto o marcador ficava
+> parado 60 s e depois saltava. Quem mostrou foi o teste de navegador — o
+> HTML passava em todas as conferências de texto.
+
+### O token não vira cookie
+
+A sessão guarda um **identificador aleatório**, não o token. Pôr o token no
+navegador significaria que um computador compartilhado passa a poder **subir
+viagem falsa** — o mesmo segredo serve para ler e para enviar.
+
+O cookie é `HttpOnly`, `SameSite=Strict`, escopo `/viagens`, e ganha `Secure`
+quando a borda manda `X-Forwarded-Proto: https`. As sessões vivem em memória e
+morrem com o processo.
+
+### O tema Atlas precisa de chave
+
+No `aparelhos.cfg`:
+
+```
+[mapa]
+thunderforest=sua-chave-aqui
+```
+
+Cadastro gratuito em thunderforest.com, 150 mil tiles/mês. **Sem a chave a
+página funciona**, com o tile padrão do OpenStreetMap: o trajeto é o conteúdo,
+o tema é a aparência.
+
+> ⚠️ A chave viaja na URL dos tiles que o **navegador** busca, então é visível
+> a quem abrir o inspetor. É assim com todo provedor com chave; a proteção
+> real é a cota e o limite de domínio no painel deles.
+
+### 🔴 O folium quebrou a regra da biblioteca padrão
+
+Era decisão documentada: sem `pip install`, sem camada de dependência para
+envelhecer. O autor escolheu quebrá-la em 2026-10-06 para ter o mapa.
+
+A quebra é **contida**: só o `viagem.py` importa folium, e o import acontece
+*dentro* da função que desenha. Sem a dependência o servidor ainda sobe e
+distribui a base — a função principal —, e quem abre a página recebe uma
+mensagem em vez de um 500.
+
 ## Decisões que valem conhecer
 
 **Duas rotas fixas, não um servidor de arquivos.** Herdar de
@@ -316,9 +392,28 @@ comprometido, não há como alterar a base que os aparelhos vão baixar.
 python3 -m unittest discover -s servidor/testes
 ```
 
-79 casos. Sobem o servidor de verdade numa porta efêmera e falam HTTP com ele
+130 casos. Sobem o servidor de verdade numa porta efêmera e falam HTTP com ele
 — testar o manipulador isolado deixaria de fora justamente o que o firmware
 consome: os códigos de status, os cabeçalhos e o `HEAD`.
+
+### O teste de navegador é opcional
+
+Dez deles abrem o mapa num Chromium de verdade e conferem que os botões de
+velocidade **fazem alguma coisa**. São pulados quando o `playwright` ou o
+`folium` não estão instalados, para a suíte principal continuar sendo só
+biblioteca padrão.
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install folium playwright
+.venv/bin/playwright install chromium
+.venv/bin/python -m unittest discover -s servidor/testes
+```
+
+⚠️ Vale o incômodo: conferir o HTML por substring dizia que
+`setTransitionTime` estava lá. Não dizia que ele era chamado, nem com que
+valor, nem que o reprodutor existia para recebê-lo — e na primeira versão eu
+procurava o reprodutor numa variável global que não existe.
 
 Os da recepção e os da autenticação passaram por campanhas de **mutação**:
 defeitos plausíveis introduzidos de propósito — apagar a conferência de token, tirar as

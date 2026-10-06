@@ -29,9 +29,19 @@ import struct
 import sys
 import hmac
 import re
+import secrets
 import threading
+import time
+import urllib.parse
 import zlib
 from pathlib import Path
+from typing import NamedTuple
+
+# `pagina` e `viagem` sao do proprio servidor. O `viagem` so importa o folium
+# DENTRO da funcao que desenha, entao a ausencia da dependencia nao impede o
+# servidor de subir e distribuir a base -- que e a funcao principal.
+import pagina
+import viagem
 
 NOME_BASE = "radares.bin"
 ROTA_VERSAO = "/radares.versao"
@@ -76,6 +86,10 @@ TAMANHO_MAXIMO = 8 * 1024 * 1024
 #: jogo de gato e rato; aceitar so o que casa com o padrao nao e.
 PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
 
+#: So os registros de viagem, para a pagina. O `coruja.log` e o
+#: `infracoes.log` nao sao trajetos e nao tem o que desenhar.
+PADRAO_VIAGEM = re.compile(r"^\d{8}_\d{6}\.log$")
+
 #: Cabecalho do segredo combinado. Sem ele, ou errado, a resposta e 401.
 #:
 #: ⚠️ Isto NAO e autenticacao forte: o segredo viaja em claro, porque o
@@ -83,6 +97,35 @@ PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
 #: deposito aberto para qualquer um que a descubra — que e um problema real e
 #: diferente.
 CABECALHO_TOKEN = "X-Coruja-Token"
+
+# ------------------------------------------------------- pagina de viagens --
+#
+# Uma pessoa abre no navegador, informa o token do aparelho e ve as viagens que
+# ele mandou -- com mapa e reproducao.
+#
+#   GET  /viagens          formulario, ou a listagem se houver sessao
+#   POST /viagens          recebe o token e abre a sessao
+#   GET  /viagens/<nome>   o mapa de uma viagem
+#   POST /viagens/sair     encerra a sessao
+ROTA_VIAGENS = "/viagens"
+
+#: Nome do cookie de sessao.
+#:
+#: ⚠️ **O cookie guarda um identificador aleatorio, nao o token.** Poe-lo no
+#: navegador significaria que um computador compartilhado passa a poder SUBIR
+#: viagem falsa -- o mesmo segredo serve para ler e para enviar. O
+#: identificador so da acesso de leitura, e morre com o processo.
+COOKIE_SESSAO = "coruja_sessao"
+
+#: Quanto tempo uma sessao dura sem uso.
+VALIDADE_SESSAO_S = 8 * 3600
+
+#: Espera imposta a cada tentativa de token errado, por endereco.
+#:
+#: Nao e defesa seria -- quem tem banda abre varias conexoes. E para que um
+#: script ingenuo apontado para a pagina nao consiga milhares de tentativas por
+#: minuto num token que, afinal, viaja em claro ate a borda.
+ESPERA_APOS_ERRO_S = 1.0
 
 #: Onde mora a lista de aparelhos, quando ninguem diz outra coisa.
 ARQUIVO_APARELHOS = "aparelhos.cfg"
@@ -102,35 +145,78 @@ class ErroDeAparelhos(Exception):
     """A lista de aparelhos nao pode ser usada como esta."""
 
 
-def le_aparelhos(caminho: Path) -> dict[str, str]:
-    """Le o `aparelhos.cfg` e devolve {token: nome}.
+#: Secoes que o `aparelhos.cfg` reconhece depois da lista de aparelhos.
+#:
+#: Fechada de proposito: `[mapas]` em vez de `[mapa]` seria um erro de
+#: digitacao que deixaria a chave do Thunderforest cair num balde ignorado, e
+#: o sintoma seria um mapa em branco sem explicacao.
+SECOES_CONHECIDAS = frozenset({"mapa"})
+
+
+class ListaDeAparelhos(NamedTuple):
+    """O que o `aparelhos.cfg` descreve."""
+
+    #: {token: nome do aparelho}
+    por_token: dict[str, str]
+    #: a secao `[mapa]`, com a chave do provedor de tiles
+    mapa: dict[str, str]
+
+
+def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
+    """Le o `aparelhos.cfg`.
 
     Formato `nome=token`, uma por linha; `#` comenta, linha em branco passa.
     A divisao e no PRIMEIRO `=`, porque um token pode conter o separador.
 
-    Indexado por token e nao por nome porque e assim que a consulta acontece:
-    chega um segredo e a pergunta e "de quem e este". O caminho inverso nunca
-    e percorrido.
+    Depois dos aparelhos pode vir `[mapa]`, com ajustes da pagina de viagens:
 
-    Levanta `ErroDeAparelhos` em nome invalido, nome repetido ou token
-    repetido. **Token repetido e o que mais importa recusar**: dois aparelhos
-    com o mesmo segredo tornam a atribuicao ambigua, e o proposito da lista e
-    justamente saber de quem veio o arquivo.
+        carro-paulo=HBu2kQ...
+        bancada=9xT1pR...
+
+        [mapa]
+        thunderforest=abc123...
+
+    Os aparelhos sao indexados por TOKEN e nao por nome porque e assim que a
+    consulta acontece: chega um segredo e a pergunta e "de quem e este". O
+    caminho inverso nunca e percorrido.
+
+    Levanta `ErroDeAparelhos` em nome invalido, nome repetido, token repetido
+    ou secao desconhecida. **Token repetido e o que mais importa recusar**:
+    dois aparelhos com o mesmo segredo tornam a atribuicao ambigua, e o
+    proposito da lista e justamente saber de quem veio o arquivo.
     """
     if not caminho.is_file():
-        return {}
+        return ListaDeAparelhos({}, {})
 
     por_token: dict[str, str] = {}
+    mapa: dict[str, str] = {}
     nomes: set[str] = set()
+    secao = ""   # vazio = a lista de aparelhos
+
     for n_linha, bruta in enumerate(
             caminho.read_text(encoding="utf-8").splitlines(), start=1):
         linha = bruta.strip()
         if not linha or linha.startswith("#"):
             continue
+
+        if linha.startswith("[") and linha.endswith("]"):
+            secao = linha[1:-1].strip().lower()
+            if secao not in SECOES_CONHECIDAS:
+                raise ErroDeAparelhos(
+                    f"{caminho}:{n_linha}: secao '[{secao}]' desconhecida "
+                    f"(conhecidas: {', '.join(sorted(SECOES_CONHECIDAS))})")
+            continue
+
         if "=" not in linha:
             raise ErroDeAparelhos(
-                f"{caminho}:{n_linha}: esperava 'nome=token'")
-        nome, token = (parte.strip() for parte in linha.split("=", 1))
+                f"{caminho}:{n_linha}: esperava 'chave=valor'")
+        esquerda, direita = (parte.strip() for parte in linha.split("=", 1))
+
+        if secao == "mapa":
+            mapa[esquerda.lower()] = direita
+            continue
+
+        nome, token = esquerda, direita
         if not PADRAO_APARELHO.match(nome):
             raise ErroDeAparelhos(
                 f"{caminho}:{n_linha}: nome '{nome}' invalido "
@@ -145,7 +231,8 @@ def le_aparelhos(caminho: Path) -> dict[str, str]:
                 f"'{por_token[token]}'; nao daria para saber quem enviou")
         nomes.add(nome)
         por_token[token] = nome
-    return por_token
+
+    return ListaDeAparelhos(por_token, mapa)
 
 # Cabeçalho do radares.bin, de formato_dados.md §2:
 #   magic[4] | versao u16 | exp_escala u8 | tam_registro u8 | n u32 | crc32 u32
@@ -238,6 +325,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     #: inclusive a raiz.
     aparelhos: dict[str, str] = {}
     recebidos: Path = Path()
+    #: Ajustes da pagina de viagens, da secao `[mapa]` do `aparelhos.cfg`.
+    mapa: dict[str, str] = {}
+    #: {identificador: (nome do aparelho, instante de expiracao)}.
+    #:
+    #: Em memoria e sem limpeza periodica: reiniciar o servidor derruba as
+    #: sessoes, que e comportamento aceitavel para uma pagina de consulta, e
+    #: a varredura acontece a cada acesso -- com um punhado de aparelhos nao
+    #: vale uma tarefa de fundo.
+    sessoes: dict = {}
+    #: {endereco: instante ate o qual novas tentativas esperam}
+    castigo: dict = {}
 
     def log_message(self, formato: str, *args) -> None:
         log.info("%s %s", self.address_string(), formato % args)
@@ -450,10 +548,197 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         self._responde(200, f"{crc:08x}\n".encode(),
                        "text/plain; charset=utf-8")
 
+    # ------------------------------------------------------ pagina de viagens
+
+    def _sessao(self) -> str | None:
+        """O aparelho desta sessao, ou `None`. Renova o prazo a cada acesso."""
+        bruto = self.headers.get("Cookie", "")
+        sid = ""
+        for parte in bruto.split(";"):
+            chave, _, valor = parte.strip().partition("=")
+            if chave == COOKIE_SESSAO:
+                sid = valor
+        if not sid:
+            return None
+
+        agora = time.monotonic()
+        # Varre e descarta as vencidas na passagem. Sem isto o dicionario
+        # cresceria para sempre num servidor que fica meses no ar.
+        for chave in [k for k, (_n, exp) in self.sessoes.items() if exp < agora]:
+            del self.sessoes[chave]
+
+        achado = self.sessoes.get(sid)
+        if achado is None:
+            return None
+        nome, _exp = achado
+        self.sessoes[sid] = (nome, agora + VALIDADE_SESSAO_S)
+        return nome
+
+    def _pasta_do_aparelho(self, nome: str) -> Path:
+        return self.recebidos / nome
+
+    def _abre_sessao(self, token: str) -> str | None:
+        """Valida o token e devolve o identificador de sessao, ou `None`."""
+        aparelho = None
+        # Percorre a lista inteira e compara em tempo constante, como o
+        # `_aparelho()` faz: sair no primeiro acerto vazaria o prefixo certo
+        # pelo tempo de resposta.
+        if token:
+            for esperado, nome in self.aparelhos.items():
+                if hmac.compare_digest(token, esperado):
+                    aparelho = nome
+        if aparelho is None:
+            return None
+        sid = secrets.token_urlsafe(32)
+        self.sessoes[sid] = (aparelho, time.monotonic() + VALIDADE_SESSAO_S)
+        return sid
+
+    def _html(self, codigo: int, corpo: str,
+              cookie: tuple[str, str] | None = None) -> None:
+        bytes_ = corpo.encode("utf-8")
+        self.send_response(codigo)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(bytes_)))
+        self.send_header("Cache-Control", "no-store")
+        # A pagina monta HTML com dados que vieram do aparelho. Os cabecalhos
+        # abaixo sao a segunda linha de defesa; a primeira e o `html.escape`.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if cookie is not None:
+            nome, valor = cookie
+            # `Secure` so quando a borda diz que o cliente veio por HTTPS: o
+            # Cloudflare termina o TLS e fala HTTP com este servidor, entao
+            # olhar o proprio soquete diria "nao e seguro" sempre -- e o
+            # cookie nunca seria enviado de volta.
+            seguro = self.headers.get("X-Forwarded-Proto", "") == "https"
+            pedacos = [f"{nome}={valor}", "Path=/viagens", "HttpOnly",
+                       "SameSite=Strict", f"Max-Age={VALIDADE_SESSAO_S}"]
+            if seguro:
+                pedacos.append("Secure")
+            if not valor:
+                pedacos.append("Max-Age=0")
+            self.send_header("Set-Cookie", "; ".join(pedacos))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(bytes_)
+
+    def _pagina_viagens(self) -> None:
+        aparelho = self._sessao()
+        if aparelho is None:
+            self._html(200, pagina.formulario())
+            return
+        viagens = []
+        pasta = self._pasta_do_aparelho(aparelho)
+        if pasta.is_dir():
+            for arquivo in sorted(pasta.iterdir(), reverse=True):
+                if not arquivo.is_file() or not PADRAO_VIAGEM.match(arquivo.name):
+                    continue
+                r = viagem.resumo(arquivo)
+                if r is not None:
+                    viagens.append(r)
+        self._html(200, pagina.listagem(aparelho, viagens))
+
+    def _pagina_mapa(self, nome: str) -> None:
+        aparelho = self._sessao()
+        if aparelho is None:
+            self._html(401, pagina.formulario("entre para ver a viagem"))
+            return
+        arquivo = self._pasta_do_aparelho(aparelho) / nome
+        if not arquivo.is_file():
+            self._html(404, pagina.aviso("viagem nao encontrada"))
+            return
+        try:
+            v = viagem.le_viagem(arquivo)
+        except viagem.ErroDeViagem as e:
+            self._html(422, pagina.aviso(f"nao da para desenhar: {e}"))
+            return
+        try:
+            corpo = viagem.desenha(v, self.mapa.get("thunderforest", ""))
+        except ImportError:
+            # O servidor sobe sem o folium de proposito: faltar a dependencia
+            # nao pode derrubar a distribuicao da base, que e a funcao
+            # principal. Quem abre a pagina recebe a instrucao.
+            log.error("folium ausente: `pip install folium` para a pagina de viagens")
+            self._html(503, pagina.aviso(
+                "o mapa precisa do folium: pip install folium"))
+            return
+        self._html(200, corpo)
+
+    def _entra(self) -> None:
+        agora = time.monotonic()
+        de_onde = self.client_address[0]
+        espera = self.castigo.get(de_onde, 0.0)
+        if espera > agora:
+            time.sleep(min(espera - agora, ESPERA_APOS_ERRO_S))
+
+        try:
+            tamanho = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            tamanho = 0
+        if tamanho <= 0 or tamanho > 4096:
+            self._html(400, pagina.formulario("formulario invalido"))
+            return
+        bruto = self.rfile.read(tamanho).decode("utf-8", errors="replace")
+        campos = urllib.parse.parse_qs(bruto)
+        token = (campos.get("token") or [""])[0].strip()
+
+        sid = self._abre_sessao(token)
+        if sid is None:
+            self.castigo[de_onde] = time.monotonic() + ESPERA_APOS_ERRO_S
+            log.warning("token recusado na pagina, de %s", de_onde)
+            self._html(401, pagina.formulario("token desconhecido"))
+            return
+        self.castigo.pop(de_onde, None)
+        self._html(200, pagina.redireciona(ROTA_VIAGENS),
+                   cookie=(COOKIE_SESSAO, sid))
+
+    def _sai(self) -> None:
+        bruto = self.headers.get("Cookie", "")
+        for parte in bruto.split(";"):
+            chave, _, valor = parte.strip().partition("=")
+            if chave == COOKIE_SESSAO:
+                self.sessoes.pop(valor, None)
+        self._html(200, pagina.redireciona(ROTA_VIAGENS),
+                   cookie=(COOKIE_SESSAO, ""))
+
+    def _trata_viagens(self, caminho: str) -> bool:
+        """`True` se a rota era de viagens e ja foi respondida."""
+        if caminho == ROTA_VIAGENS or caminho == ROTA_VIAGENS + "/":
+            if self.command == "POST":
+                self._entra()
+            else:
+                self._pagina_viagens()
+            return True
+        if caminho == ROTA_VIAGENS + "/sair":
+            self._sai()
+            return True
+        if caminho.startswith(ROTA_VIAGENS + "/"):
+            nome = caminho[len(ROTA_VIAGENS) + 1:]
+            # Mesma lista branca do envio: o nome vira caminho em disco, e
+            # recusar o que nao casa com o padrao e a defesa contra travessia.
+            if not PADRAO_VIAGEM.match(nome):
+                self._html(404, pagina.aviso("viagem nao encontrada"))
+                return True
+            self._pagina_mapa(nome)
+            return True
+        return False
+
+    def do_POST(self) -> None:  # noqa: N802
+        caminho = self.path.split("?", 1)[0]
+        if self._trata_viagens(caminho):
+            return
+        self._erro(404, "rota desconhecida", False)
+
     def do_PUT(self) -> None:  # noqa: N802
         self._recebe()
 
     def do_GET(self) -> None:  # noqa: N802
+        caminho = self.path.split("?", 1)[0]
+        # A pagina de viagens tem autenticacao PROPRIA, por sessao: ela nao
+        # passa pelo `_barra_desconhecido`, que espera o token no cabecalho e
+        # devolveria 401 a um navegador que acabou de fazer login.
+        if self._trata_viagens(caminho):
+            return
         nome = self._nome_do_envio()
         if nome is not None:
             self._crc_do_recebido(nome)
@@ -476,11 +761,19 @@ class Servidor(socketserver.ThreadingTCPServer):
 
 def cria_servidor(dados: Path, porta: int, endereco: str = "",
                   aparelhos: dict[str, str] | None = None,
-                  recebidos: Path | None = None) -> Servidor:
+                  recebidos: Path | None = None,
+                  mapa: dict[str, str] | None = None) -> Servidor:
     raiz = dados.resolve()
     manipulador = type("ManipuladorLigado", (Manipulador,),
                        {"dados": raiz,
                         "aparelhos": dict(aparelhos or {}),
+                        "mapa": dict(mapa or {}),
+                        # Dicionarios PROPRIOS por servidor, e nao os da
+                        # classe base: dois servidores no mesmo processo --
+                        # o que a suite faz o tempo todo -- dividiriam
+                        # sessoes, e um teste veria a sessao do outro.
+                        "sessoes": {},
+                        "castigo": {},
                         # Sem `recebidos` explicito cai ao lado da base, que e
                         # o que serve para rodar `python3 servidor.py` a mao.
                         # O compose passa um volume proprio -- ver o README.
@@ -518,7 +811,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
 
     try:
-        aparelhos = le_aparelhos(args.aparelhos)
+        lista = le_aparelhos(args.aparelhos)
+        aparelhos, mapa = lista.por_token, lista.mapa
     except ErroDeAparelhos as e:
         # Recusa subir. Um servidor que ignora a lista com defeito ficaria com
         # as rotas abertas e a recepcao desligada, parecendo funcionar.
@@ -536,6 +830,10 @@ def main(argv: list[str] | None = None) -> int:
                  destino)
         for nome in sorted(aparelhos.values()):
             log.info("  aparelho: %s", nome)
+        log.info("pagina de viagens em %s", ROTA_VIAGENS)
+        if not mapa.get("thunderforest"):
+            log.info("sem chave do Thunderforest em [mapa]: o mapa usa "
+                     "OpenStreetMap")
         curtos = sum(1 for tk in aparelhos if len(tk) < TOKEN_CURTO)
         if curtos:
             log.warning("%d token(s) com menos de %d caracteres: curto demais "
@@ -556,7 +854,7 @@ def main(argv: list[str] | None = None) -> int:
                     arquivo)
 
     servidor = cria_servidor(args.dados, args.porta, args.endereco,
-                             aparelhos, args.recebidos)
+                             aparelhos, args.recebidos, mapa)
     log.info("escutando em %s:%d", args.endereco or "0.0.0.0", args.porta)
     log.warning("HTTP puro. O RF05.2 exige HTTPS: ponha um proxy reverso na "
                 "frente antes de usar fora da rede local.")

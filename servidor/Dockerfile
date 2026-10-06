@@ -1,13 +1,26 @@
-# Só a biblioteca padrão, então não há `pip install` nem camada de
-# dependências para envelhecer. A imagem é o Python e um arquivo.
+# ⚠️ A regra "só a biblioteca padrão" foi quebrada em 2026-10-06, por decisão
+# do autor: a página de viagens desenha o mapa com **folium**.
+#
+# O que se perdeu: a imagem passa a ter camada de dependência, e `folium`
+# arrasta `jinja2`, `branca`, `numpy` e `requests` junto. O que se ganhou: o
+# mapa com reprodução, que fazer à mão custaria JavaScript próprio para
+# manter.
+#
+# A quebra é **contida**: só `viagem.py` importa folium, e o import acontece
+# DENTRO da função que desenha. Sem a dependência o servidor ainda sobe e
+# distribui a base — que é a função principal —, e quem abrir a página de
+# viagens recebe uma mensagem em vez de um 500.
 FROM python:3.12-slim
 
 # Usuário sem privilégio: o processo só precisa LER o diretório de dados, e
 # rodar como root num container que fala com a rede não se justifica.
 RUN useradd --system --uid 10001 --no-create-home coruja
 
+# `--no-cache-dir` para a camada não carregar o cache do pip junto.
+RUN pip install --no-cache-dir folium==0.20.0
+
 WORKDIR /app
-COPY servidor.py /app/servidor.py
+COPY servidor.py viagem.py pagina.py /app/
 
 USER coruja
 
