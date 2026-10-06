@@ -276,6 +276,30 @@ e para separar um aparelho do outro. São problemas reais e diferentes, e
 resolver esses não resolve o da escuta. Fora da rede local: proxy reverso com
 TLS na frente, como na base.
 
+### Permissões: o container e os volumes
+
+O processo roda sem privilégio, com **uid 10001**. Os volumes vêm do host, e
+quem os criou costuma ser outro uid — aí o serviço não lê o `aparelhos.cfg`
+e, pior, não escreve em `recebidos/`.
+
+A segunda falha **só aparece no primeiro envio**: o servidor sobe, distribui a
+base, responde a página, e o `PUT` é que morre.
+
+Para casar, ponha o seu uid no `.env`:
+
+```sh
+echo "CORUJA_UID=$(id -u):$(id -g)" >> .env
+docker compose up -d
+```
+
+A alternativa seria afrouxar a permissão dos arquivos no host — e um deles
+guarda os segredos dos aparelhos.
+
+> ⚠️ O gid da imagem é **fixado** em 10001 junto com o uid. Sem isso o
+> `useradd` escolhe o próximo livre da base — foi 999 numa construção —, e
+> esse número muda quando a imagem base muda. Quem fosse casar permissões
+> estaria mirando num alvo móvel.
+
 ### Por que `recebidos/` é um volume separado
 
 O volume da base é montado `:ro` e o container é `read_only` — comprometido,

@@ -12,9 +12,16 @@
 # viagens recebe uma mensagem em vez de um 500.
 FROM python:3.12-slim
 
-# Usuário sem privilégio: o processo só precisa LER o diretório de dados, e
-# rodar como root num container que fala com a rede não se justifica.
-RUN useradd --system --uid 10001 --no-create-home coruja
+# Usuário sem privilégio: o processo só precisa LER o diretório de dados e
+# ESCREVER em `recebidos/`, e rodar como root num container que fala com a
+# rede não se justifica.
+#
+# ⚠️ O **gid é fixado** junto com o uid. Sem `groupadd`, o `useradd` escolhe o
+# próximo gid livre da imagem base — foi 999 numa construção aqui — e esse
+# número muda quando a imagem base muda. Quem precisar casar permissões no
+# host estaria mirando num alvo móvel.
+RUN groupadd --system --gid 10001 coruja \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home coruja
 
 # `--no-cache-dir` para a camada não carregar o cache do pip junto.
 RUN pip install --no-cache-dir folium==0.20.0

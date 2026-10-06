@@ -60,6 +60,21 @@ services:
       # abertas e o envio responde 401.
       - ./aparelhos.cfg:/aparelhos.cfg:ro
 
+    # Com que usuário o processo roda DENTRO do container.
+    #
+    # O padrão é o da imagem, sem privilégio. Mas os volumes vêm do host, e
+    # quem os criou costuma ser outro uid: aí o serviço não lê o
+    # `aparelhos.cfg` e — pior, porque só aparece no primeiro envio — não
+    # escreve em `recebidos/`.
+    #
+    # Para casar, ponha o seu uid:gid num `.env` ao lado deste arquivo:
+    #
+    #     CORUJA_UID=1000:1000        # veja o seu com `id -u`:`id -g`
+    #
+    # A alternativa seria afrouxar a permissão dos arquivos no host, e um
+    # deles guarda os segredos dos aparelhos.
+    user: "${CORUJA_UID:-10001:10001}"
+
     environment:
       CORUJA_PORTA: "8080"
       CORUJA_ENDERECO: "0.0.0.0"
