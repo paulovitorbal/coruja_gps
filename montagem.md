@@ -1,522 +1,372 @@
-# 🔧 Montagem Física na Caixa
+# 🔧 Montagem Física — **v2**
 
 **Projeto:** Detector de Radares GPS Inteligente (Raspberry Pi Pico 2 W)
-**Caixa:** Patola PB-111/TE — 123 × 85 × 85 mm externos, ABS injetado
-**Complementa:** `bom_schematic.md` (circuito) e `gera_fritzing.py` (fiação)
-**Data:** 2026-10-01
+**Caixa:** impressa em 3D, ASA — 130 × 130 × 67 mm externos
+**Placa:** PCB fabricada, 120 × 120 mm, 2 camadas
+**Complementa:** `bom_schematic.md` (circuito) e `pcb.md` (placa)
+**Data:** 2026-10-05
 
 ---
 
-## 0. Estado desta montagem — leia antes do resto
+## 0. O que mudou da v1, e por quê
 
-> ### ✋ Monta-se com o que já existe. O resto é contingente.
->
-> **Decisão do autor em 2026-10-01, registrada no [ADR 0011](docs/adr/0011-medir-antes-de-mitigar.md).**
->
-> A montagem a executar **agora** usa a **Patola PB-111** comprada e o módulo
-> **GY-GPS6MV2-NEO M8N** com o **patch cerâmico de 8 cm direto no U.FL**.
->
-> As mitigações térmicas discutidas em 2026-10-01 — antena de cabo longo com
-> bulkhead SMA, caixa impressa em ASA ou PC, tampa de parede dupla em colmeia,
-> ventilação, manta isolante, dissipador interno, troca para NEO-M8M — **não
-> são backlog**. O gatilho é **observar problema**, e os instrumentos são o
-> **M-08** e o **M-06** (§9). Nada se compra, imprime ou refaz antes de haver
-> número.
+A v1, de 2026-10-01, descrevia uma montagem **artesanal dentro de uma caixa
+comprada**: Patola PB-111, chassi de placa perfurada colado com VHB, e o módulo
+GPS numa prateleira de fibra presa à tampa com espaçadores.
 
-| Tier | O quê | Quando |
-| :--- | :--- | :--- |
-| ✅ **Agora** | Chassi + VHB (§2, §3) · prateleira no chassi em camadas (§4) · Kapton (§5) · patch de 8 cm direto no U.FL · **buzzer levado para perto do ouvido** (2 m de cabo já na BOM, ataca o R-32) | executar |
+Em 2026-10-05 três decisões do autor derrubaram essa arquitetura inteira.
 
-> 🔧 **Estado em 2026-10-03:** o ramo do buzzer está montado e funcionando. O
-> transistor **2N2222 (TO-92, marcado `2N2222 / A331`)** não está na placa perfurada —
-> vive **suspenso nos fios**, isolado com Kapton. Pinagem **E – B – C** com a face chata
-> para o observador, **medida** e registrada no R-67. Falta ancorar o fio contra
-> vibração (§7) e medir o `V_CE` com o buzzer tocando, como referência.
-| 🔶 **Barato, oportunista** | Pés com folga de ar · manta isolante refletiva sob a caixa · rasgos de ventilação | se der na mão, sem prioridade |
-| ⏸️ **Contingente** | **Antena de cabo longo + bulkhead SMA** (§4.8 — primeira ordem) · caixa impressa · colmeia · dissipador interno · NEO-M8M | só se o M-08 ou o M-06 acusarem |
+| # | Mudança | O que motivou |
+| :-- | :--- | :--- |
+| 1 | **Placa fabricada** no lugar de placa perfurada | o projeto foi para o KiCad e a PCB foi roteada e verificada |
+| 2 | **Caixa impressa** no lugar da Patola | a caixa passa a seguir a placa, e não o contrário |
+| 3 | **Antena na PCB** no lugar da prateleira | *"a montagem em prateleira ficou muito bagunçada e ruim de fechar"* |
 
-## 0.1 Por que este documento existe
+### A terceira é a mais consequente, e resolve o problema mais duro do projeto
 
-O projeto documentava o circuito e a fiação, e **nada** sobre como as peças se
-prendem umas às outras e à caixa. Isso virou problema concreto na hora de montar:
-duas placas perfuradas de geometria herdada, um fundo de caixa sem ancoragem e um
-módulo GPS cuja orientação não é negociável.
+O **R-67** era a restrição mais dura que havia: o rabicho da antena tem **8 cm**,
+e o U.FL aguenta **30 ciclos de encaixe**. Na v1, módulo e antena ficavam em
+planos diferentes — módulo no chassi, antena na prateleira da tampa —, e os 8 cm
+precisavam vencer essa distância toda, atravessando a abertura da caixa, a cada
+abertura e fechamento.
 
-As decisões abaixo foram tomadas sobre a montagem real, não sobre um projeto ideal.
-Onde a escolha foi condicionada pelo que já existia, está dito.
+Com os dois **vizinhos na mesma placa**, sobra cabo. O U.FL deixa de ser tocado
+na manutenção rotineira.
+
+Ganham-se ainda duas coisas que a prateleira de fibra não dava:
+
+- **plano de terra sob a antena** — que é o que um patch cerâmico quer;
+- **distância do conversor chaveado**, que fica na extremidade oposta da placa.
+  O ruído vem do chaveamento e do indutor do LM2596, não dos capacitores.
+
+> 📌 **O que a v1 ainda vale.** As medições e a química continuam de pé: os
+> **92 °C medidos no painel** (R-65), o manuseio do U.FL, a análise de adesivos
+> e o método de medir EMI. Tudo isso foi trazido para cá. O que ficou para trás
+> foi a geometria.
 
 ---
 
-## 1. A caixa e a orientação
-
-A orientação é a primeira decisão porque **tudo depende dela** — em especial a antena
-do GPS, que é direcional.
-
-| Face | Medida | Destino |
-| :--- | :---: | :--- |
-| Frontal | 123 × 85 mm | voltada ao **motorista** — display e encoder |
-| Tampa (peça clara) | 123 × 85 mm | voltada ao **céu** — passagem da antena do GPS |
-| Laterais | 85 × 85 mm | conectores e passa-cabo |
-
-Consequências que vieram de graça com essa orientação:
-
-- O patch cerâmico aponta para o **zênite**, que é o melhor caso possível.
-- O display fica na face frontal, **fora** do caminho entre a antena e o céu. Se ele
-  estivesse na tampa, a moldura metálica e a camada refletora do TFT atenuariam o
-  sinal de forma significativa.
-- Entre o cerâmico e o céu há apenas ar e ABS, que é transparente em RF.
-
-> ⚠️ **As torres do fundo são para a TAMPA**, não para placa de circuito. A descrição
-> da revenda afirma o contrário e está errada — conferido na peça. **O fundo não tem
-> nenhuma ancoragem para PCB**, e é desse fato que decorre a solução da seção 2.
-
----
-
-## 2. A base: uma placa perfurada servindo de chassi
-
-### O problema
-
-Duas placas perfuradas, ambas aproveitadas do que havia em casa:
-
-| Placa | Conteúdo | Formato |
-| :--- | :--- | :--- |
-| A | step-down de 12 V | estreita e longa |
-| B | Pico 2 W | acomoda o Pico com 4 furos sobrando de cada lado |
-
-Nenhuma das duas foi projetada para ser fixada, e os furos não correspondem a nada.
-
-### A solução
-
-**Uma terceira placa perfurada de fibra como chassi**, à qual as duas se prendem; a
-caixa recebe só o chassi. Isso troca um encaixe impossível por dois encaixes fáceis.
-
-A razão de ser placa perfurada, e não acrílico: a placa traz **malha de 2,54 mm em
-toda a superfície**. Não se mede nem se fura nada para posicionar as placas — escolhe-se
-o furo. Com geometria herdada, isso elimina a etapa que gerou o problema. Acrílico
-exigiria gabarito, e acrílico fino racha ao ser furado sem cuidado.
-
-Três ganhos, e o terceiro é o que importa num carro:
-
-1. A furação do chassi é livre; a da caixa, não.
-2. O conjunto sai inteiro num bloco — essencial num projeto que ainda muda.
-3. **As duas placas passam a vibrar juntas.** Fixadas separadamente, elas se movem uma
-   em relação à outra e isso fadiga as juntas de solda dos fios que as ligam. É um
-   defeito que apareceria depois de meses e seria caçado como mau contato.
-
-### Especificação do chassi
-
-| Item | Escolha | Por quê |
-| :--- | :--- | :--- |
-| Material | **FR4** (fibra, esverdeada) | Fenolite é quebradiça, absorve umidade e racha com vibração. Aqui a placa é **estrutura**. |
-| Face do cobre | voltada para **baixo** | A face de cima fica só substrato; o cobre encosta em ABS, que é isolante. |
-| Recorte | em volta das torres da tampa | Travamento lateral de graça (ver seção 3). |
-
-### Nota sobre as duas placas separadas
-
-Herdado, mas **favorável**: o step-down é um conversor chaveado e o GPS tem front-end
-sensível. Tê-los em placas distintas permite afastá-los fisicamente e orientar o laço
-de alta `di/dt` do conversor longe da antena. Numa placa única — o plano para a v2 —
-essa separação precisa ser planejada de propósito, porque deixa de ser automática.
-
----
-
-## 3. Fixação da base na caixa
-
-Como o fundo não tem torre de PCB, em ordem de preferência:
-
-### 3.1 Fita VHB na face inteira — escolhido
-
-O chassi apresenta quase 100 cm² de área plana contra ABS plano. VHB em ABS com essa
-área segura muito mais do que o conjunto pesa, e tem faixa de temperatura compatível
-com uso automotivo. Não fura a caixa.
-
-**Custo:** remover depois dá trabalho — álcool isopropílico, linha de costura e
-paciência.
-
-### 3.2 Parafuso soberba de fora para dentro — alternativa serviçável
-
-Fura o fundo e parafusa por baixo, em espaçadores no chassi. Fica desmontável de
-verdade. A cabeça do parafuso fica na face que apoia no suporte, então na prática não
-incomoda.
-
-### 3.3 Travamento lateral pelas torres — fazer nos dois casos
-
-Recortar o chassi para encaixar em volta das torres da tampa. As torres passam a
-impedir deslocamento lateral sem custo nenhum, e o adesivo ou o parafuso só precisam
-impedir que o chassi levante — o esforço mais fácil dos dois.
-
-Vibração em carro é predominantemente lateral, e **travamento mecânico é melhor que
-adesivo para isso**.
-
-> 📏 Conferir qual parafuso acompanha a caixa antes de furar: torre de Patola é para
-> rosca soberba, e o diâmetro do furo depende dele.
-
----
-
-## 4. A prateleira do módulo GPS
-
-> ⚠️ **Revisado em 2026-10-01 (R-65).** A versão anterior punha a prateleira **na
-> tampa**. A tampa é a face solar, e isso colocava o componente termicamente limitante
-> do projeto no ponto mais quente da caixa. A prateleira passa a nascer do **chassi**.
-
-**Placa perfurada de fibra sobre colunas que nascem do chassi**, com a antena no topo
-olhando o zênite e o módulo **sob** ela. O ponto de metal no centro do cerâmico é o
-pino de alimentação do patch, e confirma qual face vai para cima.
-
-### 4.1 Vista lateral — corte pelo lado de 85 × 85
+## 1. A arquitetura, em uma página
 
 ```
-                                ↑  céu · satélites
-                                │
-          ╔══════════════════════════════════════════════╗
-          ║ ===  rasgo alto                              ║   TAMPA · cinza-claro
-          ║                                              ║   face solar · só plástico
-          ║ ·  ·  ·  ·  folga de ar  ·  ·  ·  ·  ·  ·  · ║   QUEBRA TÉRMICA
-  ┌─────┐ ║        ┌──────────────────────────┐          ║
-  │     │ ║        │   ANTENA   ·   cerâmica  │          ║   vê o zênite
-  │  D  │ ║ ┏━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━┓ ║
-  │  I  │ ║ ┃ Kapton                                   ┃ ║   PRATELEIRA · FR4
-  │  S  │ ║ ┃        ┌───────────────────────┐         ┃ ║   escudo de radiação
-  │  P  │ ║ ┃        │   NEO-M8N  ·  sombra  │         ┃ ║
-  │  L  │ ║ ┗━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━┛ ║
-  │  A  │ ║      ┃                           ┃           ║   colunas · do chassi
-  │  Y  │ ║   ┌──┃────────┐     ┌────────────┃─────────┐ ║
-  │     │ ║   │ step-down │     │   Pico 2 W           │ ║
-  └─────┘ ║   └───────────┘     └──────────────────────┘ ║
-          ║ ════════════════════════════════════════════ ║   CHASSI · perfurada
-          ║ ===  rasgo baixo                             ║
-          ╚══════════════════════════════════════════════╝   fundo ABS · VHB
-               oo                                 oo         pés · folga de ar
-          ════════════════════════════════════════════════════
-                         PAINEL   ·   92 °C
+                      ┌──────────────────────────────┐
+   TAMPA  ──────────► │  lisa · furo do LED no centro│  ◄── voltada ao CÉU
+   encaixe por atrito └──────────────────────────────┘
+                       ╔══════════════════════════════╗
+                       ║  antena 25×25 colada na PCB  ║ ◄── vista de céu
+                       ║                              ║     pela tampa
+   FACE FRONTAL ─────► ║ [enc] [ display ] [buzzer]   ║ ◄── voltada ao motorista
+   com os recortes     ║                              ║
+                       ║  PCB 120×120 em 4 pilares    ║
+                       ╚══════════════════════════════╝
+                          ▲                        ▲
+                     ímã no fundo            TRASEIRA: cartão e USB
 ```
 
-### 4.2 As camadas, e o que cada uma resolve
-
-| Camada | Função |
+| Face | O que leva |
 | :--- | :--- |
-| **Tampa** | Face solar. Só plástico, cor clara, **nada metálico** acima do cerâmico. |
-| **Folga de ar** | Quebra térmica entre a tampa aquecida e a antena. Custa zero em RF. |
-| **Antena cerâmica** | No topo da prateleira. Precisa de vista de céu; é peça feita para viver no painel. |
-| **Prateleira (FR4)** | **Escudo de radiação** — bloqueia o infravermelho que a tampa reemite para baixo. Kapton na face de cima (§5). |
-| **Módulo NEO-M8N** | **Sob** a prateleira, na sombra dela. É o componente térmico limitante (RNF09, R-65). |
-| **Colunas** | Nascem do **chassi**, não da tampa. |
-| **Chassi** | Pico e step-down (§2). |
-| **Pés** | Folga de ar contra o painel — corta a condução dos 92 °C, que é o acoplamento mais forte. |
-
-### 4.3 Os quatro ganhos de nascer do chassi
-
-1. **A abertura da tampa não mexe no conjunto GPS.** É o ganho mais importante e veio
-   de uma objeção do autor. A entrada de RF alimenta o LNA por *bias tee* e é sensível
-   a ESD, e o conector é a peça mais frágil da montagem. Com a prateleira na tampa, ele
-   flexionava a cada manutenção. Agora fica imóvel depois de montado uma vez.
-2. **O módulo sai da face solar** — era o pior lugar para o componente limitante.
-3. **A prateleira vira escudo** entre a tampa quente e o módulo.
-4. **Antena e módulo seguem lado a lado**, com coaxial curto e sem esforço no conector.
-
-> 💡 Uma versão intermediária desta proposta separava antena (na tampa) e módulo (no
-> chassi). Resolvia a térmica e **punha a peça mais frágil a flexionar** a cada abertura.
-> Registrado para não ser reinventado.
-
-### 4.4 Cuidados mecânicos
-
-- **Quatro pontos de apoio, não dois.** Massa em balanço sobre placa fina num ambiente
-  que vibra.
-- **Colunas curtas.** Quanto menor o braço, menor o risco de ressonância.
-- Nada metálico entre o patch e o céu. A tampa tem de seguir sendo só plástico na
-  área acima do cerâmico.
-- **Dois rasgos de ventilação**, um baixo e um alto, criando convecção. Caixa selada ao
-  sol é estufa, e o interior de carro não é ambiente sujo o bastante para justificar
-  vedação.
-
-### 4.5 Blindagem contra EMI — adiada até haver medição
-
-A intenção inicial era fita aluminizada aterrada na face inferior da prateleira.
-**Decisão: montar sem, medir, e só então decidir.**
-
-O raciocínio é que a folha atua em um dos dois caminhos de acoplamento, e não no que
-domina nesta montagem:
-
-| Caminho | A folha ajuda? |
-| :--- | :--- |
-| Radiado de campo próximo — do chaveamento para a antena e o front-end | sim |
-| **Conduzido** — pela alimentação e pelos fios de sinal até o Pico | **não** |
-
-Em montagem com fios voando, o conduzido tende a dominar: os fios do GPS atravessam a
-região ruidosa e são tanto condutor quanto antena. Blindar o plano e deixar os fios
-passando ao lado do indutor do conversor é tapar a janela e deixar a porta aberta.
-
-Somando, o ganho é incerto — um plano condutor próximo pode **desafinar** o patch, que
-é projetado para um plano de terra específico — enquanto os modos de falha são
-concretos (seção 6.3).
-
-> 🔎 **E há um terceiro motivo, que só apareceu ao reler a lista de materiais.** O item
-> 2 é um NEO-M8N **com antena ativa externa SMA** — a antena é peça separada, num cabo.
-> Logo o caminho de RF até o módulo é **coaxial, que é blindado**, e não um patch nu
-> numa placa a centímetros do conversor chaveado. Isso já resolve boa parte do que
-> motivou a ideia da folha, e resolve melhor do que a folha resolveria.
-
-
-
-**Se a medição indicar problema**, atacar nesta ordem, que é a de efeito decrescente:
-
-1. **Filtrar a alimentação do módulo:** ferrite bead + 10 µF no pino VCC. Ataca o
-   caminho dominante e custa centavos.
-2. **Distância e orientação** entre o conversor e a antena.
-3. **Roteamento dos fios** (seção 7).
-4. **O laço de alta `di/dt` do conversor.** É o laço *capacitor de entrada → chave de
-   cima → chave de baixo → volta ao capacitor*, onde a corrente é picada; não é o
-   indutor, cuja função é justamente alisá-la. Uma espira com corrente variando rápido
-   é um dipolo magnético, e o campo irradiado é proporcional à **área** do laço — o
-   mesmo princípio da nota do cabo trançado de 12 V em `bom_schematic.md`, vista do
-   lado da emissão em vez da captação.
-
-   **Como o conversor é módulo pronto, esse laço está no PCB dele e fora de alcance.**
-   O que está em alcance é impedir que ele **vaze para a fiação**: com capacitância de
-   entrada insuficiente no módulo, parte da corrente picada vem dos fios de 12 V e o
-   laço cresce para incluí-los. Um eletrolítico de bulk mais um cerâmico **nos
-   terminais de entrada do módulo** mantêm a corrente picada local a ele.
-5. Só então a folha. E nesse caso, **fita de cobre com adesivo condutivo**, nunca
-   alumínio (seção 6.3).
-
-### 4.6 Como medir, em vez de supor
-
-Não testar a mitigação — **testar a fonte de ruído**. Mesmo local, mesma vista de céu,
-mesmo módulo, comparando o C/N0 médio da mensagem **GSV** (o parser do projeto já a
-decodifica):
-
-- alimentado pelo **USB**, sem o step-down de 12 V;
-- alimentado pelo **step-down**.
-
-Sem diferença, o chaveamento não está acoplando e a folha não tem o que resolver.
-
-| C/N0 (dB-Hz) | Leitura |
-| :---: | :--- |
-| 40–50 | satélite forte, céu aberto — sem problema a resolver |
-| 30–40 | faixa típica |
-| < 30 | rastreio marginal — investigar |
-
-> 🪟 **Fator provavelmente maior que toda a EMI interna:** para-brisa atérmico
-> metalizado atenua GNSS de forma significativa, e é por isso que esses carros têm uma
-> área sem metalização reservada a sensor e pedágio. Conferir se o veículo tem essa
-> janela demarcada — se tiver, a posição da caixa no painel passa a ser a variável
-> dominante.
-
-### 4.7 Uma propriedade da arquitetura a não perder
-
-O CYW43 transmite em 2,4 GHz a centímetros de um front-end que trabalha em 1575 MHz
-com sinal na casa de −130 dBm. Transmissor forte e próximo dessensibiliza receptor
-sensível, e isso seria sério — **só que os dois nunca precisam operar juntos**: o OTA
-só roda com o veículo parado (RF05.1) e o Wi-Fi desconecta ao terminar.
-
-A arquitetura resolveu isso antes de existir hardware. **Mudanças futuras não devem
-quebrar essa propriedade sem perceber.**
+| **Frontal** | encoder · display · buzzer. Recorte do display pela **área visível** |
+| **Superior** | tampa lisa, furo único do LED no centro. É por onde a antena vê o céu |
+| **Traseira** | rasgo do cartão microSD e abertura do cabo do Pico |
+| **Inferior** | adesivo magnético para o painel |
 
 ---
 
-### 4.8 O caminho da v2: bulkhead SMA na parede ⏸️ contingente
+## 2. A caixa
 
-> ⏸️ **Não executar agora** — ADR 0011. Registrado porque é a mitigação de
-> **primeira ordem** do R-65 e a ordem de grandeza não é óbvia.
+Impressa, paramétrica em OpenSCAD. O modelo e as decisões de geometria estão
+fora deste repositório, com a cadeia de geração.
 
-O conector do módulo é **U.FL / IPEX MHF1**, confirmado a paquímetro em
-~2 mm de diâmetro na fêmea da placa. O datasheet da Hirose especifica **30
-ciclos de encaixe** para a vida inteira da peça: é conector de montagem, não
-de manutenção.
+| | |
+| :--- | :--- |
+| Externo | 130 × 130 × 67 mm |
+| Parede e piso | 3 mm |
+| Fechamento | batente interno, tampa desce por cima, **atrito — sem parafuso** |
+| Folga do encaixe | 0,4 mm por lado |
 
-> ⚠️ A BOM dizia "antena ativa externa SMA". Estava errado, e o erro fez duas
-> propostas desta sessão nascerem mortas — caixa na coluna A e antena remota,
-> ambas supondo cabo roteável onde há 8 cm.
+### 🔴 O material é decisão térmica, não estética
 
-```
-   módulo ──U.FL── rabicho curto ──SMA fêmea de painel │ parede de 85 × 85
-                                                        │
-                                   antena externa ──────┘
-```
+O painel mediu **92 °C**. Isso elimina quase tudo:
 
-Quatro coisas de uma vez:
+| Material | Amolece a | No seu painel |
+| :--- | :--- | :--- |
+| PLA | ~60 °C | ❌ deforma, não é "talvez" |
+| PETG | ~80 °C | ❌ escorre sob peso próprio |
+| ABS | ~105 °C | 🟡 serve, mas amarela e fragiliza com UV |
+| **ASA** | ~105 °C | ✅ mesma temperatura, com a química de UV resolvida |
 
-1. O **U.FL é encaixado uma única vez**, na montagem, e fica aliviado de
-   tração — nunca mais tocado.
-2. A **fronteira de manutenção passa a ser SMA**, rosqueado e robusto.
-3. A **antena troca por fora**, sem abrir a caixa.
-4. **Abrir a tampa deixa de tocar em RF** — resolve a objeção original de
-   forma mais completa que a prateleira no chassi, que elimina o
-   flexionamento mas deixa o conector exposto ao serviço.
+⚠️ **Nada com carga de fibra de carbono.** É condutivo o bastante para atrapalhar
+a antena, e a tampa é justamente por onde o patch enxerga o céu.
 
-**E destrava o que importa:** com SMA na parede, entra qualquer puck
-automotivo de 3 a 5 m, e **a caixa deixa de precisar de vista de céu**. Ela
-vai para onde é fresco e cômodo — baixa, na sombra da aba do painel. Com 8 cm,
-a exigência de céu prega a caixa no ponto mais ensolarado do carro, e é por
-isso que esta é a única mitigação de primeira ordem.
+⚠️ **ASA exige câmara fechada.** Empena sem ela e libera estireno. Numa
+impressora aberta o material disponível cai para PETG, que os 92 °C reprovam.
 
-A perda do cabo longo é quase de graça porque a antena é **ativa**: pela
-fórmula de Friis, perda que vem **depois** de um LNA de 20 a 28 dB entra
-dividida por algumas centenas. É a razão de existirem antenas ativas — com
-antena passiva, 5 m seriam proibitivos.
+### A margem do ASA é apertada, e isso é consciente
 
-#### Manuseio do U.FL, nas duas ou três vezes
+105 °C de Tg contra 92 °C medidos são **13 °C**. Num dia pior a margem some.
+A alternativa com folga de verdade seria nylon PA12 por MJF, com deflexão perto
+de 175 °C — descartada por custo, mas é para onde ir se o ASA ceder.
 
-- **Perpendicular, pressão no corpo do conector.** Nunca empurrar nem puxar
-  pelo cabo — é assim que essas peças morrem.
-- **Soltar reto para cima**, com extrator ou alavancando sob o invólucro.
-- **Alívio de tração a um ou dois centímetros**, para o esforço morrer na
-  âncora. ⚠️ Se usar adesivo, **cura neutra** (§6.1): acetoxi a um centímetro
-  de uma entrada de RF é a pior combinação do documento.
-- **Raio de curva mínimo de ~5 mm.** Coaxial de 1,13 mm dobrado rente ao corpo
-  fratura a malha.
-- Com pulseira ESD: o pino central vai à entrada do LNA pelo *bias tee*.
-- Tranquilidade: **30 ciclos é o orçamento, não 2.** Bancada, desmontagem e
-  montagem definitiva não chegam perto.
+**Pendência M-08** decide: um dia de registro térmico no painel, com o sensor
+que já existe dentro do RP2350.
 
-#### O que comprar
+---
 
-**Rabicho U.FL macho → SMA fêmea de bulkhead**, 10 a 20 cm, com porca e
-arruela para furo de ~6,3 mm numa face de 85 × 85, que hoje não tem nada.
+## 3. A placa
 
-> ⚠️ **SMA, não RP-SMA.** A maioria dos rabichos é RP-SMA porque o mercado é
-> Wi-Fi. São parecidos e incompatíveis, e antena GPS automotiva é SMA **macho**
-> — a parede precisa de SMA **fêmea** de verdade, com soquete e não com pino.
+PCB fabricada de **120 × 120 mm**, apoiada em **quatro pilares de 5 mm** que
+nascem do piso da caixa, nos furos de M3 das quinas.
 
-As duas arquiteturas são **mutuamente exclusivas**: o patch de 8 cm termina em
-U.FL e não entra num bulkhead SMA. Adotando a v2, ele vira antena de bancada e
-sobressalente.
+Isso substitui todo o capítulo de chassi de placa perfurada da v1 — e com ele
+somem os problemas que aquele capítulo existia para resolver: pernas cortadas
+no lado de baixo, ilhas de cobre soltas, colagem com VHB sobre pontos de solda.
 
-## 5. Isolamento elétrico
+> ✅ **O ganho que não é óbvio:** com placa fabricada, a fiação deixou de ser
+> transcrita à mão. Ela sai do `netlist.py`, e o `pcb.md` registra a verificação
+> que compara a netlist do KiCad com a fonte, nó a nó.
+
+### Os módulos sobem em barra de pinos
+
+Decisão da placa, registrada no `pcb.md`: a PCB é uma **carrier board**, e Pico,
+GPS, display, leitor e conversor plugam nela. O soquete levanta cada módulo
+**8,1 mm** acima da placa.
+
+Módulo com defeito troca puxando. E o U.FL do GPS nunca precisa ser tocado.
+
+---
+
+## 4. O GPS e a antena
+
+Os dois na placa, vizinhos, na extremidade oposta ao conversor.
+
+### 4.1 A antena é colada, e a área é proibida
+
+Patch cerâmico de **25 × 25 mm**, colado com **fita espuma dupla face**.
+
+A área sob ela é zona de exclusão no projeto da placa: **plano de terra sólido,
+sem trilha atravessando**. E **nada por cima** — o patch enxerga o céu pela
+tampa, que é plástica e portanto transparente a 1,5 GHz.
+
+O retângulo tracejado na serigrafia marca o lugar, com os dizeres `ANTENA GPS` e
+`colar aqui - nao usar`. A zona existe para a verificação de projeto; a
+serigrafia existe para quem monta.
+
+⚠️ **A fita precisa ser acrílica estruturada (tipo VHB), especificada para
+90–120 °C.** Fita espuma comum não descola — ela **escorre devagar**, e a peça
+desce ao longo de semanas.
+
+⚠️ A espuma afasta a antena do plano de terra em 1 a 2 mm, o que altera o
+diagrama de radiação. Não é fatal; é coisa a observar na primeira volta real,
+comparando o número de satélites com o de hoje.
+
+### 4.2 Manuseio do U.FL — continua valendo
+
+O conector aguenta cerca de **30 ciclos** de encaixe (datasheet Hirose). A fêmea
+no módulo mede ~2 mm.
+
+- **Encaixar uma vez, na montagem.** Com módulo e antena na mesma placa, não há
+  motivo para desconectar na manutenção.
+- Para desencaixar, **puxar reto para cima**, nunca de lado nem pelo cabo.
+  Ferramenta de extração, se houver, ou unha sob a saia do conector.
+- Ao encaixar, **alinhar e pressionar reto**, com o estalo. Encaixe torto
+  deforma a saia e mata o conector de uma vez.
+
+---
+
+## 5. A face frontal
+
+Da esquerda para a direita: **encoder · display · buzzer**.
+
+| Peça | Medida | Recorte na caixa |
+| :--- | :--- | :--- |
+| Display 2,4" | módulo 70 × 46,7 × 5,7 | **área visível 60,8 × 44** |
+| Encoder KY-040 | corpo 19,3 × 26,5 × 9,6 | furo da bucha roscada |
+| Buzzer SFM-27 | ⌀22,4, orelhas a 29,6 | 2 furos de ⌀2,6 + leque de furos de som |
+
+**O recorte do display é a área visível, não a placa do módulo.** A moldura
+preta sobra por trás e é ela que encosta na parede — é o que esconde a
+tolerância do recorte.
+
+Abaixo do display há **14 mm** de material, com o nome `Coruja GPS` em relevo, e
+a silhueta da coruja na coluna do encoder.
+
+### ⚠️ O display avança para dentro
+
+São 70 × 46,7 mm pendurados atrás da parede frontal, invadindo cerca de 6 mm.
+A borda frontal da placa, nessa profundidade, tem de ficar livre de peça alta —
+e está: nos 10 mm frontais só há os dois furos de fixação.
+
+A folga entre o topo da placa e a base do display é de **0,4 mm**. Foi para
+ganhar margem real que a borda subiu de 10 para 14 mm.
+
+### O eixo do encoder
+
+20 mm livres acima do corpo. Descontando 3 mm de parede e ~2 mm de arruela e
+porca, restam **15 mm** para o knob — folga confortável.
+
+⚠️ O **diâmetro do canhão roscado** ainda não foi medido. Os 6,0 mm lidos por
+dentro da porca **não decidem**: garra interna em porca dá o diâmetro menor da
+rosca. Numa M7×0,75, típica do KY-040, o menor fica perto de 6,1 — ou seja, 6,0
+medidos são compatíveis com bucha de 7. Ver **M-12**.
+
+---
+
+## 6. A traseira, e o LED
+
+**Cartão e USB faceados**, cada um com seu vão. Isso fixa a orientação de dois
+módulos na placa: a boca do cartão e o conector USB apontam para fora.
+
+O **LED** sai pela face de cima, furo único e centralizado.
+
+> 📌 Escolheu-se a traseira para os dois vãos porque a caixa é presa ao painel
+> por **ímã** e sai inteira quando preciso atualizar o firmware. O acesso ao
+> cabo deixou de ser operação frequente.
+
+---
+
+## 7. Fixação ao painel
+
+**Adesivo magnético** no fundo. Para atualizar o firmware, desliga-se a
+alimentação e leva-se o conjunto.
+
+### ⚠️ Duas perdas que se somam a 92 °C
+
+- **A retenção magnética cai com a temperatura.** Ferrite flexível perde fluxo
+  de forma sensível entre 80 e 100 °C — não some, enfraquece.
+- **O adesivo escorre**, pelo mesmo mecanismo da fita espuma.
+
+Um aparelho que se solta do painel em movimento é **problema de segurança**, não
+de acabamento.
+
+> **Conferir com a caixa quente.** Deixar o conjunto montado num dia de sol e
+> tentar deslocá-lo. Todo adesivo parece bom frio.
+
+---
+
+## 8. Isolamento elétrico
 
 | Onde | Como | Por quê |
 | :--- | :--- | :--- |
-| Entre o módulo GPS e a prateleira | **Kapton** na face superior | Isola o módulo das ilhas de cobre da placa. Nada a ver com EMI — vale independentemente da seção 4.5. |
-| Sob cada placa, no chassi | **espaçador de ≥ 3 mm** | O lado de baixo de placa perfurada é um tapete de perna cortada. Perna encostando em qualquer coisa é curto esperando a hora. |
-| Face do cobre do chassi | voltada para **baixo**, contra o ABS | Evita um plano de pontos condutores soltos virado para dentro da caixa. |
-| Entre ilhas de cobre e qualquer folha metálica | Kapton, ou placa sem cobre | Caso a blindagem da seção 4.5 venha a ser adotada. |
+| Sob o módulo GPS | **Kapton** na face de baixo do módulo | isola o módulo do que passa na placa |
+| Entre a antena e a PCB | a própria fita espuma | ela já é dielétrica |
+| Fios do Q1 e do chicote | **Kapton**, e ancorados contra vibração | o transistor fica preso aos fios, não soldado em pilar |
 
-> ❌ **Nunca colar placa direto com VHB.** A fita tem 1 a 2 mm e as pernas de solda são
-> mais altas que isso: a placa ficaria apoiada nas pontas de solda, que é o pior apoio
-> possível. VHB serve para o **chassi** contra a caixa, onde as duas faces são planas.
+> ❌ **Nunca colar placa direto com VHB.** A fita tem 1 a 2 mm e as pernas de
+> solda são mais altas: a placa ficaria apoiada nas pontas de solda, que é o
+> pior apoio possível. Com a PCB fabricada em pilares, o problema não se
+> apresenta — mas a regra fica, porque o reflexo de colar volta sempre.
 
 ---
 
-## 6. Adesivos: o que usar e o que não usar
+## 9. Adesivos: o que usar e o que não usar
 
-### 6.1 ❌ Silicone RTV automotivo
+Esta seção veio inteira da v1. A química não mudou com a arquitetura.
 
-**Não usar em contato com a eletrônica.** A maioria dos RTV baratos, inclusive os
-automotivos de vedação, é de **cura acetoxi**: libera **ácido acético** ao curar. O
-vapor condensa nos terminais e nas juntas de solda e corrói cobre, estanho e latão —
-chega a descolar a solda do fio. É falha retardada: funciona bem, e meses depois
-aparece verdete nas ilhas e um intermitente que se caça no software.
+### 9.1 ❌ Silicone RTV automotivo
 
-Agrava-se aqui porque silicone cura **por umidade do ar, de fora para dentro**: um
-cordão grosso sob um módulo fica muito tempo sem curar no meio, mantendo o ácido preso
-encostado na placa.
+**Não usar em contato com a eletrônica.** A maioria dos RTV baratos, inclusive
+os automotivos de vedação, é de **cura acetoxi**: libera **ácido acético** ao
+curar. O vapor condensa nos terminais e nas juntas de solda e corrói cobre,
+estanho e latão — chega a descolar a solda do fio. É falha retardada: funciona
+bem, e meses depois aparece verdete nas ilhas e um intermitente que se caça no
+software.
 
-**Teste:** apertar um pouco num papel e cheirar. **Cheiro forte de vinagre = acetoxi.**
-Cura neutra (alcoxi ou oxima) solta álcool e tem cheiro fraco. Na embalagem, procurar
-"cura neutra", "não corrosivo" ou "para eletrônica" — *não* "automotivo" nem "alta
-temperatura", que nada dizem sobre a cura.
+Agrava-se porque silicone cura **por umidade do ar, de fora para dentro**: um
+cordão grosso sob um módulo fica muito tempo sem curar no meio, mantendo o ácido
+preso encostado na placa.
 
-"Alta temperatura" é, aliás, a especificação errada: Pico, display, GPS e cartão somam
-cerca de 2 W. Pagar por 300 °C não compra nada e costuma vir justo com a química
-corrosiva, porque é silicone de junta de motor.
+**Teste:** apertar um pouco num papel e cheirar. **Cheiro forte de vinagre =
+acetoxi.** Cura neutra (alcoxi ou oxima) solta álcool e tem cheiro fraco. Na
+embalagem, procurar "cura neutra", "não corrosivo" ou "para eletrônica" — *não*
+"automotivo" nem "alta temperatura", que nada dizem sobre a cura.
 
-Uso aceitável: **na caixa, não na eletrônica** — vedar a tampa contra pó, ou fazer o
-passa-cabo. E curar com a caixa vazia antes de pôr as placas.
+"Alta temperatura" é, aliás, a especificação errada: Pico, display, GPS e cartão
+somam cerca de 2 W. Pagar por 300 °C não compra nada e costuma vir justo com a
+química corrosiva, porque é silicone de junta de motor.
 
-### 6.2 ❌ Cola quente
+Uso aceitável: **na caixa, não na eletrônica** — vedar a tampa contra pó, ou
+fazer o passa-cabo. E curar com a caixa vazia antes de pôr a placa.
 
-O reflexo natural, e errado aqui. EVA amolece na faixa de 60 a 80 °C, e painel ao sol
+### 9.2 ❌ Cola quente
+
+O reflexo natural, e errado aqui. EVA amolece entre 60 e 80 °C, e painel ao sol
 passa bem disso. A montagem desaba num estacionamento à tarde.
 
-Quem esquenta não é o circuito — é o **carro**. Essa é a temperatura que seleciona o
-adesivo.
+Quem esquenta não é o circuito — é o **carro**. Essa é a temperatura que
+seleciona o adesivo.
 
-### 6.3 ⚠️ Fita aluminizada
+### 9.3 ⚠️ Se um dia houver blindagem, não usar alumínio
 
-Se a blindagem da seção 4.5 vier a ser adotada, **não usar alumínio**:
-
-- A maioria das fitas de alumínio tem **adesivo acrílico isolante**. Tiras sobrepostas
-  **não** se conectam, e o resultado são ilhas isoladas em vez de um plano. É o erro
-  prático mais comum do assunto.
-- **Alumínio não solda** com estanho e fluxo comuns — o óxido não deixa. "Aterrada"
-  exigiria conexão mecânica, parafuso com arruela mordendo a folha.
+- A maioria das fitas de alumínio tem **adesivo acrílico isolante**. Tiras
+  sobrepostas **não** se conectam, e o resultado são ilhas isoladas em vez de um
+  plano. É o erro prático mais comum do assunto.
+- **Alumínio não solda** com estanho e fluxo comuns — o óxido não deixa.
+  "Aterrada" exigiria conexão mecânica, parafuso com arruela mordendo a folha.
 
 **Usar fita de cobre com adesivo condutivo:** solda normalmente, as sobreposições
 conduzem, e o fio de terra se prende com um ponto de solda.
 
 E dois cuidados que valem para qualquer folha:
 
-- **Aterrar curto e em vários pontos**, no terra do **próprio módulo GPS**. Blindagem
-  aterrada por um ponto só e com fio longo pode ser **pior que blindagem nenhuma**: a
-  indutância do fio faz com que aquilo não seja terra na frequência do ruído, e a folha
-  passa a ser antena ressonante que acopla ruído para dentro. Se o fio não puder ser
-  curto, é melhor deixar a folha flutuando.
-- **Isolar a face externa da folha.** Um plano de terra nu virado para as placas e a
-  fiação é curto esperando a hora. A ordem é folha, depois isolante, e o isolante é que
-  olha para o circuito.
+- **Aterrar curto e em vários pontos**, no terra do **próprio módulo GPS**.
+  Blindagem aterrada por um ponto só e com fio longo pode ser **pior que
+  blindagem nenhuma**: a indutância do fio faz com que aquilo não seja terra na
+  frequência do ruído, e a folha passa a ser antena ressonante que acopla ruído
+  para dentro. Se o fio não puder ser curto, é melhor deixar a folha flutuando.
+- **Isolar a face externa da folha.** Um plano de terra nu virado para as placas
+  e a fiação é curto esperando a hora. A ordem é folha, depois isolante, e o
+  isolante é que olha para o circuito.
 
-### 6.4 ✅ Resumo
+> 📌 Com a PCB fabricada, a blindagem ficou **menos provável de ser necessária**:
+> a antena ganhou plano de terra contínuo embaixo e está na extremidade oposta ao
+> conversor chaveado. Continua contingente à medição — ver **M-06**.
+
+### 9.4 ✅ Resumo
 
 | Uso | Escolha |
 | :--- | :--- |
-| Chassi na caixa | **VHB** (ou soberba por fora) |
-| Placas no chassi | **espaçador de nylon** + parafuso M2 ou M2,5 |
+| Antena na PCB | **fita acrílica estruturada**, 90–120 °C |
+| Caixa no painel | **adesivo magnético**, conferido quente |
 | Isolamento sob o módulo GPS | **Kapton** |
 | Vedação da tampa / passa-cabo | silicone de **cura neutra**, curado com a caixa vazia |
 | Blindagem, se necessária | **fita de cobre** com adesivo condutivo |
 
-> 🔩 Para parafusar nos furos de placa perfurada: a malha é de 2,54 mm e os furos têm
-> cerca de 1 mm, então qualquer parafuso exige alargamento. **M2 ou M2,5, não M3** —
-> M3 pede 3,2 mm e come duas ilhas vizinhas. Na borda não faz diferença, mas M2 é mais
-> limpo.
-
 ---
 
-## 7. Gerenciamento de cabos
-
-Há bastante fio indo para peças de painel — display, encoder — e para o cartão. Em
-instalação automotiva, **a fadiga por vibração acontece na saída do fio da junta de
-solda**, e é a falha mais provável da montagem a médio prazo.
-
-| Prática | Motivo |
-| :--- | :--- |
-| **Âncoras de abraçadeira** coladas no chassi, com os fios passando por elas | Transfere o esforço da junta de solda para a âncora. Custa centavos e é o item de melhor relação da lista. |
-| **VCC trançado com GND** nos fios do GPS | Reduz a área do laço, que é o que acopla ruído. |
-| **Par do GPS curto**, longe do indutor do step-down e das linhas SPI do display | Os fios do GPS atravessam a região ruidosa e são tanto condutor quanto antena (seção 4.5). |
-| **Ancorar o fio dos dois lados do transistor do buzzer**, a 1 ou 2 cm do corpo | ⚠️ **O transistor não está na placa** — está preso direto aos fios, isolado com Kapton, e o corpo pende das próprias três pernas. É a **única massa não apoiada** da montagem, e as pernas são o único suporte. Vibração mais ciclagem térmica trincam a junta, e a falha é **intermitente**: buzzer que às vezes não toca é alerta que às vezes não acontece. |
-| Folga suficiente para **abrir a tampa** sem tracionar nada | A prateleira do GPS está na tampa: ela se move junto, e o fio dela é o que mais sofre. |
-| Fio do display sem dobra fechada no **flex** | O flex do TFT flexiona; cola ou dobra rígida criam ponto de fadiga. |
-
----
-
-## 8. O que não pode ser coberto, em nenhuma hipótese
+## 10. O que não pode ser coberto, em nenhuma hipótese
 
 | Peça | Consequência de cobrir |
 | :--- | :--- |
-| **Furo de som do buzzer** | Abafa o volume. Levaria a procurar erro no PWM onde não há. |
+| **Furos de som do buzzer** | Abafa o volume. Levaria a procurar erro no PWM onde não há. |
 | **Flex e vidro do display** | Ponto de fadiga no flex. Silicone na borda do bezel é aceitável; no flex, não. |
-| **Área da tampa acima do patch cerâmico** | Bloqueia o céu e inutiliza o GPS. |
-| Slot do microSD, eixo do encoder | Por motivo óbvio. |
+| **A área da tampa acima do patch** | Bloqueia o céu e inutiliza o GPS. |
+| **A zona proibida da antena, na placa** | Trilha ou cobre ali degrada a recepção, e o sintoma — fix demorado ou instável — ninguém atribui ao desenho da placa. |
+| Rasgo do cartão, abertura do USB, eixo do encoder | Por motivo óbvio. |
 
 ---
 
-## 9. Pendências
+## 11. Pendências
 
-Medições e verificações que faltam. Numeração própria (**M-NN**) para não colidir com
-os **R-NN** de `revisao_tecnica.md`.
+Numeração própria (**M-NN**), para não colidir com os **R-NN** de
+`revisao_tecnica.md`.
+
+> 📌 **M-01 a M-05 da v1 foram encerradas sem resposta.** Todas mediam a Patola
+> — área entre torres, altura das torres, parafuso que acompanha a caixa,
+> orientação dos eixos. A caixa saiu do projeto e as perguntas com ela.
 
 | Item | O que falta | Trava o quê |
 | :--- | :--- | :--- |
-| **M-01** | Área livre no fundo, **entre as torres** | Define o tamanho do chassi — primeira medida a tirar. |
-| **M-02** | Altura das torres a partir do fundo | Define quanto sobra para o andar de cima. |
-| **M-03** | Dimensões externas do módulo do display, **com o flex** | Confere se display e encoder cabem confortáveis na face de 123 × 85. Pelo olho cabem, mas a conta não foi feita com a peça na mão. |
-| **M-04** | Parafuso que acompanha a caixa | Define o furo do chassi (seção 3). |
-| **M-05** | Ordem dos eixos confirmada na peça | Como duas medidas são 85 mm, a dúvida é só qual face leva os 123 mm. A orientação da seção 1 assume o que foi descrito. |
-| **M-06** | A/B de C/N0 pela GSV, USB × step-down | Decide a blindagem da seção 4.5. |
-| **M-07** | Para-brisa do veículo é atérmico? | Se for, domina tudo o que está na seção 4. |
-| **M-08** | **Campanha térmica:** um dia inteiro parado ao sol, na posição de montagem real, registrando temperatura a cada minuto | Fecha o **R-65**. O RP2350 tem sensor de temperatura **no próprio die**, no canal 4 do ADC, e o firmware não usa o ADC para nada — há um termômetro ocioso dentro do aparelho e um `LoggerCartao` que já grava no cartão. É o único número que importa, e substitui toda a especulação. ⚠️ O sensor lê a pastilha, que corre acima do ambiente por autoaquecimento: caracterizar o desvio uma vez em ambiente conhecido. |
-| **R-13** | Corrente agregada e temperatura do LDO do display | Já aberto em `revisao_tecnica.md`; a caixa fechada muda o regime térmico e torna a medição mais relevante, não menos. |
+| **M-06** | A/B de C/N0 pela GSV, USB × step-down | Decide se há blindagem. Menos provável que na v1, mas não descartada. |
+| **M-07** | Para-brisa do veículo é atérmico? | Se for, muda o regime térmico inteiro. |
+| **M-08** | **Campanha térmica:** um dia parado ao sol, na posição real, registrando a cada minuto | Fecha o **R-65** e decide se o ASA aguenta. O RP2350 tem sensor **no próprio die**, no canal 4 do ADC, e o firmware não usa o ADC para nada — há um termômetro ocioso dentro do aparelho e um `LoggerCartao` que já grava no cartão. ⚠️ O sensor lê a pastilha, que corre acima do ambiente por autoaquecimento: caracterizar o desvio uma vez em ambiente conhecido. |
+| **M-09** | 🆕 **Folga do encaixe da tampa** | Imprimir só a tampa com 0,3 / 0,4 / 0,5 e escolher pelo tato. Meia hora cada. |
+| **M-10** | 🆕 **Empenamento do ASA** numa peça de 130 mm | Apoiar numa superfície plana e ver se balança nos cantos. Não aparece em amostra pequena. |
+| **M-11** | 🆕 **Retenção do ímã com a caixa quente** | Segurança. Testar num dia de sol, não frio. |
+| **M-12** | 🆕 **Diâmetro do canhão roscado do encoder** | Única cota da caixa sem margem para menos. A porca não responde — ver §5. |
+| **M-13** | 🆕 Furo do LED, rasgo do cartão, abertura do USB | Estimativas no modelo. As duas últimas foram alargadas de propósito; a do LED não. |
+| **R-13** | Corrente agregada e temperatura do LDO do display | Aberto em `revisao_tecnica.md`; a caixa fechada torna a medição mais relevante, não menos. |
 
-> ⚠️ **M-01 a M-05** são régua e paquímetro, e **M-01 a M-04 precisam estar fechados
-> antes de cortar o chassi**. **M-06, M-07 e M-08** exigem o veículo — e o M-08 exige
-> um dia de sol, então vale deixar o registro pronto antes do próximo verão.
+> ⚠️ **M-09, M-10, M-12 e M-13** são impressora e paquímetro, e saem rápido assim
+> que a impressora chegar. **M-06, M-07, M-08 e M-11** exigem o veículo — e o
+> M-08 exige um dia de sol, então vale deixar o registro pronto antes do próximo
+> verão.

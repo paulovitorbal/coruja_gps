@@ -1,7 +1,24 @@
 # ADR 0011 — Montar com o que está em mãos; as mitigações térmicas são contingentes
 
+> ## ⚠️ Premissa superada em 2026-10-05
+>
+> Este ADR decidiu **montar com o que já estava em mãos** — a caixa Patola
+> comprada e a prateleira de fibra presa à tampa —, adiando mitigações térmicas
+> até haver medição.
+>
+> Em 2026-10-05 as duas peças saíram do projeto: a placa passou a ser
+> **fabricada**, a caixa a ser **impressa em ASA**, e a antena foi para cima da
+> própria PCB. A premissa de "o que já existe" deixou de valer.
+>
+> **O princípio continua de pé e é o que importa:** mitigação térmica só entra
+> depois de medida, e a campanha do **M-08** segue sendo o que decide. O que
+> envelheceu foi a geometria, não o raciocínio.
+>
+> A montagem atual está em [`montagem.md`](../../montagem.md), **v2**.
+
+
 **Data:** 2026-10-01
-**Status:** aceito — governa o **R-65** e a `montagem.md`
+**Status:** princípio aceito; **premissa superada em 2026-10-05** — ver nota acima
 
 ## Contexto
 
