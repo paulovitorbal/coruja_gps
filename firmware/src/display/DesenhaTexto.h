@@ -33,5 +33,9 @@ int escreve_numero_pequeno(PainelSt7789& painel, int x, int y,
                            const char* texto, Cor565 cor, Cor565 fundo);
 int escreve_texto(PainelSt7789& painel, int x, int y, const char* texto,
                   Cor565 cor, Cor565 fundo);
+/// So a faixa superior. 14x23 contra 12x20 do texto comum, porque relogio e
+/// aviso sao lidos de relance com o carro andando.
+int escreve_texto_grande(PainelSt7789& painel, int x, int y, const char* texto,
+                         Cor565 cor, Cor565 fundo);
 
 }  // namespace coruja

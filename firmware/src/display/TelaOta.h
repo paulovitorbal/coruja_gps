@@ -22,6 +22,21 @@ struct EstadoOta {
     /// `descreve_curto(ResultadoOta)`, e a `TelaOta` copia o conteúdo em vez
     /// de guardar o ponteiro.
     const char* motivo = nullptr;
+
+    /// Substitui o nome da fase na linha de rótulo, quando não nulo.
+    ///
+    /// **Existe para a remessa de dados reaproveitar esta tela.** A geometria
+    /// é a mesma e a pergunta é a mesma — *em que pé está* —, mas "BAIXANDO"
+    /// durante um envio seria uma palavra errada na tela, e tela que mente é
+    /// pior que tela em branco. Aponta para literal; a `TelaOta` copia.
+    const char* rotulo = nullptr;
+
+    /// A barra de progresso vale para esta fase. `Baixando` no OTA; a
+    /// composição da remessa aponta para a fase de envio.
+    ///
+    /// Sem isto, a remessa não teria barra nenhuma: a condição estava presa
+    /// a `FaseOta::Baixando`, que a remessa nunca produz.
+    FaseOta fase_com_barra = FaseOta::Baixando;
 };
 
 /// Desenha a atualização em curso, reaproveitando as três faixas do §4.1.

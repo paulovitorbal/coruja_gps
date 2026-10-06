@@ -48,6 +48,7 @@ void Aplicacao::executa(AcaoMenu acao) {
             break;
         }
         case AcaoMenu::AtualizarBase: acoes_.atualiza_base(); break;
+        case AcaoMenu::EnviarDados:   acoes_.envia_dados(); break;
         case AcaoMenu::TestarAlertas: acoes_.testa_alertas(); break;
         case AcaoMenu::AlternarViagem: diario_.alterna_viagem(); break;
         case AcaoMenu::Nenhuma:       break;

@@ -24,6 +24,21 @@ constexpr Cor565 kMoldura    = 0x4208;   ///< fio e trilho vazio da barra
 constexpr Cor565 kBarraAmbar = 0xFD80;   ///< conforme e semáforo — matiz 42°
 constexpr Cor565 kBarraRosa  = 0xFA18;   ///< margem — matiz 318°
 constexpr Cor565 kBarraPerigo = 0xF800;  ///< perigo — matiz 0°
+
+/// Fundo da faixa inferior **quando há alerta** (`#F5EBE0`).
+///
+/// O ícone ficava difícil de ler no preto dirigindo de dia — relatado em
+/// 2026-10-06, com o aparelho no carro.
+///
+/// ⚠️ **Casada com o `FUNDO` do `scripts/gera_sprites.py`.** Os sprites não
+/// têm canal alfa: o transparente do PNG é achatado contra esta cor na
+/// conversão. Mudar uma sem a outra põe uma moldura de 40×40 em volta do
+/// ícone. As duas andam juntas ou nenhuma anda.
+///
+/// Só na faixa, e só com alerta: os estados de texto — sem sinal, sem base,
+/// aviso de OTA — seguem brancos sobre preto, onde o contraste já é o melhor
+/// possível.
+constexpr Cor565 kFundoAlerta = 0xF75C;
 }  // namespace paleta
 
 /// Geometria do §4.1. A soma fecha em 240 e há `static_assert` adiante.
@@ -55,7 +70,8 @@ enum class Alinhamento : std::uint8_t { Esquerda, Centro };
 enum class Fonte : std::uint8_t {
     Numero,         ///< 56×94, para a velocidade
     NumeroPequeno,  ///< 28×48, para o `/limite` (R-64)
-    Texto,          ///< 12×20, para as faixas
+    Texto,          ///< 12×20, para as faixas e o menu
+    TextoGrande,    ///< 14×23, só a faixa superior (relógio, avisos)
 };
 
 /// Métrica das fontes, para quem decide layout sem incluir as tabelas de

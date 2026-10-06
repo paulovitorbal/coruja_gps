@@ -37,6 +37,9 @@ public:
     virtual ~AcoesAplicacao() = default;
     virtual void atualiza_base() = 0;
     virtual void testa_alertas() = 0;
+    /// Sobe log, viagens e infracoes ao servidor e apaga o confirmado.
+    /// Bloqueia como o OTA, e pelo mesmo motivo: fala com a rede.
+    virtual void envia_dados() = 0;
 };
 
 /// Junta o alerta, o encoder, o menu e o cartao numa volta so.

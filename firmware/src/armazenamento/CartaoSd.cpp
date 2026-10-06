@@ -48,6 +48,13 @@ constexpr int kQuantosVolumes = 5;
 /// são sequenciais e só uma fica montada por vez.
 FATFS g_fs;
 FIL   g_arquivo;
+/// Descritor proprio da leitura em fluxo da remessa.
+///
+/// Separado do `g_arquivo` porque os dois caminhos coexistem: a remessa
+/// mantem um arquivo aberto durante todo o envio, e o log em cartao -- se
+/// ligado -- abre e fecha o `coruja.log` por mensagem no meio disso. Com um
+/// descritor so, a primeira linha de log destruiria o handle da leitura.
+FIL   g_leitura;
 
 }  // namespace
 
@@ -431,6 +438,140 @@ bool CartaoSd::existe(const char* nome, Logger& log) {
     const bool achou = f_stat(caminho, &info) == FR_OK;
     f_unmount(raiz);
     return achou;
+}
+
+// ---------------------------------------------------------------------------
+// Arquivario -- o que a remessa de dados usa
+// ---------------------------------------------------------------------------
+
+ErroCartao CartaoSd::lista(AoListar ao_listar, void* contexto, Logger& log) {
+    if (ao_listar == nullptr) {
+        return ErroCartao::Nenhum;
+    }
+    char raiz[4] = {};
+    const auto erro = monta_volume(raiz, sizeof raiz, log);
+    if (erro != ErroCartao::Nenhum) {
+        return erro;
+    }
+
+    DIR    dir = {};
+    FILINFO info = {};
+    const FRESULT abertura = f_opendir(&dir, raiz);
+    if (abertura != FR_OK) {
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "f_opendir('%s'): %s", raiz,
+                      FRESULT_str(abertura));
+        log.error("sd", msg);
+        f_unmount(raiz);
+        return ErroCartao::FalhaDeLeitura;
+    }
+
+    ErroCartao saida = ErroCartao::Nenhum;
+    for (;;) {
+        const FRESULT r = f_readdir(&dir, &info);
+        if (r != FR_OK) {
+            char msg[96];
+            std::snprintf(msg, sizeof msg, "f_readdir: %s", FRESULT_str(r));
+            log.error("sd", msg);
+            saida = ErroCartao::FalhaDeLeitura;
+            break;
+        }
+        // Nome vazio e o fim da enumeracao, nao um erro.
+        if (info.fname[0] == '\0') {
+            break;
+        }
+        if ((info.fattrib & AM_DIR) != 0) {
+            continue;
+        }
+        ao_listar(contexto, info.fname, static_cast<std::size_t>(info.fsize));
+    }
+
+    f_closedir(&dir);
+    f_unmount(raiz);
+    return saida;
+}
+
+ErroCartao CartaoSd::abre_para_leitura(const char* nome, std::size_t* tamanho,
+                                       Logger& log) {
+    if (lendo_) {
+        log.error("sd", "abre_para_leitura com uma leitura ja em curso");
+        return ErroCartao::FalhaDeLeitura;
+    }
+    if (nome == nullptr || tamanho == nullptr) {
+        return ErroCartao::FalhaDeLeitura;
+    }
+    const auto erro = monta_volume(raiz_leitura_, sizeof raiz_leitura_, log);
+    if (erro != ErroCartao::Nenhum) {
+        return erro;
+    }
+
+    char caminho[64];
+    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_leitura_, nome);
+    const FRESULT r = f_open(&g_leitura, caminho, FA_READ);
+    if (r != FR_OK) {
+        f_unmount(raiz_leitura_);
+        // Ausente nao e falha de leitura: a remessa listou o cartao e o
+        // arquivo pode ter sido apagado entre a listagem e agora.
+        return r == FR_NO_FILE || r == FR_NO_PATH ? ErroCartao::ArquivoAusente
+                                                  : ErroCartao::FalhaDeLeitura;
+    }
+    *tamanho = static_cast<std::size_t>(f_size(&g_leitura));
+    lendo_ = true;
+    return ErroCartao::Nenhum;
+}
+
+bool CartaoSd::le(std::uint8_t* destino, std::size_t capacidade,
+                  std::size_t* lidos) {
+    if (!lendo_ || destino == nullptr || lidos == nullptr) {
+        return false;
+    }
+    UINT obtidos = 0;
+    const FRESULT r = f_read(&g_leitura, destino,
+                             static_cast<UINT>(capacidade), &obtidos);
+    if (r != FR_OK) {
+        return false;
+    }
+    *lidos = obtidos;
+    return true;
+}
+
+bool CartaoSd::rebobina() {
+    return lendo_ && f_lseek(&g_leitura, 0) == FR_OK;
+}
+
+void CartaoSd::fecha_leitura() {
+    if (!lendo_) {
+        return;
+    }
+    f_close(&g_leitura);
+    f_unmount(raiz_leitura_);
+    lendo_ = false;
+}
+
+ErroCartao CartaoSd::remove(const char* nome, Logger& log) {
+    if (nome == nullptr) {
+        return ErroCartao::ArquivoAusente;
+    }
+    char raiz[4] = {};
+    const auto erro = monta_volume(raiz, sizeof raiz, log);
+    if (erro != ErroCartao::Nenhum) {
+        return erro;
+    }
+    char caminho[64];
+    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    const FRESULT r = f_unlink(caminho);
+    f_unmount(raiz);
+    if (r == FR_OK) {
+        return ErroCartao::Nenhum;
+    }
+    if (r == FR_NO_FILE || r == FR_NO_PATH) {
+        return ErroCartao::ArquivoAusente;
+    }
+    char msg[96];
+    std::snprintf(msg, sizeof msg, "f_unlink('%s'): %s", caminho,
+                  FRESULT_str(r));
+    log.error("sd", msg);
+    return ErroCartao::FalhaDeEscrita;
 }
 
 }  // namespace coruja

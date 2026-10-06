@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "armazenamento/Armazenamento.h"
+#include "armazenamento/Arquivario.h"
 
 namespace coruja {
 
@@ -19,7 +20,10 @@ class Logger;
 /// deixava o pino em 1,13 V, na zona indeterminada da lógica de 3,3 V.
 ///
 /// A presença passa a ser **inferida da montagem**: se o cartão monta, existe.
-class CartaoSd : public Armazenamento {
+/// Implementa os **dois** recortes: `Armazenamento`, que o OTA usa para
+/// escrever e promover, e `Arquivario`, que a remessa usa para enumerar, ler e
+/// apagar. São interfaces separadas de propósito -- ver `Arquivario.h`.
+class CartaoSd : public Armazenamento, public Arquivario {
 public:
     /// Prepara o driver e o barramento SPI. Pode ser chamado no boot.
     void inicia(Logger& log);
@@ -92,6 +96,26 @@ public:
 
     bool existe(const char* nome, Logger& log);
 
+    // -----------------------------------------------------------------------
+    // Arquivario -- o que a remessa de dados usa
+    // -----------------------------------------------------------------------
+
+    /// Enumera a raiz do volume de trabalho, ignorando diretórios.
+    ErroCartao lista(AoListar ao_listar, void* contexto, Logger& log) override;
+
+    /// Abre para leitura e **deixa o volume montado**, como a escrita em
+    /// fluxo faz. O descritor é separado do da escrita: durante um envio o
+    /// log pode querer gravar no cartão, e um descritor só serviria aos dois
+    /// ao mesmo tempo -- ou seja, a nenhum.
+    ErroCartao abre_para_leitura(const char* nome, std::size_t* tamanho,
+                                 Logger& log) override;
+    bool le(std::uint8_t* destino, std::size_t capacidade,
+            std::size_t* lidos) override;
+    bool rebobina() override;
+    void fecha_leitura() override;
+
+    ErroCartao remove(const char* nome, Logger& log) override;
+
 private:
     /// Monta o volume de trabalho e devolve seu prefixo em `raiz`.
     ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log);
@@ -101,7 +125,9 @@ private:
     /// escrita sonda como a leitura faz.
     int  volume_ativo_ = -1;
     bool escrevendo_ = false;
+    bool lendo_ = false;
     char raiz_aberta_[4] = {};
+    char raiz_leitura_[4] = {};
 };
 
 }  // namespace coruja

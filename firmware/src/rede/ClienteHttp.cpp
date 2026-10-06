@@ -100,8 +100,12 @@ ResultadoHttp ClienteHttp::baixa(const Url& url, AoReceber ao_receber,
     ajustes.headers_done_fn = ao_chegar_cabecalhos;
 
     char msg[224];
-    std::snprintf(msg, sizeof msg, "GET http://%s:%u%s", url.host,
-                  static_cast<unsigned>(url.porta), url.caminho);
+    // O caminho vai SEM a consulta: e nela que viaja o segredo do aparelho,
+    // e o log vai para o cartao.
+    std::snprintf(msg, sizeof msg, "GET http://%s:%u%.*s", url.host,
+                  static_cast<unsigned>(url.porta),
+                  static_cast<int>(tamanho_sem_consulta(url.caminho)),
+                  url.caminho);
     log.info("http", msg);
 
     httpc_state_t* conexao = nullptr;

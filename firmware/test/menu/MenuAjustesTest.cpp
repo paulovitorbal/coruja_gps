@@ -326,6 +326,36 @@ TEST(MenuAjustes, AtualizarBaseFechaOMenuAntesDeDisparar) {
     EXPECT_FALSE(c.menu().aberto());
 }
 
+TEST(MenuAjustes, EnviarDadosFechaOMenuAntesDeDisparar) {
+    // Mesma razao do OTA: a remessa bloqueia por dezenas de segundos e
+    // desenha a propria tela por cima.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::EnviarDados);
+    EXPECT_EQ(c.clica(), AcaoMenu::EnviarDados);
+    EXPECT_FALSE(c.menu().aberto());
+}
+
+TEST(MenuAjustes, EnviarDadosTemRotuloProprio) {
+    Cenario c;
+    EXPECT_STREQ(c.menu().rotulo(ItemMenu::EnviarDados), "enviar dados");
+    EXPECT_EQ(c.valor(ItemMenu::EnviarDados), "") << "e item de acao";
+}
+
+TEST(MenuAjustes, EnviarDadosENaveGavelPorGiro) {
+    // O item novo precisa estar ALCANCAVEL pela navegacao, e nao so existir
+    // no enum: `kItensMenu` governa o laco, e esquecer de aumenta-lo deixaria
+    // o item invisivel sem quebrar compilacao nenhuma.
+    Cenario c;
+    c.abre();
+    bool achou = false;
+    for (std::size_t i = 0; i < kItensMenu; ++i) {
+        if (c.menu().item() == ItemMenu::EnviarDados) { achou = true; break; }
+        c.gira_direita();
+    }
+    EXPECT_TRUE(achou);
+}
+
 TEST(MenuAjustes, TestarAlertasNaoFechaOMenu) {
     // Quem testa quer repetir e comparar.
     Cenario c;

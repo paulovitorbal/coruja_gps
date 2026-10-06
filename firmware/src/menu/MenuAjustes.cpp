@@ -155,6 +155,11 @@ AcaoMenu MenuAjustes::avalia(EventoEncoder evento, bool parado,
             // pode ficar por baixo dele esperando um evento que nao vem.
             fecha();
             return AcaoMenu::AtualizarBase;
+        case ItemMenu::EnviarDados:
+            // Fecha antes, pelo mesmo motivo do OTA: a remessa bloqueia por
+            // dezenas de segundos e desenha a propria tela por cima.
+            fecha();
+            return AcaoMenu::EnviarDados;
         case ItemMenu::TestarAlertas:
             return AcaoMenu::TestarAlertas;
         case ItemMenu::Viagem:
@@ -181,6 +186,7 @@ const char* MenuAjustes::rotulo(ItemMenu i) const {
         case ItemMenu::ModoNoturno:   return "modo noturno";
         case ItemMenu::Volume:        return "volume";
         case ItemMenu::AtualizarBase: return "atualizar base";
+        case ItemMenu::EnviarDados:   return "enviar dados";
         case ItemMenu::TestarAlertas: return "testar alertas";
         case ItemMenu::Viagem:        return "viagem";
         case ItemMenu::Informacao:    return "informacao";

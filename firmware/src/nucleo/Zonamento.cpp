@@ -89,8 +89,9 @@ std::size_t primeiro_com_lat_ge(const Ponto* base, std::size_t n, float lat) {
     return baixo;
 }
 
-bool ponto_a_frente(const Telemetria& t, const Ponto& p, float cos_lat) {
-    if (!rumo_utilizavel(t)) { return true; }
+bool ponto_a_frente(const RumoFiltro& rumo, const Telemetria& t,
+                    const Ponto& p, float cos_lat) {
+    if (!rumo.utilizavel) { return true; }
 
     const float norte = (p.lat - t.lat) * geo::kMetrosPorGrauLat;
     const float leste = (p.lon - t.lon) * geo::kMetrosPorGrauLat * cos_lat;
@@ -100,15 +101,15 @@ bool ponto_a_frente(const Telemetria& t, const Ponto& p, float cos_lat) {
 
     const float azimute =
         normaliza_graus(std::atan2(leste, norte) * kGrausPorRadiano);
-    return geo::diferenca_rumo(t.rumo_graus, azimute) <= kAnguloAFrenteGraus;
+    return geo::diferenca_rumo(rumo.graus, azimute) <= kAnguloAFrenteGraus;
 }
 
-bool sentido_compativel(const Telemetria& t, const Ponto& p) {
+bool sentido_compativel(const RumoFiltro& rumo, const Ponto& p) {
     if (p.sentido == Sentido::Omnidirecional) { return true; }
-    if (!rumo_utilizavel(t)) { return true; }
+    if (!rumo.utilizavel) { return true; }
 
     float diferenca =
-        geo::diferenca_rumo(t.rumo_graus, static_cast<float>(p.rumo_graus()));
+        geo::diferenca_rumo(rumo.graus, static_cast<float>(p.rumo_graus()));
     if (p.sentido == Sentido::Bidirecional) {
         const float oposto = 180.0F - diferenca;
         diferenca = (oposto < diferenca) ? oposto : diferenca;
@@ -132,6 +133,47 @@ void MaquinaZona::reinicia() {
     tem_alvo_ = false;
     indice_alvo_ = 0;
     houve_fix_ = false;
+    tem_rumo_lembrado_ = false;
+}
+
+/// Qual rumo os filtros usam, e a manutenção da memória.
+///
+/// ## Por que lembrar, em vez de abrir o filtro
+///
+/// Antes, sem rumo utilizável os dois filtros abriam e **todo ponto a menos de
+/// 300 m virava candidato — inclusive os que ficaram para trás**. O sintoma
+/// apareceu dirigindo, em 2026-10-06: passar por um radar, parar num semáforo
+/// 200 m adiante, e ver na tela o radar já ultrapassado.
+///
+/// **Carro parado não gira.** O rumo de instantes antes continua sendo a
+/// direção para onde ele aponta, e usá-lo é mais verdadeiro que fingir que não
+/// se sabe nada.
+///
+/// ## A trava que mantém a falha segura
+///
+/// A memória só vale enquanto o veículo **não se deslocou** desde a leitura
+/// boa. Se ele andou sem produzir rumo novo — fila a passo, manobra —, pode ter
+/// mudado de direção, e aí o filtro volta a abrir como antes.
+///
+/// Isso preserva a assimetria que importa: esconder um radar à frente é
+/// perigoso, mostrar um que ficou para trás é só irritante. Na dúvida, abre.
+RumoFiltro MaquinaZona::rumo_para_filtro(const Telemetria& t, float cos_lat) {
+    if (rumo_utilizavel(t)) {
+        tem_rumo_lembrado_ = true;
+        rumo_lembrado_ = t.rumo_graus;
+        lat_rumo_ = t.lat;
+        lon_rumo_ = t.lon;
+        return {true, t.rumo_graus};
+    }
+    if (!tem_rumo_lembrado_) { return {}; }
+
+    const float andou =
+        geo::distancia_m(lat_rumo_, lon_rumo_, t.lat, t.lon, cos_lat);
+    if (andou > kRaioRumoCongeladoM) {
+        tem_rumo_lembrado_ = false;
+        return {};
+    }
+    return {true, rumo_lembrado_};
 }
 
 Veredito MaquinaZona::sem_fix(std::uint32_t agora_ms) {
@@ -167,6 +209,8 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
     float cos_lat = geo::cosseno_latitude(t.lat);
     if (cos_lat < kCosLatMinimo) { cos_lat = kCosLatMinimo; }
 
+    const RumoFiltro rumo = rumo_para_filtro(t, cos_lat);
+
     // A varredura usa o raio de **saída**, não o de entrada: o alvo retido
     // pela histerese vive entre 300 e 340 m, e some da busca se a janela for
     // estreita demais.
@@ -199,8 +243,8 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
         const float raio = e_o_alvo ? kRaioSaidaM : kRaioAlertaM;
         if (d > raio) { continue; }
 
-        if (!sentido_compativel(t, p)) { continue; }
-        if (!ponto_a_frente(t, p, cos_lat)) { continue; }
+        if (!sentido_compativel(rumo, p)) { continue; }
+        if (!ponto_a_frente(rumo, t, p, cos_lat)) { continue; }
 
         // `e_perigo` vem primeiro de propósito: a guarda de `kSemLimite`
         // dentro dele é o **único** ponto que impede um semáforo de virar

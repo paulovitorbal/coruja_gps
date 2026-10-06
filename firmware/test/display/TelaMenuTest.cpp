@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "display/FonteNumeroPequeno.h"
 #include "display/TextoRolante.h"
 #include <vector>
 
@@ -104,6 +105,106 @@ TEST(TelaMenu, o_valor_e_maior_que_o_rotulo) {
     ASSERT_NE(valor, nullptr) << "o valor nao foi desenhado em fonte propria";
     EXPECT_GT(altura_da_fonte(Fonte::NumeroPequeno),
               altura_da_fonte(Fonte::Texto));
+}
+
+// ================================ o valor tem de caber na fonte que o desenha
+//
+// Relatado dirigindo, em 2026-10-06: o item "viagem" mostrava o rotulo e mais
+// nada. A causa era a fonte — `NumeroPequeno` tem 12 glifos, so digitos, a
+// barra e o "%". Qualquer valor com letra saia INVISIVEL.
+//
+// ⚠️ Nenhum teste pegava porque todos comparavam o TEXTO composto, e o texto
+// sempre esteve certo. Quem sumia era o pixel.
+
+TEST(TelaMenu, valor_em_letras_aparece_na_tela) {
+    Bancada b;
+    b.avanca_ate(ItemMenu::Viagem);
+    VisorEspiao v;
+    TelaMenu tela;
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    EXPECT_TRUE(v.tem_texto("viagem")) << "o rotulo";
+    EXPECT_TRUE(v.tem_texto("iniciar"))
+        << "o valor sumia: desenhado numa fonte sem letras";
+}
+
+TEST(TelaMenu, valor_numerico_mantem_a_fonte_grande) {
+    // O conserto nao pode custar a hierarquia de quem cabe na fonte grande.
+    Bancada b;   // comeca em "brilho", cujo valor e "80%"
+    VisorEspiao v;
+    TelaMenu tela;
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    const auto* valor = v.em_fonte(Fonte::NumeroPequeno);
+    ASSERT_NE(valor, nullptr);
+    EXPECT_NE(valor->s.find('%'), std::string::npos)
+        << "o % precisa estar NA fonte, nao so no texto";
+}
+
+TEST(TelaMenu, todo_item_desenha_o_valor_com_fonte_que_o_suporta) {
+    // A guarda da CLASSE inteira: percorre o menu e exige que cada caractere
+    // do valor exista na fonte escolhida para desenha-lo. Pega o defeito em
+    // qualquer item futuro, sem que ninguem precise lembrar desta regra.
+    for (const ItemMenu item : {ItemMenu::Brilho, ItemMenu::ModoNoturno,
+                                ItemMenu::Volume, ItemMenu::Viagem}) {
+        Bancada b;
+        b.avanca_ate(item);
+        if (b.menu().item() != item) { continue; }  // item fora do menu atual
+
+        VisorEspiao v;
+        TelaMenu tela;
+        tela.desenha(b.menu(), kInfo, 0, v);
+
+        char esperado[32] = {};
+        b.menu().valor(item, esperado, sizeof esperado);
+        if (esperado[0] == '\0') { continue; }     // item sem valor
+
+        bool achou = false;
+        for (const auto& t : v.textos) {
+            if (t.s != esperado) { continue; }
+            achou = true;
+            for (const char c : t.s) {
+                const bool cabe =
+                    (t.f == Fonte::Texto) ||
+                    (std::strchr(fonte::numeropequeno::kMapa, c) != nullptr);
+                EXPECT_TRUE(cabe)
+                    << "item " << static_cast<int>(item) << ": o caractere '"
+                    << c << "' de \"" << esperado
+                    << "\" nao existe na fonte escolhida";
+            }
+        }
+        EXPECT_TRUE(achou) << "item " << static_cast<int>(item)
+                           << ": o valor \"" << esperado
+                           << "\" nao foi desenhado";
+    }
+}
+
+TEST(TelaMenu, o_sublinhado_de_edicao_mede_com_a_fonte_do_valor) {
+    // O sublinhado marca o modo de edicao por FORMA, nao por cor — e para
+    // isso ele tem de ter a largura do que esta escrito. Medir com a outra
+    // fonte poria uma barra de 28 px por caractere sob um texto de 12.
+    //
+    // Mutante que sobreviveu antes deste teste existir.
+    Bancada b;
+    b.avanca_ate(ItemMenu::ModoNoturno);
+    b.clica();                                  // entra em edicao
+    ASSERT_EQ(b.menu().estado(), EstadoMenu::Editando);
+
+    VisorEspiao v;
+    TelaMenu tela;
+    tela.desenha(b.menu(), kInfo, 0, v);
+
+    char esperado[32] = {};
+    b.menu().valor(ItemMenu::ModoNoturno, esperado, sizeof esperado);
+    const int l = largura_da_fonte(Fonte::Texto, esperado);
+
+    bool achou = false;
+    for (const auto& r : v.retangulos) {
+        if (r.a == 4 && r.l == l) { achou = true; }
+    }
+    EXPECT_TRUE(achou)
+        << "nenhum sublinhado com a largura de \"" << esperado
+        << "\" na fonte de texto (" << l << " px)";
 }
 
 TEST(TelaMenu, nao_ha_rodape_de_instrucoes) {

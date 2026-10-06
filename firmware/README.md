@@ -155,6 +155,8 @@ Gera o `coruja.cfg` no cartão. **Só entra nele o que varia por instalação:**
 | `wifi_ssid_N` / `wifi_senha_N` | até 5 redes, **em ordem de prioridade** |
 | `url_versao` | devolve uma linha de texto qualquer, comparada como texto |
 | `url_base` | entrega o `radares.bin`, em HTTPS |
+| `url_envio` | para onde subir log, viagens e infrações — **vazio desliga** |
+| `token_aparelho` | o segredo que identifica esta unidade no servidor |
 
 Brilho, fuso, tolerâncias e calibração do LED ficam **no código**. O critério está no
 `docs/adr/0002`: se mudar o valor muda o comportamento de segurança, é especificação e
@@ -163,6 +165,44 @@ não configuração.
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.
+
+#### Enviar dados ao servidor
+
+O item **enviar dados** do menu sobe `coruja.log`, `infracoes.log` e os
+registros de viagem, e **apaga do cartão só o que o servidor confirmar ter
+guardado** — manda, pergunta o CRC-32, compara, e só então apaga. Confirmar
+antes de destruir dispensa manifesto no cartão e nunca perde dado por falha de
+rede.
+
+Precisa das **duas** chaves. Só a URL significaria mandar para um servidor que
+aceita de qualquer um, e o firmware recusa a configuração pela metade.
+
+O `token_aparelho` vai em **todas** as requisições, não só nos envios: é por
+ele que o servidor sabe qual unidade está falando, e é o que faz os registros
+de dois carros não se misturarem. Se o servidor tiver lista de aparelhos, ele
+recusa até o download da base sem token.
+
+Como ele chega lá muda com a rota, e a razão é do lwIP:
+
+| Rota | Onde vai | Por quê |
+| :--- | :--- | :--- |
+| envio (`PUT`) | cabeçalho `X-Coruja-Token` | o cliente é TCP cru e monta o pedido |
+| base (`GET`) | `?t=` na URL | o `http_client` do lwIP não aceita cabeçalho próprio |
+
+> ⚠️ Token em URL entra no log de acesso do servidor e de qualquer proxy no
+> caminho. O firmware **mascara a consulta no próprio log** — a linha de
+> `GET` mostra o caminho até o `?` e para aí, pela mesma regra que esconde a
+> senha de Wi-Fi: o log vai para o cartão, e o cartão sai do carro.
+
+> 🔴 **O envio não fala TLS.** O token e o conteúdo viajam em claro, e o
+> conteúdo diz onde o carro esteve e quando. O token existe para que a URL não
+> seja um depósito aberto a quem a descobrir — não para proteger de quem
+> escuta a rede. Fora da rede local, proxy reverso com TLS na frente.
+
+Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue: o
+`coruja.log` e o registro da viagem em curso continuam sendo escritos enquanto
+a remessa roda, e apagar depois de confirmar N bytes destruiria os que vieram
+depois. Ver `servidor/README.md` para o outro lado.
 
 ### Testes do gerador
 

@@ -109,12 +109,15 @@ class AcoesTexto final : public AcoesAplicacao {
 public:
     void atualiza_base() override { ++ota_; }
     void testa_alertas() override { ++teste_; }
+    void envia_dados() override { ++envio_; }
     unsigned ota() const { return ota_; }
     unsigned teste() const { return teste_; }
+    unsigned envio() const { return envio_; }
 
 private:
     unsigned ota_ = 0;
     unsigned teste_ = 0;
+    unsigned envio_ = 0;
 };
 
 }  // namespace coruja::host

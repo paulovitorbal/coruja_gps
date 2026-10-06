@@ -72,8 +72,19 @@ CONJUNTOS = [
     # A saida e hierarquia de escala, nao encolher tudo: a velocidade e o
     # que se le de relance e fica grande; o limite e referencia. Com 28 px,
     # o pior caso "120" + "/120" da 168 + 112 = 280 px, com folga.
-    Conjunto("NumeroPequeno", 28, 48, "0123456789/", 1.30),
+    # O "%" entra porque o valor do item "brilho" e "80%": sem ele o simbolo
+    # sumia e a tela dizia "80". Custa 192 bytes de flash. (2026-10-06)
+    Conjunto("NumeroPequeno", 28, 48, "0123456789/%", 1.30),
     Conjunto("Texto", 12, 20, "".join(chr(c) for c in range(32, 127)), 1.35),
+    # Faixa superior: relogio, aviso de taxa e barra de brilho. 14x23 em vez
+    # de 12x20 porque o autor relatou, dirigindo, que a data e a hora ficavam
+    # dificeis de ler. (2026-10-06)
+    #
+    # 14 e o maior que mantem "TAXA DE GPS REDUZIDA" dentro dos 320 px: a 15
+    # daria 300 e a 16, exatos 320 — e a frase passaria a rolar para dizer o
+    # que hoje se le de uma vez. A altura de 23 entra nos 26 px da faixa com
+    # 2 px de folga em cima e embaixo, sem mexer na geometria do §4.1.
+    Conjunto("TextoGrande", 14, 23, "".join(chr(c) for c in range(32, 127)), 1.35),
 ]
 
 

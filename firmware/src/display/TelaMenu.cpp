@@ -1,9 +1,10 @@
 #include "display/TelaMenu.h"
 
-#include "display/TextoRolante.h"
-
 #include <cstdio>
 #include <cstring>
+
+#include "display/FonteNumeroPequeno.h"
+#include "display/TextoRolante.h"
 
 namespace coruja {
 
@@ -11,6 +12,34 @@ namespace {
 
 void copia(char* destino, std::size_t n, const char* origem) {
     std::snprintf(destino, n, "%s", origem);
+}
+
+/// Com que fonte desenhar o valor do item.
+///
+/// ⚠️ **`NumeroPequeno` só tem `0123456789/`** — onze glifos. Valor com letra
+/// desenhado com ela sai **invisível**, e foi exatamente o que acontecia:
+///
+///   - `viagem` mostrava o rótulo e mais nada;
+///   - `modo noturno` idem, com `auto` / `dia` / `noite`;
+///   - `brilho` mostrava `80` porque o `%` também não existe na fonte.
+///
+/// Relatado dirigindo, em 2026-10-06. Não aparecia em teste nenhum porque a
+/// suíte compara o TEXTO composto, e o texto sempre esteve certo — quem some é
+/// o pixel.
+///
+/// A escolha é por conteúdo e não por item: fonte é propriedade de quem
+/// desenha, e uma tabela item→fonte teria de ser mantida em sincronia com os
+/// rótulos para sempre.
+Fonte fonte_do_valor(const char* v) {
+    for (const char* c = v; *c != '\0'; ++c) {
+        // Consulta o mapa da PROPRIA fonte, em vez de repetir a lista aqui.
+        // Se o conjunto de glifos mudar — e ele mudou, para ganhar o "%" —,
+        // esta decisao acompanha sozinha.
+        if (std::strchr(fonte::numeropequeno::kMapa, *c) == nullptr) {
+            return Fonte::Texto;
+        }
+    }
+    return Fonte::NumeroPequeno;
 }
 
 }  // namespace
@@ -136,21 +165,21 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
                     paleta::kTexto, Alinhamento::Centro);
 
         if (agora.valor[0] != '\0') {
+            const Fonte fonte = fonte_do_valor(agora.valor);
             const int y_valor = y_rotulo + altura_da_fonte(Fonte::Texto) + 18;
             visor.texto(tela::kLargura / 2, y_valor, agora.valor,
-                        Fonte::NumeroPequeno, paleta::kTexto,
-                        Alinhamento::Centro);
+                        fonte, paleta::kTexto, Alinhamento::Centro);
 
             // **Em edição, o valor ganha um sublinhado.** Distinguir o modo
             // por cor violaria a regra 1 da paleta — o PWM do backlight
             // apaga luminância —, e por isso a marca é de forma: uma barra
             // que não depende de o olho comparar dois brancos.
             if (agora.estado == EstadoMenu::Editando) {
-                const int l = largura_da_fonte(Fonte::NumeroPequeno,
-                                               agora.valor);
+                // A mesma fonte do valor: medir com a outra poria o
+                // sublinhado com largura e altura de um texto que nao esta ali.
+                const int l = largura_da_fonte(fonte, agora.valor);
                 visor.retangulo((tela::kLargura - l) / 2,
-                                y_valor + altura_da_fonte(Fonte::NumeroPequeno)
-                                    + 6,
+                                y_valor + altura_da_fonte(fonte) + 6,
                                 l, 4, paleta::kTexto);
             }
         }

@@ -44,7 +44,8 @@ add_library(coruja_gps_cfg STATIC gps/ConfiguradorGps.cpp gps/LeitorGps.cpp)
 target_include_directories(coruja_gps_cfg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_gps_cfg PUBLIC coruja_nucleo coruja_log)
 
-add_library(coruja_ota STATIC rede/AtualizadorOta.cpp)
+add_library(coruja_ota STATIC rede/AtualizadorOta.cpp rede/RemessaDados.cpp
+                            rede/RespostaHttp.cpp)
 target_include_directories(coruja_ota PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_ota PUBLIC coruja_nucleo coruja_log)
 
@@ -71,6 +72,7 @@ add_library(coruja_ihm STATIC
     app/PilotoAlerta.cpp
     app/Aplicacao.cpp
     app/OtaNaTela.cpp
+    app/RemessaNaTela.cpp
     app/DiarioBordo.cpp
     app/EsperaDispensa.cpp
 )
@@ -125,6 +127,7 @@ if(NOT CORUJA_TESTES)
     add_library(coruja_rede STATIC
         rede/RedeWifi.cpp
         rede/ClienteHttp.cpp
+        rede/ClienteEnvio.cpp
     )
     # O ".." e onde mora o lwipopts.h, que o proprio lwIP inclui por nome.
     target_include_directories(coruja_rede PUBLIC

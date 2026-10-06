@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -32,8 +33,16 @@ public:
     // --- injeção de falha, que é a razão de existir o dublê
     FRESULT erro_rename = FR_OK;
     FRESULT erro_unlink = FR_OK;
+    FRESULT erro_opendir = FR_OK;
+    FRESULT erro_readdir = FR_OK;
+    /// Nomes que a enumeração deve apresentar como diretório, e não arquivo.
+    std::set<std::string> diretorios;
     /// A escrita falha a partir deste byte acumulado (0 = nunca falha).
     std::size_t escrita_falha_apos = 0;
+    /// A leitura falha a partir deste byte acumulado (0 = nunca falha). Sem
+    /// isto, o caminho de erro do `le_em_fluxo` -- por onde a base entra no
+    /// boot -- nao tem como ser exercitado.
+    std::size_t leitura_falha_apos = 0;
 
     // --- observação
     std::vector<std::string> operacoes;   ///< "mount:2", "rename:0:/a->0:/b"

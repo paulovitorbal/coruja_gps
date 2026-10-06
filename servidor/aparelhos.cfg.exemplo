@@ -1,0 +1,37 @@
+# Quem pode falar com este servidor.
+#
+# Copie para `aparelhos.cfg` (ao lado deste arquivo) e troque os segredos.
+# O `aparelhos.cfg` NÃO é versionado — ele contém os segredos de verdade.
+#
+#   nome=token
+#
+# O `nome` vira o diretório em `recebidos/<nome>/`, e é o que separa os
+# registros de cada aparelho. Letras, dígitos, hífen e sublinhado, até 32.
+# O `token` é o que o aparelho manda; vai no `token_aparelho` do coruja.cfg.
+#
+# ⚠️ ENQUANTO ESTE ARQUIVO NÃO EXISTIR, ou não tiver nenhuma entrada:
+#
+#   - as rotas da base ficam ABERTAS, como sempre foram. Quem só distribui o
+#     radares.bin não precisa configurar nada, e `curl` continua sendo uma
+#     linha.
+#   - a recepção fica FECHADA. Sem lista não há a quem atribuir o arquivo, e
+#     gravar sem saber de quem veio derrota o propósito da funcionalidade.
+#
+# Com pelo menos uma entrada, TODAS as rotas passam a exigir token conhecido,
+# inclusive a raiz. Um aparelho com o `token_aparelho` errado — ou sem ele —
+# para de conseguir até baixar a base.
+#
+# ⚠️ DOIS APARELHOS NÃO PODEM DIVIDIR O MESMO TOKEN. O servidor recusa subir
+# nesse caso: com segredos iguais não dá para saber quem enviou, que é a
+# pergunta inteira que esta lista existe para responder.
+#
+# ⚠️ O token viaja EM CLARO — o aparelho não fala TLS — e na rota de download
+# vai dentro da URL. Ele não protege o conteúdo de quem escuta a rede; existe
+# para que a URL não seja um depósito aberto a quem a descobrir.
+#
+# Gere segredos longos e aleatórios, um por aparelho:
+#
+#     python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+
+carro-paulo=troque-me-por-algo-longo-e-aleatorio
+bancada=troque-me-tambem-e-por-outro-diferente

@@ -3,6 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <string>
+
+#include <cstring>
 
 namespace {
 
@@ -104,6 +107,126 @@ TEST(Url, UrlNoLimiteDaConfiguracaoCabe) {
     ASSERT_EQ(url.size(), kMaxUrl);
     Url u;
     EXPECT_EQ(analisa_url(url.c_str(), &u), ErroUrl::Nenhum);
+}
+
+
+// =========================================== o segredo do aparelho na URL
+
+Url analisada(const char* texto) {
+    Url u;
+    EXPECT_EQ(analisa_url(texto, &u), ErroUrl::Nenhum) << texto;
+    return u;
+}
+
+TEST(AcrescentaToken, poe_a_consulta_no_caminho) {
+    Url u = analisada("http://servidor/radares.bin");
+    ASSERT_TRUE(acrescenta_token(&u, "segredo"));
+    EXPECT_STREQ(u.caminho, "/radares.bin?t=segredo");
+    EXPECT_STREQ(u.host, "servidor") << "o host nao pode ser tocado";
+    EXPECT_EQ(u.porta, 80);
+}
+
+TEST(AcrescentaToken, emenda_com_e_comercial_quando_ja_ha_consulta) {
+    // Sem isto, uma url_base com parâmetro próprio viraria dois `?`, e o
+    // servidor leria o segundo como parte do valor do primeiro.
+    Url u = analisada("http://servidor/radares.bin?v=2");
+    ASSERT_TRUE(acrescenta_token(&u, "segredo"));
+    EXPECT_STREQ(u.caminho, "/radares.bin?v=2&t=segredo");
+}
+
+TEST(AcrescentaToken, caminho_raiz_tambem_funciona) {
+    Url u = analisada("http://servidor");
+    ASSERT_TRUE(acrescenta_token(&u, "segredo"));
+    EXPECT_STREQ(u.caminho, "/?t=segredo");
+}
+
+TEST(AcrescentaToken, token_vazio_deixa_a_url_intacta) {
+    // Um servidor sem lista de aparelhos não exige nada, e obrigar a
+    // configurar um segredo para baixar a base quebraria quem só distribui.
+    Url u = analisada("http://servidor/radares.bin");
+    ASSERT_TRUE(acrescenta_token(&u, ""));
+    EXPECT_STREQ(u.caminho, "/radares.bin");
+    ASSERT_TRUE(acrescenta_token(&u, nullptr));
+    EXPECT_STREQ(u.caminho, "/radares.bin");
+}
+
+TEST(AcrescentaToken, nao_trunca_quando_nao_cabe) {
+    // Truncar faria o pedido ir para outro lugar, com o segredo cortado no
+    // meio -- e o sintoma seria um 401 que não aponta para o tamanho.
+    std::string longo = "http://servidor/";
+    longo += std::string(kMaxUrl - 30, 'a');
+    Url u = analisada(longo.c_str());
+    const std::string antes = u.caminho;
+
+    EXPECT_FALSE(acrescenta_token(&u, std::string(60, 'x').c_str()));
+    EXPECT_EQ(std::string(u.caminho), antes) << "recusar nao pode sujar";
+}
+
+TEST(AcrescentaToken, no_limite_exato_ainda_cabe) {
+    // O acréscimo custa `?t=` mais o token: 4 caracteres com um token de um.
+    // O caminho que sobra para o resto é `kMaxUrl - 4`, e ele TEM de caber --
+    // recusar aqui negaria uma URL perfeitamente válida.
+    //
+    // O tamanho é derivado da constante, não escrito à mão: na primeira
+    // versão deste teste eu errei a conta por um, e o teste acusou o código
+    // em vez da aritmética.
+    constexpr std::size_t kCustoDoAcrescimo = 4;  // "?t=" + "x"
+    const std::size_t caminho_cheio = kMaxUrl - kCustoDoAcrescimo;
+
+    // O caminho já começa com a barra, então o preenchimento vem menos um.
+    std::string base = "http://servidor/" + std::string(caminho_cheio - 1, 'a');
+    Url u = analisada(base.c_str());
+    ASSERT_EQ(std::strlen(u.caminho), caminho_cheio);
+
+    EXPECT_TRUE(acrescenta_token(&u, "x"));
+    EXPECT_EQ(std::strlen(u.caminho), kMaxUrl);
+}
+
+TEST(AcrescentaToken, um_caractere_alem_do_limite_e_recusado) {
+    constexpr std::size_t kCustoDoAcrescimo = 4;
+    const std::size_t grande_demais = kMaxUrl - kCustoDoAcrescimo + 1;
+    std::string base = "http://servidor/" + std::string(grande_demais - 1, 'a');
+    Url u = analisada(base.c_str());
+    EXPECT_FALSE(acrescenta_token(&u, "x"));
+}
+
+TEST(TamanhoSemConsulta, corta_no_interrogacao) {
+    // O segredo do aparelho viaja na consulta, e o log vai para o cartão --
+    // que sai do carro. Mesma regra da senha de Wi-Fi.
+    EXPECT_EQ(tamanho_sem_consulta("/radares.bin?t=segredo"), 12u);
+    EXPECT_EQ(tamanho_sem_consulta("/radares.bin?v=2&t=segredo"), 12u);
+    EXPECT_EQ(tamanho_sem_consulta("/?t=abc"), 1u);
+}
+
+TEST(TamanhoSemConsulta, caminho_sem_consulta_vai_inteiro) {
+    EXPECT_EQ(tamanho_sem_consulta("/radares.bin"), 12u);
+    EXPECT_EQ(tamanho_sem_consulta("/"), 1u);
+    EXPECT_EQ(tamanho_sem_consulta(""), 0u);
+    EXPECT_EQ(tamanho_sem_consulta(nullptr), 0u);
+}
+
+TEST(TamanhoSemConsulta, o_que_sobra_nao_contem_o_segredo) {
+    // Afirma o EFEITO, e não a regra: o que importa é que a string que vai
+    // ao log não carregue o valor, e não onde está o `?`.
+    Url u = analisada("http://servidor/radares.bin");
+    ASSERT_TRUE(acrescenta_token(&u, "nao-pode-vazar"));
+    const std::string para_o_log(u.caminho,
+                                 tamanho_sem_consulta(u.caminho));
+    EXPECT_EQ(para_o_log, "/radares.bin");
+    EXPECT_EQ(para_o_log.find("nao-pode-vazar"), std::string::npos);
+}
+
+TEST(AcrescentaToken, ponteiro_nulo_nao_quebra) {
+    EXPECT_FALSE(acrescenta_token(nullptr, "segredo"));
+}
+
+TEST(AcrescentaToken, dois_acrescimos_nao_se_atropelam) {
+    // Não é uso previsto, mas se acontecer o resultado tem de ser uma URL
+    // válida e não um caminho corrompido.
+    Url u = analisada("http://servidor/x");
+    ASSERT_TRUE(acrescenta_token(&u, "a"));
+    ASSERT_TRUE(acrescenta_token(&u, "b"));
+    EXPECT_STREQ(u.caminho, "/x?t=a&t=b");
 }
 
 }  // namespace

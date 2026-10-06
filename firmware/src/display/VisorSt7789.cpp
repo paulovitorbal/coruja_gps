@@ -41,6 +41,9 @@ void VisorSt7789::texto(int x, int y, const char* texto, Fonte fonte,
         case Fonte::Texto:
             escreve_texto(painel_, x, y, texto, cor, paleta::kFundo);
             break;
+        case Fonte::TextoGrande:
+            escreve_texto_grande(painel_, x, y, texto, cor, paleta::kFundo);
+            break;
     }
 }
 

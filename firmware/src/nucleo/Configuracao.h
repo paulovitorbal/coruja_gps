@@ -16,6 +16,10 @@ constexpr std::size_t kMaxSsid = 32;
 constexpr std::size_t kMaxSenha = 63;
 constexpr std::size_t kMaxUrl = 160;
 constexpr std::size_t kMaxNome = 23;
+/// Segredo combinado com o servidor de recepção. 63 pelo mesmo motivo da
+/// senha de Wi-Fi: é o tamanho de uma passphrase que uma pessoa consegue
+/// digitar, e nada aqui ganha com mais.
+constexpr std::size_t kMaxToken = 63;
 
 constexpr std::uint8_t kVolumeMinimo = 50;
 constexpr std::uint8_t kVolumeMaximo = 100;
@@ -64,6 +68,42 @@ struct Configuracao {
     /// Onde baixar o `radares.bin`. O RF05.2 exige HTTPS.
     char url_base[kMaxUrl + 1] = {};
 
+    /// Para onde mandar log, viagens e infrações. **Vazia desliga o recurso**
+    /// — e essa é a configuração padrão, de propósito: o aparelho não manda
+    /// nada para lugar nenhum enquanto alguém não disser para onde.
+    ///
+    /// Termina em `/`; o nome do arquivo é acrescentado a ela. O servidor de
+    /// referência atende em `/envio/`.
+    char url_envio[kMaxUrl + 1] = {};
+
+    /// Segredo que **identifica esta unidade** para o servidor.
+    ///
+    /// O servidor guarda uma lista `nome=token` e usa o segredo para saber de
+    /// qual aparelho veio o arquivo — é o que faz os registros de dois carros
+    /// não se misturarem. Vai em todas as requisições, não só nos envios.
+    ///
+    /// Como ele chega ao servidor muda com a rota, e a razão é do lwIP:
+    ///
+    /// - **envio** (`ClienteEnvio`, TCP cru): cabeçalho `X-Coruja-Token`.
+    /// - **download** (`ClienteHttp`, `http_client` do lwIP): parâmetro `?t=`
+    ///   na URL, porque a `httpc_connection_t` não tem campo para cabeçalho
+    ///   próprio e a biblioteca monta a requisição sem oferecer gancho.
+    ///
+    /// ⚠️ **Nunca escrever este valor no log.** Mesma regra da senha de
+    /// Wi-Fi, e pelo mesmo motivo: o log vai para o cartão e o cartão sai do
+    /// carro.
+    ///
+    /// ⚠️ Ele viaja **em claro**, porque este firmware não fala TLS. Não é
+    /// autenticação forte e não protege o conteúdo de quem escuta a rede; ele
+    /// existe para que a URL do servidor não seja um depósito aberto para
+    /// quem a descobrir. Decisão consciente do autor em 2026-10-06.
+    ///
+    /// ⚠️ Na rota de download ele vai **na URL**, e token em URL aparece em
+    /// log de acesso e de proxy — ao contrário de token em cabeçalho. Aqui
+    /// pesa menos do que pareceria, porque tudo trafega em claro de qualquer
+    /// forma; mas quem puser um proxy reverso na frente deve saber disso.
+    char token_aparelho[kMaxToken + 1] = {};
+
     /// Escrever todas as mensagens de log também no cartão.
     ///
     /// Desligado por padrão, e a razão não é economia de código: gravar log a
@@ -107,6 +147,20 @@ struct Configuracao {
     /// Verdadeiro quando há o mínimo para tentar uma atualização OTA. Sem
     /// isso o firmware opera normalmente — só não atualiza (RF07).
     bool ota_possivel() const { return tem_rede() && tem_urls(); }
+
+    /// Verdadeiro quando há para onde mandar os arquivos e com que segredo.
+    ///
+    /// Exige o token junto da URL: um servidor que recebe sem segredo aceita
+    /// de qualquer um, e configurar só a URL seria pedir exatamente isso sem
+    /// perceber.
+    ///
+    /// **O item do menu aparece mesmo assim**, e a tela responde "SEM
+    /// CONFIGURACAO". Esconder o item deixaria quem configurou errado sem
+    /// nenhum sinal de que configurou errado — ele procuraria o item que não
+    /// está lá e concluiria que o firmware não tem o recurso.
+    bool envio_possivel() const {
+        return tem_rede() && url_envio[0] != '\0' && token_aparelho[0] != '\0';
+    }
 };
 
 }  // namespace coruja

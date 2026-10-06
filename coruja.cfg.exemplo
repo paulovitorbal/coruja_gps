@@ -33,6 +33,40 @@ url_versao=https://exemplo/radares.versao
 # Entrega o radares.bin. O RF05.2 exige HTTPS.
 url_base=https://exemplo/radares.bin
 
+# --- identificacao no servidor (opcional) -----------------------
+#
+# token_aparelho: o segredo que diz ao servidor QUAL unidade esta
+# falando. Ele guarda uma lista de aparelhos, cada um com seu
+# token (aparelhos.cfg), e usa isso para separar os registros de
+# cada carro.
+#
+# Vai em TODAS as requisicoes, nao so nos envios. Se o servidor tem
+# lista de aparelhos, ele recusa ate o download da base sem token.
+# Se nao tem, as rotas da base ficam abertas e esta linha nao faz
+# falta -- e por isso ela vem comentada.
+#
+# ATENCAO: viaja EM CLARO, e na rota de download vai dentro da URL
+# (?t=...), porque o cliente HTTP do aparelho nao manda cabecalho
+# proprio. Token em URL entra no log de acesso do servidor e de
+# qualquer proxy no caminho. Ele nao protege o conteudo de quem
+# escuta a rede -- existe para que a URL nao seja aberta a quem a
+# descobrir.
+#token_aparelho=troque-me-por-algo-longo-e-aleatorio
+
+# --- envio de dados ao servidor (opcional) ----------------------
+#
+# O item 'enviar dados' do menu sobe coruja.log, infracoes.log e os
+# registros de viagem, e apaga do cartao SO o que o servidor
+# confirmar ter guardado, pelo CRC-32.
+#
+# DESLIGADO enquanto esta linha e o token_aparelho estiverem vazios
+# ou comentados, e esse e o padrao: o aparelho nao manda nada para
+# lugar nenhum enquanto alguem nao disser para onde.
+#
+# Precisa dos DOIS. So a URL significaria mandar para um servidor
+# que aceita de qualquer um.
+#url_envio=http://exemplo/envio/
+
 # --- ajustes do aparelho ----------------------------------------
 #
 # Daqui para baixo o APARELHO tambem escreve, ao mexer no menu com o

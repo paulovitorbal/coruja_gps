@@ -3,6 +3,7 @@
 #include "display/FonteNumero.h"
 #include "display/FonteNumeroPequeno.h"
 #include "display/FonteTexto.h"
+#include "display/FonteTextoGrande.h"
 
 namespace coruja {
 
@@ -56,6 +57,23 @@ int escreve_texto(PainelSt7789& painel, int x, int y, const char* texto,
                               fonte::texto::kBytesPorLinha,
                               fonte::texto::kBitmap[i], cor, fundo);
         x += fonte::texto::kLargura;
+    }
+    return x - inicio;
+}
+
+int escreve_texto_grande(PainelSt7789& painel, int x, int y, const char* texto,
+                  Cor565 cor, Cor565 fundo) {
+    const int inicio = x;
+    for (const char* p = texto; *p != '\0'; ++p) {
+        const int i = fonte::textogrande::indice(*p);
+        if (i < 0) {
+            continue;
+        }
+        painel.desenha_bitmap(x, y, fonte::textogrande::kLargura,
+                              fonte::textogrande::kAltura,
+                              fonte::textogrande::kBytesPorLinha,
+                              fonte::textogrande::kBitmap[i], cor, fundo);
+        x += fonte::textogrande::kLargura;
     }
     return x - inicio;
 }

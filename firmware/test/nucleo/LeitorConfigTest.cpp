@@ -489,4 +489,87 @@ TEST(LeitorConfig, DescreveModoNoturno) {
     EXPECT_STREQ(descreve(ModoNoturno::SempreNoite), "noite");
 }
 
+
+// ---------------------------------------------------- envio ao servidor
+
+TEST(LeitorConfig, LeAsDuasChavesDoEnvio) {
+    const auto r = le(
+        "wifi_ssid_1=casa\n"
+        "wifi_senha_1=segredo\n"
+        "url_envio=http://servidor/envio/\n"
+        "token_aparelho=um-segredo-longo\n");
+    EXPECT_STREQ(r.config.url_envio, "http://servidor/envio/");
+    EXPECT_STREQ(r.config.token_aparelho, "um-segredo-longo");
+    EXPECT_TRUE(r.config.envio_possivel());
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, UrlDeEnvioNaoSeConfundeComADeDownload) {
+    // As três são URLs e moram lado a lado no arquivo. Trocar uma pela outra
+    // faria o aparelho mandar os logs para onde busca a base -- e, pior,
+    // baixar a base de onde manda os logs.
+    const auto r = le(
+        "url_versao=https://ex/v.txt\n"
+        "url_base=https://ex/radares.bin\n"
+        "url_envio=http://ex/envio/\n");
+    EXPECT_STREQ(r.config.url_versao, "https://ex/v.txt");
+    EXPECT_STREQ(r.config.url_base, "https://ex/radares.bin");
+    EXPECT_STREQ(r.config.url_envio, "http://ex/envio/");
+}
+
+TEST(LeitorConfig, SemAsChavesDeEnvioORecursoFicaDesligado) {
+    // É o padrão, e é deliberado: o aparelho não manda nada para lugar
+    // nenhum enquanto alguém não disser para onde.
+    const auto r = le(
+        "wifi_ssid_1=casa\n"
+        "wifi_senha_1=segredo\n"
+        "url_versao=https://ex/v.txt\n"
+        "url_base=https://ex/b.bin\n");
+    EXPECT_STREQ(r.config.url_envio, "");
+    EXPECT_STREQ(r.config.token_aparelho, "");
+    EXPECT_FALSE(r.config.envio_possivel());
+    EXPECT_TRUE(r.config.ota_possivel()) << "o OTA nao depende do envio";
+}
+
+TEST(LeitorConfig, UrlDeEnvioSemTokenNaoLigaONada) {
+    // URL sozinha significaria mandar para um servidor que aceita de
+    // qualquer um. Metade da configuração não é meia funcionalidade.
+    const auto r = le(
+        "wifi_ssid_1=casa\n"
+        "wifi_senha_1=segredo\n"
+        "url_envio=http://servidor/envio/\n");
+    EXPECT_FALSE(r.config.envio_possivel());
+}
+
+TEST(LeitorConfig, TokenSemUrlNaoLigaONada) {
+    const auto r = le(
+        "wifi_ssid_1=casa\n"
+        "wifi_senha_1=segredo\n"
+        "token_aparelho=um-segredo\n");
+    EXPECT_FALSE(r.config.envio_possivel());
+}
+
+TEST(LeitorConfig, EnvioSemRedeNaoLigaONada) {
+    const auto r = le(
+        "url_envio=http://servidor/envio/\n"
+        "token_aparelho=um-segredo\n");
+    EXPECT_FALSE(r.config.envio_possivel());
+}
+
+TEST(LeitorConfig, TokenLongoDemaisERejeitadoENaoTruncado) {
+    // Truncar produziria um segredo que parece válido e devolve 401 em campo,
+    // com um sintoma que não aponta para o arquivo de configuração.
+    const std::string longo(kMaxToken + 1, 'x');
+    const auto r = le("token_aparelho=" + longo + "\n");
+    EXPECT_STREQ(r.config.token_aparelho, "");
+    EXPECT_EQ(r.diagnostico.valores_longos, 1U);
+}
+
+TEST(LeitorConfig, TokenNoLimiteCabe) {
+    const std::string justo(kMaxToken, 'x');
+    const auto r = le("token_aparelho=" + justo + "\n");
+    EXPECT_EQ(std::string(r.config.token_aparelho), justo);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
 }  // namespace

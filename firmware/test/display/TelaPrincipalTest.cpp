@@ -1,5 +1,9 @@
 #include "display/TelaPrincipal.h"
 
+#include <cstdlib>
+
+#include "display/Sprites.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -335,16 +339,47 @@ TEST(TelaPrincipal, o_ocupante_da_faixa_superior_fica_centralizado) {
     tela.desenha(dirigindo(75.0F), 0, v);
     bool achou = false;
     for (const auto& t : v.textos) {
-        if (t.f != Fonte::Texto) { continue; }
+        if (t.f != Fonte::TextoGrande) { continue; }
         if (t.s.find("28/09/26") == std::string::npos) { continue; }
         // A centragem passou da `Visor` para a tela quando o texto ganhou
         // rolagem: quem decide o `x` e quem sabe se o texto cabe.
         EXPECT_EQ(t.alin, Alinhamento::Esquerda);
         EXPECT_EQ(t.x, (tela::kLargura -
-                        largura_da_fonte(Fonte::Texto, t.s.c_str())) / 2);
+                        largura_da_fonte(Fonte::TextoGrande, t.s.c_str())) / 2);
         achou = true;
     }
     EXPECT_TRUE(achou);
+}
+
+TEST(TelaPrincipal, a_faixa_superior_usa_a_fonte_maior) {
+    // Relatado dirigindo, em 2026-10-06: data e hora dificeis de ler.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(75.0F), 0, v);
+
+    bool achou = false;
+    for (const auto& t : v.textos) {
+        if (t.s.find("28/09/26") == std::string::npos) { continue; }
+        EXPECT_EQ(t.f, Fonte::TextoGrande);
+        achou = true;
+    }
+    EXPECT_TRUE(achou) << "o relogio nao foi desenhado";
+    EXPECT_GT(altura_da_fonte(Fonte::TextoGrande), altura_da_fonte(Fonte::Texto));
+}
+
+TEST(TelaPrincipal, a_fonte_maior_cabe_na_faixa_e_nas_frases) {
+    // ⚠️ As duas restricoes que ditaram 14x23, e que um aumento futuro
+    // quebraria em silencio:
+    //
+    //   altura — a faixa tem 26 px, e fonte mais alta vazaria sobre o numero;
+    //   largura — "TAXA DE GPS REDUZIDA" e a frase mais longa da faixa, e
+    //             passando de 320 px ela comecaria a ROLAR para dizer o que
+    //             hoje se le de uma vez.
+    EXPECT_LE(altura_da_fonte(Fonte::TextoGrande), tela::kFaixaSuperior);
+    EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "TAXA DE GPS REDUZIDA"),
+              tela::kLargura);
+    EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "BRILHO 100%"),
+              tela::kLargura);
 }
 
 TEST(TelaPrincipal, a_faixa_inferior_fica_a_esquerda) {
@@ -511,6 +546,96 @@ TEST(TelaPrincipal, nao_ha_mais_moldura) {
         const bool e_faixa_fina = r.a == tela::kMoldura &&
                                   r.l == tela::kLargura;
         EXPECT_FALSE(e_faixa_fina) << "moldura voltou em y=" << r.y;
+    }
+}
+
+// ======================================= fundo claro da faixa com alerta
+//
+// Relatado dirigindo, em 2026-10-06: o icone ficava dificil de ler no preto
+// sob luz do dia.
+
+namespace {
+/// O retangulo que ocupa a faixa inferior inteira, se houver.
+const VisorEspiao::Ret* faixa_inferior(const VisorEspiao& v) {
+    for (const auto& r : v.retangulos) {
+        if (r.y == tela::kYFaixaInferior && r.x == 0 &&
+            r.l == tela::kLargura && r.a == tela::kFaixaInferior) {
+            return &r;
+        }
+    }
+    return nullptr;
+}
+}  // namespace
+
+TEST(TelaPrincipal, com_alerta_a_faixa_inferior_fica_clara) {
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(70.0F);
+    e.veredito.zona = Zona::AproximacaoConforme;
+    e.veredito.tem_alvo = true;
+    e.veredito.alvo = ponto(60);
+    e.veredito.distancia_m = 150.0F;
+    tela.desenha(e, 1000, v);
+
+    const auto* faixa = faixa_inferior(v);
+    ASSERT_NE(faixa, nullptr) << "a faixa inferior nao foi pintada";
+    EXPECT_EQ(faixa->cor, paleta::kFundoAlerta);
+}
+
+TEST(TelaPrincipal, sem_alerta_a_faixa_inferior_segue_preta) {
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(70.0F), 1000, v);
+
+    const auto* faixa = faixa_inferior(v);
+    ASSERT_NE(faixa, nullptr);
+    EXPECT_EQ(faixa->cor, paleta::kFundo);
+}
+
+TEST(TelaPrincipal, texto_na_faixa_nao_ganha_fundo_claro) {
+    // Branco sobre creme teria contraste PIOR que o de hoje. Os estados de
+    // texto ficam no preto — a troca e so para o icone.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e = dirigindo(0.0F);
+    e.tem_fix = false;
+    e.sem_sinal_desde_ms = 0;
+    tela.desenha(e, 14000, v);
+
+    const auto* faixa = faixa_inferior(v);
+    ASSERT_NE(faixa, nullptr);
+    EXPECT_EQ(faixa->cor, paleta::kFundo) << "SEM SINAL e texto branco";
+}
+
+TEST(TelaPrincipal, o_sprite_foi_composto_sobre_a_cor_da_faixa) {
+    // ⚠️ A guarda que importa. O sprite nao tem canal alfa: o transparente do
+    // PNG e achatado contra uma cor no `gera_sprites.py`, e se ela divergir do
+    // `kFundoAlerta` o icone ganha uma moldura de 40x40.
+    //
+    // As quinas do sprite sao transparentes no PNG original, entao elas SAO o
+    // fundo — e e por isso que da para conferir a composicao sem renderizar.
+    // Tolerancia de 1 LSB por canal, e nao igualdade exata: o
+    // redimensionamento usa LANCZOS, que sangra um pouco nas bordas, e uma das
+    // quinas sai com 0xF75B contra 0xF75C. Em RGB565 isso e um degrau
+    // imperceptivel.
+    //
+    // A folga nao enfraquece o teste: a falha que ele existe para pegar e
+    // compor sobre PRETO quando a faixa e creme, que erra por 30 degraus de
+    // vermelho, nao por um.
+    auto perto_do_fundo = [](std::uint16_t c) {
+        const int dr = ((c >> 11) & 0x1F) - ((paleta::kFundoAlerta >> 11) & 0x1F);
+        const int dg = ((c >> 5) & 0x3F) - ((paleta::kFundoAlerta >> 5) & 0x3F);
+        const int db = (c & 0x1F) - (paleta::kFundoAlerta & 0x1F);
+        return std::abs(dr) <= 1 && std::abs(dg) <= 1 && std::abs(db) <= 1;
+    };
+
+    const int ultimo = sprite::kLado * sprite::kLado - 1;
+    for (const auto* arte : {sprite::kRadar, sprite::kSemaforo,
+                             sprite::kSemaforoComRadar}) {
+        EXPECT_TRUE(perto_do_fundo(arte[0]))
+            << "quina superior esquerda: 0x" << std::hex << arte[0];
+        EXPECT_TRUE(perto_do_fundo(arte[ultimo]))
+            << "quina inferior direita: 0x" << std::hex << arte[ultimo];
     }
 }
 

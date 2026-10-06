@@ -44,6 +44,9 @@ struct ResultadoConfig {
 /// Chaves reconhecidas:
 /// - `wifi_ssid_N` e `wifi_senha_N`, com `N` de 1 a `kMaxRedes`
 /// - `url_versao`, `url_base`
+/// - `url_envio` — para onde mandar log, viagens e infrações
+/// - `token_aparelho` — o segredo que identifica esta unidade para o
+///   servidor, em TODAS as requisições. Ver `Configuracao::envio_possivel()`.
 /// - `log_to_sd` — `true`/`false` ou `1`/`0`, sem diferenciar maiúsculas
 /// - `log_level` — `debug`, `info`, `warning` (ou `warn`), `error`
 ///

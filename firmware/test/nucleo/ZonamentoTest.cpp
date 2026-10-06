@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 #include "nucleo/Geo.h"
@@ -19,6 +20,14 @@ constexpr float kLat0 = -15.79F;
 constexpr float kLon0 = -47.88F;
 
 float cos0() { return geo::cosseno_latitude(kLat0); }
+
+/// Rumo de filtragem conhecido. Explícito nos testes de geometria: eles
+/// respondem "este ponto está à frente de quem aponta para N graus?", e essa
+/// pergunta não depende de velocidade nem de memória.
+RumoFiltro rf(float graus) { return RumoFiltro{true, graus}; }
+
+/// Rumo indisponível — o caso em que os filtros têm de ABRIR.
+RumoFiltro rf_aberto() { return RumoFiltro{}; }
 
 /// Desloca em metros a partir da origem. Usa a mesma constante e o mesmo
 /// cosseno que a máquina, então a distância volta exata o bastante para
@@ -102,79 +111,213 @@ TEST(PrimeiroComLatGe, acha_o_limite_inferior_em_base_grande) {
 // ================================================== RF03.1 ponto está à frente
 
 TEST(PontoAFrente, ponto_ao_norte_com_veiculo_rumo_norte) {
-    EXPECT_TRUE(ponto_a_frente(veiculo(60), faz_ponto(200, 0, 60), cos0()));
+    EXPECT_TRUE(ponto_a_frente(rf(0.0F), veiculo(60), faz_ponto(200, 0, 60), cos0()));
 }
 
 TEST(PontoAFrente, ponto_ao_sul_ja_foi_ultrapassado) {
     // O requisito existe por isto: sem ele o buzzer seguiria tocando às
     // costas do radar, porque a distância continua abaixo de 300 m.
-    EXPECT_FALSE(ponto_a_frente(veiculo(60), faz_ponto(-200, 0, 60), cos0()));
+    EXPECT_FALSE(ponto_a_frente(rf(0.0F), veiculo(60), faz_ponto(-200, 0, 60), cos0()));
 }
 
 TEST(PontoAFrente, perpendicular_conta_como_a_frente_no_limite) {
     // Exatamente 90°: a fronteira é inclusiva.
-    EXPECT_TRUE(ponto_a_frente(veiculo(60), faz_ponto(0, 200, 60), cos0()));
+    EXPECT_TRUE(ponto_a_frente(rf(0.0F), veiculo(60), faz_ponto(0, 200, 60), cos0()));
 }
 
 TEST(PontoAFrente, logo_atras_do_perpendicular_ja_e_descartado) {
-    EXPECT_FALSE(ponto_a_frente(veiculo(60), faz_ponto(-20, 200, 60), cos0()));
+    EXPECT_FALSE(ponto_a_frente(rf(0.0F), veiculo(60), faz_ponto(-20, 200, 60), cos0()));
 }
 
-TEST(PontoAFrente, abre_abaixo_do_piso_de_velocidade) {
-    // Parado, o azimute do receptor é ruído: filtrar por ele perderia pontos
-    // reais. O filtro tem de abrir, não fechar.
-    EXPECT_TRUE(ponto_a_frente(veiculo(4.9F), faz_ponto(-200, 0, 60), cos0()));
-    EXPECT_FALSE(ponto_a_frente(veiculo(5.0F), faz_ponto(-200, 0, 60), cos0()));
-}
-
-TEST(PontoAFrente, abre_quando_o_rumo_nao_e_valido) {
-    Telemetria t = veiculo(60);
-    t.rumo_valido = false;  // campo vazio no RMC com veículo parado
-    EXPECT_TRUE(ponto_a_frente(t, faz_ponto(-200, 0, 60), cos0()));
+TEST(PontoAFrente, abre_sem_rumo_utilizavel) {
+    // Sem rumo não há por onde decidir, e abrir é a falha segura: esconder um
+    // radar à frente é perigoso, mostrar um que ficou para trás é irritante.
+    //
+    // ⚠️ QUEM decide que o rumo é inutilizável é o `rumo_para_filtro`, e isso
+    // tem testes próprios. Aqui se verifica só o que este filtro faz quando
+    // recebe a resposta.
+    EXPECT_TRUE(ponto_a_frente(rf_aberto(), veiculo(60),
+                               faz_ponto(-200, 0, 60), cos0()));
+    EXPECT_FALSE(ponto_a_frente(rf(0.0F), veiculo(60),
+                                faz_ponto(-200, 0, 60), cos0()));
 }
 
 TEST(PontoAFrente, em_cima_do_ponto_o_azimute_nao_existe) {
     // atan2(0,0) devolveria zero e descartaria o alvo por um ângulo inventado.
     Telemetria t = veiculo(60, 180.0F);
-    EXPECT_TRUE(ponto_a_frente(t, faz_ponto(0, 0, 60), cos0()));
+    EXPECT_TRUE(ponto_a_frente(rf(t.rumo_graus), t, faz_ponto(0, 0, 60), cos0()));
 }
 
 // ================================================ RF02.3 filtro de sentido
 
 TEST(SentidoCompativel, omnidirecional_nunca_descarta) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Omnidirecional, 0);
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 180.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(180.0F), p));
 }
 
 TEST(SentidoCompativel, unidirecional_aceita_ate_trinta_graus) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Unidirecional, 0);
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 0.0F), p));
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 30.0F), p));
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 330.0F), p));  // cruza o zero
-    EXPECT_FALSE(sentido_compativel(veiculo(60, 31.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(0.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(30.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(330.0F), p));  // cruza o zero
+    EXPECT_FALSE(sentido_compativel(rf(31.0F), p));
 }
 
 TEST(SentidoCompativel, unidirecional_recusa_o_sentido_oposto) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Unidirecional, 0);
-    EXPECT_FALSE(sentido_compativel(veiculo(60, 180.0F), p));
+    EXPECT_FALSE(sentido_compativel(rf(180.0F), p));
 }
 
 TEST(SentidoCompativel, bidirecional_aceita_o_sentido_oposto) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Bidirecional, 0);
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 180.0F), p));
-    EXPECT_TRUE(sentido_compativel(veiculo(60, 150.0F), p));  // 30° do oposto
-    EXPECT_FALSE(sentido_compativel(veiculo(60, 149.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(180.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf(150.0F), p));  // 30° do oposto
+    EXPECT_FALSE(sentido_compativel(rf(149.0F), p));
 }
 
 TEST(SentidoCompativel, bidirecional_recusa_a_transversal) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Bidirecional, 0);
-    EXPECT_FALSE(sentido_compativel(veiculo(60, 90.0F), p));
-    EXPECT_FALSE(sentido_compativel(veiculo(60, 45.0F), p));
+    EXPECT_FALSE(sentido_compativel(rf(90.0F), p));
+    EXPECT_FALSE(sentido_compativel(rf(45.0F), p));
 }
 
-TEST(SentidoCompativel, abre_abaixo_do_piso_de_velocidade) {
+TEST(SentidoCompativel, abre_sem_rumo_utilizavel) {
     const Ponto p = faz_ponto(200, 0, 60, Sentido::Unidirecional, 0);
-    EXPECT_TRUE(sentido_compativel(veiculo(4.0F, 180.0F), p));
+    EXPECT_TRUE(sentido_compativel(rf_aberto(), p));
+    EXPECT_FALSE(sentido_compativel(rf(180.0F), p));
+}
+
+// ========================================= rumo lembrado com veículo parado
+//
+// A regra nasceu de um defeito observado dirigindo, em 2026-10-06: passar por
+// um radar, parar num semáforo 200 m adiante, e ver na tela o radar já
+// ultrapassado. Com velocidade abaixo do piso, os dois filtros abriam e todo
+// ponto a menos de 300 m voltava a ser candidato.
+
+TEST(RumoParaFiltro, usa_o_rumo_medido_quando_ha_velocidade) {
+    MaquinaZona m;
+    const RumoFiltro r = m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+    EXPECT_TRUE(r.utilizavel);
+    EXPECT_FLOAT_EQ(r.graus, 90.0F);
+}
+
+TEST(RumoParaFiltro, abre_se_nunca_houve_rumo_bom) {
+    MaquinaZona m;
+    // Ligar o aparelho já parado: não há o que lembrar.
+    EXPECT_FALSE(m.rumo_para_filtro(veiculo(0, 0.0F), cos0()).utilizavel);
+}
+
+TEST(RumoParaFiltro, lembra_o_rumo_com_o_veiculo_parado_no_mesmo_lugar) {
+    MaquinaZona m;
+    m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+
+    Telemetria parado = veiculo(0, 0.0F);
+    parado.rumo_valido = false;        // RMC vem sem rumo com o carro parado
+    const RumoFiltro r = m.rumo_para_filtro(parado, cos0());
+
+    EXPECT_TRUE(r.utilizavel);
+    EXPECT_FLOAT_EQ(r.graus, 90.0F);   // o de antes, não o zero do campo vazio
+}
+
+TEST(RumoParaFiltro, esquece_se_o_veiculo_andou_sem_rumo_novo) {
+    MaquinaZona m;
+    m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+
+    // Andou 26 m a passo, sem nunca cruzar o piso de velocidade: pode ter
+    // mudado de direção, e a certeza acaba.
+    Telemetria longe = veiculo(0, 0.0F);
+    longe.rumo_valido = false;
+    longe.lat = lat_deslocada(26.0F);
+    EXPECT_FALSE(m.rumo_para_filtro(longe, cos0()).utilizavel);
+}
+
+TEST(RumoParaFiltro, a_fronteira_dos_vinte_e_cinco_metros) {
+    for (const auto& caso : {std::pair<float, bool>{25.0F, true},
+                             std::pair<float, bool>{25.1F, false}}) {
+        MaquinaZona m;
+        m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+        Telemetria t = veiculo(0, 0.0F);
+        t.rumo_valido = false;
+        t.lat = lat_deslocada(caso.first);
+        EXPECT_EQ(m.rumo_para_filtro(t, cos0()).utilizavel, caso.second)
+            << "deslocamento de " << caso.first << " m";
+    }
+}
+
+TEST(RumoParaFiltro, esquecer_e_definitivo_ate_vir_rumo_novo) {
+    MaquinaZona m;
+    m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+
+    Telemetria longe = veiculo(0, 0.0F);
+    longe.rumo_valido = false;
+    longe.lat = lat_deslocada(26.0F);
+    m.rumo_para_filtro(longe, cos0());          // esquece aqui
+
+    // Voltar para perto da posição antiga não ressuscita a memória: o veículo
+    // andou, e isso basta para a direção ser desconhecida.
+    Telemetria perto = veiculo(0, 0.0F);
+    perto.rumo_valido = false;
+    EXPECT_FALSE(m.rumo_para_filtro(perto, cos0()).utilizavel);
+}
+
+TEST(RumoParaFiltro, reinicia_apaga_a_memoria) {
+    MaquinaZona m;
+    m.rumo_para_filtro(veiculo(60, 90.0F), cos0());
+    m.reinicia();
+    Telemetria parado = veiculo(0, 0.0F);
+    parado.rumo_valido = false;
+    EXPECT_FALSE(m.rumo_para_filtro(parado, cos0()).utilizavel);
+}
+
+TEST(SemaforoDepoisDoRadar, radar_ultrapassado_nao_volta_com_o_carro_parado) {
+    // ⚠️ ESTE É O DEFEITO RELATADO. Reproduz o trajeto real de 2026-10-06:
+    // passar por um radar fixo a 60 km/h e parar num semáforo 200 m adiante.
+    //
+    // Antes da memória de rumo, a parada fazia os filtros abrirem e o radar
+    // às costas voltava a ser candidato — a tela mostrava um radar que já
+    // tinha ficado para trás.
+    const auto base = base_de({faz_ponto(0, 0, 60)});   // radar na origem
+    MaquinaZona m;
+
+    // Aproximação, passagem e desaceleração. As amostras acompanham o
+    // trajeto porque o receptor entrega 4 por segundo — a 60 km/h são 4 m
+    // entre elas.
+    //
+    // ⚠️ Isto não é enfeite do teste. Saltar de 120 m direto para 200 m faria
+    // o guarda dos 25 m descartar a memória, e com razão: deslocamento sem
+    // rumo novo é exatamente o que ele existe para detectar. A primeira versão
+    // deste teste fazia esse salto e falhava — o cenário é que estava errado.
+    for (float norte : {-250.0F, -120.0F, -30.0F, 20.0F, 120.0F, 175.0F, 198.0F}) {
+        m.avalia(veiculo(60.0F, 0.0F, norte), base.data(), base.size(), 1000);
+    }
+
+    // Semáforo 200 m depois: o RMC para de informar rumo.
+    Telemetria parado = veiculo(0.0F, 0.0F, 200.0F);
+    parado.rumo_valido = false;
+    const Veredito v =
+        m.avalia(parado, base.data(), base.size(), 20000);
+
+    EXPECT_EQ(v.zona, Zona::Segura);
+    EXPECT_FALSE(v.tem_alvo);
+}
+
+TEST(SemaforoDepoisDoRadar, radar_a_frente_continua_aparecendo_parado) {
+    // O contrapeso: parar ANTES do radar não pode esconder o alerta. Se a
+    // memória de rumo escondesse isto, teríamos trocado um incômodo por um
+    // perigo.
+    const auto base = base_de({faz_ponto(0, 0, 60)});
+    MaquinaZona m;
+
+    for (float norte : {-250.0F, -220.0F, -202.0F}) {
+        m.avalia(veiculo(60.0F, 0.0F, norte), base.data(), base.size(), 1000);
+    }
+
+    Telemetria parado = veiculo(0.0F, 0.0F, -200.0F);
+    parado.rumo_valido = false;
+    const Veredito v = m.avalia(parado, base.data(), base.size(), 20000);
+
+    EXPECT_NE(v.zona, Zona::Segura);
+    EXPECT_TRUE(v.tem_alvo);
 }
 
 // ====================================================== RF03 zonas básicas

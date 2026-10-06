@@ -43,6 +43,7 @@ enum FRESULT {
     FR_NOT_ENABLED,
     FR_NO_FILESYSTEM,
     FR_TIMEOUT,
+    FR_INVALID_PARAMETER,
 };
 
 #define FA_READ          0x01
@@ -62,7 +63,12 @@ struct FIL {
     int  descritor;   ///< índice interno do dublê; -1 = fechado
 };
 
-struct FILINFO { FSIZE_t fsize; char fname[64]; };
+struct FILINFO { FSIZE_t fsize; BYTE fattrib; char fname[64]; };
+
+#define AM_DIR 0x10
+
+/// Enumeração de diretório. O dublê guarda só o volume e por onde já passou.
+struct DIR { int volume; std::size_t indice; };
 
 #define f_size(fp) ((fp)->obj.objsize)
 
@@ -75,6 +81,10 @@ FRESULT f_unmount(const TCHAR* caminho);
 FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo);
 FRESULT f_close(FIL* fp);
 FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos);
+FRESULT f_lseek(FIL* fp, FSIZE_t posicao);
+FRESULT f_opendir(DIR* dp, const TCHAR* caminho);
+FRESULT f_readdir(DIR* dp, FILINFO* info);
+FRESULT f_closedir(DIR* dp);
 FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos);
 FRESULT f_stat(const TCHAR* caminho, FILINFO* info);
 FRESULT f_rename(const TCHAR* de, const TCHAR* para);

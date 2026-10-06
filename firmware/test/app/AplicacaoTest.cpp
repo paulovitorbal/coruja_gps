@@ -130,8 +130,10 @@ class AcoesEspias : public AcoesAplicacao {
 public:
     void atualiza_base() override { ++bases; }
     void testa_alertas() override { ++testes; }
+    void envia_dados() override { ++envios; }
     unsigned bases = 0;
     unsigned testes = 0;
+    unsigned envios = 0;
 };
 
 struct Bancada {

@@ -16,6 +16,21 @@ constexpr std::uint32_t kAvisoOtaMs = 2000;
 /// Quanto tempo a barra de brilho ocupa a faixa superior.
 constexpr std::uint32_t kBarraBrilhoMs = 1500;
 
+/// ## ⚠️ A tela de dirigir não acumula indicadores
+///
+/// **Decisão do autor em 2026-10-06:** aqui, quanto menos informação, melhor.
+///
+/// A pergunta volta sempre que surge um estado novo — "e se a viagem ativa
+/// aparecesse num canto?" —, e a resposta é não. Esta é a única tela olhada
+/// a 100 km/h, e cada elemento a mais disputa o olhar com a velocidade e com
+/// o alerta, que são a razão de o aparelho existir.
+///
+/// **Estado de funcionalidade pertence ao menu**, que se consulta parado. Foi
+/// o caminho da viagem: em vez de um ícone aqui, o item do menu passou a
+/// dizer o que o clique vai fazer.
+///
+/// Acrescentar algo a esta tela é decisão de projeto, não de implementação.
+///
 /// Tudo que a tela precisa saber. Um struct e não oito parâmetros: a lista
 /// cresceria a cada estado novo, e trocar dois `bool` de lugar numa chamada
 /// é o tipo de erro que compila.

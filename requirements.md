@@ -745,8 +745,17 @@ poderia haver: a origem dos dados é de quem monta o aparelho.
 | `wifi_ssid_N` / `wifi_senha_N` | até **5** redes, `N` de 1 a 5 |
 | `url_versao` | devolve **uma linha de texto qualquer** — data, número, hash |
 | `url_base` | entrega o `radares.bin`; HTTPS obrigatório (RF05.2) |
+| `url_envio` | para onde subir log, viagens e infrações. **Vazia desliga o recurso** |
+| `token_aparelho` | identifica a unidade no servidor, em **todas** as requisições |
 | `log_to_sd` | grava o log em `coruja.log` no cartão. `true`/`false` ou `1`/`0`. **Padrão: desligado** |
 | `log_level` | `debug`, `info`, `warning` (ou `warn`), `error`. **Padrão: `info`** |
+
+`url_envio` e `token_aparelho` são **opcionais e desligadas por padrão**: o
+aparelho não manda nada para lugar nenhum enquanto alguém não disser para onde,
+e exigir as duas impede configurar por descuido um envio para um servidor que
+aceita de qualquer um. O `token_aparelho` acompanha também as rotas da base,
+porque é por ele que o servidor sabe qual unidade está falando — e um servidor
+com lista de aparelhos recusa até o download sem ele.
 
 As duas últimas são **diagnóstico**, não operação, e entram na configuração
 pelo mesmo critério das demais: variam por situação e não alteram

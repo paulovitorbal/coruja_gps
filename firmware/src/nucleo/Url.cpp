@@ -1,5 +1,6 @@
 #include "nucleo/Url.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace coruja {
@@ -111,6 +112,35 @@ ErroUrl analisa_url(const char* texto, Url* destino) {
         return ErroUrl::LongaDemais;
     }
     return ErroUrl::Nenhum;
+}
+
+std::size_t tamanho_sem_consulta(const char* caminho) {
+    if (caminho == nullptr) { return 0; }
+    const char* interrogacao = std::strchr(caminho, '?');
+    return interrogacao == nullptr ? std::strlen(caminho)
+                                   : static_cast<std::size_t>(interrogacao
+                                                              - caminho);
+}
+
+bool acrescenta_token(Url* url, const char* token) {
+    if (url == nullptr) { return false; }
+    if (token == nullptr || token[0] == '\0') { return true; }
+
+    const std::size_t n = std::strlen(url->caminho);
+    bool tem_consulta = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (url->caminho[i] == '?') { tem_consulta = true; break; }
+    }
+
+    const std::size_t extra = 1                                  // ? ou &
+                              + std::strlen(kParametroToken)
+                              + 1                                // =
+                              + std::strlen(token);
+    if (n + extra > kMaxUrl) { return false; }
+
+    std::snprintf(url->caminho + n, kMaxUrl + 1 - n, "%c%s=%s",
+                  tem_consulta ? '&' : '?', kParametroToken, token);
+    return true;
 }
 
 }  // namespace coruja

@@ -30,6 +30,7 @@
 #include "app/EsperaDispensa.h"
 #include "VersaoBuild.h"
 #include "app/OtaNaTela.h"
+#include "app/RemessaNaTela.h"
 #include "app/PilotoAlerta.h"
 #include "armazenamento/CartaoSd.h"
 #include "buzzer/BuzzerGpio.h"
@@ -49,7 +50,9 @@
 #include "nucleo/LeitorConfig.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
+#include "rede/ClienteEnvio.h"
 #include "rede/ClienteHttp.h"
+#include "rede/RemessaDados.h"
 #include "rede/RedeWifi.h"
 
 namespace {
@@ -156,11 +159,14 @@ bool carrega_configuracao(coruja::CartaoSd& cartao,
 class AcoesDoAparelho final : public coruja::AcoesAplicacao {
 public:
     AcoesDoAparelho(coruja::CartaoSd& cartao, coruja::AtualizadorOta& ota,
-                    coruja::OtaNaTela& ponte, coruja::PilotoAlerta& piloto,
+                    coruja::OtaNaTela& ponte, coruja::RemessaDados& remessa,
+                    coruja::RemessaNaTela& ponte_remessa,
+                    coruja::PilotoAlerta& piloto,
                     coruja::LedRgb& led, coruja::Buzzer& buzzer,
                     coruja::Pausa& pausa, coruja::Encoder& encoder,
                     coruja::LoggerCartao& log)
-        : cartao_(cartao), ota_(ota), ponte_(ponte), piloto_(piloto),
+        : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
+          ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
           log_(log) {}
 
@@ -219,6 +225,48 @@ public:
         espera_.ate_dispensar(ponte_);
     }
 
+    void envia_dados() override {
+        // Descarrega ANTES: a remessa vai mandar o proprio `coruja.log`, e o
+        // que ja aconteceu nesta sessao precisa estar no arquivo para subir
+        // junto. Sem isto o que o servidor recebe para na ultima descarga.
+        log_.descarrega();
+
+        // Releida aqui como no OTA: trocar o cartao passa a valer sem
+        // reiniciar (RNF03), e a URL de envio mora no mesmo arquivo.
+        coruja::Configuracao config;
+        if (!carrega_configuracao(cartao_, &config, log_)) {
+            log_.error("remessa", "sem configuracao utilizavel");
+            mostra_falha_remessa(coruja::ResultadoRemessa::SemConfiguracao);
+            return;
+        }
+
+        // **O log em cartao e desligado durante a remessa.** Ele escreve no
+        // `coruja.log`, que e um dos arquivos que sobem: cada linha gravada
+        // durante o envio faz o arquivo crescer, e arquivo que cresceu nao e
+        // apagado (ver `RemessaDados`). Sem desligar, o `coruja.log` subiria
+        // a cada remessa e nunca sairia do cartao.
+        const bool log_estava_no_cartao = config.log_para_cartao;
+        log_.grava_no_cartao(false);
+
+        const auto resultado = remessa_.executa(config, log_);
+
+        log_.grava_no_cartao(log_estava_no_cartao);
+        log_.descarrega();
+
+        // Mesma regra do OTA: fim feliz passa, falha espera. Quem perdeu a
+        // frase nao tem como pedir de novo.
+        if (coruja::e_falha(resultado)) {
+            mostra_falha_remessa(resultado);
+        } else {
+            pausa_.espera_ms(kMostraResultadoMs);
+        }
+    }
+
+    void mostra_falha_remessa(coruja::ResultadoRemessa resultado) {
+        ponte_remessa_.falhou(coruja::descreve_curto(resultado));
+        espera_.ate_dispensar(ponte_remessa_);
+    }
+
     void testa_alertas() override {
         // Percorre as cores do RF03.4 e dá um toque no buzzer. Existe para a
         // conferência de bancada caber no menu, sem firmware separado.
@@ -243,6 +291,8 @@ private:
     coruja::CartaoSd&       cartao_;
     coruja::AtualizadorOta& ota_;
     coruja::OtaNaTela&      ponte_;
+    coruja::RemessaDados&   remessa_;
+    coruja::RemessaNaTela&  ponte_remessa_;
     coruja::PilotoAlerta&   piloto_;
     coruja::LedRgb&         led_;
     coruja::Buzzer&         buzzer_;
@@ -303,8 +353,11 @@ int main() {
 
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
-    AcoesDoAparelho        acoes(cartao, ota, ponte, piloto, led, buzzer,
-                                 pausa, encoder, log);
+    coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
+    coruja::ClienteEnvio   envio;
+    coruja::RemessaDados   remessa(cartao, rede, envio, &ponte_remessa);
+    AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
+                                 piloto, led, buzzer, pausa, encoder, log);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,

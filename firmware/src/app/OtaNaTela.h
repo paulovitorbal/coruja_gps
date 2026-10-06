@@ -45,6 +45,16 @@ public:
     /// do `descreve_curto()`.
     void falhou(const char* motivo);
 
+    /// Troca o nome mostrado na linha de rótulo. Nulo volta ao da fase.
+    ///
+    /// Existe para a `RemessaNaTela` reaproveitar esta ponte inteira — tela,
+    /// LED e o piscar por tempo — trocando só as palavras. `texto` precisa
+    /// sobreviver às chamadas seguintes; a `TelaOta` o copia ao desenhar.
+    void define_rotulo(const char* texto) { estado_.rotulo = texto; }
+
+    /// Em que fase a barra de progresso vale. `Baixando` por padrão.
+    void define_fase_com_barra(FaseOta f) { estado_.fase_com_barra = f; }
+
     /// Redesenha e atualiza o LED sem que nada tenha mudado.
     ///
     /// Para quem chama entre as notificações — o piscar precisa disso, e as

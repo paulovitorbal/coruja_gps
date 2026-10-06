@@ -22,12 +22,13 @@ enum class ItemMenu : std::uint8_t {
     ModoNoturno,
     Volume,
     AtualizarBase,
+    EnviarDados,    ///< manda log, viagens e infracoes ao servidor
     TestarAlertas,
     Viagem,         ///< inicia ou encerra o registro de trajeto
     Informacao,
     Sair,
 };
-constexpr std::size_t kItensMenu = 8;
+constexpr std::size_t kItensMenu = 9;
 
 enum class EstadoMenu : std::uint8_t {
     Fechado,
@@ -41,6 +42,7 @@ enum class AcaoMenu : std::uint8_t {
     Nenhuma,
     Gravar,          ///< os ajustes mudaram e precisam ir ao cartao
     AtualizarBase,   ///< iniciar o OTA
+    EnviarDados,     ///< subir o que esta no cartao e apagar o confirmado
     TestarAlertas,   ///< acender o LED e tocar o buzzer para conferencia
     AlternarViagem,  ///< iniciar se parada, encerrar se gravando
 };

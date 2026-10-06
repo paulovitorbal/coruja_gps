@@ -15,6 +15,14 @@ coruja_gps_v*.fzz
 servidor/dados/*
 !servidor/dados/.gitkeep
 
+# o que os aparelhos mandam: log, viagens e infracoes. Sao dados de uso do
+# aparelho -- onde ele esteve e quando. Nunca versionar.
+servidor/recebidos/*
+!servidor/recebidos/.gitkeep
+
+# a lista de aparelhos tem os SEGREDOS de verdade. O .exemplo e versionado.
+servidor/aparelhos.cfg
+
 # Atalho para a pty do simulador, recriado a cada execucao.
 simulador/serial
 .venv/

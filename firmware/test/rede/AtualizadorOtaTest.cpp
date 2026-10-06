@@ -157,10 +157,13 @@ public:
     /// A partir de qual download da base ele passa a funcionar.
     unsigned          cura_na_tentativa = 1;
     unsigned          pedidos_versao = 0;
+    /// Os caminhos pedidos, na ordem. É onde o segredo do aparelho aparece.
+    std::vector<std::string> caminhos;
     unsigned          pedidos_base = 0;
 
     ResultadoHttp baixa(const Url& url, AoReceber ao_receber, void* contexto,
                         Logger&, std::uint32_t) override {
+        caminhos.emplace_back(url.caminho);
         const bool e_versao = std::strstr(url.caminho, "versao") != nullptr;
         if (e_versao) {
             ++pedidos_versao;
@@ -639,6 +642,71 @@ TEST(EFalha, todo_o_resto_e_falha) {
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
                          ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
         EXPECT_TRUE(e_falha(r)) << descreve(r);
+    }
+}
+
+
+// ================================== o segredo do aparelho vai nas duas rotas
+
+TEST(OtaComToken, o_token_acompanha_a_consulta_e_o_download) {
+    // O servidor identifica o aparelho pelo segredo, e com a lista de
+    // aparelhos preenchida ele recusa TODAS as rotas sem token -- inclusive
+    // as da base. Sem isto o OTA pararia de funcionar com 401.
+    Bancada b;
+    std::snprintf(b.cfg.token_aparelho, sizeof b.cfg.token_aparelho,
+                  "segredo-do-carro");
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+
+    ASSERT_GE(b.http.caminhos.size(), 2U);
+    for (const auto& c : b.http.caminhos) {
+        EXPECT_NE(c.find("?t=segredo-do-carro"), std::string::npos) << c;
+    }
+}
+
+TEST(OtaComToken, sem_token_as_urls_ficam_como_estavam) {
+    // Um servidor sem lista de aparelhos não exige nada. Obrigar a
+    // configurar um segredo para baixar a base quebraria quem só distribui.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    for (const auto& c : b.http.caminhos) {
+        EXPECT_EQ(c.find("?t="), std::string::npos) << c;
+        EXPECT_EQ(c.find('?'), std::string::npos) << c;
+    }
+}
+
+TEST(OtaComToken, url_que_ja_tem_consulta_recebe_o_token_emendado) {
+    Bancada b;
+    std::snprintf(b.cfg.url_versao, sizeof b.cfg.url_versao,
+                  "http://exemplo/radares.versao?v=2");
+    std::snprintf(b.cfg.token_aparelho, sizeof b.cfg.token_aparelho, "abc");
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.http.caminhos.front(), "/radares.versao?v=2&t=abc");
+}
+
+TEST(OtaComToken, token_que_nao_cabe_na_url_recusa_antes_de_pedir) {
+    // Truncar mandaria o pedido para outro lugar com o segredo cortado no
+    // meio, e o sintoma seria um 401 que não aponta para o tamanho.
+    Bancada b;
+    std::string url = "http://exemplo/";
+    url += std::string(kMaxUrl - 20, 'a');
+    std::snprintf(b.cfg.url_base, sizeof b.cfg.url_base, "%s", url.c_str());
+    std::snprintf(b.cfg.token_aparelho, sizeof b.cfg.token_aparelho,
+                  "%s", std::string(kMaxToken, 'x').c_str());
+
+    EXPECT_EQ(b.roda(), ResultadoOta::SemConfiguracao);
+    EXPECT_TRUE(b.http.caminhos.empty()) << "nao pode ter pedido nada";
+}
+
+TEST(OtaComToken, o_token_nunca_aparece_no_log) {
+    // Mesma regra da senha de Wi-Fi: o log vai para o cartão e o cartão sai
+    // do carro. A URL com o segredo é montada, mas não é registrada.
+    Bancada b;
+    std::snprintf(b.cfg.token_aparelho, sizeof b.cfg.token_aparelho,
+                  "nao-pode-vazar");
+    b.roda();
+    for (const auto& e : b.log.entradas()) {
+        EXPECT_EQ(e.mensagem.find("nao-pode-vazar"), std::string::npos)
+            << e.mensagem;
     }
 }
 

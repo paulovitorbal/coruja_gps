@@ -192,6 +192,21 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         return ResultadoOta::SemConfiguracao;
     }
 
+    // O segredo do aparelho vai na URL, e nao em cabecalho: o `http_client`
+    // do lwIP monta a requisicao internamente e nao aceita cabecalho
+    // proprio. Ver `kParametroToken`.
+    //
+    // Token vazio deixa as URLs intactas de proposito -- um servidor sem
+    // lista de aparelhos nao exige nada, e quem so distribui a base nao
+    // precisa configurar segredo nenhum.
+    if (!acrescenta_token(&url_versao, cfg.token_aparelho) ||
+        !acrescenta_token(&url_base, cfg.token_aparelho)) {
+        // Truncar faria o pedido ir para outro lugar, com o segredo cortado
+        // no meio -- e o sintoma seria um 401 que nao aponta para o tamanho.
+        log.error("ota", "URL com o token nao cabe no limite");
+        return ResultadoOta::SemConfiguracao;
+    }
+
     log.info("ota", "==== atualizacao solicitada ====");
 
     // A versão local vem do CARTÃO. Guardá-la só em RAM fazia o primeiro

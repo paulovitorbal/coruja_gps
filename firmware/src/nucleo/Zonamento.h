@@ -74,9 +74,18 @@ constexpr float kAnguloAFrenteGraus = 90.0F;
 constexpr float kToleranciaRumoGraus = 30.0F;
 
 /// Abaixo desta velocidade o azimute do NEO-M8N é **ruído aleatório**, e o
-/// filtro de rumo tem de **abrir**, não fechar (RF02.3). Descartar por um rumo
-/// que é ruído perderia pontos reais.
+/// rumo medido não serve para filtrar (RF02.3).
 constexpr float kVelocidadeMinimaRumoKmh = 5.0F;
+
+/// Quanto o veículo pode se deslocar antes de o rumo lembrado perder validade.
+///
+/// **Carro parado não gira.** É isso que torna o rumo de instantes antes ainda
+/// verdadeiro quando o receptor para de informá-lo — e é também o que limita a
+/// validade: se o veículo ANDOU sem produzir rumo novo, ele pode ter mudado de
+/// direção, e a certeza acaba.
+///
+/// 25 m cobre o avanço de uma fila de semáforo sem cobrir uma manobra.
+constexpr float kRaioRumoCongeladoM = 25.0F;
 
 /// Histerese nas fronteiras de velocidade: a faixa sobe ao cruzar o limiar e
 /// só desce 2 km/h abaixo dele (RF03.7). Sem isso, velocidade oscilando sobre
@@ -99,20 +108,32 @@ constexpr std::uint32_t kDescarteAlvoMs = 10000;
 /// de percorrer os 18 mil pontos a 4 Hz.
 std::size_t primeiro_com_lat_ge(const Ponto* base, std::size_t n, float lat);
 
+/// O rumo que os filtros devem usar, que nem sempre é o medido agora.
+///
+/// Separado da `Telemetria` de propósito: o rumo de filtragem pode vir da
+/// **memória**, quando o veículo está parado e o receptor deixou de informá-lo.
+/// Misturar as duas coisas na mesma estrutura faria o código mentir sobre a
+/// procedência do número.
+struct RumoFiltro {
+    bool  utilizavel = false;   ///< falso = filtro ABRE, como antes
+    float graus = 0.0F;
+};
+
 /// O ponto está à frente do veículo? (RF03.1)
 ///
 /// Distância ≤ 300 m não basta: sem este teste o alerta continuaria ativo
 /// depois de passar pelo radar. Compara o azimute veículo→ponto com o rumo.
-/// **Abre** (devolve `true`) abaixo de `kVelocidadeMinimaRumoKmh` ou sem rumo
-/// válido, porque aí o azimute do receptor é ruído.
-bool ponto_a_frente(const Telemetria& t, const Ponto& p, float cos_lat);
+/// **Abre** (devolve `true`) quando o rumo não é utilizável — aí não há por
+/// onde decidir, e abrir é a falha segura.
+bool ponto_a_frente(const RumoFiltro& rumo, const Telemetria& t,
+                    const Ponto& p, float cos_lat);
 
 /// O sentido do ponto é compatível com o rumo do veículo? (RF02.3)
 ///
 /// Omnidirecional nunca descarta. Unidirecional exige ≤ 30°. Bidirecional
 /// vale no rumo indicado **e no oposto**, o que se resolve dobrando a
-/// diferença para a faixa 0–90°. Como acima, abre em baixa velocidade.
-bool sentido_compativel(const Telemetria& t, const Ponto& p);
+/// diferença para a faixa 0–90°. Como acima, abre sem rumo utilizável.
+bool sentido_compativel(const RumoFiltro& rumo, const Ponto& p);
 
 /// A máquina de estados de zona do RF03.
 ///
@@ -143,6 +164,13 @@ public:
     /// o alvo é guardado por índice, e os índices mudam.
     void reinicia();
 
+    /// Decide qual rumo os filtros usam, e mantém a memória dele.
+    ///
+    /// Público porque é uma regra própria, com requisito próprio, e merece
+    /// teste direto — na mesma linha das outras partes expostas acima. Tem
+    /// estado: cada chamada pode atualizar a memória.
+    RumoFiltro rumo_para_filtro(const Telemetria& t, float cos_lat);
+
 private:
     bool e_perigo(float velocidade_kmh, std::uint8_t limite) const;
     FaixaSonora faixa_sonora(float velocidade_kmh, float v_infra);
@@ -155,6 +183,13 @@ private:
     float         lon_alvo_ = 0.0F;  ///< se a base for recarregada
     std::uint32_t ultimo_fix_ms_ = 0;
     bool          houve_fix_ = false;
+
+    /// Último rumo medido com velocidade suficiente, e onde ele foi medido.
+    /// A posição é o que permite saber se o veículo se moveu desde então.
+    bool          tem_rumo_lembrado_ = false;
+    float         rumo_lembrado_ = 0.0F;
+    float         lat_rumo_ = 0.0F;
+    float         lon_rumo_ = 0.0F;
 };
 
 }  // namespace coruja

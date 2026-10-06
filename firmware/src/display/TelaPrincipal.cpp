@@ -163,7 +163,7 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
     // O deslocamento das faixas que rolam sai daqui, junto do resto do
     // instantâneo, e não no meio do desenho: ele muda com o TEMPO e não com
     // o conteúdo, e é a comparação com o anterior que decide o redesenho.
-    i.x_superior = rolagem(largura_da_fonte(Fonte::Texto, i.superior),
+    i.x_superior = rolagem(largura_da_fonte(Fonte::TextoGrande, i.superior),
                            tela::kLargura, agora_ms).x;
     const Rolagem rol_inf =
         rolagem(largura_da_fonte(Fonte::Texto, i.inferior),
@@ -207,8 +207,10 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         // Centralizado quando cabe: a faixa tem um ocupante por vez e nada
         // a sua volta, e assim ela fica equilibrada com o numero, que
         // tambem e centralizado. Rolando, o alinhamento e o proprio `x`.
-        visor.texto(agora.x_superior, tela::kYFaixaSuperior + 3,
-                    agora.superior, Fonte::Texto, paleta::kTexto,
+        // +1 e nao +3: a fonte da faixa tem 23 px de altura numa faixa de
+        // 26, entao sobram 2 px para dividir entre cima e baixo.
+        visor.texto(agora.x_superior, tela::kYFaixaSuperior + 1,
+                    agora.superior, Fonte::TextoGrande, paleta::kTexto,
                     Alinhamento::Esquerda);
         ++regioes;
     }
@@ -248,8 +250,29 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         agora.barra_cor != anterior_.barra_cor ||
         agora.x_inferior != anterior_.x_inferior;
     if (tudo || inferior_mudou) {
+        // **Fundo claro só com alerta.** O ícone é um sprite de 40×40 sem
+        // canal alfa, composto contra `kFundoAlerta` na conversão: desenhá-lo
+        // sobre preto poria uma moldura creme em volta dele, e desenhá-lo
+        // sobre preto com o fundo preto era o que o tornava difícil de ler
+        // dirigindo.
+        //
+        // Os estados de texto ficam no preto. Branco sobre creme teria
+        // contraste pior que o de hoje, e trocar um problema por outro não é
+        // conserto.
+        // ⚠️ A primeira metade e DEFENSIVA e nao tem teste possivel: a
+        // composicao preenche texto e icone em ramos exclusivos, entao
+        // `icone != Nenhum` ja implica texto vazio hoje. Mutacao em
+        // 2026-10-06 confirmou que remove-la nao muda comportamento — e um
+        // mutante equivalente, nao um buraco de cobertura.
+        //
+        // Fica porque o invariante que a torna redundante vive em OUTRA
+        // funcao. Quem um dia preencher os dois campos acha o fundo claro sob
+        // texto branco, que e ilegivel; a guarda e barata e local.
+        const bool com_alerta =
+            agora.inferior[0] == '\0' && agora.icone != Icone::Nenhum;
         visor.retangulo(0, tela::kYFaixaInferior, tela::kLargura,
-                        tela::kFaixaInferior, paleta::kFundo);
+                        tela::kFaixaInferior,
+                        com_alerta ? paleta::kFundoAlerta : paleta::kFundo);
         if (agora.inferior[0] != '\0') {
             visor.texto(agora.x_inferior, tela::kYFaixaInferior + 12,
                         agora.inferior, Fonte::Texto, paleta::kTexto,

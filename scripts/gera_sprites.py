@@ -51,7 +51,19 @@ def para565(r: int, g: int, b: int) -> int:
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
-def converte(caminho: pathlib.Path, fundo=(0, 0, 0)):
+#: Fundo sobre o qual o transparente do PNG é achatado.
+#:
+#: ⚠️ **Tem de ser idêntico ao `paleta::kFundoAlerta`.** Sem canal alfa, o
+#: sprite carrega o próprio fundo: compor sobre uma cor e desenhar sobre outra
+#: deixa uma moldura de 40×40 em volta do ícone.
+#:
+#: Era preto até 2026-10-06, quando o autor relatou que o ícone ficava difícil
+#: de ver dirigindo. A faixa de alerta passou a ter fundo claro, e o sprite
+#: acompanhou — a troca só funciona se as duas coisas andarem juntas.
+FUNDO = (0xF5, 0xEB, 0xE0)
+
+
+def converte(caminho: pathlib.Path, fundo=FUNDO):
     img = Image.open(caminho).convert("RGBA")
     # LANCZOS porque a redução de 72 para 40 não é inteira: vizinho mais
     # próximo deixaria serrilhado grosseiro num ícone que já é pequeno.
@@ -63,7 +75,7 @@ def converte(caminho: pathlib.Path, fundo=(0, 0, 0)):
 
 
 def compoe_dois(caminho_a: pathlib.Path, caminho_b: pathlib.Path,
-                fundo=(0, 0, 0)):
+                fundo=FUNDO):
     """Dois ícones em diagonal dentro da mesma célula de 40×40.
 
     Em diagonal e não lado a lado: lado a lado cada um teria 20 px de

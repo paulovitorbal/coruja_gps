@@ -35,15 +35,40 @@ services:
       - "${CORUJA_PORTA_HOST:-8081}:8080"
 
     volumes:
-      # Somente leitura: o serviço nunca escreve. Se ele for comprometido,
-      # não há como alterar a base que os aparelhos vão baixar.
+      # Somente leitura: o serviço nunca escreve AQUI. Se ele for
+      # comprometido, não há como alterar a base que os aparelhos vão baixar.
       - ./dados:/dados:ro
+
+      # O que os aparelhos mandam (log, viagens, infrações). Volume PRÓPRIO e
+      # gravável — e é por isso que ele não é um subdiretório de `dados/`:
+      # abrir o volume da base para escrita só porque a recepção precisa dela
+      # jogaria fora a garantia de cima.
+      #
+      # Só tem efeito com `aparelhos.cfg` preenchido; sem lista a recepção
+      # está desligada e nada chega aqui.
+      - ./recebidos:/recebidos
+
+      # Quem pode falar com o servidor: `nome=token`, uma por linha. Copie o
+      # `aparelhos.cfg.exemplo` e troque os segredos.
+      #
+      # ⚠️ ENQUANTO ELE NÃO EXISTIR o compose não sobe — o Docker cria um
+      # DIRETÓRIO no lugar do arquivo que falta. Crie-o antes:
+      #
+      #     cp aparelhos.cfg.exemplo aparelhos.cfg && $EDITOR aparelhos.cfg
+      #
+      # Para rodar sem recepção, comente esta linha: as rotas da base ficam
+      # abertas e o envio responde 401.
+      - ./aparelhos.cfg:/aparelhos.cfg:ro
 
     environment:
       CORUJA_PORTA: "8080"
       CORUJA_ENDERECO: "0.0.0.0"
+      CORUJA_RECEBIDOS: "/recebidos"
+      CORUJA_APARELHOS: "/aparelhos.cfg"
 
-    # Endurecimento barato: o processo não precisa de nada disso.
+    # Endurecimento barato: o processo não precisa de nada disso. O
+    # `read_only` continua valendo — o volume de recebidos é a única exceção,
+    # e é montado explicitamente.
     read_only: true
     cap_drop: [ALL]
     security_opt:

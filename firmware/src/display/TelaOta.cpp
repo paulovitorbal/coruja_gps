@@ -38,7 +38,9 @@ TelaOta::Instantaneo TelaOta::compoe(const EstadoOta& e) const {
     Instantaneo i;
     i.valido = true;
 
-    if (e.fase == FaseOta::Baixando && e.tentativa > 1) {
+    if (e.rotulo != nullptr) {
+        std::snprintf(i.rotulo, sizeof i.rotulo, "%s", e.rotulo);
+    } else if (e.fase == FaseOta::Baixando && e.tentativa > 1) {
         // "BAIXANDO 2/3" diz que algo deu errado e está sendo refeito. Sem
         // isso uma retentativa parece travamento, e travamento é o que o
         // usuário faz quando desliga o aparelho no meio.
@@ -52,7 +54,7 @@ TelaOta::Instantaneo TelaOta::compoe(const EstadoOta& e) const {
         std::snprintf(i.motivo, sizeof i.motivo, "%s", e.motivo);
     }
 
-    if (e.fase == FaseOta::Baixando && e.total > 0) {
+    if (e.fase == e.fase_com_barra && e.total > 0) {
         const int pct = static_cast<int>(e.recebidos * 100U / e.total);
         const int limitado = pct > 100 ? 100 : pct;
         // Para BAIXO, nunca para o mais próximo: 49% virando 50% anunciaria

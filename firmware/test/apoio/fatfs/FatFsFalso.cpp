@@ -6,6 +6,10 @@
 #include "hw_config.h"
 
 namespace coruja::teste {
+namespace {
+/// Definida adiante, junto do estado interno que ela limpa.
+void limpa_abertos();
+}  // namespace
 
 FatFsFalso& FatFsFalso::instancia() {
     static FatFsFalso unico;
@@ -17,10 +21,17 @@ void FatFsFalso::reinicia() {
     driver_inicia = true;
     erro_rename = FR_OK;
     erro_unlink = FR_OK;
+    erro_opendir = FR_OK;
+    erro_readdir = FR_OK;
+    diretorios.clear();
     escrita_falha_apos = 0;
+    leitura_falha_apos = 0;
     operacoes.clear();
     montagens = 0;
     desmontagens = 0;
+    // Descritores de uma rodada anterior nao podem vazar para a proxima: um
+    // teste que esquece de fechar faria o seguinte falhar por motivo alheio.
+    limpa_abertos();
 }
 
 bool FatFsFalso::existe(int volume, const std::string& nome) const {
@@ -41,7 +52,13 @@ bool FatFsFalso::fez(const std::string& operacao) const {
 
 namespace {
 
-/// Um arquivo aberto. Só um por vez basta: o `CartaoSd` nunca abre dois.
+/// Um arquivo aberto, indexado pelo `FIL*` de quem abriu.
+///
+/// Deixou de ser um só em 2026-10-06: a remessa de dados mantém um arquivo
+/// aberto para leitura durante todo o envio, enquanto o log em cartão pode
+/// abrir e fechar o `coruja.log` por mensagem no meio disso. O `CartaoSd`
+/// passou a ter dois descritores, e um dublê com um só esconderia justamente
+/// o conflito que motivou a separação.
 struct Aberto {
     bool        usado = false;
     int         volume = 0;
@@ -51,7 +68,16 @@ struct Aberto {
     bool        escrita = false;
     std::size_t escritos = 0;
 };
-Aberto g_aberto;
+std::map<FIL*, Aberto> g_abertos;
+
+void limpa_abertos() { g_abertos.clear(); }
+
+/// O aberto de `fp`, ou nulo. Nunca cria: pedir leitura num descritor que
+/// ninguém abriu é erro de quem chama, e inventar um esconderia isso.
+Aberto* aberto_de(FIL* fp) {
+    auto it = g_abertos.find(fp);
+    return it == g_abertos.end() ? nullptr : &it->second;
+}
 
 /// Separa "2:/radares.bin" em volume 2 e nome "radares.bin". Aceita também
 /// "2:" (sem arquivo), que é o que o `f_mount` recebe.
@@ -105,7 +131,7 @@ FRESULT f_unmount(const TCHAR* caminho) {
 
 FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
     auto& f = FatFsFalso::instancia();
-    auto& a = coruja::teste::g_aberto;
+    auto& a = coruja::teste::g_abertos[fp];
     int v = 0;
     std::string nome;
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_NAME; }
@@ -133,17 +159,23 @@ FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
 
 FRESULT f_close(FIL* fp) {
     auto& f = FatFsFalso::instancia();
-    auto& a = coruja::teste::g_aberto;
-    if (!a.usado) { return FR_INVALID_OBJECT; }
-    if (a.escrita) { f.volumes[a.volume].arquivos[a.nome] = a.dados; }
-    a.usado = false;
+    auto* a = coruja::teste::aberto_de(fp);
+    if (a == nullptr || !a->usado) { return FR_INVALID_OBJECT; }
+    if (a->escrita) { f.volumes[a->volume].arquivos[a->nome] = a->dados; }
+    coruja::teste::g_abertos.erase(fp);
     fp->descritor = -1;
     return FR_OK;
 }
 
-FRESULT f_read(FIL*, void* destino, UINT quantos, UINT* lidos) {
-    auto& a = coruja::teste::g_aberto;
-    if (!a.usado) { return FR_INVALID_OBJECT; }
+FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos) {
+    auto& f = FatFsFalso::instancia();
+    auto* ap = coruja::teste::aberto_de(fp);
+    if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
+    auto& a = *ap;
+    if (f.leitura_falha_apos != 0 && a.posicao >= f.leitura_falha_apos) {
+        *lidos = 0;
+        return FR_DISK_ERR;
+    }
     const std::size_t resta = a.dados.size() - a.posicao;
     const std::size_t n = quantos < resta ? quantos : resta;
     std::memcpy(destino, a.dados.data() + a.posicao, n);
@@ -152,10 +184,54 @@ FRESULT f_read(FIL*, void* destino, UINT quantos, UINT* lidos) {
     return FR_OK;
 }
 
-FRESULT f_write(FIL*, const void* origem, UINT quantos, UINT* escritos) {
+FRESULT f_lseek(FIL* fp, FSIZE_t posicao) {
+    auto* ap = coruja::teste::aberto_de(fp);
+    if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
+    if (posicao > ap->dados.size()) { return FR_INVALID_PARAMETER; }
+    ap->posicao = posicao;
+    return FR_OK;
+}
+
+FRESULT f_opendir(DIR* dp, const TCHAR* caminho) {
     auto& f = FatFsFalso::instancia();
-    auto& a = coruja::teste::g_aberto;
-    if (!a.usado) { return FR_INVALID_OBJECT; }
+    int v = 0;
+    std::string nome;
+    if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_NAME; }
+    if (!f.volumes[v].monta) { return FR_NOT_READY; }
+    if (f.erro_opendir != FR_OK) { return f.erro_opendir; }
+    dp->volume = v;
+    dp->indice = 0;
+    coruja::teste::anota("opendir:" + std::to_string(v));
+    return FR_OK;
+}
+
+FRESULT f_readdir(DIR* dp, FILINFO* info) {
+    auto& f = FatFsFalso::instancia();
+    if (f.erro_readdir != FR_OK) { return f.erro_readdir; }
+    const auto& arquivos = f.volumes[dp->volume].arquivos;
+    if (dp->indice >= arquivos.size()) {
+        // Nome vazio é o fim da enumeração, como no FatFs de verdade.
+        info->fname[0] = '\0';
+        info->fsize = 0;
+        info->fattrib = 0;
+        return FR_OK;
+    }
+    auto it = arquivos.begin();
+    std::advance(it, static_cast<long>(dp->indice));
+    ++dp->indice;
+    std::snprintf(info->fname, sizeof info->fname, "%s", it->first.c_str());
+    info->fsize = static_cast<FSIZE_t>(it->second.size());
+    info->fattrib = f.diretorios.count(it->first) != 0 ? AM_DIR : 0;
+    return FR_OK;
+}
+
+FRESULT f_closedir(DIR*) { return FR_OK; }
+
+FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos) {
+    auto& f = FatFsFalso::instancia();
+    auto* ap = coruja::teste::aberto_de(fp);
+    if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
+    auto& a = *ap;
     if (f.escrita_falha_apos != 0 &&
         a.escritos + quantos > f.escrita_falha_apos) {
         *escritos = 0;

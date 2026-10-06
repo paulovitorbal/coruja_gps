@@ -1,6 +1,7 @@
 #include "display/FonteNumero.h"
 #include "display/FonteNumeroPequeno.h"
 #include "display/FonteTexto.h"
+#include "display/FonteTextoGrande.h"
 #include "display/Visor.h"
 
 namespace coruja {
@@ -16,6 +17,7 @@ int altura_da_fonte(Fonte f) {
         case Fonte::Numero:        return fonte::numero::kAltura;
         case Fonte::NumeroPequeno: return fonte::numeropequeno::kAltura;
         case Fonte::Texto:         return fonte::texto::kAltura;
+        case Fonte::TextoGrande:   return fonte::textogrande::kAltura;
     }
     return 0;
 }
@@ -42,6 +44,11 @@ int largura_da_fonte(Fonte f, const char* texto) {
             case Fonte::Texto:
                 if (fonte::texto::indice(*p) >= 0) {
                     n += fonte::texto::kLargura;
+                }
+                break;
+            case Fonte::TextoGrande:
+                if (fonte::textogrande::indice(*p) >= 0) {
+                    n += fonte::textogrande::kLargura;
                 }
                 break;
         }

@@ -47,6 +47,8 @@ add_executable(testes
     nucleo/PeriodoDoDiaTest.cpp
     buzzer/CadenciaBuzzerTest.cpp
     rede/AtualizadorOtaTest.cpp
+    rede/RemessaDadosTest.cpp
+    rede/RespostaHttpTest.cpp
     log/LoggerCartaoTest.cpp
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
@@ -62,6 +64,7 @@ add_executable(testes
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
     app/OtaNaTelaTest.cpp
+    app/RemessaNaTelaTest.cpp
     app/DiarioBordoTest.cpp
     app/EsperaDispensaTest.cpp
     led/PadraoLedTest.cpp
