@@ -56,6 +56,16 @@ std::int64_t hora_utc() {
 namespace coruja {
 namespace {
 
+/// ⚠️ `mbedtls_time_t` é `time_t`, e no newlib do `arm-none-eabi` isso é 32
+/// bits com sinal: a conta estoura em 2038-01-19. A partir daí o mbedTLS
+/// enxerga uma data negativa e **todo certificado válido vira "ainda não
+/// começou a valer"** — a mesma falha de relógio zerado, só que doze anos
+/// depois e sem causa aparente.
+///
+/// Não se conserta aqui: o tipo vem do `MBEDTLS_PLATFORM_TIME_TYPE_MACRO`, e
+/// mudá-lo exige que o `gmtime_r` da libc também seja de 64 bits. Fica
+/// anotado pelo mesmo motivo que a nota sobre o `mbedtls_hardware_poll` do
+/// SDK, logo abaixo: saber antes é melhor do que descobrir depois.
 mbedtls_time_t hora_para_mbedtls(mbedtls_time_t* destino) {
     const auto agora = static_cast<mbedtls_time_t>(hora_utc());
     if (destino != nullptr) { *destino = agora; }

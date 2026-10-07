@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "rede/CaixaDns.h"
 #include "rede/Sntp.h"
 
 namespace coruja {
@@ -39,16 +40,22 @@ void ao_chegar(void* arg, struct udp_pcb*, struct pbuf* p, const ip_addr_t*,
     pbuf_free(p);
 }
 
-struct Resolucao {
-    ip_addr_t endereco = {};
-    bool      pronto = false;
-    bool      achou = false;
-};
+/// A caixa do DNS deste cliente. Ver `CaixaDns`: o lwIP nao cancela um
+/// `dns_gethostbyname`, e aqui o aperto e o pior do projeto -- o prazo e de
+/// 5 s e o lwIP desiste em `DNS_MAX_RETRIES (4) x DNS_TMR_INTERVAL (1000 ms)`.
+/// Os dois caem um em cima do outro, e isto roda em TODA sessao de rede, logo
+/// depois de associar ao Wi-Fi, que e justamente quando o DNS demora.
+CaixaDns g_dns;
+ip_addr_t g_endereco_dns = {};
 
 void ao_resolver(const char*, const ip_addr_t* ip, void* arg) {
-    auto* r = static_cast<Resolucao*>(arg);
-    r->pronto = true;
-    if (ip != nullptr) { r->endereco = *ip; r->achou = true; }
+    // `arg` e a geracao, por valor -- nao um ponteiro para a pilha de quem
+    // pediu. E perguntar vem antes de copiar.
+    const auto geracao =
+        static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(arg));
+    if (g_dns.entrega(geracao, ip != nullptr) && ip != nullptr) {
+        g_endereco_dns = *ip;
+    }
 }
 
 }  // namespace
@@ -64,32 +71,46 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
     log.info(kOrigem, msg);
 
     // --- resolve o nome ---
-    Resolucao r;
+    //
+    // `cache` e local e isso esta certo: o lwIP so escreve nele de forma
+    // SINCRONA, quando o nome ja esta em cache. O que ele guarda para depois e
+    // o `callback_arg`, e esse deixou de ser ponteiro.
+    ip_addr_t cache = {};
+    ip_addr_t endereco = {};
+    const std::uint32_t geracao = g_dns.abre();
     cyw43_arch_lwip_begin();
-    const err_t imediato = dns_gethostbyname(servidor, &r.endereco,
-                                             ao_resolver, &r);
+    const err_t imediato = dns_gethostbyname(
+        servidor, &cache, ao_resolver,
+        reinterpret_cast<void*>(static_cast<std::uintptr_t>(geracao)));
     cyw43_arch_lwip_end();
 
     if (imediato == ERR_OK) {
-        r.achou = true;
-        r.pronto = true;
+        g_dns.abandona();
+        endereco = cache;
     } else if (imediato != ERR_INPROGRESS) {
+        g_dns.abandona();
         log.warning(kOrigem, "DNS nao iniciou");
         return false;
-    }
-
-    const absolute_time_t prazo = make_timeout_time_ms(kTempoLimiteNtpMs);
-    while (!r.pronto) {
-        if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
-            log.warning(kOrigem, "DNS nao respondeu a tempo");
+    } else {
+        const absolute_time_t prazo = make_timeout_time_ms(kTempoLimiteNtpMs);
+        while (!g_dns.pronto()) {
+            if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
+                // O lwIP VAI responder mais tarde, com esta geracao. Abandonar
+                // e o que faz essa resposta nao encontrar ninguem.
+                g_dns.abandona();
+                log.warning(kOrigem, "DNS nao respondeu a tempo");
+                return false;
+            }
+            cyw43_arch_poll();
+            sleep_ms(1);
+        }
+        const bool achou = g_dns.achou();
+        g_dns.abandona();
+        if (!achou) {
+            log.warning(kOrigem, "servidor de hora nao resolveu");
             return false;
         }
-        cyw43_arch_poll();
-        sleep_ms(1);
-    }
-    if (!r.achou) {
-        log.warning(kOrigem, "servidor de hora nao resolveu");
-        return false;
+        endereco = g_endereco_dns;
     }
 
     // --- manda o pedido ---
@@ -112,7 +133,7 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
                                     PBUF_RAM);
     if (saida != nullptr) {
         monta_pedido_ntp(static_cast<std::uint8_t*>(saida->payload));
-        mandou = udp_sendto(pcb, saida, &r.endereco, kPortaNtp) == ERR_OK;
+        mandou = udp_sendto(pcb, saida, &endereco, kPortaNtp) == ERR_OK;
         pbuf_free(saida);
     }
     cyw43_arch_lwip_end();

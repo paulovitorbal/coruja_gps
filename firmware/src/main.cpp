@@ -551,7 +551,12 @@ int main() {
     // O relogio comeca ZERADO: o RP2350 nao tem bateria nele, e zero e
     // exatamente o que se quer dizer -- ninguem acertou a hora nesta ligacao.
     relogio.inicia();
-    http.define_token(config.token_aparelho);
+    if (!http.define_token(config.token_aparelho)) {
+        // Sem token o servidor recusa com 401, e o log diz por que. Seguir com
+        // um token que traz `\r\n` seria mandar cabecalho que ninguem
+        // escreveu de proposito.
+        log.error("cfg", "token_aparelho tem caractere invalido: ignorado");
+    }
 
     coruja::SincronizadorHora sincronizador(relogio, ntp);
     RecarregadorDoCartao      recarregador(cartao);

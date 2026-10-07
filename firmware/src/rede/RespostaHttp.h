@@ -62,6 +62,15 @@ public:
     /// disso é resposta que não interessa.
     static constexpr std::size_t kMaxCabecalhos = 2048;
 
+    /// Teto de um corpo anunciado, em bytes. 1 GiB.
+    ///
+    /// Não é limite de produto — o `radares.bin` tem 214 KB. É o ponto em que
+    /// `Content-Length` ou tamanho de pedaço deixam de ser número e passam a
+    /// ser lixo: acumular além disso estoura o inteiro, e **estouro com sinal
+    /// é comportamento indefinido**, que dá ao compilador licença para apagar
+    /// a verificação feita depois da conta. A recusa vem antes da conta.
+    static constexpr long kTetoCorpo = 1L << 30;
+
     void reinicia();
 
     /// Alimenta bytes crus da conexão. `false` em resposta malformada — e aí

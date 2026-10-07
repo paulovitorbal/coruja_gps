@@ -1,5 +1,7 @@
 #include "nucleo/Url.h"
 
+#include "nucleo/Texto.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -27,6 +29,7 @@ const char* descreve(ErroUrl erro) {
         case ErroUrl::PortaInvalida:       return "porta invalida";
         case ErroUrl::LongaDemais:         return "URL longa demais";
         case ErroUrl::Ipv6NaoSuportado:    return "IPv6 literal nao suportado";
+        case ErroUrl::CaractereInvalido:   return "caractere invalido na URL";
     }
     return "erro desconhecido";
 }
@@ -36,6 +39,13 @@ ErroUrl analisa_url(const char* texto, Url* destino) {
         return ErroUrl::Vazia;
     }
     *destino = Url{};
+
+    // Antes de decompor: a URL inteira vai crua para a linha de pedido e para
+    // o `Host:`. Recusar aqui e recusar uma vez so, para esquema, host, porta,
+    // caminho e consulta.
+    if (!seguro_para_cabecalho(texto)) {
+        return ErroUrl::CaractereInvalido;
+    }
 
     const char* resto = nullptr;
     if (std::strncmp(texto, "http://", 7) == 0) {

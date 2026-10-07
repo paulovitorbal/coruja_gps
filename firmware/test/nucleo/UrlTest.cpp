@@ -147,4 +147,48 @@ TEST(TamanhoSemConsulta, o_que_sobra_nao_contem_a_consulta) {
     EXPECT_EQ(para_o_log.find("nao-pode-vazar"), std::string::npos);
 }
 
+
+// --- bytes da URL ---------------------------------------------------------
+//
+// A URL vem do coruja.cfg, num cartao removivel, e vai CRUA para a linha de
+// pedido e para o `Host:`. Estes testes guardam a fronteira.
+
+TEST(Url, RetornoDeCarroNaUrlRecusa) {
+    Url u;
+    EXPECT_EQ(analisa_url("http://exemplo.com/a\r\nX-Falso: 1", &u),
+              ErroUrl::CaractereInvalido);
+}
+
+TEST(Url, NovaLinhaNoHostRecusa) {
+    Url u;
+    EXPECT_EQ(analisa_url("http://exemplo\n.com/a", &u),
+              ErroUrl::CaractereInvalido);
+}
+
+TEST(Url, EspacoNoCaminhoRecusa) {
+    // Cru ele parte `GET /a b HTTP/1.1` em duas linhas de pedido.
+    Url u;
+    EXPECT_EQ(analisa_url("https://exemplo.com/a b", &u),
+              ErroUrl::CaractereInvalido);
+}
+
+TEST(Url, AcentoNoCaminhoRecusa) {
+    Url u;
+    EXPECT_EQ(analisa_url("https://exemplo.com/caf\xc3\xa9", &u),
+              ErroUrl::CaractereInvalido);
+}
+
+TEST(Url, ConsultaComSinaisUsuaisPassa) {
+    // A recusa nao pode pegar o que o proprio projeto usa: a consulta leva
+    // `?`, `=` e `&`, e todos sao imprimiveis.
+    const Url u = analisa_ok("https://exemplo.com/envio/?a=1&b=2");
+    EXPECT_STREQ(u.caminho, "/envio/?a=1&b=2");
+}
+
+TEST(Url, CaractereInvalidoTemDescricaoPropria) {
+    // Sem isto o `descreve` cairia no "erro desconhecido" e o log nao diria
+    // o que ha de errado com o arquivo do cartao.
+    EXPECT_STRNE(descreve(ErroUrl::CaractereInvalido), "erro desconhecido");
+}
+
 }  // namespace

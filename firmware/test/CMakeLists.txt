@@ -56,6 +56,7 @@ add_executable(testes
     nucleo/ArenaMemoriaTest.cpp
     nucleo/SincronizadorHoraTest.cpp
     rede/SntpTest.cpp
+    rede/CaixaDnsTest.cpp
     nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
     log/IdExecucaoTest.cpp

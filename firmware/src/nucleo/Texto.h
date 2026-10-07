@@ -14,4 +14,20 @@ namespace coruja {
 /// sempre terminado em `\0`.
 void apara_branco(char* texto, std::size_t* tamanho);
 
+/// O texto só tem imprimíveis de ASCII, de `0x21` a `0x7E`?
+///
+/// É a guarda contra **divisão de requisição**. Um `\r\n` no meio do
+/// `url_envio` ou do `token_aparelho` do `coruja.cfg` vira cabeçalho novo na
+/// requisição que o aparelho manda — e o cartão é removível e relido a cada
+/// ação (RNF03), então ele é fronteira de sistema como qualquer outra entrada.
+///
+/// Recusa o espaço de propósito: numa URL ele tem de vir percent-encoded, e
+/// cru ele parte a linha `GET /caminho HTTP/1.1` em duas. Recusa acima de
+/// `0x7E` pela mesma razão — UTF-8 cru em caminho de URL é erro de quem
+/// escreveu, não coisa a adivinhar aqui.
+///
+/// Texto vazio passa: "sem token" é um estado legítimo, e quem decide o que
+/// fazer com ele não é esta função. `nullptr` recusa.
+bool seguro_para_cabecalho(const char* texto);
+
 }  // namespace coruja

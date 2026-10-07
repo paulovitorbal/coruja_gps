@@ -468,4 +468,119 @@ TEST(LeitorResposta, o_corpo_que_vem_colado_nos_cabecalhos_nao_se_perde) {
     EXPECT_EQ(c.corpo, "0123456789");
 }
 
+
+// --- a borda do buffer de cabecalhos --------------------------------------
+
+/// Cabecalhos com exatamente `alvo` bytes, terminador incluido.
+///
+/// O tamanho sai de `kMaxCabecalhos`, e nao de um literal: mudar o teto nao
+/// pode fazer o teste parar de exercitar a borda sem que ninguem perceba.
+std::string cabecalhos_de(std::size_t alvo, std::size_t content_length) {
+    std::string h = "HTTP/1.1 200 OK\r\nContent-Length: "
+                    + std::to_string(content_length) + "\r\n";
+    const std::size_t resta = alvo - h.size() - 2;  // o \r\n final da secao
+    h += "X-Enchimento: " + std::string(resta - 16, 'p') + "\r\n";
+    h += "\r\n";
+    EXPECT_EQ(h.size(), alvo);
+    return h;
+}
+
+TEST(LeitorResposta, corpo_que_atravessa_o_fim_do_buffer_de_cabecalhos) {
+    // O bloco que a rede entregou atravessa o fim de `cabecalhos_`: parte
+    // dele cabe, parte nao. O que nao coube e CORPO -- e sair do `alimenta`
+    // aqui o descartaria em silencio. O sintoma seria um radares.bin curto
+    // com CRC que nao bate, sem uma linha de log dizendo por que.
+    constexpr std::size_t kCorpo = 300;
+    const std::string bruto =
+        cabecalhos_de(LeitorRespostaHttp::kMaxCabecalhos - 60, kCorpo)
+        + std::string(kCorpo, 'y');
+
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    // De uma vez so, de proposito: e o unico jeito de o bloco ser maior que
+    // o espaco livre em `cabecalhos_`.
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(c.corpo.size(), kCorpo);
+    EXPECT_EQ(leitor.recebidos(), kCorpo);
+    EXPECT_TRUE(leitor.completa());
+}
+
+TEST(LeitorResposta, cabecalho_que_enche_o_buffer_sem_terminar_e_recusado) {
+    // O outro lado da mesma borda: aqui nao ha terminador nenhum, e encher o
+    // buffer tem de ser recusa -- nao silencio.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nX-Enchimento: "
+        + std::string(LeitorRespostaHttp::kMaxCabecalhos + 100, 'p');
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 512, &c));
+}
+
+// --- tetos ----------------------------------------------------------------
+
+TEST(LeitorResposta, content_length_absurdo_e_recusado) {
+    // Vinte digitos estouram um `long` de 32 bits, e estouro com sinal e
+    // comportamento indefinido: o compilador pode apagar a verificacao que
+    // viesse DEPOIS da conta. Por isso ela vem antes.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 99999999999999999999\r\n\r\nx";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 999, &c));
+}
+
+TEST(LeitorResposta, content_length_exatamente_no_teto_passa) {
+    // 1 GiB cravado: o ultimo valor aceito. Sem este caso, um teto errado por
+    // um ficaria invisivel -- o teste de cima passaria do mesmo jeito.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 1073741824\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 999, &c));
+    EXPECT_EQ(leitor.content_length(), LeitorRespostaHttp::kTetoCorpo);
+}
+
+TEST(LeitorResposta, content_length_um_acima_do_teto_recusa) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 1073741825\r\n\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 999, &c));
+}
+
+TEST(LeitorResposta, tamanho_de_pedaco_absurdo_e_recusado) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "ffffffffffffffff\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 999, &c));
+}
+
+TEST(LeitorResposta, pedaco_um_acima_do_teto_recusa) {
+    // `40000001` em hexadecimal e 2^30 + 1. O vizinho de baixo, `40000000`,
+    // e aceito -- e e o par que prova que o teto esta no lugar certo.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "40000001\r\n";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 999, &c));
+}
+
+TEST(LeitorResposta, pedaco_exatamente_no_teto_e_aceito) {
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "40000000\r\nxxxx";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    // Nao chega corpo nenhum perto disso, claro: o que se verifica e que o
+    // leitor ACEITOU o tamanho e passou a esperar dados.
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 999, &c));
+    EXPECT_EQ(c.corpo, "xxxx");
+    EXPECT_FALSE(leitor.completa());
+}
+
 }  // namespace

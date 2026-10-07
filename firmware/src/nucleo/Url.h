@@ -32,6 +32,10 @@ enum class ErroUrl {
     /// literal entre colchetes só empurraria a falha para o DNS, com uma
     /// mensagem que não explica nada.
     Ipv6NaoSuportado,
+    /// Qualquer byte fora de `0x21`–`0x7E`. Ver `seguro_para_cabecalho`:
+    /// um `\r\n` aqui vira cabeçalho a mais na requisição que o aparelho
+    /// manda, e um espaço parte a linha de pedido em duas.
+    CaractereInvalido,
 };
 
 const char* descreve(ErroUrl erro);
@@ -39,8 +43,15 @@ const char* descreve(ErroUrl erro);
 /// Decompõe `texto`. Devolve `ErroUrl::Nenhum` e preenche `destino` no sucesso.
 ///
 /// Caminho ausente vira `/`. Porta ausente vira 80 ou 443 conforme o esquema.
-/// **Não valida o host**: isso é trabalho do DNS, e um host inválido precisa
-/// falhar com a mensagem do DNS, não com uma regra inventada aqui.
+///
+/// **Não valida o host como nome**: saber se `exemplo.com` existe é trabalho
+/// do DNS, e um host inexistente precisa falhar com a mensagem do DNS, não
+/// com uma regra inventada aqui.
+///
+/// **Valida os bytes**, que é outra coisa: a URL inteira tem de ser
+/// imprimível de ASCII (`seguro_para_cabecalho`). Ela vai crua para a linha
+/// de pedido e para o `Host:`, e um `\r\n` vindo do `coruja.cfg` injetaria
+/// cabeçalho na requisição do aparelho.
 ErroUrl analisa_url(const char* texto, Url* destino);
 
 /// Quantos caracteres do caminho podem ir para o log: tudo antes do `?`.

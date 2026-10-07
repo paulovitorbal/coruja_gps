@@ -135,6 +135,11 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
             while (*p == ' ') { ++p; }
             bool teve_digito = false;
             for (; *p >= '0' && *p <= '9'; ++p) {
+                // O teto vem ANTES da multiplicacao. Vinte digitos de lixo
+                // estouram um `long` de 32 bits, e estouro com sinal e
+                // comportamento indefinido -- o compilador tem licenca para
+                // apagar a verificacao que viesse depois.
+                if (v > (kTetoCorpo - (*p - '0')) / 10) { return false; }
                 v = v * 10 + (*p - '0');
                 teve_digito = true;
             }
@@ -161,10 +166,13 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
 
     // O que veio junto dos cabecalhos ja e corpo: reentra pela mesma porta,
     // em vez de duplicar a maquina de estado aqui dentro.
+    //
+    // Aponta DIRETO para dentro de `cabecalhos_`, sem copia: a `fase_` acabou
+    // de deixar de ser `Cabecalhos`, e nenhuma outra fase escreve nesse
+    // buffer. A copia que havia aqui custava 2 KiB de pilha dentro de um
+    // callback de recepcao, numa pilha de 8 KiB.
     if (n_corpo > 0) {
-        char restante[kMaxCabecalhos];
-        std::memcpy(restante, corpo, n_corpo);
-        return alimenta(reinterpret_cast<const std::uint8_t*>(restante),
+        return alimenta(reinterpret_cast<const std::uint8_t*>(corpo),
                         n_corpo, ao_receber, contexto);
     }
     return true;
@@ -190,8 +198,12 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                 if (!processa_cabecalhos(ao_receber, contexto)) {
                     return false;
                 }
-                // Se processou, o restante ja foi consumido la dentro.
-                if (fase_ != Fase::Cabecalhos) { return true; }
+                // `break`, e nao `return`: o que coube em `cabecalhos_` ja foi
+                // consumido la dentro, mas `livre` pode ter sido MENOR que o
+                // bloco -- e ai ainda sobram bytes em `bytes[i..tamanho)`.
+                // Sair aqui os descartaria em silencio, e o sintoma seria um
+                // radares.bin curto com CRC que nao bate, sem uma linha de log
+                // dizendo por que.
                 break;
             }
 
@@ -234,6 +246,13 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                         else if (*p >= 'a' && *p <= 'f') { d = *p - 'a' + 10; }
                         else if (*p >= 'A' && *p <= 'F') { d = *p - 'A' + 10; }
                         else { break; }
+                        // Mesmo teto, mesma razao: a linha cabe em 19
+                        // caracteres, e 19 digitos hexadecimais estouram
+                        // qualquer `size_t`.
+                        if (valor > (static_cast<std::size_t>(kTetoCorpo)
+                                     - static_cast<std::size_t>(d)) / 16) {
+                            return false;
+                        }
                         valor = valor * 16 + static_cast<std::size_t>(d);
                         teve = true;
                     }

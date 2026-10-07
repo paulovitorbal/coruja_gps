@@ -59,7 +59,13 @@ public:
     /// aparelho, não parâmetro de pedido.
     ///
     /// ⚠️ Vai no cabeçalho `X-Coruja-Token` e **nunca** no log nem na URL.
-    void define_token(const char* token);
+    ///
+    /// Devolve `false` e fica **sem token** quando ele traz algo que não seja
+    /// imprimível de ASCII. Um `\r\n` aqui não seria um token esquisito: seria
+    /// um cabeçalho a mais na requisição que o aparelho manda, montado por
+    /// quem escreveu no cartão. Ficar sem token faz o servidor recusar com
+    /// 401, que é visível — guardar o token torto não seria.
+    bool define_token(const char* token);
 
     /// O maior uso do heap do lwIP já alcançado, e o total, em bytes.
     ///
