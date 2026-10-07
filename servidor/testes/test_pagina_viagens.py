@@ -406,3 +406,69 @@ class LeituraDeViagem(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IntervaloDaViagem(unittest.TestCase):
+    """O que a página diz ao usuário sobre a taxa do arquivo.
+
+    O texto era fixo em "um registro por minuto" e virou mentira quando o
+    firmware passou a gravar a cada 6 s -- e mentira que DESVALORIZA o dado,
+    porque faz a interpolação parecer cobrir 60 s quando cobre 6.
+    """
+
+    def escreve(self, texto):
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
+        tmp.write(texto)
+        tmp.close()
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        return Path(tmp.name)
+
+    def test_v2_diz_seis_segundos(self):
+        v = viagem.le_viagem(self.escreve(
+            viagem_sintetica(passo_s=6, versao=2)))
+        self.assertEqual(v.intervalo_s, 6)
+
+    def test_v1_diz_sessenta_segundos(self):
+        # O formato antigo continua no servidor e continua tendo de ser
+        # descrito direito.
+        v = viagem.le_viagem(self.escreve(
+            viagem_sintetica(passo_s=60, versao=1)))
+        self.assertEqual(v.intervalo_s, 60)
+
+    def test_uma_pausa_no_meio_nao_desloca_o_valor(self):
+        # A MEDIANA, e nao a media: uma parada de dez minutos no semaforo
+        # puxaria a media para um numero que nao descreve o arquivo.
+        base = viagem_sintetica(passo_s=6, versao=2, pontos=10).splitlines()
+        cabecalho, corpo = base[:2], base[2:]
+        t = datetime.datetime.strptime("2026-10-06T13:00:00Z",
+                                       "%Y-%m-%dT%H:%M:%SZ")
+        corpo.append(f"{t.strftime('%Y-%m-%dT%H:%M:%SZ')};-9.9;-39.9;30.0;9.9")
+        v = viagem.le_viagem(self.escreve(
+            "\n".join(cabecalho + corpo) + "\n"))
+        self.assertEqual(v.intervalo_s, 6)
+
+    def test_arquivo_de_um_ponto_so_e_recusado_antes_de_chegar_aqui(self):
+        # Escrevi este teste supondo que `intervalo_s` precisaria tratar o
+        # caso; o parser ja o recusa com mensagem propria, bem antes. Fica
+        # registrado para que ninguem "conserte" a guarda achando que ela
+        # cobre um caminho que existe.
+        um = viagem_sintetica(passo_s=6, versao=2, pontos=1)
+        with self.assertRaises(viagem.ErroDeViagem):
+            viagem.le_viagem(self.escreve(um))
+
+    def test_a_guarda_de_ponto_unico_devolve_zero(self):
+        # A guarda e cinto de seguranca: o `Viagem` e um dataclass comum e
+        # pode ser construido direto. Zero, e nao excecao -- quem tiver um
+        # ponto so ainda precisa conseguir perguntar.
+        p = viagem.PontoViagem(
+            quando=datetime.datetime(2026, 10, 6, 12, 38),
+            lat=-10.0, lon=-40.0, v_media_kmh=20.0, dist_km=0.0)
+        self.assertEqual(viagem.Viagem(nome="x", pontos=[p]).intervalo_s, 0)
+
+    def test_o_texto_da_pagina_leva_o_intervalo_medido(self):
+        v = viagem.le_viagem(self.escreve(
+            viagem_sintetica(passo_s=6, versao=2)))
+        html = viagem.desenha(v)
+        self.assertIn("um registro a cada 6 s", html)
+        self.assertNotIn("um registro por minuto", html)
+
