@@ -41,9 +41,34 @@
 // `mbedtls_config.h`, eles passam ao heap do sistema e este volta a atender
 // so o que sempre atendeu: pbufs e as estruturas pequenas do altcp.
 //
-// 8 KiB, e nao os 4000 originais, porque a configuracao de TLS e o estado por
-// conexao ainda saem daqui. O `MEM_STATS` abaixo diz quanto de fato se usa.
-#define MEM_SIZE                    8192
+// A janela de envio vem ANTES do `MEM_SIZE` porque ele e definido em termos
+// dela -- ver a nota logo abaixo.
+#define TCP_WND                     (8 * TCP_MSS)
+#define TCP_MSS                     1460
+#define TCP_SND_BUF                 (8 * TCP_MSS)
+#define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
+
+// 🔴 **TEM DE CABER A JANELA DE ENVIO INTEIRA**, e e por isso que nao e mais
+// um numero solto.
+//
+// O `altcp_sndbuf()` promete `TCP_SND_BUF` bytes, e TODOS eles sao COPIADOS
+// para este heap pelo `tcp_write(..., TCP_WRITE_FLAG_COPY)` -- mais o que o
+// registro TLS acrescenta a cada pedaco e o cabecalho de cada pbuf. Com
+// `MEM_SIZE` menor que `TCP_SND_BUF`, a janela promete o que a memoria nao
+// tem: o `tcp_write` devolve `ERR_MEM` com a janela ainda aberta.
+//
+// Foi exatamente isso que derrubou TODO envio ate 07/10/2026. Os 8192 daqui
+// contra os 11680 de `TCP_SND_BUF`, medidos no aparelho como
+// `pico do heap do lwip: 7456 B de 8192` num envio que morreu em
+// "falha ao escrever o pedido". O download nunca esbarrou porque so MANDA 400
+// bytes de cabecalho -- os 220 KB dele chegam pelo pool de pbufs, nao por
+// aqui.
+//
+// Os 4 KiB de sobra cobrem o acrescimo do TLS (~29 B por registro), o
+// cabecalho dos pbufs e as alocacoes pequenas de DNS e NTP. O `MEM_STATS`
+// abaixo segue dizendo quanto de fato se usa -- este numero continua sendo
+// para MEDIR, nao para acreditar.
+#define MEM_SIZE                    (TCP_SND_BUF + 4096)
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define PBUF_POOL_SIZE              24
@@ -54,11 +79,6 @@
 #define LWIP_RAW                    1
 #define LWIP_IPV4                   1
 #define LWIP_IPV6                   0
-
-#define TCP_WND                     (8 * TCP_MSS)
-#define TCP_MSS                     1460
-#define TCP_SND_BUF                 (8 * TCP_MSS)
-#define TCP_SND_QUEUELEN            ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 
 #define LWIP_NETIF_STATUS_CALLBACK  1
 #define LWIP_NETIF_LINK_CALLBACK    1

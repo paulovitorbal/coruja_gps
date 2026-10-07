@@ -41,6 +41,17 @@ struct Pedido {
     bool        cabecalho_enviado = false;
     bool        corpo_completo = false;
 
+    /// O pedaco ja LIDO DO CARTAO que o lwIP ainda nao aceitou.
+    ///
+    /// Existe porque `altcp_write` pode devolver `ERR_MEM`, que e
+    /// TRANSITORIO -- "agora nao da, tente quando algo for confirmado" -- e a
+    /// esta altura os bytes ja sairam do cartao. Nao da para le-los de novo:
+    /// o fluxo de leitura ja avancou. Ou eles ficam guardados aqui ate o
+    /// `sent` dar outra chance, ou o envio morre por falta de memoria
+    /// momentanea. Era o que acontecia.
+    std::uint8_t pendente[512];
+    std::size_t  n_pendente = 0;
+
     // --- recepcao ---
     LeitorRespostaHttp  leitor;
     Baixador::AoReceber ao_receber = nullptr;
@@ -89,9 +100,12 @@ bool encerra(Pedido* p, struct altcp_pcb* pcb, bool erro) {
 }
 
 /// Empurra o que couber na janela. Volta quando ela fecha ou o corpo acaba.
+///
+/// `false` so para falha DEFINITIVA -- a fonte secando, ou um erro de escrita
+/// que nao seja falta de memoria. Falta de memoria devolve `true` com o
+/// pedaco guardado em `pendente`, e o `sent` chama de novo.
 bool bombeia(Pedido* p, struct altcp_pcb* pcb) {
-    std::uint8_t pedaco[512];
-    while (p->corpo_enviado < p->corpo_total) {
+    while (p->n_pendente > 0 || p->corpo_enviado < p->corpo_total) {
         const std::size_t janela = altcp_sndbuf(pcb);
         if (janela == 0) {
             // `altcp_output` ANTES de voltar. O `altcp_mbedtls_bio_send` so
@@ -114,27 +128,51 @@ bool bombeia(Pedido* p, struct altcp_pcb* pcb) {
             return true;
         }
 
-        const std::size_t falta = p->corpo_total - p->corpo_enviado;
-        std::size_t quer = sizeof pedaco;
-        if (quer > janela) { quer = janela; }
-        if (quer > falta)  { quer = falta; }
+        if (p->n_pendente == 0) {
+            const std::size_t falta = p->corpo_total - p->corpo_enviado;
+            std::size_t quer = sizeof p->pendente;
+            if (quer > janela) { quer = janela; }
+            if (quer > falta)  { quer = falta; }
 
-        const std::size_t n = p->fonte(p->ctx_fonte, pedaco, quer);
-        if (n == 0) {
-            // A fonte secou antes do Content-Length prometido. Mandar menos
-            // deixaria o servidor esperando bytes que nunca vem.
-            p->fonte_secou = true;
-            return false;
+            const std::size_t n = p->fonte(p->ctx_fonte, p->pendente, quer);
+            if (n == 0) {
+                // A fonte secou antes do Content-Length prometido. Mandar
+                // menos deixaria o servidor esperando bytes que nunca vem.
+                p->fonte_secou = true;
+                return false;
+            }
+            p->n_pendente = n;
         }
-        // TCP_WRITE_FLAG_COPY: `pedaco` e local e some na volta deste laco.
-        if (altcp_write(pcb, pedaco, static_cast<u16_t>(n),
-                        TCP_WRITE_FLAG_COPY) != ERR_OK) {
-            return false;
+        if (p->n_pendente > janela) {
+            // A janela encolheu desde que este pedaco foi lido. Guarda e
+            // espera -- nao da para devolver os bytes ao cartao.
+            static_cast<void>(altcp_output(pcb));
+            return true;
         }
-        p->corpo_enviado += n;
+
+        // TCP_WRITE_FLAG_COPY: o lwIP COPIA para o heap dele, e e por isso
+        // que `MEM_SIZE` tem de caber a janela inteira (ver `lwipopts.h`).
+        const err_t r = altcp_write(pcb, p->pendente,
+                                    static_cast<u16_t>(p->n_pendente),
+                                    TCP_WRITE_FLAG_COPY);
+        if (r == ERR_MEM) {
+            // TRANSITORIO, e nao fatal: o heap do lwIP esta cheio AGORA, e
+            // esvazia quando o outro lado confirmar o que ja foi. O pedaco
+            // fica em `pendente` e o `sent` tenta de novo. Tratar isto como
+            // falha derrubava TODO envio -- a janela promete mais do que o
+            // heap tem, entao o ERR_MEM nao e excecao, e o caso comum.
+            static_cast<void>(altcp_output(pcb));
+            return true;
+        }
+        if (r != ERR_OK) { return false; }
+        p->corpo_enviado += p->n_pendente;
+        p->n_pendente = 0;
     }
     p->corpo_completo = true;
-    return altcp_output(pcb) == ERR_OK;
+    // Mesma razao do caminho acima: um `altcp_output` que nao passa agora
+    // passa sozinho depois, e o prazo e quem segura o caso em que nunca passa.
+    static_cast<void>(altcp_output(pcb));
+    return true;
 }
 
 err_t ao_enviar(void* arg, struct altcp_pcb* pcb, u16_t) {
