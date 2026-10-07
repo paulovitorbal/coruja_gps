@@ -45,10 +45,29 @@ public:
     /// arriscado — o OTA, por exemplo.
     void descarrega();
 
+    /// Desvia a gravação para outro arquivo do cartão.
+    ///
+    /// Existe para a **remessa**. Ela sobe o `coruja.log` e apaga o que subiu
+    /// íntegro; uma linha gravada durante o próprio envio o faria crescer, e
+    /// arquivo que cresceu não é apagado — ele subiria para sempre e nunca
+    /// sairia do cartão. Desligar o log durante a remessa resolvia isso e
+    /// criava outro problema: o envio ficava **cego**, sem uma linha no cartão
+    /// nem no servidor, e três testes em campo não produziram diagnóstico
+    /// nenhum (07/10/2026).
+    ///
+    /// Desviar resolve os dois: o `coruja.log` fica intocado e o que acontece
+    /// na remessa vai para um arquivo que o `nome_enviavel` não seleciona.
+    ///
+    /// Descarrega o que estiver pendente antes de trocar — senão as linhas do
+    /// arquivo anterior sairiam no novo.
+    void usa_arquivo(const char* nome);
+
 private:
     Logger&     seguinte_;
     Armazenamento& cartao_;
-    const char* nome_;
+    /// Cópia, e não ponteiro: o `usa_arquivo` recebe literais de
+    /// escopos que podem não sobreviver à troca.
+    char        nome_[32] = {};
     Nivel       minimo_ = Nivel::Info;
     bool        ligado_ = false;
     bool        gravando_ = false;   ///< guarda de reentrância

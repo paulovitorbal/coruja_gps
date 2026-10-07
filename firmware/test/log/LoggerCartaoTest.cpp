@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,11 @@ using namespace coruja;
 class CartaoDeLog : public Armazenamento {
 public:
     std::string       arquivo;
+    /// O conteúdo separado POR ARQUIVO. Existe desde que o logger passou a
+    /// desviar para `remessa.log`: um dublê que junta tudo num só texto não
+    /// consegue dizer se a linha saiu no arquivo certo, que é exatamente o
+    /// que o desvio precisa garantir.
+    std::map<std::string, std::string> por_nome;
     std::vector<std::size_t> escritas;   ///< tamanho de cada acréscimo aceito
     ErroCartao        resposta = ErroCartao::Nenhum;
     /// Loga a cada acréscimo, para provocar reentrância por `registra()`.
@@ -37,6 +43,7 @@ public:
             redescarrega->descarrega();
         }
         if (resposta != ErroCartao::Nenhum) { return resposta; }
+        por_nome[nome].append(conteudo, tamanho);
         arquivo.append(conteudo, tamanho);
         escritas.push_back(tamanho);
         return ErroCartao::Nenhum;
@@ -242,6 +249,65 @@ TEST(LoggerCartao, a_linha_traz_nivel_origem_e_mensagem) {
     EXPECT_NE(b.cartao.arquivo.find("rede"), std::string::npos);
     EXPECT_NE(b.cartao.arquivo.find("sem enlace"), std::string::npos);
     EXPECT_EQ(b.cartao.arquivo.back(), '\n');
+}
+
+
+// --- o desvio durante a remessa ------------------------------------------
+
+TEST(LoggerCartao, usa_arquivo_desvia_as_linhas_seguintes) {
+    Bancada b;
+    b.log.usa_arquivo("remessa.log");
+    b.log.info("remessa", "conectando");
+    b.log.descarrega();
+
+    EXPECT_NE(b.cartao.por_nome["remessa.log"].find("conectando"),
+              std::string::npos);
+    EXPECT_EQ(b.cartao.por_nome["coruja.log"].find("conectando"),
+              std::string::npos);
+}
+
+TEST(LoggerCartao, usa_arquivo_descarrega_o_pendente_no_arquivo_ANTIGO) {
+    // A parte que erra em silêncio: trocar sem descarregar faria as linhas já
+    // acumuladas saírem no arquivo NOVO, e o `coruja.log` perderia o que
+    // aconteceu antes da remessa -- justamente o contexto de que se precisa
+    // para entender a remessa.
+    Bancada b;
+    b.log.info("app", "linha anterior");
+    b.log.usa_arquivo("remessa.log");
+
+    EXPECT_NE(b.cartao.por_nome["coruja.log"].find("linha anterior"),
+              std::string::npos)
+        << "o pendente nao foi descarregado antes da troca";
+    EXPECT_EQ(b.cartao.por_nome["remessa.log"].find("linha anterior"),
+              std::string::npos);
+}
+
+TEST(LoggerCartao, usa_arquivo_volta_para_o_original) {
+    Bancada b;
+    b.log.usa_arquivo("remessa.log");
+    b.log.info("remessa", "durante");
+    b.log.usa_arquivo("coruja.log");
+    b.log.info("app", "depois");
+    b.log.descarrega();
+
+    EXPECT_NE(b.cartao.por_nome["remessa.log"].find("durante"),
+              std::string::npos);
+    EXPECT_NE(b.cartao.por_nome["coruja.log"].find("depois"),
+              std::string::npos);
+    EXPECT_EQ(b.cartao.por_nome["coruja.log"].find("durante"),
+              std::string::npos);
+}
+
+TEST(LoggerCartao, usa_arquivo_com_nome_vazio_nao_muda_nada) {
+    // Trocar para "" mandaria o log para um arquivo sem nome, e o que se
+    // perderia seria exatamente o diagnóstico que o desvio existe para dar.
+    Bancada b;
+    b.log.usa_arquivo("");
+    b.log.usa_arquivo(nullptr);
+    b.log.info("app", "segue valendo");
+    b.log.descarrega();
+    EXPECT_NE(b.cartao.por_nome["coruja.log"].find("segue valendo"),
+              std::string::npos);
 }
 
 }  // namespace

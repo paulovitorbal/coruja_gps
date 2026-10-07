@@ -92,6 +92,10 @@ char g_texto_config[kTamBufferConfig];
 char g_trabalho_cfg[coruja::kMaxTextoCfg];
 
 constexpr const char* kArquivoLog = "coruja.log";
+/// Para onde o log vai DURANTE a remessa. Não casa com o `nome_enviavel`, de
+/// propósito: ele não sobe, não é apagado, e por isso sobrevive no cartão
+/// para ser lido depois de um envio que falhou.
+constexpr const char* kArquivoLogRemessa = "remessa.log";
 
 void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
                            std::size_t tamanho) {
@@ -412,13 +416,20 @@ public:
             return;
         }
 
-        // **O log em cartao e desligado durante a remessa.** Ele escreve no
-        // `coruja.log`, que e um dos arquivos que sobem: cada linha gravada
-        // durante o envio faz o arquivo crescer, e arquivo que cresceu nao e
-        // apagado (ver `RemessaDados`). Sem desligar, o `coruja.log` subiria
-        // a cada remessa e nunca sairia do cartao.
-        const bool log_estava_no_cartao = config.log_para_cartao;
-        log_.grava_no_cartao(false);
+        // **O log e DESVIADO durante a remessa**, e nao desligado.
+        //
+        // Desviar e preciso porque o `coruja.log` e um dos arquivos que sobem:
+        // cada linha gravada durante o envio o faz crescer, e arquivo que
+        // cresceu nao e apagado (ver `RemessaDados`) -- ele subiria a cada
+        // remessa e nunca sairia do cartao.
+        //
+        // Desligar era a solucao anterior, e ela custou caro: o envio ficou
+        // CEGO. Em 07/10/2026 ele falhou tres vezes seguidas sem deixar uma
+        // linha no cartao nem uma requisicao no servidor, e nao houve o que
+        // diagnosticar -- so o texto de uma tela. `remessa.log` nao casa com o
+        // `nome_enviavel`, entao ele nao sobe e nao e apagado: fica no cartao
+        // para ser lido.
+        log_.usa_arquivo(kArquivoLogRemessa);
 
         coruja::ResultadoRemessa resultado;
         {
@@ -426,7 +437,7 @@ public:
             resultado = remessa_.executa(config, log_);
         }
 
-        log_.grava_no_cartao(log_estava_no_cartao);
+        log_.usa_arquivo(kArquivoLog);
         log_.descarrega();
 
         // Mesma regra do OTA: fim feliz passa, falha espera. Quem perdeu a

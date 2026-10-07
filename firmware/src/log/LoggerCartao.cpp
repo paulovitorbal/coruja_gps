@@ -11,7 +11,16 @@ namespace coruja {
 
 LoggerCartao::LoggerCartao(Logger& seguinte, Armazenamento& cartao,
                            const char* nome_arquivo)
-    : seguinte_(seguinte), cartao_(cartao), nome_(nome_arquivo) {}
+    : seguinte_(seguinte), cartao_(cartao) {
+    std::snprintf(nome_, sizeof nome_, "%s",
+                  nome_arquivo != nullptr ? nome_arquivo : "coruja.log");
+}
+
+void LoggerCartao::usa_arquivo(const char* nome) {
+    if (nome == nullptr || nome[0] == '\0') { return; }
+    descarrega();
+    std::snprintf(nome_, sizeof nome_, "%s", nome);
+}
 
 void LoggerCartao::define_nivel_minimo(Nivel nivel) {
     minimo_ = nivel;

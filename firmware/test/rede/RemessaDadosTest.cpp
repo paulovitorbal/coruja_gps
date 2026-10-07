@@ -1,5 +1,8 @@
 #include "rede/RemessaDados.h"
 
+#include "armazenamento/CartaoSd.h"
+#include "apoio/fatfs/FatFsFalso.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -662,6 +665,85 @@ TEST(Remessa, so_os_dois_desfechos_bons_nao_sao_falha) {
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaDeRede));
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaDeCartao));
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaAoEnviar));
+}
+
+
+// ================== a remessa sobre o CARTAO DE VERDADE ==================
+//
+// Tudo acima roda contra um `CartaoFalso` escrito a mao, e e por isso que a
+// suite ficou verde enquanto o envio falhava no aparelho tres vezes seguidas.
+// Aqui o `RemessaDados` fala com o `CartaoSd` DE PRODUCAO, compilado contra o
+// duble de FatFs -- a mesma montagem, os mesmos dois descritores, a mesma
+// sondagem de volume. E a unica forma de exercitar o que o aparelho executa.
+
+struct CenarioCartaoReal {
+    teste::FatFsFalso& fs = teste::FatFsFalso::instancia();
+    CartaoSd          cartao;
+    RedeFalsa         rede;
+    ServidorFalso     servidor;
+    teste::LoggerMock log;
+    Configuracao      cfg = cfg_valida();
+
+    CenarioCartaoReal() {
+        fs.reinicia();
+        fs.volumes[0].monta = true;
+        // A forma EXATA do coruja.cfg do aparelho: https, e SEM barra final.
+        std::snprintf(cfg.url_envio, sizeof cfg.url_envio,
+                      "https://coruja.bpldev.com/envio");
+    }
+
+    void poe(const std::string& nome, const std::string& conteudo) {
+        fs.volumes[0].arquivos[nome] = conteudo;
+    }
+
+    ResultadoRemessa roda() {
+        RemessaDados r(cartao, rede, servidor, nullptr, nullptr);
+        auto saida = r.executa(cfg, log);
+        entregues = r.entregues();
+        falhados = r.falhados();
+        retidos = r.retidos();
+        return saida;
+    }
+    unsigned entregues = 0, falhados = 0, retidos = 0;
+};
+
+TEST(RemessaComCartaoReal, uma_viagem_sobe_e_e_apagada) {
+    CenarioCartaoReal c;
+    c.poe("20261006_123858.log", "linha de viagem\n");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.recebidos["20261006_123858.log"], "linha de viagem\n");
+    EXPECT_FALSE(c.fs.existe(0, "20261006_123858.log"));
+    EXPECT_EQ(c.falhados, 0u);
+}
+
+TEST(RemessaComCartaoReal, o_conjunto_do_aparelho_sobe_inteiro) {
+    // Os arquivos que estavam no cartao em 07/10/2026, com os tamanhos reais.
+    CenarioCartaoReal c;
+    c.poe("20261004_225259.log", std::string(101, 'a'));
+    c.poe("20261004_225323.log", std::string(251, 'b'));
+    c.poe("20261006_123858.log", std::string(1176, 'c'));
+    c.poe("coruja.log", std::string(32108, 'd'));
+    c.poe("radares.bin", std::string(220064, 'x'));   // nao sobe
+    c.poe("coruja.cfg", "nao sobe");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.entregues, 4u);
+    EXPECT_EQ(c.falhados, 0u);
+    EXPECT_TRUE(c.fs.existe(0, "radares.bin")) << "subiu o que nao devia";
+    EXPECT_TRUE(c.fs.existe(0, "coruja.cfg"));
+    EXPECT_EQ(c.servidor.recebidos["coruja.log"].size(), 32108u);
+}
+
+TEST(RemessaComCartaoReal, o_caminho_montado_leva_a_barra_e_o_nome) {
+    // `url_envio` sem barra final + nome do arquivo. Um "/enviocoruja.log"
+    // nao chegaria a lugar nenhum, e o servidor nunca veria a requisicao --
+    // que e exatamente o sintoma observado.
+    CenarioCartaoReal c;
+    c.poe("20261006_123858.log", "x");
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    ASSERT_FALSE(c.servidor.caminhos.empty());
+    EXPECT_EQ(c.servidor.caminhos[0], "/envio/20261006_123858.log");
 }
 
 }  // namespace
