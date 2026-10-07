@@ -6,6 +6,7 @@
 #include "nucleo/Configuracao.h"
 #include "rede/Conexao.h"
 #include "rede/Enviador.h"
+#include "rede/PreparoDeSessao.h"
 
 namespace coruja {
 
@@ -132,8 +133,10 @@ public:
     /// `observador` é opcional: nulo significa "ninguém está olhando", que é o
     /// caso da suíte de host inteira.
     RemessaDados(Arquivario& cartao, Conexao& rede, Enviador& http,
-                 ObservadorRemessa* observador = nullptr)
-        : cartao_(cartao), rede_(rede), http_(http), observador_(observador) {}
+                 ObservadorRemessa* observador = nullptr,
+                 PreparoDeSessao* preparo = nullptr)
+        : cartao_(cartao), rede_(rede), http_(http), observador_(observador),
+          preparo_(preparo) {}
 
     ResultadoRemessa executa(const Configuracao& cfg, Logger& log);
 
@@ -178,6 +181,7 @@ private:
     Conexao&           rede_;
     Enviador&          http_;
     ObservadorRemessa* observador_ = nullptr;
+    PreparoDeSessao*   preparo_ = nullptr;
     /// Membro, e não local de `despacha()`: 1 KB na pilha de 8 KB do Pico, num
     /// caminho que ainda passa pelo lwIP, é folga que não existe. Em `.bss`
     /// ele aparece no mapa de memória; na pilha, não.

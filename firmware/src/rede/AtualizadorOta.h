@@ -9,6 +9,7 @@
 #include "nucleo/Pausa.h"
 #include "rede/Baixador.h"
 #include "rede/Conexao.h"
+#include "rede/PreparoDeSessao.h"
 
 namespace coruja {
 
@@ -109,10 +110,13 @@ public:
     /// e o caso de toda a suite de host e do modo de bancada sem painel.
     /// Nao tornar obrigatorio evitou mexer em dezenas de construcoes de
     /// teste para acrescentar um duble que elas nao usariam.
+    /// `preparo` e opcional: nulo significa "nada a fazer depois de
+    /// conectar", que e o caso da suite de host inteira.
     AtualizadorOta(Armazenamento& cartao, Conexao& rede, Baixador& http,
-                   Pausa& pausa, ObservadorOta* observador = nullptr)
+                   Pausa& pausa, ObservadorOta* observador = nullptr,
+                   PreparoDeSessao* preparo = nullptr)
         : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa),
-          observador_(observador) {}
+          observador_(observador), preparo_(preparo) {}
 
     ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
@@ -124,6 +128,7 @@ private:
     Baixador&           http_;
     Pausa&              pausa_;
     ObservadorOta*      observador_ = nullptr;
+    PreparoDeSessao*    preparo_ = nullptr;
     VerificadorDownload verificador_;
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};

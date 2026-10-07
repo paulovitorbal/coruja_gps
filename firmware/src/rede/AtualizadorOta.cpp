@@ -235,6 +235,14 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         return ResultadoOta::FalhaDeRede;
     }
 
+    // AGORA, e nao antes: o `conecta()` acima e quem chama o
+    // `cyw43_arch_init()`. Qualquer uso da pilha de rede antes deste ponto
+    // fala com um radio que ainda nao existe -- e o aparelho trava por
+    // completo, sem erro. Ver `PreparoDeSessao`.
+    if (preparo_ != nullptr) {
+        preparo_->apos_conectar(log);
+    }
+
     // `desconecta` tem de acontecer em TODA saída daqui para baixo. Um retorno
     // adiantado que esquecesse disso deixaria o rádio associado indefinidamente
     // — exatamente o que a conexão episódica existe para evitar.

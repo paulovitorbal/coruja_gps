@@ -198,6 +198,41 @@ private:
     BaseCarregada     ultima_;
 };
 
+/// Acerta o relogio assim que a rede sobe, antes do primeiro pedido.
+///
+/// ⚠️ **Isto ja foi feito no lugar errado**, no construtor da
+/// `SessaoDeRede`, antes de o orquestrador conectar. O `cyw43_arch_init()`
+/// so acontece dentro do `RedeWifi::conecta()`, entao o cliente NTP
+/// falava com a pilha de rede e com o radio antes de os dois existirem --
+/// e o aparelho travava por completo no clique de atualizar: tela
+/// congelada, encoder morto, sem uma linha de log.
+class RelogioAntesDoTls final : public coruja::PreparoDeSessao {
+public:
+    RelogioAntesDoTls(coruja::SincronizadorHora& s, coruja::LeitorGps& gps)
+        : sincronizador_(s), gps_(gps) {}
+
+    /// De onde pedir a hora. Vem da configuracao RELIDA a cada acao, e
+    /// nao da do boot: trocar o cartao passa a valer sem reiniciar
+    /// (RNF03), e isso tem de valer para esta chave tambem.
+    void define_servidor(const char* servidor) {
+        std::snprintf(servidor_, sizeof servidor_, "%s",
+                      servidor != nullptr ? servidor : "");
+    }
+
+    void apos_conectar(coruja::Logger& log) override {
+        sincronizador_.sincroniza(servidor_, gps_.telemetria(), log);
+        // Zero quando ninguem conseguiu: o mbedTLS enxerga 1970 e recusa
+        // todo certificado por "ainda nao vale". E o lado seguro de nao
+        // saber a data, e o log do sincronizador ja disse o porque.
+        coruja::define_hora_utc(sincronizador_.hora_utc());
+    }
+
+private:
+    coruja::SincronizadorHora& sincronizador_;
+    coruja::LeitorGps&         gps_;
+    char servidor_[coruja::kMaxUrl + 1] = {};
+};
+
 /// OTA numa; LED e buzzer na outra.
 class AcoesDoAparelho final : public coruja::AcoesAplicacao {
 public:
@@ -210,12 +245,12 @@ public:
                     coruja::LoggerCartao& log, coruja::ClienteTls& http,
                     coruja::SincronizadorHora& sincronizador,
                     RecarregadorDoCartao& recarregador,
-                    coruja::LeitorGps& gps)
+                    coruja::LeitorGps& gps, RelogioAntesDoTls& preparo)
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
           log_(log), http_(http), sincronizador_(sincronizador),
-          recarregador_(recarregador), gps_(gps) {}
+          recarregador_(recarregador), gps_(gps), preparo_(preparo) {}
 
     /// Prepara tudo que uma sessao de rede precisa, e desfaz no fim.
     ///
@@ -238,10 +273,11 @@ public:
             : dono_(dono),
               emprestimo_(dono.piloto_, dono.recarregador_, g_pontos,
                           coruja::kCapacidadeFirmware, dono.log_) {
-            const auto origem = dono_.sincronizador_.sincroniza(
-                cfg.servidor_ntp, dono_.gps_.telemetria(), dono_.log_);
-            static_cast<void>(origem);
-            coruja::define_hora_utc(dono_.sincronizador_.hora_utc());
+            dono_.preparo_.define_servidor(cfg.servidor_ntp);
+            // A memoria pode ser emprestada ja; o relogio NAO pode ser
+            // acertado aqui. Acertar exige falar com a rede, e quem levanta
+            // o radio -- `cyw43_arch_init()` -- e o `conecta()` la dentro do
+            // orquestrador. Ver `PreparoDeSessao::apos_conectar`.
             coruja::inicia_plataforma_mbedtls(&emprestimo_.arena());
         }
 
@@ -262,6 +298,7 @@ public:
         AcoesDoAparelho&         dono_;
         coruja::EmprestimoDaBase emprestimo_;
     };
+
 
     /// Houve uma atualizacao desde a ultima pergunta?
     ///
@@ -403,6 +440,7 @@ private:
     coruja::SincronizadorHora& sincronizador_;
     RecarregadorDoCartao&      recarregador_;
     coruja::LeitorGps&         gps_;
+    RelogioAntesDoTls&         preparo_;
     BaseCarregada           base_;
     bool                    houve_ota_ = false;
 };
@@ -470,15 +508,21 @@ int main() {
     relogio.inicia();
     http.define_token(config.token_aparelho);
 
-    coruja::SincronizadorHora   sincronizador(relogio, ntp);
-    RecarregadorDoCartao        recarregador(cartao);
+    coruja::SincronizadorHora sincronizador(relogio, ntp);
+    RecarregadorDoCartao      recarregador(cartao);
+    // O relogio e acertado pelos ORQUESTRADORES, logo depois de a rede
+    // subir -- nunca antes. Ver `PreparoDeSessao`.
+    RelogioAntesDoTls         preparo(sincronizador, gps);
+
     coruja::OtaNaTela      ponte{visor, led, pausa};
-    coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
+    coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
-    coruja::RemessaDados   remessa(cartao, rede, http, &ponte_remessa);
+    coruja::RemessaDados   remessa(cartao, rede, http, &ponte_remessa,
+                                   &preparo);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
                                  piloto, led, buzzer, pausa, encoder, log,
-                                 http, sincronizador, recarregador, gps);
+                                 http, sincronizador, recarregador, gps,
+                                 preparo);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,

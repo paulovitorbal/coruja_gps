@@ -117,9 +117,11 @@ public:
     ErroWifi erro = ErroWifi::Nenhum;
     int conectou = 0;
     int desconectou = 0;
+    std::vector<std::string>* diario = nullptr;
 
     ErroWifi conecta(const Configuracao&, Logger&) override {
         ++conectou;
+        if (diario != nullptr) { diario->push_back("conecta"); }
         return erro;
     }
     void desconecta(Logger&) override { ++desconectou; }
@@ -204,15 +206,28 @@ Configuracao cfg_valida() {
     return cfg;
 }
 
+/// Anota a ORDEM dos acontecimentos, que e o que importa aqui.
+class PreparoEspiao : public PreparoDeSessao {
+public:
+    std::vector<std::string>* diario = nullptr;
+    void apos_conectar(Logger&) override {
+        if (diario != nullptr) { diario->push_back("preparo"); }
+    }
+};
+
 struct Cenario {
     CartaoFalso   cartao;
     RedeFalsa     rede;
     ServidorFalso servidor;
     teste::LoggerMock log;
     Configuracao  cfg = cfg_valida();
+    PreparoEspiao preparo;
+    std::vector<std::string> diario;
 
     ResultadoRemessa roda() {
-        RemessaDados r(cartao, rede, servidor, nullptr);
+        rede.diario = &diario;
+        preparo.diario = &diario;
+        RemessaDados r(cartao, rede, servidor, nullptr, &preparo);
         auto saida = r.executa(cfg, log);
         entregues = r.entregues();
         falhados = r.falhados();
@@ -223,6 +238,40 @@ struct Cenario {
     unsigned falhados = 0;
     unsigned retidos = 0;
 };
+
+// ====================== a ordem: conectar ANTES de preparar a sessao
+
+TEST(Remessa, o_preparo_da_sessao_vem_DEPOIS_de_conectar) {
+    // Travou o aparelho inteiro em 2026-10-06.
+    //
+    // O relogio era acertado na composicao, ANTES de o orquestrador rodar.
+    // Mas quem chama `cyw43_arch_init()` e o `RedeWifi::conecta()`, la
+    // dentro -- entao o cliente NTP falava com a pilha de rede e com o radio
+    // antes de os dois existirem. Tela congelada, encoder morto, nem uma
+    // linha de log.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "dado";
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.diario, (std::vector<std::string>{"conecta", "preparo"}));
+}
+
+TEST(Remessa, sem_rede_o_preparo_NAO_acontece) {
+    // Preparar sem rede e exatamente o que travava: falar com a pilha antes
+    // de ela existir.
+    Cenario c;
+    c.rede.erro = ErroWifi::FalhaDeAssociacao;
+    c.cartao.arquivos["coruja.log"] = "dado";
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeRede);
+    EXPECT_EQ(c.diario, (std::vector<std::string>{"conecta"}));
+}
+
+TEST(Remessa, o_preparo_acontece_UMA_vez_por_sessao) {
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "a";
+    c.cartao.arquivos["infracoes.log"] = "b";
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(std::count(c.diario.begin(), c.diario.end(), "preparo"), 1);
+}
 
 // ======================================================= quais nomes sobem
 

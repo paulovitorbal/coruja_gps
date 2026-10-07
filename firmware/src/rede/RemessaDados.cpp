@@ -299,6 +299,12 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
         return ResultadoRemessa::FalhaDeRede;
     }
 
+    // AGORA, e nao antes: o `conecta()` acima e quem chama o
+    // `cyw43_arch_init()`. Ver `PreparoDeSessao`.
+    if (preparo_ != nullptr) {
+        preparo_->apos_conectar(log);
+    }
+
     ResultadoRemessa saida = ResultadoRemessa::NadaAEnviar;
     Colheita colheita;
 
