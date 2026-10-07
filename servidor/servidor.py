@@ -30,6 +30,7 @@ import sys
 import hmac
 import re
 import secrets
+import shutil
 import threading
 import time
 import urllib.parse
@@ -89,6 +90,24 @@ PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
 #: So os registros de viagem, para a pagina. O `coruja.log` e o
 #: `infracoes.log` nao sao trajetos e nao tem o que desenhar.
 PADRAO_VIAGEM = re.compile(r"^\d{8}_\d{6}\.log$")
+
+#: Onde fica o histórico **append-only** dos arquivos de nome fixo.
+#:
+#: ⚠️ **Sem isto o servidor PERDE dado a cada remessa.** O `coruja.log` e o
+#: `infracoes.log` chegam sempre com o mesmo nome, e o aparelho apaga o dele
+#: depois de o CRC ser confirmado — ou seja, cada envio traz um trecho novo,
+#: sem sobreposição com o anterior. Gravar por cima guarda só o último e
+#: descarta todos os anteriores. Para o log isso é histórico perdido; para o
+#: `infracoes.log` é perda de dado do produto.
+#:
+#: Os arquivos de viagem não entram: o nome deles já carrega data e hora, e
+#: nunca se repete.
+#:
+#: ⚠️ **O arquivo de nome fixo continua sendo gravado como antes.** É dele que
+#: o `_crc_do_recebido` responde, e o aparelho compara esse CRC com o do
+#: trecho que acabou de mandar. Responder o CRC do histórico faria o aparelho
+#: concluir que nada chegou — e nunca apagar nada.
+SUBDIR_HISTORICO = "historico"
 
 #: Cabecalho do segredo combinado. Sem ele, ou errado, a resposta e 401.
 #:
@@ -583,10 +602,30 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             return
 
         temporario.replace(destino / nome)
+        if not PADRAO_VIAGEM.match(nome):
+            self._acrescenta_ao_historico(destino, nome)
         log.info("recebido %s/%s (%d bytes, crc %08x)", aparelho, nome,
                  recebido, crc)
         self._responde(201, f"{crc:08x}\n".encode(),
                        "text/plain; charset=utf-8")
+
+    @staticmethod
+    def _acrescenta_ao_historico(destino: Path, nome: str) -> None:
+        """Acrescenta o trecho recém-recebido ao histórico do aparelho.
+
+        Falhar aqui **não** derruba a resposta. O arquivo definitivo já está
+        gravado e o CRC já é o certo: responder erro faria o aparelho manter o
+        trecho e remandá-lo para sempre, trocando uma falha de histórico por
+        uma de entrega. O erro vai para o log, onde é visível.
+        """
+        try:
+            pasta = destino / SUBDIR_HISTORICO
+            pasta.mkdir(exist_ok=True)
+            with (destino / nome).open("rb") as origem, \
+                 (pasta / nome).open("ab") as historico:
+                shutil.copyfileobj(origem, historico, 64 * 1024)
+        except OSError as e:
+            log.error("falha acrescentando %s ao historico: %s", nome, e)
 
     def _crc_do_recebido(self, nome: str) -> None:
         """O CRC32 do que está guardado, para o aparelho decidir se apaga.

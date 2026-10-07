@@ -298,7 +298,11 @@ class Recepcao(unittest.TestCase):
     def recebidos(self, aparelho=None):
         aparelho = aparelho if aparelho is not None else PASTA
         pasta = self.dados / s.SUBDIR_ENVIO / aparelho
-        return sorted(p.name for p in pasta.iterdir()) if pasta.is_dir() else []
+        # So ARQUIVOS: o `historico/` e um diretorio, e a producao tambem o
+        # ignora (`is_file()` em toda listagem). Um ajudante que contasse
+        # diretorios faria os testes falarem de outra coisa.
+        return (sorted(p.name for p in pasta.iterdir() if p.is_file())
+                if pasta.is_dir() else [])
 
     # -- autorização --
 
@@ -993,3 +997,86 @@ class LeAparelhos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoricoAppendOnly(Recepcao):
+    """O que impede o servidor de perder histórico a cada remessa.
+
+    O `coruja.log` e o `infracoes.log` chegam sempre com o MESMO nome, e o
+    aparelho apaga o dele depois do CRC confirmado -- cada envio e um trecho
+    novo. Gravar por cima guardava so o ultimo.
+    """
+
+    def historico(self, nome, aparelho=None):
+        aparelho = aparelho if aparelho is not None else PASTA
+        caminho = (self.dados / s.SUBDIR_ENVIO / aparelho
+                   / s.SUBDIR_HISTORICO / nome)
+        return caminho.read_bytes() if caminho.is_file() else None
+
+    def test_dois_envios_do_mesmo_nome_se_acumulam(self):
+        self.assertEqual(self.envia("infracoes.log", b"primeira\n")[0], 201)
+        self.assertEqual(self.envia("infracoes.log", b"segunda\n")[0], 201)
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nsegunda\n")
+
+    def test_o_arquivo_de_nome_fixo_segue_tendo_so_o_ultimo_trecho(self):
+        # O contrato com o aparelho nao muda: ele pergunta o CRC DO QUE
+        # MANDOU. Se este arquivo passasse a acumular, o CRC nunca bateria e
+        # ele nunca apagaria nada.
+        self.envia("coruja.log", b"velho\n")
+        self.envia("coruja.log", b"novo\n")
+        caminho = self.dados / s.SUBDIR_ENVIO / PASTA / "coruja.log"
+        self.assertEqual(caminho.read_bytes(), b"novo\n")
+
+    def test_o_crc_respondido_e_o_do_ultimo_trecho_e_nao_o_do_historico(self):
+        import zlib
+        self.envia("coruja.log", b"velho\n")
+        status, corpo = self.envia("coruja.log", b"novo\n")
+        self.assertEqual(status, 201)
+        self.assertEqual(corpo.strip().decode(),
+                         f"{zlib.crc32(b'novo' + bytes([10])):08x}")
+
+    def test_viagem_nao_entra_no_historico(self):
+        # O nome dela ja e unico: duplicar seria gastar disco a toa.
+        self.assertEqual(self.envia("20261006_123858.log", b"x\n")[0], 201)
+        self.assertIsNone(self.historico("20261006_123858.log"))
+
+    def test_envio_truncado_nao_suja_o_historico(self):
+        """Um envio que morre no meio nao pode deixar meio arquivo eterno.
+
+        Soquete cru, e nao `http.client`: para o servidor ver o corpo acabar
+        antes do `Content-Length` o cliente precisa FECHAR o lado de escrita,
+        que e o que um aparelho sem rede faz. Pelo cliente de alto nivel a
+        conexao fica aberta e o servidor espera ate o tempo limite -- o teste
+        penduraria em vez de testar.
+        """
+        import socket
+        corpo = b"so o comeco\n"
+        pedido = (
+            f"PUT {s.ROTA_ENVIO}infracoes.log HTTP/1.1\r\n"
+            f"Host: 127.0.0.1\r\n"
+            f"{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+            f"Content-Length: {len(corpo) + 5000}\r\n"
+            f"Connection: close\r\n\r\n"
+        ).encode() + corpo
+        with socket.create_connection(("127.0.0.1", self.porta),
+                                      timeout=5) as c:
+            c.sendall(pedido)
+            c.shutdown(socket.SHUT_WR)
+            resposta = c.recv(64)
+        self.assertIn(b"400", resposta.split(b"\r\n")[0])
+        self.assertIsNone(self.historico("infracoes.log"))
+        self.assertEqual(self.recebidos(), [])
+
+    def test_envio_grande_demais_nao_suja_o_historico(self):
+        # O outro lado: recusado ANTES de ler o corpo.
+        status, _ = self.pede("PUT", s.ROTA_ENVIO + "infracoes.log", b"x",
+                              tamanho=s.TAMANHO_MAXIMO + 1)
+        self.assertEqual(status, 413)
+        self.assertIsNone(self.historico("infracoes.log"))
+
+    def test_a_pasta_do_historico_nao_aparece_como_arquivo_recebido(self):
+        self.envia("infracoes.log", b"uma\n")
+        self.assertIn("infracoes.log", self.recebidos())
+        self.assertNotIn(s.SUBDIR_HISTORICO + "/", self.recebidos())
+
