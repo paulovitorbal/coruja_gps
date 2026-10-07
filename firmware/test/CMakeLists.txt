@@ -53,6 +53,7 @@ add_executable(testes
     nucleo/TextoTest.cpp
     nucleo/UrlTest.cpp
     nucleo/TempoUtcTest.cpp
+    nucleo/CarimboDeLogTest.cpp
     nucleo/ArenaMemoriaTest.cpp
     nucleo/SincronizadorHoraTest.cpp
     rede/SntpTest.cpp
@@ -60,6 +61,7 @@ add_executable(testes
     nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
     log/IdExecucaoTest.cpp
+    log/CarimboExecucaoTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
     encoder/AntiRepiqueTest.cpp
     app/ModoTesteEncoderTest.cpp

@@ -45,10 +45,12 @@
 #include "gps/LeitorGps.h"
 #include "gps/UartPico.h"
 #include "led/LedRgbAnodoComum.h"
+#include "log/CarimboExecucao.h"
 #include "log/IdExecucao.h"
 #include "log/LoggerCartao.h"
 #include "log/LoggerConsole.h"
 #include "nucleo/BaseRadares.h"
+#include "nucleo/CarimboDeLog.h"
 #include "nucleo/CarregadorFluxo.h"
 #include "nucleo/LeitorConfig.h"
 #include "placa/PausaReal.h"
@@ -508,6 +510,20 @@ int main() {
     // Ele separa as ligacoes dentro do `coruja.log`, que acumula entre elas.
     // Sem isto, so da para inferir a fronteira pelo que aparece no boot.
     coruja::define_id_execucao(get_rand_64());
+
+    // E a HORA de cada linha, que ate agora nao existia.
+    //
+    // Sem ela, qualquer ferramenta de analise carimba a linha com o instante
+    // em que INGERIU o arquivo -- dias depois, no caso de um log que sobe por
+    // remessa. Enquanto o NTP nao acerta o relogio sai o tempo desde o boot,
+    // com `+`, que nao se confunde com uma data (ver `formata_carimbo`).
+    coruja::define_fonte_de_carimbo([]() -> const char* {
+        static char carimbo[coruja::kTamCarimbo];
+        coruja::formata_carimbo(coruja::hora_utc(),
+                                to_ms_since_boot(get_absolute_time()),
+                                carimbo, sizeof carimbo);
+        return carimbo;
+    });
 
     // Pinta a pilha livre ANTES de qualquer trabalho. O handshake do mbedTLS
     // e o que mais consome aqui, e o tamanho reservado (16 KiB) foi escolhido

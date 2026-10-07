@@ -1,5 +1,6 @@
 #include "log/LoggerCartao.h"
 
+#include "log/CarimboExecucao.h"
 #include "log/IdExecucao.h"
 
 #include <cstdio>
@@ -95,8 +96,17 @@ void LoggerCartao::registra(Nivel nivel, const char* origem,
         return;
     }
 
-    char linha[160];
-    const int n = std::snprintf(linha, sizeof linha, "%s%s[%s] %s: %s\n",
+    // 192, e nao os 160 de antes: o carimbo acrescentou 21 caracteres a toda
+    // linha, e manter o buffer cortaria a MENSAGEM para caber o horario --
+    // trocando conteudo por metadado exatamente nas linhas mais longas, que
+    // sao as de diagnostico.
+    char linha[192];
+    // O carimbo vem PRIMEIRO, e nao depois do identificador: ferramenta de
+    // log espera o instante no comeco da linha, e e assim que ela o acha sem
+    // configuracao. O identificador de execucao vem em seguida porque ele
+    // agrupa, nao ordena.
+    const int n = std::snprintf(linha, sizeof linha, "%s%s%s%s[%s] %s: %s\n",
+                                carimbo_agora(), separador_carimbo(),
                                 id_execucao(), separador_execucao(),
                                 nome_nivel(nivel), origem, mensagem);
     if (n <= 0) {
