@@ -54,6 +54,7 @@
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
+#include "placa/MedidorPilha.h"
 #include "placa/RelogioAon.h"
 #include "rede/ClienteSntp.h"
 #include "rede/ClienteTls.h"
@@ -281,7 +282,32 @@ public:
             coruja::inicia_plataforma_mbedtls(&emprestimo_.arena());
         }
 
+        /// Registra o quanto a pilha e a arena chegaram a usar.
+        ///
+        /// Os dois numeros respondem a mesma pergunta -- "o que eu reservei
+        /// dava conta?" -- e os dois sao medidos, nao estimados. Sem eles, o
+        /// unico jeito de descobrir que nao davam seria o aparelho travar em
+        /// campo.
+        void anota_consumo() {
+            std::size_t usado = 0;
+            std::size_t total = 0;
+            char msg[96];
+            if (coruja::pico_da_pilha(&usado, &total)) {
+                std::snprintf(msg, sizeof msg, "pico da pilha: %u B de %u",
+                              static_cast<unsigned>(usado),
+                              static_cast<unsigned>(total));
+                dono_.log_.info("mem", msg);
+            } else {
+                // Sem tinta sobrando: a pilha foi usada ate o fundo, e o
+                // pico real e DESCONHECIDO -- pode ter passado. Dizer um
+                // numero aqui esconderia exatamente o transbordo.
+                dono_.log_.error("mem",
+                    "a pilha foi usada ate o fundo: AUMENTE PICO_STACK_SIZE");
+            }
+        }
+
         ~SessaoDeRede() {
+            anota_consumo();
             // A ORDEM IMPORTA de verdade aqui, ao contrario do construtor: o
             // cliente guarda a configuracao de TLS DENTRO da arena, e a arena
             // deixa de existir quando o emprestimo acaba. Liberar depois
@@ -458,6 +484,12 @@ int main() {
     // Ele separa as ligacoes dentro do `coruja.log`, que acumula entre elas.
     // Sem isto, so da para inferir a fronteira pelo que aparece no boot.
     coruja::define_id_execucao(get_rand_64());
+
+    // Pinta a pilha livre ANTES de qualquer trabalho. O handshake do mbedTLS
+    // e o que mais consome aqui, e o tamanho reservado (16 KiB) foi escolhido
+    // com folga porque ninguem o mediu -- isto e o que troca o palpite por
+    // um numero.
+    coruja::pinta_pilha();
 
     coruja::LoggerConsole console(nullptr, coruja::Nivel::Info);
     coruja::CartaoSd      cartao;

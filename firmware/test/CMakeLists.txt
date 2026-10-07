@@ -63,6 +63,7 @@ add_executable(testes
     encoder/AntiRepiqueTest.cpp
     app/ModoTesteEncoderTest.cpp
     placa/PinosTest.cpp
+    placa/MedidorPilhaTest.cpp
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     app/CicloCoresTest.cpp

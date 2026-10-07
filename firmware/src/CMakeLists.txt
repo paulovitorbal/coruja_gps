@@ -24,6 +24,7 @@ add_library(coruja_nucleo STATIC
     nucleo/Url.cpp
     nucleo/TempoUtc.cpp
     nucleo/ArenaMemoria.cpp
+    placa/MedidorPilha.cpp
     nucleo/SincronizadorHora.cpp
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
@@ -93,6 +94,7 @@ if(NOT CORUJA_TESTES)
         buzzer/BuzzerGpio.cpp
         placa/PausaReal.cpp
         placa/RelogioAon.cpp
+        placa/MedidorPilhaPico.cpp
         gps/UartPico.cpp
         display/RetroiluminacaoPwm.cpp
         display/PainelSt7789.cpp

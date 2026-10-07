@@ -72,6 +72,24 @@ else()
     add_dependencies(coruja_gps coruja_versao)
     target_include_directories(coruja_gps PRIVATE ${CMAKE_BINARY_DIR}/gerado)
 
+    # 🔴 PILHA DE 4 KiB, o DOBRO do padrao -- e o maximo que cabe.
+    #
+    # O handshake do mbedTLS usa bem mais que os 2 KiB do `PICO_STACK_SIZE`
+    # padrao. Transbordar nao da erro: no RP2350 o guarda de pilha vira falta
+    # grave, e o sintoma e o aparelho TRAVADO, sem uma linha de log.
+    #
+    # ⚠️ 4 KiB nao e um numero escolhido: e o teto. O SDK poe a pilha do
+    # nucleo 0 em `SCRATCH_Y`, que tem 4 KiB fixos (ver
+    # `sections_stack.incl`). Passar disso exige script de ligacao proprio,
+    # acoplado a detalhes internos do SDK.
+    #
+    # ⚠️ E pode nao bastar. Por isso o firmware PINTA a pilha livre no boot e
+    # registra o pico depois de cada sessao de rede -- ver `MedidorPilha`.
+    # Quando a tinta sumir inteira, o log diz `AUMENTE PICO_STACK_SIZE`, e
+    # ai o script de ligacao proprio deixa de ser especulacao e passa a ser
+    # resposta a uma medida.
+    target_compile_definitions(coruja_gps PRIVATE PICO_STACK_SIZE=0x1000)
+
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
         coruja_ota coruja_gps_cfg
