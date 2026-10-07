@@ -1,27 +1,32 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 namespace coruja {
 
-class ArenaMemoria;
-
 /// Liga o mbedTLS ao mundo deste aparelho.
 ///
-/// Registra a função de hora e o alocador. **Precisa ser chamada antes de
-/// qualquer conexão TLS**, e depois de o relógio estar acertado.
+/// Registra a função de hora. **Precisa ser chamada antes de qualquer conexão
+/// TLS**, e depois de o relógio estar acertado.
 ///
-/// `arena` é a memória emprestada da base de radares (ver `EmprestimoDaBase`):
-/// o mbedTLS passa a alocar lá dentro em vez de na pilha de sistema, que não
-/// tem os 16 KiB do buffer de registro para dar. Passar nulo devolve o
-/// alocador padrão — útil para o modo de bancada, inútil em campo.
-void inicia_plataforma_mbedtls(ArenaMemoria* arena);
+/// ⚠️ **Não instala alocador, e isso é deliberado.** Houve uma versão que
+/// emprestava os 280 KB do vetor de radares ao mbedTLS. Não funcionava: o
+/// `altcp_tls_mbedtls_mem.c` do lwIP chama
+/// `mbedtls_platform_set_calloc_free()` por conta própria e sobrescreve
+/// qualquer alocador instalado aqui. A medida de 2026-10-07 mostrou a arena
+/// em `0 B de 287984` com o heap do lwIP esgotado.
+///
+/// Hoje o mbedTLS usa o `calloc` da libc, sobre o heap do sistema — ~120 KiB
+/// entre o fim do `.bss` e o fim da RAM, para os ~30 KiB que ele pede.
+void inicia_plataforma_mbedtls();
 
-/// Desliga o alocador de arena, antes de a memória voltar para a base.
+/// O maior uso do heap do SISTEMA já alcançado, e o total, em bytes.
 ///
-/// Sem isto, uma alocação tardia do mbedTLS escreveria dentro do vetor de
-/// radares já recarregado — e o defeito apareceria como um radar em
-/// coordenada absurda, muito longe da causa.
-void encerra_plataforma_mbedtls();
+/// É de lá que o mbedTLS tira os certificados interpretados e os buffers de
+/// registro. Sem este número, descobrir que ficou curto só aconteceria com um
+/// handshake falhando em campo — que foi como descobrimos as duas vezes
+/// anteriores.
+bool pico_do_heap_do_sistema(std::size_t* usado, std::size_t* total);
 
 /// Informa a hora de parede que vai julgar o prazo dos certificados.
 ///

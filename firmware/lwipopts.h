@@ -35,9 +35,15 @@
 // mbedTLS durante o handshake -- os numerosao da curva e do RSA --, que sao
 // outra conta. Este heap atende a sessao; aquela, a matematica.
 //
-// 32 KiB e folga deliberada sobre o que a cadeia deve ocupar, porque o numero
-// exato ninguem mediu. O `MEM_STATS` abaixo existe para medi-lo.
-#define MEM_SIZE                    32768
+// ⚠️ Subir para 32 KiB NAO resolveu -- e a medida mostrou por que: o lwIP
+// sequestrava o alocador do mbedTLS, entao os buffers de registro e os
+// certificados vinham todos para ca. Com `MBEDTLS_PLATFORM_MEMORY` fora do
+// `mbedtls_config.h`, eles passam ao heap do sistema e este volta a atender
+// so o que sempre atendeu: pbufs e as estruturas pequenas do altcp.
+//
+// 8 KiB, e nao os 4000 originais, porque a configuracao de TLS e o estado por
+// conexao ainda saem daqui. O `MEM_STATS` abaixo diz quanto de fato se usa.
+#define MEM_SIZE                    8192
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define PBUF_POOL_SIZE              24

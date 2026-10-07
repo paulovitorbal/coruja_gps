@@ -33,7 +33,21 @@
 //   mbedtls_ms_time     o monotônico, do tempo desde o boot
 //   mbedtls_hardware_poll  entropia do TRNG do RP2350
 #define MBEDTLS_PLATFORM_C
-#define MBEDTLS_PLATFORM_MEMORY          // permite trocar calloc/free
+// ⚠️ `MBEDTLS_PLATFORM_MEMORY` NAO entra, e a razao e do lwIP.
+//
+// Com ela, o `altcp_tls_mbedtls_mem.c` chama
+// `mbedtls_platform_set_calloc_free(&tls_malloc, &tls_free)` no proprio
+// inicio -- SOBRESCREVENDO qualquer alocador que este projeto instalasse --
+// e o `tls_malloc` usa `mem_malloc`, o heap do lwIP.
+//
+// Medido em 2026-10-07: a arena de 280 KB emprestada da base ficou em `0 B
+// de 287984` enquanto o heap do lwIP batia em `32664 B de 32768`. Os
+// certificados e os buffers de registro (16 KiB + 4 KiB) estavam todos indo
+// para o `MEM_SIZE`, e aumenta-lo so movia a parede.
+//
+// Sem a opcao, o mbedTLS usa o `calloc` da libc -- o heap do sistema, com
+// ~120 KiB livres entre o fim do `.bss` e o fim da RAM. Mais que suficiente
+// para os ~30 KiB que ele pede, e um caminho que o SDK ja trilha.
 #define MBEDTLS_PLATFORM_TIME_ALT        // a hora vem do nosso relógio
 #define MBEDTLS_PLATFORM_MS_TIME_ALT     // e o monotônico, do tempo de boot
 #define MBEDTLS_NO_PLATFORM_ENTROPY      // a entropia vem do RP2350

@@ -104,15 +104,11 @@ int main() {
     coruja::OtaNaTela   ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte);
 
-    // A bancada NAO empresta a memoria da base nem acerta o relogio: ela
-    // existe para olhar a tela do OTA, e carregar a base inteira so para
-    // emprestar o buffer sairia do proposito.
-    //
-    // ⚠️ Consequencia: aqui o mbedTLS aloca na pilha de sistema, e uma URL
-    // `https` pode faltar memoria. Com `http` a bancada funciona igual. E
-    // sem relogio acertado, TODO certificado e recusado por "ainda nao
-    // vale" -- em `https` a bancada so serve para ver a tela de FALHA.
-    coruja::inicia_plataforma_mbedtls(nullptr);
+    // ⚠️ A bancada NAO acerta o relogio: ela existe para olhar a tela do
+    // OTA, e sem hora TODO certificado e recusado por "ainda nao vale". Em
+    // `https` ela so serve para ver a tela de FALHA; com `http` funciona
+    // igual ao produto.
+    coruja::inicia_plataforma_mbedtls();
 
     // A configuração é lida aqui só para as preferências de log e o brilho
     // gravado; o que vale para o Wi-Fi é relido a cada clique.

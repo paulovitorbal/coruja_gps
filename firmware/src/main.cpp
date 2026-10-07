@@ -271,15 +271,13 @@ public:
     class SessaoDeRede {
     public:
         SessaoDeRede(AcoesDoAparelho& dono, const coruja::Configuracao& cfg)
-            : dono_(dono),
-              emprestimo_(dono.piloto_, dono.recarregador_, g_pontos,
-                          coruja::kCapacidadeFirmware, dono.log_) {
+            : dono_(dono) {
             dono_.preparo_.define_servidor(cfg.servidor_ntp);
-            // A memoria pode ser emprestada ja; o relogio NAO pode ser
-            // acertado aqui. Acertar exige falar com a rede, e quem levanta
-            // o radio -- `cyw43_arch_init()` -- e o `conecta()` la dentro do
-            // orquestrador. Ver `PreparoDeSessao::apos_conectar`.
-            coruja::inicia_plataforma_mbedtls(&emprestimo_.arena());
+            // O relogio NAO pode ser acertado aqui: acertar exige falar com a
+            // rede, e quem levanta o radio -- `cyw43_arch_init()` -- e o
+            // `conecta()` la dentro do orquestrador. Ver
+            // `PreparoDeSessao::apos_conectar`.
+            coruja::inicia_plataforma_mbedtls();
         }
 
         /// Registra o quanto a pilha e a arena chegaram a usar.
@@ -295,6 +293,13 @@ public:
             if (coruja::ClienteTls::pico_do_heap(&usado, &total)) {
                 std::snprintf(msg, sizeof msg,
                               "pico do heap do lwip: %u B de %u",
+                              static_cast<unsigned>(usado),
+                              static_cast<unsigned>(total));
+                dono_.log_.info("mem", msg);
+            }
+            if (coruja::pico_do_heap_do_sistema(&usado, &total)) {
+                std::snprintf(msg, sizeof msg,
+                              "heap do sistema: %u B em uso, %u pedidos",
                               static_cast<unsigned>(usado),
                               static_cast<unsigned>(total));
                 dono_.log_.info("mem", msg);
@@ -316,21 +321,17 @@ public:
 
         ~SessaoDeRede() {
             anota_consumo();
-            // A ORDEM IMPORTA de verdade aqui, ao contrario do construtor: o
-            // cliente guarda a configuracao de TLS DENTRO da arena, e a arena
-            // deixa de existir quando o emprestimo acaba. Liberar depois
-            // seria escrever no vetor de radares ja recarregado.
+            // Solta a configuracao de TLS -- os tres certificados
+            // interpretados -- em vez de deixa-la no heap entre sessoes. Sao
+            // dezenas de KiB parados.
             dono_.http_.libera_configuracao();
-            coruja::encerra_plataforma_mbedtls();
-            // o `emprestimo_` recarrega a base no proprio destrutor, agora
         }
 
         SessaoDeRede(const SessaoDeRede&) = delete;
         SessaoDeRede& operator=(const SessaoDeRede&) = delete;
 
     private:
-        AcoesDoAparelho&         dono_;
-        coruja::EmprestimoDaBase emprestimo_;
+        AcoesDoAparelho& dono_;
     };
 
 
@@ -367,12 +368,16 @@ public:
         }
         log_.descarrega();
 
-        // **A base ja foi recarregada pela SessaoDeRede**, sempre -- nao so
-        // quando a atualizacao deu certo. O motivo mudou: antes era economia
-        // (recarregar depois de "ja estava em dia" nao traria nada); agora e
-        // obrigacao, porque a memoria do vetor foi emprestada ao TLS e o que
-        // sobrou dela e resto de handshake.
-        base_ = recarregador_.ultima();
+        // **Recarrega a base so quando ela mudou.** Voltou a ser economia:
+        // o emprestimo da memoria foi aposentado -- o lwIP sobrescrevia o
+        // alocador e a arena nunca era usada --, entao o vetor nao e mais
+        // tocado pelo TLS e nao ha o que reconstruir depois de "ja estava em
+        // dia".
+        if (resultado == coruja::ResultadoOta::Atualizada) {
+            base_ = recarregador_.recarrega(log_) > 0 ? recarregador_.ultima()
+                                                      : base_;
+            piloto_.define_base(g_pontos, base_.pontos);
+        }
 
         // **Fim feliz passa; falha espera.** Sem segurar, a tela de dirigir
         // voltaria no mesmo instante e nada seria lido. Mas o tempo que

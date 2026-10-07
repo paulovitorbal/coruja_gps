@@ -15,7 +15,7 @@
 #include <mbedtls/platform.h>
 #include <mbedtls/platform_time.h>
 
-#include "nucleo/ArenaMemoria.h"
+#include <malloc.h>
 
 namespace coruja {
 
@@ -56,40 +56,26 @@ std::int64_t hora_utc() {
 namespace coruja {
 namespace {
 
-/// A arena emprestada, enquanto durar. Ponteiro global pelo mesmo motivo da
-/// hora: o mbedTLS instala funcoes de C sem contexto.
-ArenaMemoria* g_arena = nullptr;
-
 mbedtls_time_t hora_para_mbedtls(mbedtls_time_t* destino) {
     const auto agora = static_cast<mbedtls_time_t>(hora_utc());
     if (destino != nullptr) { *destino = agora; }
     return agora;
 }
 
-void* aloca_na_arena(std::size_t quantos, std::size_t tamanho) {
-    return g_arena != nullptr ? g_arena->aloca(quantos, tamanho) : nullptr;
-}
-
-void libera_na_arena(void* p) {
-    if (g_arena != nullptr) { g_arena->libera(p); }
-}
-
 }  // namespace
 
-void inicia_plataforma_mbedtls(ArenaMemoria* arena) {
+void inicia_plataforma_mbedtls() {
     mbedtls_platform_set_time(hora_para_mbedtls);
-    g_arena = arena;
-    if (arena != nullptr) {
-        mbedtls_platform_set_calloc_free(aloca_na_arena, libera_na_arena);
-    }
 }
 
-void encerra_plataforma_mbedtls() {
-    // Solta o ponteiro ANTES de a memoria voltar para a base: uma alocacao
-    // tardia escreveria dentro do vetor de radares ja recarregado, e o
-    // defeito apareceria como um radar em coordenada absurda -- muito longe
-    // da causa.
-    g_arena = nullptr;
+bool pico_do_heap_do_sistema(std::size_t* usado, std::size_t* total) {
+    if (usado == nullptr || total == nullptr) { return false; }
+    // `uordblks` sao os bytes em uso agora; `arena` e o quanto o sbrk ja
+    // pediu ao sistema -- ou seja, a marca d'agua do heap.
+    const struct mallinfo info = mallinfo();
+    *usado = static_cast<std::size_t>(info.uordblks);
+    *total = static_cast<std::size_t>(info.arena);
+    return true;
 }
 
 }  // namespace coruja
