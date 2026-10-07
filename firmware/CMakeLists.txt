@@ -72,29 +72,45 @@ else()
     add_dependencies(coruja_gps coruja_versao)
     target_include_directories(coruja_gps PRIVATE ${CMAKE_BINARY_DIR}/gerado)
 
-    # 🔴 PILHA DE 8 KiB: o SCRATCH_X do nucleo 1, que nao existe aqui,
-    # entregue ao nucleo 0.
-    #
-    # O handshake do mbedTLS usa mais que os 4 KiB que cabiam no SCRATCH_Y --
-    # medido em 2026-10-07, com a tinta da pilha consumida ate o fundo. E
-    # transbordar nao da erro: o guarda de pilha do RP2350 vira falta grave, e
-    # o sintoma e o aparelho TRAVADO, sem uma linha de log.
+    # 🔴 PILHA DE 24 KiB: o SCRATCH inteiro mais 16 KiB tomados da RAM.
     #
     # O SDK poe a pilha do nucleo 0 em SCRATCH_Y (4 KiB) e a do nucleo 1 em
-    # SCRATCH_X (4 KiB), que sao CONTIGUOS -- 0x20080000 e 0x20081000. Este
-    # firmware nunca liga o segundo nucleo, e a secao `.scratch_x` sai do
-    # ligador com ZERO bytes (conferido no mapa). Entao os dois viram um so.
+    # SCRATCH_X (4 KiB), contiguos em 0x20080000 e 0x20081000. Este firmware
+    # nunca liga o segundo nucleo, e a secao `.scratch_x` sai do ligador com
+    # ZERO bytes (conferido no mapa), entao os dois viraram um so: 8 KiB.
     #
-    # Nao e script de ligacao proprio: o SDK declara as regioes com `PROVIDE`,
-    # e `--defsym` as redefine de fora. Os simbolos `__StackTop` e
-    # `__StackBottom` continuam derivando delas, e seguem corretos.
+    # 🔴 **8 KiB NAO BASTARAM.** Em 07/10/2026 o aparelho completou o primeiro
+    # handshake TLS da vida dele e voltou com `a pilha foi usada ate o fundo`
+    # -- a tinta consumida inteira, ate 0x20080000. Descartadas as duas
+    # explicacoes alternativas antes de crescer: `.scratch_x` e `.scratch_y`
+    # saem com tamanho zero (nada escreve ali por baixo da tinta), e o heap do
+    # sistema parou em ~41 KiB, com o topo a mais de 100 KiB do fundo da pilha.
+    # Sobrou a leitura direta: a verificacao da cadeia, com uma raiz P-384,
+    # desce mais fundo que todo o resto do programa junto.
+    #
+    # Transbordar nao da erro legivel: vira falta grave no guarda de pilha do
+    # RP2350, e o sintoma e o aparelho TRAVADO, sem uma linha de log.
+    #
+    # Como crescer alem do SCRATCH: tomando RAM. O SDK declara TODAS as
+    # regioes com `PROVIDE` (ver `set_memory_locations.incl`), inclusive
+    # `RAM_LENGTH`, entao `--defsym` as redefine de fora sem script proprio.
+    # A RAM encolhe de 512 para 496 KiB e a pilha vai de 8 para 24 KiB,
+    # contigua: 0x2007C000 ate 0x20082000.
+    #
+    # 24 KiB e numero com folga deliberada, nao medida -- a medida que havia
+    # dizia so "passou de 8". A proxima execucao com `pico da pilha` no log diz
+    # o valor de verdade, e ai isto se ajusta com numero na mao.
+    #
+    # Sobra para o heap: a RAM estatica termina em 0x2005CE4C, entao restam
+    # ~127 KiB, contra ~41 KiB de pico medido. Confortavel.
     #
     # ⚠️ Ligar o nucleo 1 passa a ser INVALIDO -- a pilha dele seria a nossa.
     # Se um dia for preciso, isto tem de ser desfeito primeiro.
-    target_compile_definitions(coruja_gps PRIVATE PICO_STACK_SIZE=0x2000)
+    target_compile_definitions(coruja_gps PRIVATE PICO_STACK_SIZE=0x6000)
     target_link_options(coruja_gps PRIVATE
-        -Wl,--defsym=SCRATCH_Y_ORIGIN=0x20080000
-        -Wl,--defsym=SCRATCH_Y_LENGTH=0x2000)
+        -Wl,--defsym=RAM_LENGTH=0x7C000
+        -Wl,--defsym=SCRATCH_Y_ORIGIN=0x2007C000
+        -Wl,--defsym=SCRATCH_Y_LENGTH=0x6000)
 
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede

@@ -10,6 +10,15 @@ namespace coruja::teste {
 
 /// Estado de um volume lógico do dublê.
 struct VolumeFalso {
+    /// O volume está montado AGORA?
+    ///
+    /// ⚠️ **Isto existe porque a falta dele escondeu um defeito real.** O
+    /// `f_unmount` do dublê só contava; o FatFs de verdade zera a área de
+    /// trabalho do volume, e toda operação seguinte devolve `FR_NOT_ENABLED`
+    /// ("The volume has no work area"). Sem modelar isso, a suíte ficou verde
+    /// enquanto o aparelho perdia a base no cartão: um `log` no meio do
+    /// `promove()` desmontava o volume entre os dois `f_rename`.
+    bool    montado = false;
     /// O volume monta? Falso simula partição não-FAT, ausente ou ilegível.
     bool    monta = false;
     /// Que erro devolver quando não monta. FatFs distingue três causas, e o

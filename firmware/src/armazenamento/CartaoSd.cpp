@@ -92,7 +92,15 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         char raiz[4];
         std::snprintf(raiz, sizeof raiz, "%d:", volume);
 
+        // O `le_arquivo` sonda por conta propria (R-38: procura o ARQUIVO,
+        // nao a primeira FAT), entao a contabilidade e feita aqui tambem --
+        // senao o `desmonta_volume` logo abaixo nao teria o que soltar e o
+        // volume ficaria montado para sempre.
         const FRESULT montagem = f_mount(&g_fs, raiz, 1);
+        if (montagem == FR_OK) {
+            std::snprintf(raiz_montada_, sizeof raiz_montada_, "%s", raiz);
+            ++montagens_;
+        }
         if (montagem != FR_OK) {
             // A causa PRECISA sair no log. A primeira versão fazia `continue`
             // em silêncio, e o resultado era "nenhuma particao FAT montou" —
@@ -119,7 +127,7 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
                           "volume %d montou (%s), sem '%s'", volume,
                           volume == 0 ? "automatico" : "particao forcada", nome);
             log.debug("sd", msg);
-            f_unmount(raiz);
+            desmonta_volume(raiz);
             continue;
         }
 
@@ -130,7 +138,7 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
 
         if (tamanho >= capacidade) {
             f_close(&g_arquivo);
-            f_unmount(raiz);
+            desmonta_volume(raiz);
             return ErroCartao::ArquivoGrande;
         }
 
@@ -138,7 +146,7 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         const FRESULT leitura = f_read(&g_arquivo, destino,
                                        static_cast<UINT>(tamanho), &obtidos);
         f_close(&g_arquivo);
-        f_unmount(raiz);
+        desmonta_volume(raiz);
 
         if (leitura != FR_OK || obtidos != tamanho) {
             std::snprintf(msg, sizeof msg, "f_read: %s (%u de %lu bytes)",
@@ -200,7 +208,7 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
     std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
     const FRESULT abertura = f_open(&g_arquivo, caminho, FA_READ);
     if (abertura != FR_OK) {
-        f_unmount(raiz);
+        desmonta_volume(raiz);
         return ErroCartao::ArquivoAusente;
     }
 
@@ -231,7 +239,7 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
     }
 
     f_close(&g_arquivo);
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     if (lidos != nullptr) {
         *lidos = total;
     }
@@ -241,6 +249,14 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
 // ---------------------------------------------------------------- escrita ---
 
 ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log) {
+    if (montagens_ > 0) {
+        // Ja ha operacao segurando o volume. Reaproveita a montagem dela em
+        // vez de montar de novo -- e, principalmente, em vez de DESMONTAR no
+        // fim e deixar quem esta por fora com um volume morto nas maos.
+        std::snprintf(raiz, tam_raiz, "%s", raiz_montada_);
+        ++montagens_;
+        return ErroCartao::Nenhum;
+    }
     if (!iniciado_) {
         inicia(log);
     }
@@ -254,6 +270,8 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
         const FRESULT montagem = f_mount(&g_fs, raiz, 1);
         if (montagem == FR_OK) {
             volume_ativo_ = volume;
+            std::snprintf(raiz_montada_, sizeof raiz_montada_, "%s", raiz);
+            montagens_ = 1;
             return ErroCartao::Nenhum;
         }
         std::snprintf(msg, sizeof msg, "volume %d nao montou para escrita: %s",
@@ -262,6 +280,15 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
     }
     log.error("sd", "nenhum volume montou para escrita");
     return ErroCartao::SemCartaoLegivel;
+}
+
+void CartaoSd::desmonta_volume(const char* raiz) {
+    if (montagens_ == 0) {
+        return;  // nada a soltar; desmontar aqui derrubaria o volume de outro
+    }
+    if (--montagens_ == 0) {
+        f_unmount(raiz);
+    }
 }
 
 ErroCartao CartaoSd::abre_para_escrita(const char* nome, Logger& log) {
@@ -282,7 +309,7 @@ ErroCartao CartaoSd::abre_para_escrita(const char* nome, Logger& log) {
         std::snprintf(msg, sizeof msg, "f_open('%s') para escrita: %s", caminho,
                       FRESULT_str(r));
         log.error("sd", msg);
-        f_unmount(raiz_aberta_);
+        desmonta_volume(raiz_aberta_);
         return ErroCartao::FalhaDeEscrita;
     }
     escrevendo_ = true;
@@ -307,7 +334,7 @@ ErroCartao CartaoSd::conclui_escrita(Logger& log) {
     }
     const FRESULT r = f_close(&g_arquivo);
     escrevendo_ = false;
-    f_unmount(raiz_aberta_);
+    desmonta_volume(raiz_aberta_);
     if (r != FR_OK) {
         char msg[64];
         std::snprintf(msg, sizeof msg, "f_close: %s", FRESULT_str(r));
@@ -327,7 +354,7 @@ void CartaoSd::descarta_escrita(const char* nome, Logger& log) {
     char caminho[64];
     std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_aberta_, nome);
     const FRESULT r = f_unlink(caminho);
-    f_unmount(raiz_aberta_);
+    desmonta_volume(raiz_aberta_);
 
     char msg[96];
     std::snprintf(msg, sizeof msg, "'%s' descartado%s", nome,
@@ -358,7 +385,7 @@ ErroCartao CartaoSd::promove(const char* temporario, const char* base,
             std::snprintf(msg, sizeof msg, "nao deu para guardar a base atual "
                           "como '%s': %s", reserva, FRESULT_str(r));
             log.error("sd", msg);
-            f_unmount(raiz);
+            desmonta_volume(raiz);
             return ErroCartao::FalhaDeRenomeacao;
         }
         std::snprintf(msg, sizeof msg, "base anterior guardada como '%s'", reserva);
@@ -367,7 +394,7 @@ ErroCartao CartaoSd::promove(const char* temporario, const char* base,
 
     // Passo 4. Deste ponto em diante o cartão volta a estar consistente.
     const FRESULT r = f_rename(p_tmp, p_base);
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     if (r != FR_OK) {
         std::snprintf(msg, sizeof msg, "nao deu para promover '%s' a '%s': %s",
                       temporario, base, FRESULT_str(r));
@@ -400,14 +427,14 @@ ErroCartao CartaoSd::acrescenta_arquivo(const char* nome, const char* conteudo,
     const FRESULT abertura = f_open(&arquivo, caminho,
                                     FA_WRITE | FA_OPEN_APPEND);
     if (abertura != FR_OK) {
-        f_unmount(raiz);
+        desmonta_volume(raiz);
         return ErroCartao::FalhaDeEscrita;
     }
     UINT gravados = 0;
     const FRESULT r = f_write(&arquivo, conteudo,
                               static_cast<UINT>(tamanho), &gravados);
     f_close(&arquivo);
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     return (r == FR_OK && gravados == tamanho) ? ErroCartao::Nenhum
                                                : ErroCartao::FalhaDeEscrita;
 }
@@ -436,7 +463,7 @@ bool CartaoSd::existe(const char* nome, Logger& log) {
     std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
     FILINFO info;
     const bool achou = f_stat(caminho, &info) == FR_OK;
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     return achou;
 }
 
@@ -462,7 +489,7 @@ ErroCartao CartaoSd::lista(AoListar ao_listar, void* contexto, Logger& log) {
         std::snprintf(msg, sizeof msg, "f_opendir('%s'): %s", raiz,
                       FRESULT_str(abertura));
         log.error("sd", msg);
-        f_unmount(raiz);
+        desmonta_volume(raiz);
         return ErroCartao::FalhaDeLeitura;
     }
 
@@ -487,7 +514,7 @@ ErroCartao CartaoSd::lista(AoListar ao_listar, void* contexto, Logger& log) {
     }
 
     f_closedir(&dir);
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     return saida;
 }
 
@@ -509,7 +536,7 @@ ErroCartao CartaoSd::abre_para_leitura(const char* nome, std::size_t* tamanho,
     std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_leitura_, nome);
     const FRESULT r = f_open(&g_leitura, caminho, FA_READ);
     if (r != FR_OK) {
-        f_unmount(raiz_leitura_);
+        desmonta_volume(raiz_leitura_);
         // Ausente nao e falha de leitura: a remessa listou o cartao e o
         // arquivo pode ter sido apagado entre a listagem e agora.
         return r == FR_NO_FILE || r == FR_NO_PATH ? ErroCartao::ArquivoAusente
@@ -544,7 +571,7 @@ void CartaoSd::fecha_leitura() {
         return;
     }
     f_close(&g_leitura);
-    f_unmount(raiz_leitura_);
+    desmonta_volume(raiz_leitura_);
     lendo_ = false;
 }
 
@@ -560,7 +587,7 @@ ErroCartao CartaoSd::remove(const char* nome, Logger& log) {
     char caminho[64];
     std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
     const FRESULT r = f_unlink(caminho);
-    f_unmount(raiz);
+    desmonta_volume(raiz);
     if (r == FR_OK) {
         return ErroCartao::Nenhum;
     }

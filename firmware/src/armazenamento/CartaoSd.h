@@ -119,6 +119,24 @@ public:
 private:
     /// Monta o volume de trabalho e devolve seu prefixo em `raiz`.
     ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log);
+    /// O par de `monta_volume`. Só desmonta de verdade na última.
+    void desmonta_volume(const char* raiz);
+
+    /// Quantas operações seguram o volume montado AGORA.
+    ///
+    /// ⚠️ **O FatFs não aninha montagem.** `f_unmount` zera a área de trabalho
+    /// do volume, e toda operação seguinte — inclusive um `FIL` já aberto —
+    /// passa a falhar com `FR_NOT_ENABLED`. Sem contagem, gravar uma linha de
+    /// log no meio de outra operação do cartão a desmontava por baixo:
+    ///
+    ///  - no `promove()`, entre os dois `f_rename`, o volume caía e a base
+    ///    ficava só como `.bak` — o cartão sem `radares.bin`;
+    ///  - no envio, o fluxo de leitura aberto morria no meio do arquivo.
+    ///
+    /// Os dois aconteceram no aparelho em 07/10/2026. Contar faz a montagem
+    /// pertencer à operação mais externa, que é quem sabe quando acabou.
+    unsigned montagens_ = 0;
+    char     raiz_montada_[4] = {};
 
     bool iniciado_ = false;
     /// Volume onde o `coruja.cfg` foi achado. -1 enquanto não se sabe; aí a

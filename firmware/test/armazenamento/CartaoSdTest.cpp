@@ -464,4 +464,100 @@ TEST_F(CartaoSdNoHost, leitura_em_fluxo_que_vai_bem_entrega_tudo) {
     EXPECT_EQ(recebido, conteudo);
 }
 
+
+// ============ a montagem aninhada: o incidente de 07/10/2026 ==============
+
+/// Um logger que grava NO CARTAO, como o `LoggerCartao` faz ao descarregar.
+///
+/// É o arranjo exato do aparelho, e é o que faltava nos testes: o `LoggerMock`
+/// não toca no cartão, então nenhum teste exercitava uma gravação de log
+/// acontecendo DENTRO de outra operação do cartão.
+struct LoggerQueGravaNoCartao final : public Logger {
+    CartaoSd* sd = nullptr;
+    int       gravacoes = 0;
+
+    void define_nivel_minimo(Nivel) override {}
+
+    void registra(Nivel, const char*, const char*) override {
+        if (sd == nullptr) { return; }
+        ++gravacoes;
+        CartaoSd* alvo = sd;
+        sd = nullptr;        // sem recursão: a gravação também registra
+        teste::LoggerMock vala;
+        alvo->acrescenta_arquivo("coruja.log", "linha\n", 6, vala);
+        sd = alvo;
+    }
+};
+
+TEST_F(CartaoSdNoHost, log_no_meio_do_promove_nao_derruba_a_troca_atomica) {
+    // O que aconteceu no aparelho em 07/10/2026, reproduzido:
+    //
+    //   f_rename(radares.bin -> radares.bak)   OK
+    //   log.info("base anterior guardada...")  <- descarregou no cartao
+    //   f_rename(radares.tmp -> radares.bin)   FR_NOT_ENABLED
+    //
+    // O cartao ficou com .bak e .tmp, e SEM radares.bin. O aparelho perdeu a
+    // base, e o log so disse "The volume has no work area (mount)".
+    poe(0, "radares.bin", "base antiga");
+    fs.volumes[0].arquivos["radares.tmp"] = "base nova";
+
+    LoggerQueGravaNoCartao espiao;
+    espiao.sd = &sd;
+
+    ASSERT_EQ(sd.promove("radares.tmp", "radares.bin", "radares.bak", espiao),
+              ErroCartao::Nenhum);
+    EXPECT_GT(espiao.gravacoes, 0) << "o teste nao exercitou o que pretendia";
+    EXPECT_EQ(fs.conteudo(0, "radares.bin"), "base nova");
+    EXPECT_EQ(fs.conteudo(0, "radares.bak"), "base antiga");
+    EXPECT_FALSE(fs.existe(0, "radares.tmp"));
+}
+
+TEST_F(CartaoSdNoHost, log_no_meio_do_envio_nao_mata_o_fluxo_de_leitura) {
+    // A outra metade do mesmo incidente. O envio abre o arquivo da viagem em
+    // fluxo e o le duas vezes (CRC e depois o corpo). Uma descarga de log no
+    // meio desmontava o volume e o `f_read` seguinte morria -- o envio
+    // "levava algum tempo e depois dava erro", sem uma linha no cartao.
+    poe(0, "20261006_143000.log", "viagem inteira aqui");
+    std::size_t tamanho = 0;
+    ASSERT_EQ(sd.abre_para_leitura("20261006_143000.log", &tamanho, log),
+              ErroCartao::Nenhum);
+
+    teste::LoggerMock vala;
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha\n", 6, vala),
+              ErroCartao::Nenhum);
+    ASSERT_TRUE(sd.rebobina()) << "o rebobinar ja encontra o volume morto";
+
+    std::string tudo;
+    std::uint8_t buf[8];
+    for (;;) {
+        std::size_t n = 0;
+        if (!sd.le(buf, sizeof buf, &n) || n == 0) { break; }
+        tudo.append(reinterpret_cast<char*>(buf), n);
+    }
+    sd.fecha_leitura();
+    EXPECT_EQ(tudo, "viagem inteira aqui");
+}
+
+TEST_F(CartaoSdNoHost, a_montagem_aninhada_desmonta_UMA_vez_so) {
+    // A contagem tem de fechar: desmontar cedo demais derruba quem está por
+    // fora, e desmontar de menos deixa o cartão montado quando ele pode ser
+    // removido do aparelho.
+    poe(0, "20261006_143000.log", "dados");
+    std::size_t tamanho = 0;
+    ASSERT_EQ(sd.abre_para_leitura("20261006_143000.log", &tamanho, log),
+              ErroCartao::Nenhum);
+    const int desmontagens_antes = fs.desmontagens;
+
+    teste::LoggerMock vala;
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha\n", 6, vala),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.desmontagens, desmontagens_antes)
+        << "a operacao de dentro desmontou o volume da de fora";
+
+    sd.fecha_leitura();
+    EXPECT_EQ(fs.desmontagens, desmontagens_antes + 1);
+    EXPECT_EQ(fs.montagens, fs.desmontagens);
+    EXPECT_FALSE(fs.volumes[0].montado) << "o cartao ficou montado no fim";
+}
+
 }  // namespace

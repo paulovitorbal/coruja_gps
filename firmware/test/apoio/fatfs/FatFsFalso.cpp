@@ -98,10 +98,38 @@ void anota(const std::string& o) {
     FatFsFalso::instancia().operacoes.push_back(o);
 }
 
+/// O FIL aberto ainda vive num volume montado?
+///
+/// O `f_mount(NULL, ...)` do FatFs zera o `fs_type` da area de trabalho, e o
+/// `validate()` de toda operacao sobre um FIL ja aberto passa a devolver
+/// `FR_INVALID_OBJECT`. E por este caminho que o ENVIO morria: o fluxo de
+/// leitura ficava aberto e uma descarga de log desmontava o volume debaixo
+/// dele.
+bool objeto_vivo(FIL* fp) {
+    const Aberto* a = aberto_de(fp);
+    return a != nullptr && FatFsFalso::instancia().volumes[a->volume].montado;
+}
+
 }  // namespace
 }  // namespace coruja::teste
 
 using coruja::teste::FatFsFalso;
+
+namespace coruja::teste {
+namespace {
+
+/// O volume do caminho esta montado? Senao, `FR_NOT_ENABLED` -- a mesma
+/// resposta que o FatFs de verdade da, e a que apareceu no cartao do aparelho.
+bool montado_de(const TCHAR* caminho) {
+    int v = 0;
+    std::string nome;
+    if (!separa(caminho, &v, &nome)) { return false; }
+    return FatFsFalso::instancia().volumes[v].montado;
+}
+
+}  // namespace
+}  // namespace coruja::teste
+
 
 // O `CartaoSd.cpp` envolve os includes de FatFs em `extern "C"`, como se faz
 // com biblioteca C. As definicoes do duble precisam da MESMA ligacao, senao
@@ -115,6 +143,7 @@ FRESULT f_mount(FATFS*, const TCHAR* caminho, BYTE) {
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_DRIVE; }
     coruja::teste::anota("mount:" + std::to_string(v));
     if (!f.volumes[v].monta) { return f.volumes[v].erro_montagem; }
+    f.volumes[v].montado = true;
     ++f.montagens;
     return FR_OK;
 }
@@ -125,11 +154,13 @@ FRESULT f_unmount(const TCHAR* caminho) {
     std::string nome;
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_DRIVE; }
     coruja::teste::anota("unmount:" + std::to_string(v));
+    f.volumes[v].montado = false;
     ++f.desmontagens;
     return FR_OK;
 }
 
 FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
+    if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     auto& a = coruja::teste::g_abertos[fp];
     int v = 0;
@@ -168,6 +199,7 @@ FRESULT f_close(FIL* fp) {
 }
 
 FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos) {
+    if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto& f = FatFsFalso::instancia();
     auto* ap = coruja::teste::aberto_de(fp);
     if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
@@ -185,6 +217,7 @@ FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos) {
 }
 
 FRESULT f_lseek(FIL* fp, FSIZE_t posicao) {
+    if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto* ap = coruja::teste::aberto_de(fp);
     if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
     if (posicao > ap->dados.size()) { return FR_INVALID_PARAMETER; }
@@ -193,6 +226,7 @@ FRESULT f_lseek(FIL* fp, FSIZE_t posicao) {
 }
 
 FRESULT f_opendir(DIR* dp, const TCHAR* caminho) {
+    if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
     std::string nome;
@@ -228,6 +262,7 @@ FRESULT f_readdir(DIR* dp, FILINFO* info) {
 FRESULT f_closedir(DIR*) { return FR_OK; }
 
 FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos) {
+    if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto& f = FatFsFalso::instancia();
     auto* ap = coruja::teste::aberto_de(fp);
     if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
@@ -244,6 +279,7 @@ FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos) {
 }
 
 FRESULT f_stat(const TCHAR* caminho, FILINFO* info) {
+    if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
     std::string nome;
@@ -257,6 +293,7 @@ FRESULT f_stat(const TCHAR* caminho, FILINFO* info) {
 }
 
 FRESULT f_rename(const TCHAR* de, const TCHAR* para) {
+    if (!coruja::teste::montado_de(de)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int vd = 0, vp = 0;
     std::string nd, np;
@@ -272,6 +309,7 @@ FRESULT f_rename(const TCHAR* de, const TCHAR* para) {
 }
 
 FRESULT f_unlink(const TCHAR* caminho) {
+    if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
     std::string nome;
