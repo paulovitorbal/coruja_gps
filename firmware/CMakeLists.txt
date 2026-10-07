@@ -76,7 +76,11 @@ else()
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
         coruja_ota coruja_gps_cfg
         coruja_armazenamento
-        pico_stdlib hardware_uart)
+        # `pico_rand` para o sorteio do identificador de execucao. Vinha
+        # por transitividade do `coruja_rede`, que o usa para a entropia do
+        # TLS -- dependencia implicita que quebraria no dia em que alguem
+        # reorganizasse as bibliotecas.
+        pico_stdlib hardware_uart pico_rand)
     # O lwipopts.h e o cyw43 procuram cabecalhos na raiz do firmware.
     target_include_directories(coruja_gps PRIVATE ${CMAKE_CURRENT_LIST_DIR})
     pico_enable_stdio_usb(coruja_gps 1)

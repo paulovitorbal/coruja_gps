@@ -1,5 +1,7 @@
 #include "log/LoggerCartao.h"
 
+#include "log/IdExecucao.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -85,7 +87,8 @@ void LoggerCartao::registra(Nivel nivel, const char* origem,
     }
 
     char linha[160];
-    const int n = std::snprintf(linha, sizeof linha, "[%s] %s: %s\n",
+    const int n = std::snprintf(linha, sizeof linha, "%s%s[%s] %s: %s\n",
+                                id_execucao(), separador_execucao(),
                                 nome_nivel(nivel), origem, mensagem);
     if (n <= 0) {
         return;

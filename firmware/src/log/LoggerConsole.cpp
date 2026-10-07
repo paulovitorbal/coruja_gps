@@ -1,5 +1,7 @@
 #include "log/LoggerConsole.h"
 
+#include "log/IdExecucao.h"
+
 namespace coruja {
 
 namespace {
@@ -51,7 +53,11 @@ void LoggerConsole::registra(Nivel nivel, const char* origem,
     if (nivel < minimo_) {
         return;
     }
-    std::fprintf(saida_, "[%-5s] %s: %s\n", nome_nivel(nivel),
+    // O identificador vem PRIMEIRO, e nao no fim: quem le o arquivo procura
+    // uma execucao, e procurar por prefixo alinhado e o que um `grep` faz
+    // bem.
+    std::fprintf(saida_, "%s%s[%-5s] %s: %s\n", id_execucao(),
+                 separador_execucao(), nome_nivel(nivel),
                  origem != nullptr ? origem : "?",
                  mensagem != nullptr ? mensagem : "");
     std::fflush(saida_);

@@ -1,7 +1,8 @@
 # coruja_log: interface + implementacao de console. Portavel.
 # LoggerCartao e portavel desde que recebe `Armazenamento`: ele decide
 # QUANDO gravar, e nao COMO. Ver R-55.
-add_library(coruja_log STATIC log/LoggerConsole.cpp log/LoggerCartao.cpp)
+add_library(coruja_log STATIC log/LoggerConsole.cpp log/LoggerCartao.cpp
+                              log/IdExecucao.cpp)
 target_include_directories(coruja_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # coruja_nucleo: logica pura, sem uma linha de hardware. Compila no host e no Pico.

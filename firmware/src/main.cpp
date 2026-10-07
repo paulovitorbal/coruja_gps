@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <initializer_list>
 
+#include <pico/rand.h>
 #include <pico/stdlib.h>
 
 #include "app/Aplicacao.h"
@@ -44,6 +45,7 @@
 #include "gps/LeitorGps.h"
 #include "gps/UartPico.h"
 #include "led/LedRgbAnodoComum.h"
+#include "log/IdExecucao.h"
 #include "log/LoggerCartao.h"
 #include "log/LoggerConsole.h"
 #include "nucleo/BaseRadares.h"
@@ -410,6 +412,14 @@ private:
 int main() {
     stdio_init_all();
     sleep_ms(1500);
+
+    // O identificador desta execucao, sorteado ANTES do primeiro log: assim
+    // nenhuma linha fica orfa. Vem do TRNG do RP2350, pelo `pico_rand` -- a
+    // mesma fonte da entropia do TLS.
+    //
+    // Ele separa as ligacoes dentro do `coruja.log`, que acumula entre elas.
+    // Sem isto, so da para inferir a fronteira pelo que aparece no boot.
+    coruja::define_id_execucao(get_rand_64());
 
     coruja::LoggerConsole console(nullptr, coruja::Nivel::Info);
     coruja::CartaoSd      cartao;

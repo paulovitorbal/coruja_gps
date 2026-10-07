@@ -6,6 +6,7 @@
 #include <string>
 
 #include "apoio/LoggerMock.h"
+#include "log/IdExecucao.h"
 
 namespace {
 
@@ -88,6 +89,44 @@ TEST(LoggerMock, RespeitaNivelMinimo) {
     log.debug("x", "descartada");
     log.error("x", "guardada");
     EXPECT_EQ(log.entradas().size(), 1U);
+}
+
+
+// ================================ o identificador de execucao na linha
+
+TEST(LoggerConsole, prefixa_as_linhas_com_o_identificador_da_execucao) {
+    // O `coruja.log` acumula entre ligações, e sem isto só dá para inferir a
+    // fronteira entre uma e outra pelo que aparece no boot.
+    define_id_execucao(0xDEADBEEFCAFEBABEULL);
+    const std::string id = id_execucao();
+    ASSERT_EQ(id.size(), kTamIdExecucao);
+
+    char buf[256] = {};
+    FILE* f = fmemopen(buf, sizeof buf, "w");
+    LoggerConsole log(f, Nivel::Debug);
+    log.info("gps", "uma mensagem");
+    std::fclose(f);
+
+    const std::string linha = buf;
+    EXPECT_EQ(linha.rfind(id, 0), 0U) << "o id tem de vir PRIMEIRO: " << linha;
+    EXPECT_NE(linha.find("[INFO "), std::string::npos) << linha;
+    EXPECT_NE(linha.find("gps: uma mensagem"), std::string::npos) << linha;
+}
+
+TEST(LoggerConsole, sem_identificador_a_linha_nao_comeca_com_espaco) {
+    // Antes do boot sortear -- e no alvo de host, que nao sorteia -- a linha
+    // tem de sair como sempre saiu. Espaco solto no comeco e sujeira que
+    // ninguem conserta depois, porque ninguem sabe de onde veio.
+    esquece_id_execucao();
+
+    char buf[256] = {};
+    FILE* f = fmemopen(buf, sizeof buf, "w");
+    LoggerConsole log(f, Nivel::Debug);
+    log.info("gps", "uma mensagem");
+    std::fclose(f);
+
+    EXPECT_EQ(std::string(buf).rfind("[INFO ", 0), 0U)
+        << "esperava a linha comecando em '[': " << buf;
 }
 
 }  // namespace

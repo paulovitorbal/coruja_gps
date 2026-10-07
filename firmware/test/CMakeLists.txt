@@ -58,6 +58,7 @@ add_executable(testes
     rede/SntpTest.cpp
     nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
+    log/IdExecucaoTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
     encoder/AntiRepiqueTest.cpp
     app/ModoTesteEncoderTest.cpp
