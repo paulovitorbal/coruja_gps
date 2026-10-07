@@ -5,6 +5,7 @@
 #include <lwip/altcp_tls.h>
 #include <lwip/dns.h>
 #include <lwip/pbuf.h>
+#include <lwip/stats.h>
 #include <mbedtls/ssl.h>
 #include <pico/cyw43_arch.h>
 #include <pico/stdlib.h>
@@ -190,6 +191,19 @@ bool resolve(const char* host, ip_addr_t* destino, std::uint32_t limite_ms,
 }  // namespace
 
 ClienteTls::~ClienteTls() { libera_configuracao(); }
+
+bool ClienteTls::pico_do_heap(std::size_t* usado, std::size_t* total) {
+#if MEM_STATS
+    if (usado == nullptr || total == nullptr) { return false; }
+    *usado = lwip_stats.mem.max;
+    *total = lwip_stats.mem.avail;
+    return true;
+#else
+    static_cast<void>(usado);
+    static_cast<void>(total);
+    return false;
+#endif
+}
 
 void ClienteTls::define_token(const char* token) {
     std::snprintf(token_, sizeof token_, "%s", token == nullptr ? "" : token);

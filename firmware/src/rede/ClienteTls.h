@@ -61,6 +61,17 @@ public:
     /// ⚠️ Vai no cabeçalho `X-Coruja-Token` e **nunca** no log nem na URL.
     void define_token(const char* token);
 
+    /// O maior uso do heap do lwIP já alcançado, e o total, em bytes.
+    ///
+    /// É de lá que sai a sessão TLS — `altcp_tls_create_config_client` aloca
+    /// por `mem_calloc`, não pelo alocador do mbedTLS. Sem este número, o
+    /// `MEM_SIZE` continua sendo escolhido no olho, e a única forma de
+    /// descobrir que ficou curto é um `sem memoria para a sessao TLS` em
+    /// campo.
+    ///
+    /// `false` quando o lwIP foi compilado sem estatísticas.
+    static bool pico_do_heap(std::size_t* usado, std::size_t* total);
+
     /// Libera a configuração de TLS, com as raízes já interpretadas.
     ///
     /// Ela é criada na primeira conexão e reaproveitada: interpretar três

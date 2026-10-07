@@ -7,8 +7,18 @@
 #include <cstring>
 
 extern "C" {
-// Postos pelo script de ligacao do pico-sdk.
-extern char __StackLimit;   // o FUNDO: a pilha cresce para baixo ate aqui
+// Postos pelo script de ligacao do pico-sdk (`section_end.incl`):
+//
+//     __StackTop    = ORIGIN(SCRATCH_Y) + LENGTH(SCRATCH_Y)
+//     __StackBottom = __StackTop - SIZEOF(.stack_dummy)
+//     __StackLimit  = ORIGIN(RAM) + LENGTH(RAM)
+//
+// ⚠️ **`__StackLimit` NAO e o fundo da pilha** -- e o fim da RAM inteira, a
+// 8 KiB daqui, atravessando o SCRATCH_X onde moraria a pilha do nucleo 1. A
+// primeira versao disto o usou como fundo, pintou e varreu a area errada, e
+// reportou "a pilha foi usada ate o fundo" numa execucao em que ela nao
+// tinha sido. O nome enganou; o mapa do binario desmentiu.
+extern char __StackBottom;
 extern char __StackTop;
 }
 
@@ -25,11 +35,11 @@ constexpr std::size_t kMargemDoQuadro = 256;
 bool pintada_ = false;
 
 std::uint32_t* fundo() {
-    return reinterpret_cast<std::uint32_t*>(&__StackLimit);
+    return reinterpret_cast<std::uint32_t*>(&__StackBottom);
 }
 
 std::size_t total_em_palavras() {
-    return static_cast<std::size_t>(&__StackTop - &__StackLimit)
+    return static_cast<std::size_t>(&__StackTop - &__StackBottom)
            / sizeof(std::uint32_t);
 }
 

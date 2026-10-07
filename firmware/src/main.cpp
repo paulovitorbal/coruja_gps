@@ -292,6 +292,14 @@ public:
             std::size_t usado = 0;
             std::size_t total = 0;
             char msg[96];
+            if (coruja::ClienteTls::pico_do_heap(&usado, &total)) {
+                std::snprintf(msg, sizeof msg,
+                              "pico do heap do lwip: %u B de %u",
+                              static_cast<unsigned>(usado),
+                              static_cast<unsigned>(total));
+                dono_.log_.info("mem", msg);
+            }
+
             if (coruja::pico_da_pilha(&usado, &total)) {
                 std::snprintf(msg, sizeof msg, "pico da pilha: %u B de %u",
                               static_cast<unsigned>(usado),

@@ -15,7 +15,29 @@
 
 #define MEM_LIBC_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    4000
+// 🔴 O HEAP DO lwIP, e e dele que sai a SESSAO TLS.
+//
+// Eram 4000 bytes, suficientes quando so havia pbufs aqui. Mas o
+// `altcp_tls_create_config_client` aloca por `mem_calloc` -- o heap do lwIP,
+// nao o alocador do mbedTLS -- e nele precisa caber a configuracao com os
+// TRES certificados raiz JA INTERPRETADOS, um deles RSA de 4096 bits, mais o
+// contexto de entropia.
+//
+// Nao cabia. O sintoma, medido em 2026-10-07:
+//
+//     [ERRO] http: sem memoria para a sessao TLS
+//     [INFO] emprestimo: pico de uso: 0 B de 287984
+//
+// O zero e a prova: a arena emprestada da base nunca foi tocada, porque o
+// mbedTLS nao chegou a alocar nada. A falta era antes, no lwIP.
+//
+// ⚠️ **A arena continua necessaria.** Ela atende as alocacoes INTERNAS do
+// mbedTLS durante o handshake -- os numerosao da curva e do RSA --, que sao
+// outra conta. Este heap atende a sessao; aquela, a matematica.
+//
+// 32 KiB e folga deliberada sobre o que a cadeia deve ocupar, porque o numero
+// exato ninguem mediu. O `MEM_STATS` abaixo existe para medi-lo.
+#define MEM_SIZE                    32768
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define PBUF_POOL_SIZE              24
@@ -36,7 +58,12 @@
 #define LWIP_NETIF_LINK_CALLBACK    1
 #define LWIP_NETIF_HOSTNAME         1
 #define LWIP_NETCONN                0
-#define MEM_STATS                   0
+// Ligado para o firmware poder DIZER quanto do heap o TLS usou, em vez de
+// alguem continuar escolhendo `MEM_SIZE` no olho. Custa alguns bytes de
+// contadores.
+#define MEM_STATS                   1
+#define LWIP_STATS                  1
+#define LWIP_STATS_DISPLAY          0
 #define SYS_STATS                   0
 #define MEMP_STATS                  0
 #define LINK_STATS                  0
