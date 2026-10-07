@@ -631,6 +631,50 @@ class Recepcao(unittest.TestCase):
         finally:
             c.close()
 
+    # -- a rota de saude, a UNICA sem token --
+
+    def test_saude_responde_sem_token(self):
+        """Quebrou o healthcheck quando todas as rotas foram fechadas.
+
+        O container ficou `unhealthy` por 973 verificações seguidas enquanto
+        servia normalmente -- um serviço mentindo sobre o próprio estado.
+        Dar um token ao healthcheck exigiria pôr um segredo na imagem, que
+        vai para o registro e para o `docker history`.
+        """
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        st, corpo = self.pede("GET", s.ROTA_SAUDE, token=None)
+        self.assertEqual(st, 200)
+        self.assertIn(b"ok", corpo)
+
+    def test_saude_responde_a_HEAD(self):
+        # É o que o healthcheck usa: não baixa corpo nenhum.
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        st, corpo = self.pede("HEAD", s.ROTA_SAUDE, token=None)
+        self.assertEqual(st, 200)
+        self.assertEqual(corpo, b"")
+
+    def test_saude_FALHA_quando_a_base_nao_foi_publicada(self):
+        # O ponto do healthcheck: um servidor no ar sem nada para servir não
+        # está saudável. Responder 200 aqui faria o container parecer bom com
+        # o serviço inútil.
+        st, _ = self.pede("GET", s.ROTA_SAUDE, token=None)
+        self.assertEqual(st, 503)
+
+    def test_saude_nao_revela_nada_alem_de_estar_de_pe(self):
+        # Ela é a única rota sem token; o que ela diz tem de ser inócuo.
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        _st, corpo = self.pede("GET", s.ROTA_SAUDE, token=None)
+        self.assertEqual(corpo.strip(), b"ok")
+        for vazamento in (TOKEN.encode(), PASTA.encode(), b"crc32", b"pontos"):
+            self.assertNotIn(vazamento, corpo)
+
+    def test_a_saude_nao_abre_as_outras_rotas(self):
+        # Uma rota sem token não pode virar um buraco nas demais.
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        self.pede("GET", s.ROTA_SAUDE, token=None)
+        self.assertEqual(self.pede("GET", s.ROTA_VERSAO, token=None)[0], 401)
+        self.assertEqual(self.pede("GET", s.ROTA_BASE, token=None)[0], 401)
+
     # -- a validação vale para TODAS as rotas --
 
     def test_a_raiz_tambem_exige_token(self):

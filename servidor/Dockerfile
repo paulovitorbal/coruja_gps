@@ -38,12 +38,20 @@ ENV CORUJA_DADOS=/dados \
 
 EXPOSE 8080
 
-# O healthcheck bate no HEAD da versão: barato, não baixa os 214 KB, e falha
-# enquanto a base não tiver sido publicada — que é exatamente o estado em que
-# o serviço não serve para nada.
+# O healthcheck bate na rota de SAÚDE, que não exige token — e falha enquanto
+# a base não tiver sido publicada, que é exatamente o estado em que o serviço
+# não serve para nada.
+#
+# ⚠️ Ele batia no `HEAD /radares.versao`. Quando todas as rotas passaram a
+# exigir token, essa verificação começou a levar `401` e o container ficou
+# `unhealthy` por 973 vezes seguidas — servindo normalmente o tempo todo. Um
+# serviço mentindo sobre o próprio estado é pior que um sem healthcheck.
+#
+# Dar um token ao healthcheck exigiria pôr um segredo na imagem, que vai para
+# o registro e para o `docker history`.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python3 -c "import urllib.request as u; \
-        r=u.urlopen(u.Request('http://127.0.0.1:8080/radares.versao', \
+        r=u.urlopen(u.Request('http://127.0.0.1:8080/saude', \
         method='HEAD'), timeout=4); exit(0 if r.status==200 else 1)"
 
 ENTRYPOINT ["python3", "/app/servidor.py"]

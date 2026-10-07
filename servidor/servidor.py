@@ -109,6 +109,23 @@ CABECALHO_TOKEN = "X-Coruja-Token"
 #   POST /viagens/sair     encerra a sessao
 ROTA_VIAGENS = "/viagens"
 
+#: Rota de saude, para o healthcheck do container.
+#:
+#: ⚠️ **Deliberadamente SEM token.** Quem a consulta e o proprio Docker, de
+#: dentro do container; dar-lhe um token exigiria por um segredo na imagem --
+#: que vai para o registro, para o cache de camadas e para qualquer um que
+#: faca `docker history`.
+#:
+#: O que ela revela: que o servico esta de pe e se a base foi publicada. Nada
+#: disso e segredo -- a existencia do servico ja se descobre pelo 401 de
+#: qualquer outra rota.
+#:
+#: Ela existe porque fechar TODAS as rotas quebrou o healthcheck anterior, que
+#: fazia `HEAD /radares.versao` e passou a levar 401. O container ficou
+#: `unhealthy` por 973 verificacoes seguidas enquanto servia normalmente --
+#: um servico mentindo sobre o proprio estado.
+ROTA_SAUDE = "/saude"
+
 #: Nome do cookie de sessao.
 #:
 #: ⚠️ **O cookie guarda um identificador aleatorio, nao o token.** Poe-lo no
@@ -783,8 +800,25 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802
         self._recebe()
 
+    def _saude(self, so_cabecalho: bool) -> None:
+        """Esta de pe, e a base esta publicada?
+
+        Nao exige token -- ver `ROTA_SAUDE`. O `503` com a base ausente e o
+        ponto: um servidor no ar sem nada para servir nao esta saudavel, e era
+        isso que o healthcheck original queria saber.
+        """
+        arquivo = self.dados / NOME_BASE
+        if not arquivo.is_file():
+            self._erro(503, "base ainda nao publicada", so_cabecalho)
+            return
+        self._responde(200, b"ok\n", "text/plain; charset=utf-8",
+                       so_cabecalho)
+
     def do_GET(self) -> None:  # noqa: N802
         caminho = self.path.split("?", 1)[0]
+        if caminho == ROTA_SAUDE:
+            self._saude(False)
+            return
         # A pagina de viagens tem autenticacao PROPRIA, por sessao: ela nao
         # passa pelo `_barra_desconhecido`, que espera o token no cabecalho e
         # devolveria 401 a um navegador que acabou de fazer login.
@@ -799,6 +833,9 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         self._serve()
 
     def do_HEAD(self) -> None:  # noqa: N802
+        if self.path.split("?", 1)[0] == ROTA_SAUDE:
+            self._saude(True)
+            return
         # Permite conferir tamanho e disponibilidade sem baixar 214 KB.
         if self._barra_desconhecido(so_cabecalho=True):
             return
