@@ -148,7 +148,17 @@ ler o log: `screen /dev/tty.usbmodem* 115200`.
 python3 scripts/gera_config.py --destino /Volumes/NOME_DO_CARTAO
 ```
 
-Gera o `coruja.cfg` no cartão. **Só entra nele o que varia por instalação:**
+Gera o `coruja.cfg` no cartão — **sem comentários**. Eles ficam no
+`coruja.cfg.exemplo`, versionado, que é onde se lê o que cada chave faz.
+
+> ⚠️ O firmware carrega o arquivo INTEIRO para a RAM, e os comentários deste
+> gerador são quatro quintos dele. O arquivo enxuto tem ~200 bytes; com
+> comentários, passava de 5 KB — e o leitor reservava 2 KB. O sintoma foi
+> `sem configuração utilizável` no OTA e o aparelho sem nome na tela, com um
+> arquivo que lia perfeitamente em qualquer outra ferramenta. Hoje o leitor e
+> o gravador usam a **mesma** constante, e há teste que falha se divergirem.
+
+**Só entra nele o que varia por instalação:**
 
 | Chave | |
 | :--- | :--- |

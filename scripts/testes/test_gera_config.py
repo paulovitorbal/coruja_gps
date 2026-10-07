@@ -187,5 +187,65 @@ class GeraConfig(unittest.TestCase):
         self.assertEqual(atual, g.corpo_cfg([], "", "", com_segredo=False))
 
 
+class CabeNoAparelho(unittest.TestCase):
+    """O arquivo gerado tem de caber no buffer que o firmware reserva.
+
+    ⚠️ **Este teste existe por causa de um defeito real**, de 2026-10-06: o
+    leitor do `main.cpp` reservava 2048 bytes e o gravador, 8192. O gerador
+    foi passando dos 2048 a cada funcionalidade nova -- cada uma acrescentava
+    um bloco de comentário -- e nada ligava os dois lados.
+
+    O sintoma não parecia com a causa: `sem configuração utilizável` no OTA e
+    o aparelho sem nome na tela de informação, com um arquivo que lia
+    perfeitamente em qualquer outra ferramenta.
+
+    O número é lido do CÓDIGO, não repetido aqui. Repetido, ele divergiria
+    pela mesma razão que os dois buffers divergiram.
+    """
+
+    def limite(self) -> int:
+        texto = (RAIZ / "firmware/src/nucleo/GravadorConfig.h").read_text()
+        m = re.search(r"kMaxTextoCfg\s*=\s*(\d+)", texto)
+        self.assertIsNotNone(m, "kMaxTextoCfg sumiu do GravadorConfig.h")
+        return int(m.group(1))
+
+    def test_o_leitor_e_o_gravador_usam_a_MESMA_constante(self):
+        # A correção estrutural: enquanto forem dois números, voltam a
+        # divergir.
+        main = (RAIZ / "firmware/src/main.cpp").read_text()
+        self.assertIn("kTamBufferConfig = coruja::kMaxTextoCfg", main)
+
+    def test_o_arquivo_do_cartao_cabe_com_folga(self):
+        corpo = g.enxuga(g.corpo_cfg(
+            [g.Rede("x" * g.MAX_SSID, "y" * 63)] * g.MAX_REDES,
+            "https://" + "u" * 150, "https://" + "b" * 150,
+            com_segredo=True))
+        # Pior caso: todas as redes, SSID e senha no limite, URLs no limite.
+        self.assertLess(len(corpo.encode()), self.limite(),
+                        "o que vai ao cartao nao cabe no buffer do firmware")
+
+    def test_o_exemplo_versionado_tambem_cabe(self):
+        # Alguém pode copiá-lo para o cartão e editar à mão -- é o que o
+        # próprio README sugere.
+        exemplo = (RAIZ / "coruja.cfg.exemplo").read_bytes()
+        self.assertLess(len(exemplo), self.limite())
+
+    def test_enxugar_tira_comentario_e_preserva_chave(self):
+        cheio = g.corpo_cfg([g.Rede("casa", "12345678")],
+                            "https://x/v", "https://x/b", com_segredo=True)
+        magro = g.enxuga(cheio)
+        self.assertNotIn("#", magro)
+        self.assertLess(len(magro), len(cheio) // 4,
+                        "enxugar mal compensa se nao corta de verdade")
+        for chave in ("wifi_ssid_1=casa", "wifi_senha_1=12345678",
+                      "url_versao=https://x/v", "url_base=https://x/b",
+                      "nome=", "brilho_dia=", "volume_buzzer="):
+            self.assertIn(chave, magro)
+
+    def test_enxugar_nao_deixa_linha_em_branco(self):
+        magro = g.enxuga(g.corpo_cfg([], "", "", com_segredo=False))
+        self.assertTrue(all(l.strip() for l in magro.splitlines()))
+
+
 if __name__ == "__main__":
     unittest.main()

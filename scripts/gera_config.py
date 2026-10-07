@@ -143,6 +143,23 @@ def coleta_urls(permitir_http: bool = False) -> tuple[str, str]:
             pede("URL do download (ex.: https://exemplo/radares.bin)"))
 
 
+def enxuga(corpo: str) -> str:
+    """Tira os comentarios e as linhas em branco.
+
+    ⚠️ **Existe porque o leitor do firmware le o arquivo INTEIRO para a RAM**,
+    e o que vai ao cartao e o que ele tem de carregar. Os comentarios deste
+    gerador sao quatro quintos do arquivo -- uteis para quem edita a mao,
+    peso morto para o aparelho.
+
+    O arquivo com comentarios continua existindo: e o `coruja.cfg.exemplo`,
+    versionado, que e onde se vai ler o que cada chave faz.
+    """
+    return "".join(
+        linha + "\n"
+        for linha in (l.rstrip() for l in corpo.splitlines())
+        if linha and not linha.lstrip().startswith("#"))
+
+
 def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
               com_segredo: bool, ajustes: Ajustes = Ajustes()) -> str:
     linhas = [
@@ -356,9 +373,12 @@ def main(argv: list[str] | None = None) -> int:
     url_versao, url_base = coleta_urls(args.permitir_http)
 
     print()
+    # O CARTAO leva a versao enxuta; o exemplo versionado leva os
+    # comentarios. Ver `enxuga`.
     grava(args.destino / CFG,
-          corpo_cfg(redes, url_versao, url_base, com_segredo=True,
-                    ajustes=ajustes), modo=0o600)
+          enxuga(corpo_cfg(redes, url_versao, url_base, com_segredo=True,
+                           ajustes=ajustes)),
+          modo=0o600)
     grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
 
     if args.destino.resolve() == RAIZ:

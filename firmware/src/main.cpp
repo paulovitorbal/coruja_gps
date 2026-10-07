@@ -65,7 +65,22 @@ namespace {
 /// da RAM usada — medido, não estimado (`formato_dados.md` §1).
 coruja::Ponto g_pontos[coruja::kCapacidadeFirmware];
 
-constexpr std::size_t kTamBufferConfig = 2048;
+/// Quanto do `coruja.cfg` cabe de uma vez.
+///
+/// **É o mesmo `kMaxTextoCfg` do gravador, e isso não é coincidência**: um
+/// arquivo que o menu consegue reescrever tem de ser um arquivo que o boot
+/// consegue ler. Eram dois números diferentes — 2048 aqui, 8192 lá —, e o
+/// gerador foi passando dos 2048 sem que nada reclamasse: cada funcionalidade
+/// nova acrescentava um bloco de comentário.
+///
+/// O sintoma, em 2026-10-06: `coruja.cfg: arquivo maior que o buffer`, o
+/// aparelho sem nome na tela de informação e o OTA recusando com "sem
+/// configuração utilizável" — com um arquivo que lia perfeitamente em
+/// qualquer outra ferramenta.
+///
+/// Os comentários saíram do arquivo que vai ao cartão (ficaram no
+/// `coruja.cfg.exemplo`), e os dois lados passaram a usar a MESMA constante.
+constexpr std::size_t kTamBufferConfig = coruja::kMaxTextoCfg;
 char g_texto_config[kTamBufferConfig];
 
 /// Buffer da gravação cirúrgica do `coruja.cfg`. Vem de fora do
