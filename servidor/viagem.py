@@ -10,7 +10,7 @@ O formato do arquivo é o que o firmware grava (`FormatoLog.h`):
 
     # coruja_gps viagem v1
     utc;lat;lon;v_media;dist_km
-    2026-10-06T12:38:00Z;-15.83075;-47.98297;0.6;0.00
+    2026-10-06T12:38:00Z;-10.00000;-40.00000;0.6;0.00
 
 **Um ponto a cada poucos segundos.** Não é uma trilha densa: os pontos ficam
 de metros um do outro. É o que cabe no cartão para uma viagem longa, e é o que
