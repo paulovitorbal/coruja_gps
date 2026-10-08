@@ -56,7 +56,7 @@ TEST(FormatoLog, a_linha_de_viagem_bate_com_a_referencia) {
     ASSERT_GT(n, 0u);
     // v3: quatro colunas a mais, VAZIAS porque este exemplo nao tem radar.
     EXPECT_STREQ(linha,
-                 "2026-10-04T17:30:00Z;-19.80430;-44.02980;58.1;12.40;;;;\n");
+                 "2026-10-04T17:30:00Z;-19.80430;-44.02980;58.1;12.40;;;;;;0;0\n");
     EXPECT_EQ(n, std::strlen(linha));
 }
 
@@ -88,7 +88,7 @@ TEST(FormatoLog, a_linha_tem_o_MESMO_numero_de_campos_com_e_sem_radar) {
     formata_ponto_viagem(com, cheio, sizeof cheio);
 
     EXPECT_EQ(campos(sem), campos(cheio));
-    EXPECT_EQ(campos(cheio), 9u) << "o cabecalho v3 declara nove colunas";
+    EXPECT_EQ(campos(cheio), 12u) << "o cabecalho v3 declara doze colunas";
 }
 
 TEST(FormatoLog, o_radar_do_eixao_sai_com_os_dois_pontos_distintos) {
@@ -108,7 +108,7 @@ TEST(FormatoLog, o_radar_do_eixao_sai_com_os_dois_pontos_distintos) {
     ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
     EXPECT_STREQ(linha,
                  "2026-10-04T17:30:00Z;-19.80430;-44.02980;80.0;12.40;"
-                 "210.5;60;88.2;80\n");
+                 "210.5;60;88.2;80;;0;0\n");
 }
 
 TEST(FormatoLog, limite_zero_de_semaforo_nao_se_confunde_com_vazio) {
@@ -139,10 +139,74 @@ TEST(FormatoLog, so_o_mais_proximo_sem_alerta_ainda_preenche_as_colunas_certas) 
         << linha;
 }
 
-TEST(FormatoLog, o_cabecalho_de_viagem_declara_v3_e_as_nove_colunas) {
+TEST(FormatoLog, o_cabecalho_de_viagem_declara_v3_e_as_doze_colunas) {
     const std::string c = kCabecalhoViagem;
     EXPECT_NE(c.find("viagem v3"), std::string::npos);
     EXPECT_NE(c.find("radar_m;radar_kmh;perto_m;perto_kmh"), std::string::npos);
+    EXPECT_NE(c.find("rumo;zona;n_radares"), std::string::npos);
+}
+
+// --- rumo, zona e contagem -------------------------------------------
+
+TEST(FormatoLog, o_rumo_sai_com_uma_casa_e_a_zona_e_a_contagem_como_inteiros) {
+    PontoViagem p = ponto_exemplo();
+    p.rumo_valido = true;
+    p.rumo_graus = 182.5F;
+    p.radar.zona_pior = 5;      // Perigo
+    p.radar.n_candidatos = 3;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_NE(std::string(linha).find(";182.5;5;3\n"), std::string::npos)
+        << linha;
+}
+
+TEST(FormatoLog, rumo_invalido_sai_VAZIO_e_nao_como_zero) {
+    // Zero e norte. A RMC vem sem rumo com o veiculo PARADO, e e exatamente
+    // parado que o receptor nao sabe para onde o carro aponta -- registrar
+    // zero ali inventaria uma direcao.
+    PontoViagem p = ponto_exemplo();
+    p.rumo_valido = false;
+    p.rumo_graus = 0.0F;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_NE(std::string(linha).find(";;0;0\n"), std::string::npos) << linha;
+    EXPECT_EQ(std::string(linha).find(";0.0;"), std::string::npos) << linha;
+}
+
+TEST(FormatoLog, rumo_norte_valido_sai_como_zero_e_nao_vazio) {
+    // O outro lado da mesma moeda: rumo 0 MEDIDO e norte, e tem de aparecer.
+    PontoViagem p = ponto_exemplo();
+    p.rumo_valido = true;
+    p.rumo_graus = 0.0F;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_NE(std::string(linha).find(";0.0;0;0\n"), std::string::npos)
+        << linha;
+}
+
+TEST(FormatoLog, a_linha_tem_doze_campos_em_todas_as_combinacoes) {
+    // A propriedade de que todo leitor de CSV depende.
+    PontoViagem vazio = ponto_exemplo();
+    PontoViagem cheio = ponto_exemplo();
+    cheio.rumo_valido = true;
+    cheio.rumo_graus = 359.9F;
+    cheio.radar.tem_alerta = true;
+    cheio.radar.dist_alerta_m = 1.0F;
+    cheio.radar.limite_alerta = 60;
+    cheio.radar.tem_proximo = true;
+    cheio.radar.dist_proximo_m = 2.0F;
+    cheio.radar.limite_proximo = 80;
+    cheio.radar.zona_pior = 5;
+    cheio.radar.n_candidatos = 255;
+
+    char a[kTamLinhaViagem], b[kTamLinhaViagem];
+    formata_ponto_viagem(vazio, a, sizeof a);
+    formata_ponto_viagem(cheio, b, sizeof b);
+    EXPECT_EQ(campos(a), 12u);
+    EXPECT_EQ(campos(b), 12u);
 }
 
 TEST(FormatoLog, o_ponto_de_viagem_tem_sempre_segundo_zero) {

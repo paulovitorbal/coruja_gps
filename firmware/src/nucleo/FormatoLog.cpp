@@ -70,15 +70,25 @@ std::size_t formata_ponto_viagem(const PontoViagem& p, char* destino,
                       static_cast<unsigned>(p.radar.limite_proximo));
     }
 
+    // Rumo VAZIO quando a RMC nao o traz (veiculo parado). Zero ali seria
+    // lido como norte -- e e justamente parado que o receptor nao sabe.
+    char rumo[12] = "";
+    if (p.rumo_valido) {
+        std::snprintf(rumo, sizeof rumo, "%.1f",
+                      static_cast<double>(p.rumo_graus));
+    }
+
     const int n = std::snprintf(
         destino, capacidade,
-        "%04u-%02u-%02uT%02u:%02u:%02uZ;%.5f;%.5f;%.1f;%.2f;%s;%s\n",
+        "%04u-%02u-%02uT%02u:%02u:%02uZ;%.5f;%.5f;%.1f;%.2f;%s;%s;%s;%u;%u\n",
         static_cast<unsigned>(p.ano), static_cast<unsigned>(p.mes),
         static_cast<unsigned>(p.dia), static_cast<unsigned>(p.hora),
         static_cast<unsigned>(p.minuto), static_cast<unsigned>(p.segundo),
         static_cast<double>(p.lat), static_cast<double>(p.lon),
         static_cast<double>(p.v_media_kmh), static_cast<double>(p.dist_km),
-        alerta, proximo);
+        alerta, proximo, rumo,
+        static_cast<unsigned>(p.radar.zona_pior),
+        static_cast<unsigned>(p.radar.n_candidatos));
     return coube(n, capacidade);
 }
 

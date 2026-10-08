@@ -68,6 +68,19 @@ constexpr std::uint8_t kSegundosPorAmostra = 6;
 /// Quando eles divergem, a divergência É o diagnóstico — e um campo só não
 /// conseguiria mostrá-la.
 struct RadarDaAmostra {
+    /// A zona mais grave vista na fatia, como número — a ordem do `Zona` é a
+    /// gravidade crescente, então o maior é o pior.
+    ///
+    /// ⚠️ **É isto que mede o incômodo**, e o incômodo é o problema. A queixa
+    /// do Eixão não foi "atribuiu ao radar errado": foi o buzzer tocando quase
+    /// o tempo todo. Esta coluna responde em número "que fração do trajeto
+    /// esteve em Perigo" — antes do filtro, e depois dele.
+    std::uint8_t zona_pior = 0;
+
+    /// Quantos pontos disputaram, no pior instante da fatia. Ver
+    /// `Veredito::n_candidatos`.
+    std::uint8_t n_candidatos = 0;
+
     bool         tem_alerta = false;
     float        dist_alerta_m = 0.0F;
     std::uint8_t limite_alerta = 0;
@@ -84,6 +97,21 @@ struct PontoViagem {
     float lon = 0.0F;
     float v_media_kmh = 0.0F;
     float dist_km = 0.0F;
+    /// O rumo do veículo, em graus do norte, na última leitura da fatia —
+    /// a mesma leitura de que vêm `lat` e `lon`.
+    ///
+    /// ⚠️ **Vem do receptor, e isso é o ponto.** O NEO-M8N deriva o curso por
+    /// Doppler, não por diferença de posições, e acerta cerca de 1° com o
+    /// veículo em movimento. Derivar o rumo de duas amostras do log, a 13 m
+    /// uma da outra com 3 m de ruído, dá ~18° de erro — que a 200 m viram 60 m
+    /// de erro na distância perpendicular até um radar, mais que a própria
+    /// separação entre as pistas que se quer medir. Medido em 08/10/2026.
+    float rumo_graus = 0.0F;
+
+    /// A RMC vem sem rumo com o veículo parado. Sem esta bandeira, zero seria
+    /// lido como "apontando para o norte".
+    bool  rumo_valido = false;
+
     /// A **menor** distância vista na fatia, e o radar dela.
     ///
     /// Menor, e não a última leitura: a 80 km/h o carro anda 133 m nos seis
@@ -176,6 +204,8 @@ private:
     bool          amostra_aberta_ = false;
     /// O melhor (= mais perto) que se viu nesta fatia, ainda em construção.
     RadarDaAmostra radar_da_fatia_{};
+    float          ultimo_rumo_ = 0.0F;
+    bool           ultimo_rumo_valido_ = false;
     std::uint16_t ano_ = 0;
     std::uint8_t  mes_ = 0, dia_ = 0, hora_ = 0, minuto_ = 0;
     /// A fatia que esta aberta, de 0 a 59/kSegundosPorAmostra-1.

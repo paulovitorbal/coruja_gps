@@ -54,6 +54,16 @@ void AcumuladorViagem::abre_amostra(const Telemetria& t) {
 }
 
 void AcumuladorViagem::considera_radar(const RadarDaAmostra& r) {
+    // A zona e a contagem sao agregadas pelo PIOR da fatia, e nao pela ultima
+    // leitura: a pergunta que elas respondem e "houve alerta nestes seis
+    // segundos", nao "havia alerta no instante em que a fatia fechou". A
+    // ordem do `Zona` e a gravidade crescente, entao o maior e o pior.
+    if (r.zona_pior > radar_da_fatia_.zona_pior) {
+        radar_da_fatia_.zona_pior = r.zona_pior;
+    }
+    if (r.n_candidatos > radar_da_fatia_.n_candidatos) {
+        radar_da_fatia_.n_candidatos = r.n_candidatos;
+    }
     // Os dois lados sao independentes: o alerta pode existir numa leitura em
     // que nao ha mais proximo registrado, e vice-versa.
     if (r.tem_alerta && (!radar_da_fatia_.tem_alerta ||
@@ -82,6 +92,8 @@ void AcumuladorViagem::fecha_amostra() {
     ponto_.v_media_kmh =
         amostras_ > 0 ? soma_vel_ / static_cast<float>(amostras_) : 0.0F;
     ponto_.dist_km = dist_km_;
+    ponto_.rumo_graus = ultimo_rumo_;
+    ponto_.rumo_valido = ultimo_rumo_valido_;
     ponto_.radar = radar_da_fatia_;
 }
 
@@ -113,6 +125,8 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
         abre_amostra(t);
         ultima_lat_ = t.lat;
         ultima_lon_ = t.lon;
+        ultimo_rumo_ = t.rumo_graus;
+        ultimo_rumo_valido_ = t.rumo_valido;
         soma_vel_ += t.velocidade_kmh;
         considera_radar(radar);
         ++amostras_;
@@ -154,6 +168,11 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     ++amostras_;
     ultima_lat_ = t.lat;
     ultima_lon_ = t.lon;
+    // O rumo acompanha a POSICAO, e nao o pior da fatia: ele descreve a
+    // mesma leitura de que saem `lat` e `lon`, e so assim a perpendicular
+    // calculada depois usa um par coerente.
+    ultimo_rumo_ = t.rumo_graus;
+    ultimo_rumo_valido_ = t.rumo_valido;
 
     // --- encerramento automático ---
     if (t.velocidade_kmh < kVelocidadeParadoKmh) {

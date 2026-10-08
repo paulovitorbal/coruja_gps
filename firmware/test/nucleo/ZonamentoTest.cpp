@@ -851,4 +851,79 @@ TEST(MaquinaZona, sem_candidato_nao_ha_mais_proximo) {
     EXPECT_FALSE(v.tem_mais_proximo);
 }
 
+
+// --- a contagem de candidatos (para o log de viagem) ----------------------
+
+TEST(ContagemDeCandidatos, conta_todos_os_que_passaram_pelos_filtros) {
+    // Tres radares a frente, dentro do raio. A precedencia escolhe UM, mas o
+    // log precisa saber que a disputa tinha tres -- e isso nao se ve pelo
+    // alvo nem pelo mais proximo.
+    MaquinaZona m;
+    const auto base = base_de({
+        faz_ponto(100.0F, 0.0F, 60),
+        faz_ponto(150.0F, 40.0F, 80),
+        faz_ponto(200.0F, -30.0F, 60),
+    });
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 3);
+}
+
+TEST(ContagemDeCandidatos, nao_conta_quem_ficou_para_tras) {
+    // O filtro de "a frente" ja exclui; a contagem tem de respeitar o mesmo
+    // criterio, senao ela mede outra coisa que nao a disputa.
+    MaquinaZona m;
+    const auto base = base_de({
+        faz_ponto(100.0F, 0.0F, 60),      // a frente
+        faz_ponto(-100.0F, 0.0F, 60),     // atras
+    });
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 1);
+}
+
+TEST(ContagemDeCandidatos, nao_conta_quem_esta_fora_do_raio) {
+    MaquinaZona m;
+    const auto base = base_de({
+        faz_ponto(100.0F, 0.0F, 60),
+        faz_ponto(1000.0F, 0.0F, 60),     // bem alem dos 300 m
+    });
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 1);
+}
+
+TEST(ContagemDeCandidatos, nao_conta_quem_tem_sentido_incompativel) {
+    // O terceiro filtro, que faltava. Um radar unidirecional apontado para o
+    // sentido contrario nao disputa -- e contar-lo inflaria a ambiguidade
+    // numa via de mao dupla, onde ela nao existe.
+    MaquinaZona m;
+    const auto base = base_de({
+        faz_ponto(100.0F, 0.0F, 60, Sentido::Unidirecional, 0),    // mesmo sentido
+        faz_ponto(150.0F, 0.0F, 60, Sentido::Unidirecional, 180),  // contrario
+    });
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 1);
+}
+
+TEST(ContagemDeCandidatos, zero_quando_nao_ha_nada_na_janela) {
+    MaquinaZona m;
+    const auto base = base_de({faz_ponto(5000.0F, 0.0F, 60)});
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 0);
+    EXPECT_FALSE(v.tem_alvo);
+}
+
+TEST(ContagemDeCandidatos, dois_radares_de_MESMO_limite_tambem_sao_ambiguidade) {
+    // O motivo de a coluna existir: a divergencia entre `radar_kmh` e
+    // `perto_kmh` nao denuncia dois radares de 60 em pistas diferentes, e
+    // eles sao tao ambiguos quanto 60 contra 80.
+    MaquinaZona m;
+    const auto base = base_de({
+        faz_ponto(120.0F, 0.0F, 60),
+        faz_ponto(130.0F, 40.0F, 60),
+    });
+    const auto v = m.avalia(veiculo(80.0F), base.data(), base.size(), 1000);
+    EXPECT_EQ(v.n_candidatos, 2);
+    EXPECT_EQ(v.alvo.limite, v.mais_proximo.limite)
+        << "os limites coincidem: so a contagem revela a disputa";
+}
+
 }  // namespace

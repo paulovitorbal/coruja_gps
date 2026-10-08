@@ -113,6 +113,26 @@ class PontoViagem:
     perto_m: float | None = None
     perto_kmh: int | None = None
 
+    #: Rumo do veículo em graus do norte, **medido pelo receptor**.
+    #:
+    #: Vale muito mais que o rumo derivado de duas amostras: o NEO-M8N tira o
+    #: curso por Doppler e acerta ~1° em movimento, enquanto derivar de duas
+    #: posições a 13 m uma da outra, com 3 m de ruído, dá ~18° — que a 200 m
+    #: viram 60 m de erro na perpendicular até um radar, mais que a separação
+    #: entre as pistas que se quer medir.
+    #:
+    #: `None` com o veículo parado: a RMC vem sem rumo, e zero seria norte.
+    rumo: float | None = None
+
+    #: A zona mais grave da fatia: 0 sem sinal, 1 segura, 2 conforme,
+    #: 3 semáforo, 4 margem, 5 perigo. É o que mede o INCÔMODO — a queixa do
+    #: Eixão foi o buzzer tocando quase o tempo todo.
+    zona: int | None = None
+
+    #: Quantos radares disputaram no pior instante da fatia. Revela
+    #: ambiguidade mesmo quando os limites coincidem.
+    n_radares: int | None = None
+
 
 @dataclass(frozen=True)
 class Viagem:
@@ -138,6 +158,24 @@ class Viagem:
     @property
     def v_maxima_kmh(self) -> float:
         return max(p.v_media_kmh for p in self.pontos)
+
+    @property
+    def fracao_em_perigo(self) -> float | None:
+        """Que fração das amostras esteve em zona de Perigo, de 0 a 1.
+
+        **É a medida do incômodo**, e o incômodo é o problema: a queixa do
+        Eixão não foi "atribuiu ao radar errado", foi o buzzer tocando quase
+        o tempo todo. Depois do filtro de pista, esta mesma fração diz se
+        melhorou — e por quanto.
+
+        `None` quando nenhuma amostra traz a coluna, o que é o caso de todo
+        arquivo v1 e v2. Zero significaria "nunca houve Perigo", que é outra
+        afirmação.
+        """
+        conhecidas = [p.zona for p in self.pontos if p.zona is not None]
+        if not conhecidas:
+            return None
+        return sum(1 for z in conhecidas if z >= 5) / len(conhecidas)
 
     @property
     def divergencias_de_radar(self) -> int:
@@ -310,6 +348,9 @@ def _radar_de(campos: list[str]) -> dict:
         "radar_kmh": _numero(campos, 6, int),
         "perto_m": _numero(campos, 7, float),
         "perto_kmh": _numero(campos, 8, int),
+        "rumo": _numero(campos, 9, float),
+        "zona": _numero(campos, 10, int),
+        "n_radares": _numero(campos, 11, int),
     }
 
 
@@ -594,6 +635,8 @@ def _painel(v: Viagem) -> str:
     # radar seria ruído -- e ruído num painel treina quem lê a ignorá-lo.
     if v.divergencias_de_radar > 0:
         linhas.append(("alerta != + perto", f"{v.divergencias_de_radar}"))
+    if v.fracao_em_perigo is not None:
+        linhas.append(("em perigo", f"{v.fracao_em_perigo * 100:.0f}%"))
     itens = "".join(
         f'<div class="cg-item"><span>{html.escape(r)}</span>'
         f'<strong>{html.escape(d)}</strong></div>'

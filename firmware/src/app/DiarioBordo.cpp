@@ -99,6 +99,8 @@ static RadarDaAmostra radar_de(const Veredito& v) {
         r.dist_alerta_m = v.distancia_m;
         r.limite_alerta = v.alvo.limite;
     }
+    r.zona_pior = static_cast<std::uint8_t>(v.zona);
+    r.n_candidatos = v.n_candidatos;
     r.tem_proximo = v.tem_mais_proximo;
     if (v.tem_mais_proximo) {
         r.dist_proximo_m = v.dist_mais_proximo_m;

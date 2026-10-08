@@ -59,6 +59,9 @@ def le_viagem(caminho: Path) -> list[dict]:
                 "radar_kmh": int(c[6]) if len(c) > 6 and c[6] else None,
                 "perto_m": float(c[7]) if len(c) > 7 and c[7] else None,
                 "perto_kmh": int(c[8]) if len(c) > 8 and c[8] else None,
+                "rumo": float(c[9]) if len(c) > 9 and c[9] else None,
+                "zona": int(c[10]) if len(c) > 10 and c[10] else None,
+                "n_radares": int(c[11]) if len(c) > 11 and c[11] else None,
             }
         except ValueError:
             continue
@@ -119,6 +122,13 @@ def rumo_suavizado(viagem: list[dict], i: int) -> float | None:
     Usa do `i-JANELA_RUMO` ao `i+JANELA_RUMO`. Devolve `None` nas pontas, onde
     não há base — inventar rumo ali produziria perpendicular sem significado.
     """
+    # O rumo REGISTRADO pelo receptor vence sempre: ele vem por Doppler e
+    # acerta ~1°, contra os vários graus de qualquer estimativa feita sobre
+    # posições ruidosas. Só se ele faltar -- arquivo v1/v2, ou veículo parado
+    # -- é que se recorre à base longa.
+    registrado = viagem[i].get("rumo")
+    if registrado is not None:
+        return registrado
     a = i - JANELA_RUMO
     b = i + JANELA_RUMO
     if a < 0 or b >= len(viagem):

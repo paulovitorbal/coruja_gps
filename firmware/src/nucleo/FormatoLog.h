@@ -73,16 +73,58 @@ constexpr const char* kCabecalhoInfracoes =
 ///
 /// As colunas novas vão no FIM: um leitor de v2 que corte no quinto campo
 /// continua lendo os arquivos novos sem errar.
+/// ⚠️ **v3: doze colunas, e `rumo` é a que mais vale.**
+///
+/// A v3 cresceu em duas etapas no mesmo dia, de nove para doze colunas, e
+/// **não virou v4 de propósito**: a v0.2.11, único firmware que grava a forma
+/// de nove, nunca foi publicada nem gravada — existe só na máquina do autor.
+/// Criar v4 inventaria uma versão que nenhum cartão jamais teve.
+///
+/// ⚠️ **E `v2` NÃO está livre, apesar de nenhum cartão tê-lo.** As releases
+/// v0.2.6 a v0.2.10 estão publicadas e todas gravam `viagem v2` com CINCO
+/// colunas. Reusar esse rótulo faria dois formatos incompatíveis
+/// compartilharem o mesmo nome — que é precisamente o que um número de versão
+/// existe para impedir. Em cartão só existe v1; em firmware publicado, v2
+/// existe. Quem decide o rótulo é a segunda coisa.
+///
+/// Quem lê continua seguro porque o analisador conta colunas por índice e
+/// tolera faltar do fim: uma linha de nove e uma de doze passam pelo mesmo
+/// caminho.
+///
+/// `rumo` vem do RECEPTOR, por Doppler, e acerta cerca de 1° em movimento.
+/// Sem ele, quem analisa precisa derivar o rumo de duas amostras do log — a
+/// 13 m uma da outra, com 3 m de ruído, o que dá ~18° de erro. A 200 m de
+/// distância isso vira 60 m de erro na perpendicular até um radar: **mais que
+/// a separação entre as pistas que se quer medir.** Medido em 08/10/2026.
+///
+/// Vazio quando a RMC não traz rumo (veículo parado), e vazio é diferente de
+/// `0`, que é norte.
+///
+/// `zona` é a mais grave da fatia, pela ordem do `Zona` (0 sem sinal, 1
+/// segura, 2 conforme, 3 semáforo, 4 margem, 5 perigo). **É esta coluna que
+/// mede o incômodo**, e o incômodo é o problema: a queixa do Eixão foi o
+/// buzzer tocando quase o tempo todo, não a atribuição errada. Ela responde
+/// em número que fração do trajeto esteve em Perigo — antes do filtro de
+/// pista e depois dele.
+///
+/// `n_radares` é quantos pontos passaram por todos os filtros no pior
+/// instante da fatia. Diz se havia ambiguidade mesmo quando os limites
+/// coincidem — dois radares de 60 em pistas diferentes não aparecem na
+/// divergência entre `radar_kmh` e `perto_kmh`, e são ambíguos do mesmo
+/// jeito.
 constexpr const char* kCabecalhoViagem =
     "# coruja_gps viagem v3\n"
-    "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh\n";
+    "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh;"
+    "rumo;zona;n_radares\n";
 
 /// Buffers mínimos. Dimensionados pelo pior caso de cada campo, com folga.
 constexpr std::size_t kTamLinhaInfracao = 128;
 /// 80 cobria a v2. As quatro colunas novas pedem ate ~28 bytes
 /// (`;9999.9;255;9999.9;255`), e truncar a linha perderia o campo
 /// que foi acrescentado justamente para diagnosticar.
-constexpr std::size_t kTamLinhaViagem = 120;
+/// 120 cobria as nove colunas. As tres novas pedem ate ~14 bytes
+/// (`;359.9;5;255`), e truncar perderia justamente o diagnostico.
+constexpr std::size_t kTamLinhaViagem = 144;
 
 std::size_t formata_infracao(const RegistroInfracao& r, char* destino,
                              std::size_t capacidade);

@@ -218,6 +218,7 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
     const float margem_lon = kRaioSaidaM / (geo::kMetrosPorGrauLat * cos_lat);
     const float lat_maxima = t.lat + margem_lat;
 
+    std::uint8_t n_candidatos = 0;
     Candidato perigo;
     Candidato margem;
     Candidato semaforo;
@@ -251,6 +252,7 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
         // Perigo. Testar `limite == 0` aqui antes duplicaria a regra e
         // deixaria a guarda como código morto, que ninguém percebe quebrar.
         mais_proximo.considera(i, d);
+        if (n_candidatos < 255) { ++n_candidatos; }
 
         if (e_perigo(t.velocidade_kmh, p.limite)) {
             perigo.considera(i, d);
@@ -285,6 +287,7 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
 
     Veredito v;
     v.zona = zona;
+    v.n_candidatos = n_candidatos;
     // Preenchido ANTES do retorno antecipado seria codigo morto: sem
     // candidato escolhido tambem nao ha mais proximo, porque os dois saem do
     // mesmo laco e dos mesmos filtros.

@@ -466,4 +466,84 @@ TEST(RadarDaViagem, alerta_e_mais_proximo_sao_independentes) {
     EXPECT_FLOAT_EQ(a.ultimo_ponto().radar.dist_proximo_m, 55.0F);
 }
 
+
+// --- rumo, zona e contagem na fatia (v4) ----------------------------------
+
+Telemetria com_rumo(std::uint8_t hora, std::uint8_t minuto,
+                    std::uint8_t segundo, float v, float rumo,
+                    bool rumo_valido = true) {
+    Telemetria t = em(hora, minuto, segundo, v);
+    t.rumo_graus = rumo;
+    t.rumo_valido = rumo_valido;
+    return t;
+}
+
+RadarDaAmostra alerta(unsigned zona, unsigned n) {
+    RadarDaAmostra r;
+    r.zona_pior = static_cast<std::uint8_t>(zona);
+    r.n_candidatos = static_cast<std::uint8_t>(n);
+    return r;
+}
+
+TEST(RadarDaViagem, o_rumo_acompanha_a_POSICAO_e_nao_o_pior_da_fatia) {
+    // Rumo e posicao tem de vir da MESMA leitura: a perpendicular ate um
+    // radar se calcula com o par, e misturar leituras daria um angulo que
+    // nao corresponde ao ponto registrado.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(com_rumo(17, 30, 0, 80.0F, 10.0F), kSemRadar, true, 1000);
+    a.alimenta(com_rumo(17, 30, 2, 80.0F, 20.0F), kSemRadar, true, 3000);
+    a.alimenta(com_rumo(17, 30, 4, 80.0F, 33.0F), kSemRadar, true, 5000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 80.0F), kSemRadar, true, 7000),
+              EventoViagem::Grava);
+
+    EXPECT_TRUE(a.ultimo_ponto().rumo_valido);
+    EXPECT_FLOAT_EQ(a.ultimo_ponto().rumo_graus, 33.0F)
+        << "o rumo nao veio da ultima leitura da fatia";
+}
+
+TEST(RadarDaViagem, rumo_invalido_e_preservado_como_invalido) {
+    // A RMC vem sem rumo com o veiculo parado. Guardar o ultimo valido faria
+    // a linha afirmar uma direcao que o receptor nao mediu.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(com_rumo(17, 30, 0, 80.0F, 90.0F, true), kSemRadar, true, 1000);
+    a.alimenta(com_rumo(17, 30, 4, 0.0F, 0.0F, false), kSemRadar, true, 5000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 0.0F), kSemRadar, true, 7000),
+              EventoViagem::Grava);
+    EXPECT_FALSE(a.ultimo_ponto().rumo_valido);
+}
+
+TEST(RadarDaViagem, a_zona_registrada_e_a_PIOR_da_fatia) {
+    // A pergunta e "houve alerta nestes seis segundos", nao "havia alerta no
+    // instante em que a fatia fechou". Guardar a ultima esconderia um Perigo
+    // de dois segundos atras -- justamente o que se quer contar.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 0, 80.0F), alerta(2, 1), true, 1000);
+    a.alimenta(em(17, 30, 2, 80.0F), alerta(5, 2), true, 3000);  // Perigo
+    a.alimenta(em(17, 30, 4, 80.0F), alerta(1, 0), true, 5000);  // Segura
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 80.0F), kSemRadar, true, 7000),
+              EventoViagem::Grava);
+
+    EXPECT_EQ(a.ultimo_ponto().radar.zona_pior, 5);
+    EXPECT_EQ(a.ultimo_ponto().radar.n_candidatos, 2);
+}
+
+TEST(RadarDaViagem, a_zona_e_a_contagem_zeram_na_fatia_seguinte) {
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 0, 80.0F), alerta(5, 4), true, 1000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 80.0F), kSemRadar, true, 7000),
+              EventoViagem::Grava);
+    ASSERT_EQ(a.ultimo_ponto().radar.zona_pior, 5);
+
+    a.alimenta(em(17, 30, 8, 80.0F), kSemRadar, true, 9000);
+    ASSERT_EQ(a.alimenta(em(17, 30, 12, 80.0F), kSemRadar, true, 13000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().radar.zona_pior, 0)
+        << "a zona da fatia anterior vazou";
+    EXPECT_EQ(a.ultimo_ponto().radar.n_candidatos, 0);
+}
+
 }  // namespace

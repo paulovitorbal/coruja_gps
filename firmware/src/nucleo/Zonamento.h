@@ -58,6 +58,18 @@ struct Veredito {
     bool        tem_mais_proximo = false;
     Ponto       mais_proximo{};
     float       dist_mais_proximo_m = 0.0F;
+
+    /// Quantos pontos passaram por TODOS os filtros — raio, sentido e "à
+    /// frente". É o tamanho da disputa que a precedência do RF03.4 resolveu.
+    ///
+    /// Existe para o log de viagem poder dizer se havia ambiguidade. Sem ele,
+    /// ambiguidade só se percebe quando o alvo e o mais próximo têm limites
+    /// DIFERENTES — dois radares de 60 em pistas distintas passariam por um
+    /// caso simples, e não são.
+    ///
+    /// Satura em 255: o número existe para dizer "um, dois, ou muitos", e
+    /// nenhuma decisão depende de distinguir 260 de 255.
+    std::uint8_t n_candidatos = 0;
 };
 
 // --------------------------------------------------------------- constantes
