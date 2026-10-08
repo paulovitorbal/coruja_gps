@@ -89,6 +89,13 @@ Generosos de propósito enquanto não houver paquímetro sobre o conector
 comprado: errar para mais custa folga, errar para menos arruína a peça depois
 de impressa.
 
+🔴 **E há uma terceira cota, que não tem valor aqui e pode reprovar o
+desenho: o comprimento da rosca.** A espessura máxima de painel é ele menos a
+altura da porca. Se sobrar pouco, os 3 mm de parede não fecham — e aí as outras
+duas medidas não importam.
+
+As três estão registradas como pendência **M-14** no `montagem.md`.
+
 O reforço em volta do furo é um **anel**, e não um disco, por causa do segundo
 valor — engrossar a parede sob a porca consome o comprimento útil de rosca.
 Quem limita a espessura aqui não é a impressão, é a peça comprada.

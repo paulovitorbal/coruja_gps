@@ -365,9 +365,34 @@ Numeração própria (**M-NN**), para não colidir com os **R-NN** de
 | **M-11** | 🆕 **Retenção do ímã com a caixa quente** | Segurança. Testar num dia de sol, não frio. |
 | **M-12** | 🆕 **Diâmetro do canhão roscado do encoder** | Única cota da caixa sem margem para menos. A porca não responde — ver §5. |
 | **M-13** | 🆕 Furo do LED, rasgo do cartão, abertura do USB | Estimativas no modelo. As duas últimas foram alargadas de propósito; a do LED não. |
+| **M-14** | 🆕 **Conector GX12-2: três cotas**, com o conector em mãos | Trava a impressão do corpo. Conectores comprados em 08/10/2026, previstos para sábado. Ver abaixo. |
 | **R-13** | Corrente agregada e temperatura do LDO do display | Aberto em `revisao_tecnica.md`; a caixa fechada torna a medição mais relevante, não menos. |
 
-> ⚠️ **M-09, M-10, M-12 e M-13** são impressora e paquímetro, e saem rápido assim
-> que a impressora chegar. **M-06, M-07, M-08 e M-11** exigem o veículo — e o
-> M-08 exige um dia de sol, então vale deixar o registro pronto antes do próximo
-> verão.
+> ⚠️ **M-09, M-10, M-12, M-13 e M-14** são impressora e paquímetro, e saem rápido
+> assim que a impressora chegar. **M-06, M-07, M-08 e M-11** exigem o veículo — e
+> o M-08 exige um dia de sol, então vale deixar o registro pronto antes do
+> próximo verão.
+
+### M-14 — as três cotas do GX12-2
+
+As duas primeiras já têm valor no modelo, **generoso de propósito**: errar para
+mais custa folga, errar para menos arruína uma peça de 130 × 130 × 67 mm depois
+de impressa.
+
+| Medir | Define | Valor atual |
+| :--- | :--- | ---: |
+| ⌀ do corpo roscado | `GX12_FURO` | 12,5 mm |
+| ⌀ da porca, de ponta a ponta | `GX12_VAO_PORCA` — a zona que **permanece** com 3 mm de parede, para a porca assentar | 18,0 mm |
+| **comprimento da rosca** | **se 3 mm de parede fecham** | — |
+
+🔴 **A terceira não tem valor no modelo, e é a que pode reprovar o desenho.** A
+espessura máxima de painel é o comprimento roscado menos a altura da porca. Se
+sobrar pouco, os 3 mm não fecham — e aí não adianta medir as outras duas.
+
+É por isso que o reforço do furo é um **anel** e não um disco: ele deixa a
+parede com a espessura nominal sob a porca, e engrossa só o material em volta.
+Quem limita a espessura aqui não é a impressão, é a peça comprada.
+
+> As cotas moram em `caixa/coruja_caixa.scad`, marcadas `(MEDIR)`. Depois de
+> medir, regerar com `caixa/gera_stl.sh` — ele verifica a malha e recusa a peça
+> se algum vão da traseira ficar obstruído.
