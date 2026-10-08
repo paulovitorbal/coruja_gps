@@ -51,8 +51,20 @@ class MapaNoNavegador(unittest.TestCase):
         arq.write_text(viagem_sintetica(pontos=22))
         v = viagem.le_viagem(arq)
 
+        # Radares SOBRE a rota sintetica, para a camada ser exercitada de
+        # verdade. Um deles e semaforo (limite 0), que tem pino diferente.
+        radares = [
+            viagem.RadarNoMapa(lat=v.pontos[3].lat, lon=v.pontos[3].lon,
+                               limite=60),
+            viagem.RadarNoMapa(lat=v.pontos[10].lat, lon=v.pontos[10].lon,
+                               limite=80),
+            viagem.RadarNoMapa(lat=v.pontos[16].lat, lon=v.pontos[16].lon,
+                               limite=0),
+        ]
+        cls.radares = radares
+
         pagina_html = Path(cls._tmp.name) / "mapa.html"
-        pagina_html.write_text(viagem.desenha(v))
+        pagina_html.write_text(viagem.desenha(v, "", radares))
 
         try:
             cls._pw = sync_playwright().start()
@@ -187,6 +199,71 @@ class MapaNoNavegador(unittest.TestCase):
         self.assertIn("20261006_123858.log",
                       self.pag.locator(".cg-painel").inner_text())
 
+    # --- os radares no mapa ---
+
+    def test_os_pinos_de_radar_aparecem_no_mapa(self):
+        # Conferir o HTML por substring diria que o `div` esta la. So o
+        # navegador diz que o Leaflet o POS no mapa, com tamanho e posicao.
+        pinos = self.pag.locator("div.leaflet-marker-icon div")
+        self.assertGreaterEqual(pinos.count(), 3)
+
+    def test_o_pino_mostra_o_limite_e_o_semaforo_mostra_S(self):
+        textos = self.pag.locator("div.leaflet-marker-icon div").all_text_contents()
+        self.assertIn("60", textos)
+        self.assertIn("80", textos)
+        self.assertIn("S", textos)
+        self.assertNotIn("0", textos)
+
+    def test_o_pino_e_redondo_de_verdade(self):
+        # `border-radius:50%` no HTML nao prova que o navegador aplicou. Mede
+        # a caixa: um circulo tem largura igual a altura.
+        caixa = self.pag.locator("div.leaflet-marker-icon div").first.bounding_box()
+        self.assertIsNotNone(caixa)
+        self.assertAlmostEqual(caixa["width"], caixa["height"], delta=1.0)
+        self.assertGreater(caixa["width"], 20)
+
+    # --- a velocidade do ponto exibido ---
+
+    def test_o_indicador_de_velocidade_existe_ao_lado_do_relogio(self):
+        self.assertEqual(self.pag.locator(".cg-vel-atual").count(), 1)
+
+    def test_o_indicador_mostra_um_numero_e_nao_o_traco(self):
+        # O traco e o estado "nao sei". Se ele persistir, o indice por
+        # milissegundo nao casou com o relogio do TimeDimension -- que foi
+        # exatamente o risco de indexar por texto de data.
+        texto = self.pag.locator(".cg-vel-atual").inner_text()
+        self.assertIn("km/h", texto, f"indicador em {texto!r}")
+
+    def test_o_numero_MUDA_ao_longo_da_linha_do_tempo(self):
+        """A prova de que ele acompanha, e nao mostra um valor congelado.
+
+        ⚠️ **Duas armadilhas, e cai nas duas quem amostra pouco.**
+
+        1. A velocidade NAO e interpolada: todos os pontos adensados de um
+           mesmo registro carregam a velocidade dele. Na viagem sintetica, de
+           60 s por registro, os trinta primeiros passos mostram o mesmo
+           numero -- avancar dois passos nao prova nada.
+        2. A viagem sintetica usa `20 + i % 7`, entao o PRIMEIRO e o ULTIMO
+           ponto tem a mesma velocidade (0 % 7 == 21 % 7). Comparar so as
+           pontas acusa de congelado um indicador que funciona.
+
+        As duas me deram diagnostico errado antes deste teste ficar assim. Por
+        isso ele varre a linha do tempo inteira e exige VARIEDADE, em vez de
+        comparar dois instantes escolhidos a dedo.
+        """
+        vistos = set()
+        for fracao in (0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9):
+            self.pag.evaluate("""(f) => {
+              var td = window.timeDimensionControl._timeDimension;
+              var ts = td.getAvailableTimes();
+              td.setCurrentTime(ts[Math.floor(f * (ts.length - 1))]);
+            }""", fracao)
+            self.pag.wait_for_timeout(120)
+            vistos.add(self.pag.locator(".cg-vel-atual").inner_text())
+
+        self.assertTrue(all("km/h" in t for t in vistos), vistos)
+        self.assertGreater(len(vistos), 1,
+                           f"o indicador ficou preso em {vistos}")
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,8 @@ from __future__ import annotations
 import datetime
 import html
 import json
+import math
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -184,6 +186,103 @@ class Viagem:
         """
         horas = self.duracao.total_seconds() / 3600
         return self.distancia_km / horas if horas > 0 else 0.0
+
+
+#: Até onde um radar conta como "na região da rota", em metros.
+#:
+#: 300 m não é número solto: é o `kRaioAlertaM` do firmware (RF03.2), o raio
+#: em que o aparelho passa a considerar um ponto. Mostrar exatamente esse raio
+#: faz o mapa responder "o que o aparelho PODERIA ter alertado aqui" — que é a
+#: pergunta de quem abre a página para entender um alerta estranho.
+RAIO_RADAR_M = 300.0
+
+#: Metros por grau de latitude. A longitude encolhe por cos(lat).
+_M_POR_GRAU = 111_320.0
+
+#: O registro do `radares.bin`: lat e lon em inteiros escalados por 1e5,
+#: limite, rumo quantizado, tipo e sentido. Ver `formato_dados.md` §2.
+#:
+#: ⚠️ **É a segunda leitura deste formato no servidor** — a primeira é o
+#: cabeçalho, no `servidor.py`. Ela existe porque o container leva só os três
+#: arquivos do servidor, e o `formato_radares.py` do repositório fica de fora.
+#: Para a duplicação não virar divergência, há um teste que escreve uma base
+#: com o `formato_radares` e confere que esta leitura devolve os mesmos
+#: pontos.
+_REGISTRO_BASE = struct.Struct("<iiBBBB")
+_CABECALHO_BASE = struct.Struct("<4sHBBII")
+_TAM_CABECALHO = {1: 16, 2: 20}
+_ESCALA = 100_000.0
+
+
+@dataclass(frozen=True)
+class RadarNoMapa:
+    lat: float
+    lon: float
+    limite: int
+
+
+def le_radares(caminho: Path) -> list[RadarNoMapa]:
+    """Os pontos do `radares.bin`. Lista vazia se o arquivo não serve.
+
+    Não levanta: a página de viagens tem de abrir mesmo sem base — os radares
+    são um acréscimo ao mapa, não o conteúdo dele. Falhar aqui trocaria uma
+    camada ausente por um erro 500.
+    """
+    try:
+        bruto = Path(caminho).read_bytes()
+    except OSError:
+        return []
+    if len(bruto) < _CABECALHO_BASE.size:
+        return []
+    magic, versao, exp, tam, n, _crc = _CABECALHO_BASE.unpack_from(bruto)
+    if (magic != b"RDR1" or versao not in _TAM_CABECALHO
+            or exp != 5 or tam != _REGISTRO_BASE.size):
+        return []
+    inicio = _TAM_CABECALHO[versao]
+    saida = []
+    for i in range(n):
+        deslocamento = inicio + i * tam
+        if deslocamento + tam > len(bruto):
+            break          # arquivo truncado: vale o que chegou inteiro
+        lat, lon, limite, _rumo, _tipo, _sentido = _REGISTRO_BASE.unpack_from(
+            bruto, deslocamento)
+        saida.append(RadarNoMapa(lat / _ESCALA, lon / _ESCALA, limite))
+    return saida
+
+
+def _metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
+    """Distância aproximada, equirretangular. Erro de centímetros nesta escala."""
+    leste = (lon1 - lon0) * _M_POR_GRAU * math.cos(math.radians(lat0))
+    norte = (lat1 - lat0) * _M_POR_GRAU
+    return math.hypot(leste, norte)
+
+
+def radares_na_rota(v: Viagem, radares: list[RadarNoMapa],
+                    raio_m: float = RAIO_RADAR_M) -> list[RadarNoMapa]:
+    """Os radares a até `raio_m` de algum ponto da viagem.
+
+    Peneira pela caixa envolvente ANTES de medir distância: a base tem 18 mil
+    pontos e uma viagem tem centenas de amostras, e o produto dos dois em
+    Python puro levaria segundos a cada abertura da página.
+    """
+    if not v.pontos or not radares:
+        return []
+    grau_lat = raio_m / _M_POR_GRAU
+    lat_min = min(p.lat for p in v.pontos) - grau_lat
+    lat_max = max(p.lat for p in v.pontos) + grau_lat
+    cos_lat = math.cos(math.radians(v.pontos[0].lat)) or 1.0
+    grau_lon = raio_m / (_M_POR_GRAU * cos_lat)
+    lon_min = min(p.lon for p in v.pontos) - grau_lon
+    lon_max = max(p.lon for p in v.pontos) + grau_lon
+
+    perto = []
+    for r in radares:
+        if not (lat_min <= r.lat <= lat_max and lon_min <= r.lon <= lon_max):
+            continue
+        if any(_metros_entre(p.lat, p.lon, r.lat, r.lon) <= raio_m
+               for p in v.pontos):
+            perto.append(r)
+    return perto
 
 
 def _numero(campos: list[str], i: int, conversao):
@@ -384,7 +483,8 @@ def _trilha_geojson(v: Viagem) -> dict:
     }
 
 
-def desenha(v: Viagem, chave_thunderforest: str = "") -> str:
+def desenha(v: Viagem, chave_thunderforest: str = "",
+            radares: list[RadarNoMapa] | None = None) -> str:
     """Devolve o HTML do mapa, com os controles de reprodução.
 
     `import folium` acontece aqui dentro, e não no topo do módulo: assim o
@@ -424,6 +524,18 @@ def desenha(v: Viagem, chave_thunderforest: str = "") -> str:
         [v.pontos[-1].lat, v.pontos[-1].lon], tooltip="fim",
         icon=folium.Icon(color="red", icon="stop", prefix="fa")).add_to(mapa)
 
+    # Os radares da regiao, ANTES da animacao: assim a trilha e o marcador
+    # ficam por cima deles, e nao atras.
+    for r in (radares or []):
+        folium.Marker(
+            [r.lat, r.lon],
+            tooltip=(f"radar {r.limite} km/h" if r.limite
+                     else "semaforo (nao afere velocidade)"),
+            icon=folium.DivIcon(
+                icon_size=(34, 34), icon_anchor=(17, 17),
+                html=_pino_radar(r.limite)),
+        ).add_to(mapa)
+
     # `transition_time` e `period` sao os dois numeros que governam a
     # velocidade. Ver `PASSO_S` e `VELOCIDADES`: em 1x, cada passo de 5 s de
     # dado leva 5 s de relogio -- tempo real.
@@ -446,8 +558,27 @@ def desenha(v: Viagem, chave_thunderforest: str = "") -> str:
     animacao.add_to(mapa)
 
     mapa.get_root().html.add_child(folium.Element(_painel(v)))
-    mapa.get_root().html.add_child(folium.Element(_controles_js(PASSO_S)))
+    mapa.get_root().html.add_child(
+        folium.Element(_controles_js(PASSO_S, _densifica(v))))
     return mapa.get_root().render()
+
+
+def _pino_radar(limite: int) -> str:
+    """O pino de um radar: um círculo com o limite dentro.
+
+    Limite zero é **semáforo**, e sai como `S` em vez de `0`. Um `0` num
+    círculo de velocidade leria-se como "limite zero", que não existe — e a
+    diferença importa, porque o semáforo não afere velocidade nenhuma.
+    """
+    texto = str(limite) if limite else "S"
+    cor = "#1b4965" if limite else "#6a4c93"
+    return (
+        f'<div style="width:34px;height:34px;border-radius:50%;'
+        f'background:{cor};border:2px solid #fff;'
+        f'box-shadow:0 1px 4px rgba(0,0,0,.45);color:#fff;'
+        f'font:600 13px/30px system-ui,sans-serif;text-align:center;'
+        f'">{html.escape(texto)}</div>'
+    )
 
 
 def _painel(v: Viagem) -> str:
@@ -498,6 +629,12 @@ def _painel(v: Viagem) -> str:
     background: #d7263d; border-color: #d7263d; color: #fff;
   }}
   .cg-vel .cg-nota {{ color: #666; font-weight: 400; margin-left: 4px; }}
+  /* O indicador fica ao lado do relogio, com a MESMA moldura, para ler-se
+     como um par e nao como enfeite solto. Largura minima para o numero nao
+     fazer a barra pular a cada passo da animacao. */
+  .cg-vel-atual {{
+    min-width: 76px; text-align: center; font-variant-numeric: tabular-nums;
+  }}
 </style>
 <div class="cg-painel">
   <h3>{html.escape(v.nome)}</h3>
@@ -508,7 +645,7 @@ def _painel(v: Viagem) -> str:
 """
 
 
-def _controles_js(passo_s: int) -> str:
+def _controles_js(passo_s: int, pontos: list[PontoViagem]) -> str:
     """Os botões de velocidade, ligados ao reprodutor do TimeDimension.
 
     Por que isto existe em vez do controle nativo: o reprodutor do
@@ -518,6 +655,14 @@ def _controles_js(passo_s: int) -> str:
     `transitionTime = passo_de_dado / velocidade`.
     """
     velocidades = json.dumps(list(VELOCIDADES))
+    # A velocidade de cada instante da animacao, indexada pelos MESMOS
+    # milissegundos que o TimeDimension usa. Indexar por texto de data exigiria
+    # que os dois formatassem igual, e um fuso de diferenca faria toda busca
+    # falhar em silencio -- o numero nunca apareceria e ninguem saberia por que.
+    por_instante = json.dumps({
+        int(p.quando.timestamp() * 1000): round(p.v_media_kmh, 1)
+        for p in pontos
+    })
     return f"""
 <div class="cg-vel" id="cg-vel" role="group" aria-label="velocidade">
   <span class="cg-nota">velocidade</span>
@@ -526,6 +671,7 @@ def _controles_js(passo_s: int) -> str:
 (function () {{
   var PASSO_MS = {passo_s * 1000};
   var VELOCIDADES = {velocidades};
+  var VEL_POR_INSTANTE = {por_instante};
 
   // O reprodutor vive DENTRO do controle de linha do tempo, que o folium
   // cria como `var timeDimensionControl` no topo do proprio bloco de script
@@ -572,10 +718,51 @@ def _controles_js(passo_s: int) -> str:
     escolhe(1);
   }}
 
+  // --- a velocidade do ponto exibido, ao lado do relogio ---------------
+  //
+  // O controle de data do leaflet-timedimension e um `.timecontrol-date`. O
+  // numero entra num `span` PROPRIO ao lado dele, e nao dentro: o reprodutor
+  // reescreve o texto daquele elemento a cada passo, e o que fosse posto
+  // dentro sumiria no passo seguinte.
+  function ligaVelocidade(td) {{
+    // A classe e `leaflet-control-timecontrol timecontrol-date`, e NAO
+    // `leaflet-bar timecontrol-date` -- conferido no navegador. O seletor
+    // errado nao da erro de JavaScript: ele so nao casa, a funcao sai no
+    // `return false`, e o indicador simplesmente nao aparece. Foi assim que
+    // a primeira versao passou em toda conferencia de texto do HTML.
+    var alvo = document.querySelector(
+      '.leaflet-control-timecontrol.timecontrol-date');
+    if (!alvo) {{ return false; }}
+    var vao = document.createElement('span');
+    vao.className = 'leaflet-control-timecontrol cg-vel-atual';
+    vao.textContent = '—';
+    alvo.parentNode.insertBefore(vao, alvo.nextSibling);
+
+    function mostra() {{
+      var t = td.getCurrentTime();
+      var v = VEL_POR_INSTANTE[t];
+      // A linha do tempo pode parar entre dois instantes conhecidos. Sem
+      // numero ali, um traco diz "nao sei" -- melhor que repetir o anterior,
+      // que pareceria medida.
+      vao.textContent = (v === undefined) ? '—' : (v.toFixed(1) + ' km/h');
+    }}
+    td.on('timeload', mostra);
+    td.on('timechange', mostra);
+    mostra();
+    return true;
+  }}
+
   var tentativas = 0;
   var timer = setInterval(function () {{
     var r = achaReprodutor();
-    if (r) {{ clearInterval(timer); liga(r); return; }}
+    if (r) {{
+      clearInterval(timer);
+      liga(r);
+      var c = window.timeDimensionControl;
+      var td = (c && c._timeDimension) ? c._timeDimension : null;
+      if (td) {{ ligaVelocidade(td); }}
+      return;
+    }}
     // Desiste depois de 10 s em vez de girar para sempre: se o reprodutor
     // nao apareceu, os botoes nao teriam o que controlar, e um laco eterno
     // so gastaria bateria de quem abriu a pagina.

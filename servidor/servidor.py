@@ -760,7 +760,14 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._html(422, pagina.aviso(f"nao da para desenhar: {e}"))
             return
         try:
-            corpo = viagem.desenha(v, self.mapa.get("thunderforest", ""))
+            # Os radares da regiao vem da MESMA base que os aparelhos
+            # baixam. Se o arquivo faltar ou nao servir, `le_radares` devolve
+            # lista vazia e o mapa abre sem a camada -- os radares sao um
+            # acrescimo, nao o conteudo da pagina.
+            corpo = viagem.desenha(
+                v, self.mapa.get("thunderforest", ""),
+                viagem.radares_na_rota(v, viagem.le_radares(
+                    self.dados / NOME_BASE)))
         except ImportError:
             # O servidor sobe sem o folium de proposito: faltar a dependencia
             # nao pode derrubar a distribuicao da base, que e a funcao

@@ -565,3 +565,137 @@ class ViagemV3ComRadar(unittest.TestCase):
         v = viagem.le_viagem(self.escreve(cab + bom + torta))
         self.assertEqual(len(v.pontos), 2)
 
+
+
+class RadaresNoMapa(unittest.TestCase):
+    """A camada de radares da página de viagens."""
+
+    def base(self, pontos):
+        """Escreve um radares.bin com o `formato_radares` do repositório."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        import formato_radares as F
+        tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        tmp.close()
+        F.escreve([F.Ponto(lat, lon, limite, 0, F.TipoPonto.RADAR_FIXO,
+                           F.Sentido.UNIDIRECIONAL)
+                   for lat, lon, limite in pontos], Path(tmp.name))
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        return Path(tmp.name)
+
+    def viagem_reta(self, lat0=-15.80, lon0=-47.90, n=20):
+        linhas = ["# coruja_gps viagem v3",
+                  "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh"]
+        t0 = datetime.datetime(2026, 10, 8, 7, 30, 0)
+        for i in range(n):
+            q = t0 + datetime.timedelta(seconds=i * 6)
+            linhas.append(f"{q.strftime('%Y-%m-%dT%H:%M:%SZ')};"
+                          f"{lat0 + i * 0.0002:.5f};{lon0:.5f};80.0;"
+                          f"{i * 0.13:.2f};;;;")
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
+        tmp.write("\n".join(linhas) + "\n")
+        tmp.close()
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        return viagem.le_viagem(Path(tmp.name))
+
+    # -- a leitura da base --
+
+    def test_le_radares_concorda_com_o_formato_oficial(self):
+        """A duplicação do formato não pode virar divergência.
+
+        O container leva só os três arquivos do servidor, então o
+        `formato_radares.py` do repositório fica de fora e esta é a SEGUNDA
+        leitura do mesmo formato. Este teste é o que impede as duas de se
+        separarem sem ninguém notar.
+        """
+        pontos = [(-15.80, -47.90, 60), (-15.81, -47.91, 80),
+                  (-15.82, -47.92, 0)]
+        lidos = viagem.le_radares(self.base(pontos))
+        self.assertEqual(len(lidos), 3)
+        for (lat, lon, limite), r in zip(pontos, sorted(lidos,
+                                                        key=lambda x: -x.lat)):
+            self.assertAlmostEqual(r.lat, lat, places=4)
+            self.assertAlmostEqual(r.lon, lon, places=4)
+            self.assertEqual(r.limite, limite)
+
+    def test_arquivo_ausente_devolve_lista_vazia_e_nao_excecao(self):
+        # A pagina tem de abrir sem a base: os radares sao acrescimo, nao
+        # conteudo. Levantar aqui trocaria camada ausente por erro 500.
+        self.assertEqual(viagem.le_radares(Path("/nao/existe.bin")), [])
+
+    def test_arquivo_que_nao_e_base_devolve_lista_vazia(self):
+        tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        tmp.write(b"isto nao e uma base de radares, nem de longe")
+        tmp.close()
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        self.assertEqual(viagem.le_radares(Path(tmp.name)), [])
+
+    def test_base_truncada_entrega_o_que_chegou_inteiro(self):
+        caminho = self.base([(-15.80, -47.90, 60), (-15.81, -47.91, 80)])
+        bruto = caminho.read_bytes()
+        caminho.write_bytes(bruto[:-6])      # corta o ultimo registro no meio
+        self.assertEqual(len(viagem.le_radares(caminho)), 1)
+
+    # -- o filtro pela rota --
+
+    def test_so_entram_os_radares_perto_da_rota(self):
+        v = self.viagem_reta()
+        base = self.base([
+            (-15.8020, -47.90, 60),    # sobre a rota
+            (-15.8000, -47.80, 80),    # ~10 km a leste
+        ])
+        perto = viagem.radares_na_rota(v, viagem.le_radares(base))
+        self.assertEqual([r.limite for r in perto], [60])
+
+    def test_o_raio_e_o_mesmo_do_firmware(self):
+        # 300 m nao e numero solto: e o `kRaioAlertaM` do RF03.2. O mapa
+        # mostra o que o aparelho PODERIA ter alertado.
+        self.assertEqual(viagem.RAIO_RADAR_M, 300.0)
+
+    def test_radar_logo_alem_do_raio_fica_de_fora(self):
+        v = self.viagem_reta()
+        # ~0.0045 grau de longitude em Brasilia sao ~480 m.
+        base = self.base([(-15.8020, -47.9045, 60)])
+        self.assertEqual(viagem.radares_na_rota(v, viagem.le_radares(base)), [])
+
+    def test_sem_base_a_lista_sai_vazia_sem_estourar(self):
+        self.assertEqual(viagem.radares_na_rota(self.viagem_reta(), []), [])
+
+    # -- o pino --
+
+    def test_o_pino_mostra_o_limite_num_circulo(self):
+        html_pino = viagem._pino_radar(60)
+        self.assertIn(">60<", html_pino)
+        self.assertIn("border-radius:50%", html_pino)
+
+    def test_semaforo_sai_como_S_e_nao_como_zero(self):
+        # `0` num circulo de velocidade leria-se como "limite zero", que nao
+        # existe -- e o semaforo nao afere velocidade nenhuma.
+        self.assertIn(">S<", viagem._pino_radar(0))
+        self.assertNotIn(">0<", viagem._pino_radar(0))
+
+    def test_os_pinos_entram_no_mapa(self):
+        v = self.viagem_reta()
+        base = self.base([(-15.8020, -47.90, 60)])
+        pagina_html = viagem.desenha(
+            v, "", viagem.radares_na_rota(v, viagem.le_radares(base)))
+        self.assertIn("radar 60 km/h", pagina_html)
+
+    def test_mapa_sem_radares_continua_abrindo(self):
+        self.assertIn("timecontrol", viagem.desenha(self.viagem_reta(), "", []))
+
+    # -- a velocidade do ponto exibido --
+
+    def test_a_velocidade_de_cada_instante_vai_para_a_pagina(self):
+        v = self.viagem_reta()
+        pagina_html = viagem.desenha(v, "", [])
+        self.assertIn("VEL_POR_INSTANTE", pagina_html)
+        self.assertIn("cg-vel-atual", pagina_html)
+        self.assertIn("km/h", pagina_html)
+
+    def test_o_indice_e_por_milissegundo_e_nao_por_texto_de_data(self):
+        # Indexar por data formatada exigiria que Python e JavaScript
+        # formatassem igual; um fuso de diferenca faria toda busca falhar em
+        # silencio, e o numero nunca apareceria.
+        pontos = viagem._densifica(self.viagem_reta())
+        chave = str(int(pontos[0].quando.timestamp() * 1000))
+        self.assertIn(chave, viagem.desenha(self.viagem_reta(), "", []))
