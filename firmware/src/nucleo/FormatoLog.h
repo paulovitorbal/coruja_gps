@@ -50,13 +50,39 @@ constexpr const char* kCabecalhoInfracoes =
 /// nada — mas quem for comparar taxas entre arquivos precisa saber qual é
 /// qual, e sem a versão na primeira linha teria de adivinhar pelos
 /// intervalos.
+/// ⚠️ **v3: quatro colunas novas, e elas respondem a uma pergunta concreta.**
+///
+/// Em 07/10/2026 o aparelho mostrou radares de 60 km/h a quem dirigia a 80 na
+/// pista PRINCIPAL do Eixão. A pista lateral corre a poucos metros, seus
+/// radares caem na mesma janela de 300 m, e a precedência do RF03.4 manda
+/// vencer a situação mais grave — 80 contra limite 60 é Perigo, 80 contra 80
+/// é Conforme. O radar da outra pista ganha sempre.
+///
+/// As colunas separam **o que foi alertado** do **que estava mais perto**:
+///
+///   - `radar_m`, `radar_kmh` — o ponto que a tela mostrou (venceu por
+///     gravidade), e o limite dele;
+///   - `perto_m`, `perto_kmh` — o ponto fisicamente mais próximo, que em
+///     geral NÃO é o mesmo.
+///
+/// Quando os dois divergem, a divergência é o diagnóstico. Com uma coluna só
+/// não haveria como ver isso.
+///
+/// Vazias quando não havia radar na janela — e vazio é diferente de zero, que
+/// é um limite válido (semáforo).
+///
+/// As colunas novas vão no FIM: um leitor de v2 que corte no quinto campo
+/// continua lendo os arquivos novos sem errar.
 constexpr const char* kCabecalhoViagem =
-    "# coruja_gps viagem v2\n"
-    "utc;lat;lon;v_media;dist_km\n";
+    "# coruja_gps viagem v3\n"
+    "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh\n";
 
 /// Buffers mínimos. Dimensionados pelo pior caso de cada campo, com folga.
 constexpr std::size_t kTamLinhaInfracao = 128;
-constexpr std::size_t kTamLinhaViagem = 80;
+/// 80 cobria a v2. As quatro colunas novas pedem ate ~28 bytes
+/// (`;9999.9;255;9999.9;255`), e truncar a linha perderia o campo
+/// que foi acrescentado justamente para diagnosticar.
+constexpr std::size_t kTamLinhaViagem = 120;
 
 std::size_t formata_infracao(const RegistroInfracao& r, char* destino,
                              std::size_t capacidade);

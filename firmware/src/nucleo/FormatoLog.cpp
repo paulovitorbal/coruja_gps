@@ -52,14 +52,33 @@ std::size_t formata_infracao(const RegistroInfracao& r, char* destino,
 std::size_t formata_ponto_viagem(const PontoViagem& p, char* destino,
                                  std::size_t capacidade) {
     if (destino == nullptr || capacidade == 0) { return 0; }
+    // Campo VAZIO quando nao ha radar, e nao zero: zero e limite valido (e o
+    // do semaforo). Um `0` ali faria "nenhum radar" e "semaforo a 0 m"
+    // virarem a mesma linha.
+    // Um ponto-e-virgula so: o separador EXTERNO ja vem do formato, e os
+    // dois campos vazios precisam de apenas um entre eles.
+    char alerta[24] = ";";
+    if (p.radar.tem_alerta) {
+        std::snprintf(alerta, sizeof alerta, "%.1f;%u",
+                      static_cast<double>(p.radar.dist_alerta_m),
+                      static_cast<unsigned>(p.radar.limite_alerta));
+    }
+    char proximo[24] = ";";
+    if (p.radar.tem_proximo) {
+        std::snprintf(proximo, sizeof proximo, "%.1f;%u",
+                      static_cast<double>(p.radar.dist_proximo_m),
+                      static_cast<unsigned>(p.radar.limite_proximo));
+    }
+
     const int n = std::snprintf(
         destino, capacidade,
-        "%04u-%02u-%02uT%02u:%02u:%02uZ;%.5f;%.5f;%.1f;%.2f\n",
+        "%04u-%02u-%02uT%02u:%02u:%02uZ;%.5f;%.5f;%.1f;%.2f;%s;%s\n",
         static_cast<unsigned>(p.ano), static_cast<unsigned>(p.mes),
         static_cast<unsigned>(p.dia), static_cast<unsigned>(p.hora),
         static_cast<unsigned>(p.minuto), static_cast<unsigned>(p.segundo),
         static_cast<double>(p.lat), static_cast<double>(p.lon),
-        static_cast<double>(p.v_media_kmh), static_cast<double>(p.dist_km));
+        static_cast<double>(p.v_media_kmh), static_cast<double>(p.dist_km),
+        alerta, proximo);
     return coube(n, capacidade);
 }
 

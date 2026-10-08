@@ -86,13 +86,34 @@ void DiarioBordo::tenta_retomar(const Telemetria& t) {
     log_.info(kOrigem, "viagem retomada");
 }
 
-void DiarioBordo::trata_viagem(const Telemetria& t, bool tem_fix,
-                               std::uint32_t agora_ms) {
+/// Traduz o veredito do alerta para o que a linha de viagem registra.
+///
+/// Dois radares, nao um: o `alvo` venceu por GRAVIDADE (RF03.4) e e o que a
+/// tela mostrou; o `mais_proximo` e o fisicamente mais perto. No Eixao os dois
+/// divergem -- pista principal e lateral correm lado a lado com limites
+/// diferentes --, e e essa divergencia que se quer medir.
+static RadarDaAmostra radar_de(const Veredito& v) {
+    RadarDaAmostra r;
+    r.tem_alerta = v.tem_alvo;
+    if (v.tem_alvo) {
+        r.dist_alerta_m = v.distancia_m;
+        r.limite_alerta = v.alvo.limite;
+    }
+    r.tem_proximo = v.tem_mais_proximo;
+    if (v.tem_mais_proximo) {
+        r.dist_proximo_m = v.dist_mais_proximo_m;
+        r.limite_proximo = v.mais_proximo.limite;
+    }
+    return r;
+}
+
+void DiarioBordo::trata_viagem(const Veredito& v, const Telemetria& t,
+                               bool tem_fix, std::uint32_t agora_ms) {
     if (!tentou_retomar_ && tem_fix && t.data_valida && !viagem_.ativa()) {
         tenta_retomar(t);
     }
 
-    switch (viagem_.alimenta(t, tem_fix, agora_ms)) {
+    switch (viagem_.alimenta(t, radar_de(v), tem_fix, agora_ms)) {
         case EventoViagem::Abre:
             cartao_.acrescenta_arquivo(viagem_.nome_arquivo(), kCabecalhoViagem,
                                        std::strlen(kCabecalhoViagem), log_);
@@ -130,7 +151,7 @@ void DiarioBordo::passo(const Veredito& v, const Telemetria& t, bool tem_fix,
             grava_infracao(r);
         }
     }
-    trata_viagem(t, tem_fix, agora_ms);
+    trata_viagem(v, t, tem_fix, agora_ms);
 }
 
 void DiarioBordo::alterna_viagem() {

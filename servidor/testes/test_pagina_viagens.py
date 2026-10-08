@@ -472,3 +472,96 @@ class IntervaloDaViagem(unittest.TestCase):
         self.assertIn("um registro a cada 6 s", html)
         self.assertNotIn("um registro por minuto", html)
 
+
+class ViagemV3ComRadar(unittest.TestCase):
+    """As colunas de radar da v3 -- e a garantia de que v1/v2 seguem lendo."""
+
+    def escreve(self, texto):
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
+        tmp.write(texto)
+        tmp.close()
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        return Path(tmp.name)
+
+    def v3(self, linhas_radar):
+        cab = ("# coruja_gps viagem v3\n"
+               "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh\n")
+        t0 = datetime.datetime(2026, 10, 8, 7, 30, 0)
+        corpo = []
+        for i, extra in enumerate(linhas_radar):
+            q = t0 + datetime.timedelta(seconds=i * 6)
+            corpo.append(f"{q.strftime('%Y-%m-%dT%H:%M:%SZ')};"
+                         f"{-10.0 + i * 0.001:.5f};{-40.0 + i * 0.001:.5f};"
+                         f"80.0;{i * 0.13:.2f};{extra}")
+        return self.escreve(cab + "\n".join(corpo) + "\n")
+
+    def test_a_v3_e_lida_em_vez_de_descartada(self):
+        # O erro que isto guarda: o parser exigia EXATAMENTE cinco colunas.
+        # Com nove, toda linha caía fora e a viagem virava "0 pontos
+        # utilizaveis" -- o mapa simplesmente nao abriria.
+        v = viagem.le_viagem(self.v3([";;;", ";;;", ";;;"]))
+        self.assertEqual(len(v.pontos), 3)
+
+    def test_as_colunas_de_radar_chegam_ao_ponto(self):
+        v = viagem.le_viagem(self.v3(["210.5;60;88.2;80", ";;;"]))
+        self.assertAlmostEqual(v.pontos[0].radar_m, 210.5)
+        self.assertEqual(v.pontos[0].radar_kmh, 60)
+        self.assertAlmostEqual(v.pontos[0].perto_m, 88.2)
+        self.assertEqual(v.pontos[0].perto_kmh, 80)
+
+    def test_coluna_vazia_vira_None_e_nao_zero(self):
+        # Zero e limite VALIDO (semaforo). Se vazio virasse zero, "nao havia
+        # radar" e "havia um semaforo" ficariam indistinguiveis.
+        v = viagem.le_viagem(self.v3([";;;", ";;;"]))
+        self.assertIsNone(v.pontos[0].radar_kmh)
+        self.assertIsNone(v.pontos[0].radar_m)
+
+    def test_limite_zero_de_semaforo_e_preservado(self):
+        v = viagem.le_viagem(self.v3(["30.0;0;;", ";;;"]))
+        self.assertEqual(v.pontos[0].radar_kmh, 0)
+        self.assertIsNotNone(v.pontos[0].radar_kmh)
+
+    def test_v2_continua_lendo_e_sem_radar(self):
+        # O aparelho so sera atualizado depois; as viagens v2 que ja estao no
+        # servidor nao podem sumir da pagina.
+        v = viagem.le_viagem(self.escreve(
+            viagem_sintetica(passo_s=6, versao=2)))
+        self.assertGreater(len(v.pontos), 1)
+        self.assertIsNone(v.pontos[0].radar_kmh)
+
+    def test_conta_as_divergencias_entre_alertado_e_mais_proximo(self):
+        # O caso do Eixao: alerta de 60 (pista lateral) enquanto o mais
+        # proximo e de 80 (pista principal, onde o carro esta).
+        v = viagem.le_viagem(self.v3([
+            "210.5;60;88.2;80",    # diverge
+            "150.0;60;70.0;80",    # diverge
+            "90.0;80;90.0;80",     # concorda
+            ";;;",                 # sem radar
+        ]))
+        self.assertEqual(v.divergencias_de_radar, 2)
+
+    def test_sem_radar_nao_conta_divergencia(self):
+        v = viagem.le_viagem(self.v3([";;;", ";;;", ";;;"]))
+        self.assertEqual(v.divergencias_de_radar, 0)
+
+    def test_o_painel_mostra_a_divergencia_quando_ela_existe(self):
+        v = viagem.le_viagem(self.v3(["210.5;60;88.2;80", "150.0;60;70.0;80"]))
+        self.assertIn("alerta != + perto", viagem.desenha(v))
+
+    def test_o_painel_NAO_mostra_a_linha_quando_nao_ha_divergencia(self):
+        # Uma linha com "0" em toda viagem sem radar treina quem le a ignorar
+        # o painel.
+        v = viagem.le_viagem(self.v3([";;;", ";;;"]))
+        self.assertNotIn("alerta != + perto", viagem.desenha(v))
+
+    def test_linha_com_menos_de_cinco_campos_segue_descartada(self):
+        # Afrouxar para `< 5` nao pode ter afrouxado demais: uma linha
+        # truncada pelo cartao continua sendo lixo.
+        cab = ("# coruja_gps viagem v3\n"
+               "utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh\n")
+        bom = ("2026-10-08T07:30:00Z;-10.00000;-40.00000;80.0;0.00;;;;\n"
+               "2026-10-08T07:30:06Z;-10.00100;-40.00100;80.0;0.13;;;;\n")
+        torta = "2026-10-08T07:30:12Z;-10.002\n"
+        v = viagem.le_viagem(self.escreve(cab + bom + torta))
+        self.assertEqual(len(v.pontos), 2)
+

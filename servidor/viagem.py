@@ -36,9 +36,16 @@ from pathlib import Path
 ASSINATURAS = (
     "# coruja_gps viagem v1",   # 1 linha/min — até 2026-10-06
     "# coruja_gps viagem v2",   # 10 linhas/min
+    "# coruja_gps viagem v3",   # + colunas de radar — desde 2026-10-08
 )
 
-CABECALHO_COLUNAS = "utc;lat;lon;v_media;dist_km"
+#: As colunas mudam entre versões, então a comparação é por PREFIXO.
+#:
+#: A v3 acrescentou `radar_m;radar_kmh;perto_m;perto_kmh` no fim. Comparar a
+#: linha inteira faria o cabeçalho da v3 não ser reconhecido como cabeçalho —
+#: ele entraria como se fosse dado, falharia na conversão e sumiria em
+#: silêncio, que é o pior dos dois mundos.
+CABECALHO_COLUNAS = "utc;lat;lon"
 
 #: Resolução da linha do tempo da reprodução, em segundos.
 #:
@@ -86,6 +93,24 @@ class PontoViagem:
     v_media_kmh: float
     dist_km: float
 
+    #: O radar que o aparelho ALERTOU, e o limite dele. `None` quando não
+    #: havia nenhum, ou quando o arquivo é v1/v2 e não trazia a informação.
+    #:
+    #: ⚠️ **`None` e `0` são coisas diferentes.** Zero é limite válido — é o
+    #: do semáforo. Por isso o campo é opcional e não tem valor padrão
+    #: numérico.
+    radar_m: float | None = None
+    radar_kmh: int | None = None
+
+    #: O radar fisicamente MAIS PRÓXIMO, que em geral não é o alertado.
+    #:
+    #: O alvo vence por gravidade (RF03.4), não por distância. No Eixão a
+    #: pista lateral corre a poucos metros da principal com limite menor, e o
+    #: radar dela ganha sempre de quem está a 80 na principal. É a divergência
+    #: entre estas duas colunas que mostra isso.
+    perto_m: float | None = None
+    perto_kmh: int | None = None
+
 
 @dataclass(frozen=True)
 class Viagem:
@@ -111,6 +136,26 @@ class Viagem:
     @property
     def v_maxima_kmh(self) -> float:
         return max(p.v_media_kmh for p in self.pontos)
+
+    @property
+    def divergencias_de_radar(self) -> int:
+        """Em quantas amostras o radar ALERTADO não era o mais próximo.
+
+        É o número que mede o problema do Eixão: a pista lateral corre a
+        poucos metros da principal, com limite menor, e seus radares entram na
+        mesma janela de 300 m. Como o alvo vence por gravidade e não por
+        distância, quem dirige a 80 na principal recebe o alerta do radar de
+        60 da lateral — e o de 80, da pista onde de fato está, nunca aparece.
+        
+        Conta apenas amostras em que os DOIS limites são conhecidos e
+        diferentes. Zero não prova que está tudo certo: pode não haver radar
+        nenhum na viagem. Mas um número alto é evidência direta.
+        """
+        return sum(
+            1 for p in self.pontos
+            if p.radar_kmh is not None and p.perto_kmh is not None
+            and p.radar_kmh != p.perto_kmh
+        )
 
     @property
     def intervalo_s(self) -> int:
@@ -141,6 +186,34 @@ class Viagem:
         return self.distancia_km / horas if horas > 0 else 0.0
 
 
+def _numero(campos: list[str], i: int, conversao):
+    """O campo `i`, convertido, ou `None` quando vazio ou ausente.
+
+    Vazio é "não havia radar"; ausente é "arquivo v1 ou v2, que não tinha a
+    coluna". As duas coisas viram `None` porque para quem lê dão no mesmo: não
+    se sabe. O que não pode é virar zero, que é limite válido.
+    """
+    if i >= len(campos):
+        return None
+    bruto = campos[i].strip()
+    if not bruto:
+        return None
+    try:
+        return conversao(bruto)
+    except ValueError:
+        return None
+
+
+def _radar_de(campos: list[str]) -> dict:
+    """As quatro colunas de radar da v3, se existirem."""
+    return {
+        "radar_m": _numero(campos, 5, float),
+        "radar_kmh": _numero(campos, 6, int),
+        "perto_m": _numero(campos, 7, float),
+        "perto_kmh": _numero(campos, 8, int),
+    }
+
+
 def le_viagem(caminho: Path) -> Viagem:
     """Lê o arquivo e devolve a viagem. Levanta `ErroDeViagem`."""
     try:
@@ -155,10 +228,15 @@ def le_viagem(caminho: Path) -> Viagem:
     pontos: list[PontoViagem] = []
     for n, bruta in enumerate(linhas[1:], start=2):
         linha = bruta.strip()
-        if not linha or linha.startswith("#") or linha == CABECALHO_COLUNAS:
+        if (not linha or linha.startswith("#")
+                or linha.startswith(CABECALHO_COLUNAS)):
             continue
         campos = linha.split(";")
-        if len(campos) != 5:
+        # `< 5`, e nao `!= 5`: a v3 tem nove colunas, e exigir cinco exatas
+        # descartaria TODA linha dela -- a viagem inteira viraria "0 pontos
+        # utilizaveis". As colunas novas vao no fim justamente para que as
+        # cinco primeiras continuem nos mesmos indices.
+        if len(campos) < 5:
             # Linha torta nao derruba a viagem inteira: o cartao pode ter
             # sido puxado no meio de uma gravacao, e as linhas anteriores
             # continuam valendo.
@@ -173,6 +251,7 @@ def le_viagem(caminho: Path) -> Viagem:
                 lon=float(campos[2]),
                 v_media_kmh=float(campos[3]),
                 dist_km=float(campos[4]),
+                **_radar_de(campos),
             ))
         except ValueError:
             continue
@@ -380,6 +459,10 @@ def _painel(v: Viagem) -> str:
         ("maxima", f"{v.v_maxima_kmh:.1f} km/h"),
         ("pontos", f"{len(v.pontos)}"),
     ]
+    # Só aparece quando há divergência. Uma linha com "0" em toda viagem sem
+    # radar seria ruído -- e ruído num painel treina quem lê a ignorá-lo.
+    if v.divergencias_de_radar > 0:
+        linhas.append(("alerta != + perto", f"{v.divergencias_de_radar}"))
     itens = "".join(
         f'<div class="cg-item"><span>{html.escape(r)}</span>'
         f'<strong>{html.escape(d)}</strong></div>'

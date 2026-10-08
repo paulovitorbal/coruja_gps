@@ -50,6 +50,24 @@ void AcumuladorViagem::abre_amostra(const Telemetria& t) {
     fatia_ = fatia_de(t);
     soma_vel_ = 0.0F;
     amostras_ = 0;
+    radar_da_fatia_ = RadarDaAmostra{};
+}
+
+void AcumuladorViagem::considera_radar(const RadarDaAmostra& r) {
+    // Os dois lados sao independentes: o alerta pode existir numa leitura em
+    // que nao ha mais proximo registrado, e vice-versa.
+    if (r.tem_alerta && (!radar_da_fatia_.tem_alerta ||
+                         r.dist_alerta_m < radar_da_fatia_.dist_alerta_m)) {
+        radar_da_fatia_.tem_alerta = true;
+        radar_da_fatia_.dist_alerta_m = r.dist_alerta_m;
+        radar_da_fatia_.limite_alerta = r.limite_alerta;
+    }
+    if (r.tem_proximo && (!radar_da_fatia_.tem_proximo ||
+                          r.dist_proximo_m < radar_da_fatia_.dist_proximo_m)) {
+        radar_da_fatia_.tem_proximo = true;
+        radar_da_fatia_.dist_proximo_m = r.dist_proximo_m;
+        radar_da_fatia_.limite_proximo = r.limite_proximo;
+    }
 }
 
 void AcumuladorViagem::fecha_amostra() {
@@ -64,9 +82,12 @@ void AcumuladorViagem::fecha_amostra() {
     ponto_.v_media_kmh =
         amostras_ > 0 ? soma_vel_ / static_cast<float>(amostras_) : 0.0F;
     ponto_.dist_km = dist_km_;
+    ponto_.radar = radar_da_fatia_;
 }
 
-EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
+EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
+                                        const RadarDaAmostra& radar,
+                                        bool tem_fix,
                                         std::uint32_t agora_ms) {
     if (estado_ == EstadoViagem::Parada) {
         return EventoViagem::Nada;
@@ -93,6 +114,7 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
         ultima_lat_ = t.lat;
         ultima_lon_ = t.lon;
         soma_vel_ += t.velocidade_kmh;
+        considera_radar(radar);
         ++amostras_;
         anterior_ms_ = agora_ms;
         tem_passo_anterior_ = true;
@@ -125,7 +147,10 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t, bool tem_fix,
         abre_amostra(t);
     }
 
+    // DEPOIS da virada, de proposito: a leitura de agora pertence a fatia que
+    // a contem, e nao a que acabou de ser fechada.
     soma_vel_ += t.velocidade_kmh;
+    considera_radar(radar);
     ++amostras_;
     ultima_lat_ = t.lat;
     ultima_lon_ = t.lon;

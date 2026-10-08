@@ -52,6 +52,31 @@ constexpr std::uint8_t kSegundosPorAmostra = 6;
 /// O carimbo identifica a **fatia descrita** — `:00`, `:06`, `:12`… —, não um
 /// instante dentro dela. Posição e distância são as do **fim** da fatia; a
 /// velocidade é a média dela.
+/// O que o alerta sabia sobre radares, no instante de uma leitura.
+///
+/// Existe por causa do Eixão. Em 07/10/2026 o aparelho mostrou radares de
+/// 60 km/h a quem dirigia a 80 na pista PRINCIPAL, porque a pista lateral
+/// corre a poucos metros e seus radares entram na mesma janela de 300 m. A
+/// precedência do RF03.4 manda vencer a situação mais grave, e 80 contra um
+/// limite de 60 é Perigo enquanto 80 contra 80 é Conforme — então o radar da
+/// outra pista ganha sempre.
+///
+/// Sem registrar isto, a única evidência é a lembrança de quem dirigiu.
+///
+/// ⚠️ **São DOIS radares, e é de propósito.** O `alerta` é o que a tela
+/// mostrou (venceu por gravidade); o `proximo` é o fisicamente mais perto.
+/// Quando eles divergem, a divergência É o diagnóstico — e um campo só não
+/// conseguiria mostrá-la.
+struct RadarDaAmostra {
+    bool         tem_alerta = false;
+    float        dist_alerta_m = 0.0F;
+    std::uint8_t limite_alerta = 0;
+
+    bool         tem_proximo = false;
+    float        dist_proximo_m = 0.0F;
+    std::uint8_t limite_proximo = 0;
+};
+
 struct PontoViagem {
     std::uint16_t ano = 0;
     std::uint8_t  mes = 0, dia = 0, hora = 0, minuto = 0, segundo = 0;
@@ -59,6 +84,13 @@ struct PontoViagem {
     float lon = 0.0F;
     float v_media_kmh = 0.0F;
     float dist_km = 0.0F;
+    /// A **menor** distância vista na fatia, e o radar dela.
+    ///
+    /// Menor, e não a última leitura: a 80 km/h o carro anda 133 m nos seis
+    /// segundos da fatia, e uma leitura instantânea erraria o ponto de maior
+    /// aproximação justamente onde ele importa. É a mesma convenção do
+    /// `v_media_kmh`, que já descreve a fatia inteira e não um instante.
+    RadarDaAmostra radar{};
 };
 
 enum class EventoViagem : std::uint8_t {
@@ -113,7 +145,8 @@ public:
     EstadoViagem estado() const { return estado_; }
     bool ativa() const { return estado_ != EstadoViagem::Parada; }
 
-    EventoViagem alimenta(const Telemetria& t, bool tem_fix,
+    EventoViagem alimenta(const Telemetria& t, const RadarDaAmostra& radar,
+                          bool tem_fix,
                           std::uint32_t agora_ms);
 
     /// Válido depois de `Abre`. `AAAAMMDD_HHMMSS.log`, em UTC.
@@ -126,6 +159,8 @@ public:
 private:
     void monta_nome(const Telemetria& t);
     void abre_amostra(const Telemetria& t);
+    /// Guarda a leitura se ela for mais perto que a melhor desta fatia.
+    void considera_radar(const RadarDaAmostra& r);
     void fecha_amostra();
     /// Qual fatia de `kSegundosPorAmostra` segundos este instante ocupa.
     static std::uint8_t fatia_de(const Telemetria& t);
@@ -139,6 +174,8 @@ private:
 
     // Minuto em curso
     bool          amostra_aberta_ = false;
+    /// O melhor (= mais perto) que se viu nesta fatia, ainda em construção.
+    RadarDaAmostra radar_da_fatia_{};
     std::uint16_t ano_ = 0;
     std::uint8_t  mes_ = 0, dia_ = 0, hora_ = 0, minuto_ = 0;
     /// A fatia que esta aberta, de 0 a 59/kSegundosPorAmostra-1.

@@ -51,7 +51,7 @@ public:
 
 private:
     void grava_infracao(const RegistroInfracao& r);
-    void trata_viagem(const Telemetria& t, bool tem_fix,
+    void trata_viagem(const Veredito& v, const Telemetria& t, bool tem_fix,
                       std::uint32_t agora_ms);
     void tenta_retomar(const Telemetria& t);
     void salva_estado(bool ativa, const PontoViagem& p);

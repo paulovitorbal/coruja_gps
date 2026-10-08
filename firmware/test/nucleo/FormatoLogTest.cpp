@@ -54,9 +54,95 @@ TEST(FormatoLog, a_linha_de_viagem_bate_com_a_referencia) {
     const auto n = formata_ponto_viagem(ponto_exemplo(), linha, sizeof linha);
 
     ASSERT_GT(n, 0u);
+    // v3: quatro colunas a mais, VAZIAS porque este exemplo nao tem radar.
     EXPECT_STREQ(linha,
-                 "2026-10-04T17:30:00Z;-19.80430;-44.02980;58.1;12.40\n");
+                 "2026-10-04T17:30:00Z;-19.80430;-44.02980;58.1;12.40;;;;\n");
     EXPECT_EQ(n, std::strlen(linha));
+}
+
+/// Quantos campos a linha tem, separados por `;`.
+std::size_t campos(const char* linha) {
+    std::size_t n = 1;
+    for (const char* p = linha; *p != '\0'; ++p) {
+        if (*p == ';') { ++n; }
+    }
+    return n;
+}
+
+TEST(FormatoLog, a_linha_tem_o_MESMO_numero_de_campos_com_e_sem_radar) {
+    // A propriedade da qual todo leitor de CSV depende. Um campo a mais ou a
+    // menos conforme houvesse radar deslocaria as colunas e faria o
+    // analisador ler distancia como limite -- em silencio, porque os dois
+    // sao numeros.
+    char sem[kTamLinhaViagem];
+    formata_ponto_viagem(ponto_exemplo(), sem, sizeof sem);
+
+    PontoViagem com = ponto_exemplo();
+    com.radar.tem_alerta = true;
+    com.radar.dist_alerta_m = 123.4F;
+    com.radar.limite_alerta = 60;
+    com.radar.tem_proximo = true;
+    com.radar.dist_proximo_m = 45.6F;
+    com.radar.limite_proximo = 80;
+    char cheio[kTamLinhaViagem];
+    formata_ponto_viagem(com, cheio, sizeof cheio);
+
+    EXPECT_EQ(campos(sem), campos(cheio));
+    EXPECT_EQ(campos(cheio), 9u) << "o cabecalho v3 declara nove colunas";
+}
+
+TEST(FormatoLog, o_radar_do_eixao_sai_com_os_dois_pontos_distintos) {
+    // O caso que motivou as colunas: a 80 km/h na pista principal, o alerta
+    // vem do radar de 60 da pista LATERAL (venceu por gravidade) enquanto o
+    // mais proximo e outro. Sem as duas colunas nao da para ver isso.
+    PontoViagem p = ponto_exemplo();
+    p.v_media_kmh = 80.0F;
+    p.radar.tem_alerta = true;
+    p.radar.dist_alerta_m = 210.5F;
+    p.radar.limite_alerta = 60;
+    p.radar.tem_proximo = true;
+    p.radar.dist_proximo_m = 88.2F;
+    p.radar.limite_proximo = 80;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_STREQ(linha,
+                 "2026-10-04T17:30:00Z;-19.80430;-44.02980;80.0;12.40;"
+                 "210.5;60;88.2;80\n");
+}
+
+TEST(FormatoLog, limite_zero_de_semaforo_nao_se_confunde_com_vazio) {
+    // Zero e limite VALIDO: e o do semaforo. Se "nenhum radar" tambem saisse
+    // como zero, as duas situacoes virariam a mesma linha.
+    PontoViagem p = ponto_exemplo();
+    p.radar.tem_alerta = true;
+    p.radar.dist_alerta_m = 50.0F;
+    p.radar.limite_alerta = 0;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_NE(std::string(linha).find(";50.0;0;;"), std::string::npos)
+        << linha;
+}
+
+TEST(FormatoLog, so_o_mais_proximo_sem_alerta_ainda_preenche_as_colunas_certas) {
+    // Os dois lados sao independentes: pode haver ponto mais proximo sem
+    // alvo escolhido (todos filtrados por sentido, por exemplo).
+    PontoViagem p = ponto_exemplo();
+    p.radar.tem_proximo = true;
+    p.radar.dist_proximo_m = 77.7F;
+    p.radar.limite_proximo = 40;
+
+    char linha[kTamLinhaViagem];
+    ASSERT_GT(formata_ponto_viagem(p, linha, sizeof linha), 0u);
+    EXPECT_NE(std::string(linha).find(";12.40;;;77.7;40"), std::string::npos)
+        << linha;
+}
+
+TEST(FormatoLog, o_cabecalho_de_viagem_declara_v3_e_as_nove_colunas) {
+    const std::string c = kCabecalhoViagem;
+    EXPECT_NE(c.find("viagem v3"), std::string::npos);
+    EXPECT_NE(c.find("radar_m;radar_kmh;perto_m;perto_kmh"), std::string::npos);
 }
 
 TEST(FormatoLog, o_ponto_de_viagem_tem_sempre_segundo_zero) {
