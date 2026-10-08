@@ -74,8 +74,9 @@ Ganham-se ainda duas coisas que a prateleira de fibra não dava:
 
 ## 2. A caixa
 
-Impressa, paramétrica em OpenSCAD. O modelo e as decisões de geometria estão
-fora deste repositório, com a cadeia de geração.
+Impressa, paramétrica em OpenSCAD. **A fonte e as decisões de geometria estão
+fora deste repositório**, com a cadeia de geração; os **STLs prontos** estão em
+[`caixa/`](caixa/), com o que é preciso saber para imprimir.
 
 | | |
 | :--- | :--- |

@@ -47,3 +47,11 @@ kicad/_restore_backup_*/
 
 # Pacote de fabricacao zipado: sai do .kicad_pcb, que e versionado.
 kicad/*.zip
+
+# STL da caixa: artefato, nao fonte. Gere com `caixa/gera_stl.sh`.
+#
+# Cada render muda o arquivo inteiro, e o git guarda cada versao por completo.
+# Sao ~2 MB por corpo -- a mesma razao pela qual o .uf2 fica em release e nao
+# no repositorio.
+caixa/*.stl
+
