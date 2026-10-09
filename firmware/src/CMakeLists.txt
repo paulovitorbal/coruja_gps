@@ -27,6 +27,7 @@ add_library(coruja_nucleo STATIC
     nucleo/CarimboDeLog.cpp
     nucleo/ArenaMemoria.cpp
     placa/MedidorPilha.cpp
+    placa/Termometro.cpp
     nucleo/SincronizadorHora.cpp
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
@@ -98,6 +99,7 @@ if(NOT CORUJA_TESTES)
         placa/PausaReal.cpp
         placa/RelogioAon.cpp
         placa/MedidorPilhaPico.cpp
+        placa/TermometroPico.cpp
         gps/UartPico.cpp
         display/RetroiluminacaoPwm.cpp
         display/PainelSt7789.cpp
@@ -108,7 +110,9 @@ if(NOT CORUJA_TESTES)
     target_link_libraries(coruja_portes PUBLIC
         coruja_ihm coruja_log pico_stdlib hardware_pwm hardware_gpio hardware_spi
         # o relogio que atravessa a ligacao: no RP2350 e o POWMAN, nao o RTC
-        pico_aon_timer)
+        pico_aon_timer
+        # o sensor de temperatura da pastilha, no canal 4 do ADC
+        hardware_adc)
 
     # coruja_armazenamento: cartao microSD e FAT32.
     #

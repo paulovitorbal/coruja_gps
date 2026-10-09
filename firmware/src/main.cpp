@@ -57,6 +57,7 @@
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
 #include "placa/MedidorPilha.h"
+#include "placa/Termometro.h"
 #include "placa/RelogioAon.h"
 #include "rede/ClienteSntp.h"
 #include "rede/ClienteTls.h"
@@ -608,11 +609,50 @@ int main() {
     app.define_versao(coruja::kVersaoBuild);
     app.define_base_carregada(base.cabecalho, base.pontos);
 
+    // Temperatura da pastilha, no boot e a cada cinco minutos.
+    //
+    // Existe por um caso de campo: em 08/10/2026 o aparelho passou ~20 min sem
+    // fix depois de o carro parar e voltar a andar, e a temperatura e uma das
+    // suspeitas -- o painel mediu 92 °C (R-65) e o NEO-M8N e especificado ate
+    // 85. Ninguem mediu o que acontece DENTRO do gabinete, e sem serie
+    // temporal nao ha como separar "esquentou" de "coincidencia".
+    //
+    // ⚠️ Mede a PASTILHA do RP2350, nao o ar nem o modulo GPS. Serve para a
+    // tendencia, nao para o valor absoluto. Ver `Termometro.h`.
+    //
+    // So o numero. A origem ja diz `temp`, a unidade e sempre Celsius, e que a
+    // primeira linha e do boot se ve pela posicao -- repetir isso em cada
+    // linha e ruido num arquivo que sobe pela rede.
+    const auto registra_temperatura = [&log]() {
+        float c = 0.0F;
+        if (!coruja::temperatura_do_chip(&c)) { return; }
+        char msg[16];
+        std::snprintf(msg, sizeof msg, "%.1f", static_cast<double>(c));
+        log.info("temp", msg);
+    };
+    registra_temperatura();
+
     log.info("boot", "pronto");
     log.descarrega();
 
+    // Cinco minutos. Longo o bastante para nao inchar o log de uma viagem de
+    // uma hora (doze linhas) e curto o bastante para pegar a subida de um
+    // carro parado ao sol, que leva dezenas de minutos.
+    constexpr std::uint32_t kIntervaloTemperaturaMs = 5U * 60U * 1000U;
+    std::uint32_t proxima_temperatura_ms =
+        pausa.agora_ms() + kIntervaloTemperaturaMs;
+
     while (true) {
         app.passo(pausa.agora_ms());
+
+        // Subtracao sem sinal: a comparacao atravessa a virada do contador de
+        // 32 bits, que acontece a cada ~49 dias de ligacao continua. Comparar
+        // `agora >= proxima` direto pararia de registrar depois dela.
+        const std::uint32_t agora_ms = pausa.agora_ms();
+        if (agora_ms - proxima_temperatura_ms < (1U << 31)) {
+            registra_temperatura();
+            proxima_temperatura_ms = agora_ms + kIntervaloTemperaturaMs;
+        }
 
         // Depois de um OTA, a tela dele ficou por cima: as telas só
         // redesenham o que mudou, e o que a atualização deixou no painel não

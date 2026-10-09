@@ -67,6 +67,7 @@ add_executable(testes
     app/ModoTesteEncoderTest.cpp
     placa/PinosTest.cpp
     placa/MedidorPilhaTest.cpp
+    placa/TermometroTest.cpp
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     app/CicloCoresTest.cpp
