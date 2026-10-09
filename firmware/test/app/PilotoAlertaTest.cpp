@@ -129,6 +129,35 @@ TEST(PilotoAlerta, sem_base_carregada_tambem_e_sem_sinal) {
     EXPECT_EQ(b.led.atual, cores::kAzul);
 }
 
+TEST(PilotoAlerta, base_ENTREGUE_VAZIA_e_sem_sinal_e_nao_via_livre) {
+    // Ponteiro válido, contagem ZERO. A guarda de `passo()` olhava só o
+    // ponteiro, e `g_pontos` é um array global — endereço nunca nulo. Então
+    // uma base vazia atravessava a guarda, o laço não varria nada, e o
+    // veredito saía `Segura`: o aparelho AFIRMANDO "nenhum radar a menos de
+    // 300 m" quando a verdade era "não tenho base para saber".
+    //
+    // A diferença não é cosmética. `Segura` e `SemSinal` são 1 e 0 na coluna
+    // `zona` do log de viagem, e foi exatamente essa ambiguidade que impediu
+    // de decidir, pelo log de 08/10/2026, se o aparelho não tinha radar por
+    // perto ou não tinha base para procurar.
+    Bancada b;
+    // Vetor COM espaço e contagem zero: `data()` de um vetor vazio devolve
+    // nullptr e cairia na guarda antiga por acidente, sem exercitar nada.
+    // `g_pontos` tem 24000 posições sempre — o que varia é quantas valem.
+    std::vector<Ponto> reservada(8);
+    b.piloto.define_base(reservada.data(), 0);
+    b.dirige(60.0F, 0, 1000);
+    EXPECT_EQ(b.piloto.veredito().zona, Zona::SemSinal);
+}
+
+TEST(PilotoAlerta, base_vazia_nao_e_confundida_com_via_livre_no_LED) {
+    Bancada b;
+    std::vector<Ponto> reservada(8);
+    b.piloto.define_base(reservada.data(), 0);
+    b.dirige(60.0F, 0, 1000);
+    EXPECT_EQ(b.led.atual, cores::kAzul);   // azul é "sem sinal", não verde
+}
+
 TEST(PilotoAlerta, perder_o_fix_no_meio_apaga_o_alerta) {
     Bancada b;
     b.com_radar(150.0F, 60);

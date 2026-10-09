@@ -45,6 +45,10 @@ public:
     /// Tem base para consultar?
     bool tem_base() const { return base_ != nullptr && quantos_ > 0; }
 
+    /// Quantos pontos o piloto tem AGORA — não quantos o arquivo tinha.
+    /// A diferença entre os dois é o que o log de vigília existe para expor.
+    std::size_t pontos_da_base() const { return quantos_; }
+
     /// Uma volta do laço.
     void passo(std::uint32_t agora_ms);
 

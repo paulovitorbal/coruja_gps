@@ -563,18 +563,53 @@ int main() {
     carrega_configuracao(cartao, &config, log);
     log.define_nivel_minimo(config.nivel_log);
     log.grava_no_cartao(config.log_para_cartao);
+
+    // **Qual firmware escreveu este log.** Sem esta linha, um log recolhido
+    // do cartão não diz de que binário veio, e em 09/10/2026 isso impediu de
+    // decidir se um registro estranho era defeito do código ou de uma versão
+    // antiga ainda gravada. Vai logo depois de o destino do log ser definido,
+    // para ser a primeira coisa que o cartão recebe.
+    log.info("boot", coruja::kVersaoBuild);
     brilho.define_presets(config.brilho_dia, config.brilho_noite);
     luz.define_duty(brilho.duty());
 
     // O GPS a 4 Hz e 115200: sem isto ele fala a 1 Hz e 9600, e o RF01.4
-    // exige 4 Hz. Falhar aqui não impede o aparelho de operar — só o deixa
-    // mais lento, e o monitor de taxa vai dizer isso na tela.
+    // exige 4 Hz.
+    //
+    // O comentário que estava aqui dizia que falhar "só o deixa mais lento".
+    // **Não é verdade, e custou uma viagem inteira sem fix em 08/10/2026**:
+    // quando o passo 1 não acha o módulo, a porta não é reconfigurada e o
+    // aparelho fica lendo um fluxo ilegível — mudo, não lento. Descartar este
+    // retorno era jogar fora o único aviso que existia.
     coruja::ConfiguradorGps configurador(uart, pausa);
-    configurador.executa(log);
+    const coruja::ResultadoConfigGps desfecho = configurador.executa(log);
+    if (desfecho != coruja::ResultadoConfigGps::Configurado) {
+        char aviso[160];
+        std::snprintf(aviso, sizeof aviso,
+                      "configuracao incompleta (%s); a porta ficou em %lu. "
+                      "Se nao houver fix, e aqui que se procura",
+                      coruja::descreve(desfecho),
+                      static_cast<unsigned long>(configurador.baud_final()));
+        log.error("gps", aviso);
+    }
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
     const BaseCarregada base = carrega_base(cartao, log);
     piloto.define_base(g_pontos, base.pontos);
+    // A linha de `carrega_base` diz quantos pontos o ARQUIVO tinha; esta diz
+    // quantos chegaram a quem alerta. Eram a mesma coisa em todo log que
+    // examinei, e é justamente por isso que vale registrar as duas: quando
+    // divergirem, o log aponta o elo em vez de deixar deduzir.
+    {
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "piloto recebeu %u pontos",
+                      static_cast<unsigned>(base.pontos));
+        if (base.pontos == 0) {
+            log.error("base", "piloto recebeu ZERO pontos: nao havera alerta");
+        } else {
+            log.info("base", msg);
+        }
+    }
 
     // O relogio comeca ZERADO: o RP2350 nao tem bateria nele, e zero e
     // exatamente o que se quer dizer -- ninguem acertou a hora nesta ligacao.
@@ -632,6 +667,24 @@ int main() {
     };
     registra_temperatura();
 
+    // **O log não dizia uma palavra durante a viagem.** Até 09/10/2026 ele
+    // cobria só o boot: nenhuma das cinco viagens gravadas no cartão aparecia
+    // nele, nem a abertura do arquivo. Quando uma viagem registrou zona
+    // "segura" do começo ao fim passando a 43 m de um radar, não havia como
+    // saber se o piloto tinha base, se tinha fix, ou o que ele via — e o
+    // defeito ficou sem causa isolada.
+    //
+    // Uma linha a cada cinco minutos responde as três perguntas e custa doze
+    // linhas por hora de viagem.
+    const auto registra_vigilia = [&log, &piloto, &gps](std::uint32_t t_ms) {
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "base %u pts | fix %s | zona %u",
+                      static_cast<unsigned>(piloto.pontos_da_base()),
+                      gps.tem_fix(t_ms) ? "sim" : "NAO",
+                      static_cast<unsigned>(piloto.veredito().zona));
+        log.info("vigia", msg);
+    };
+
     log.info("boot", "pronto");
     log.descarrega();
 
@@ -651,6 +704,7 @@ int main() {
         const std::uint32_t agora_ms = pausa.agora_ms();
         if (agora_ms - proxima_temperatura_ms < (1U << 31)) {
             registra_temperatura();
+            registra_vigilia(agora_ms);
             proxima_temperatura_ms = agora_ms + kIntervaloTemperaturaMs;
         }
 

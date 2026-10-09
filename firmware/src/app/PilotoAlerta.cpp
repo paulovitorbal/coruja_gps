@@ -23,7 +23,12 @@ void PilotoAlerta::passo(std::uint32_t agora_ms) {
         seletor_.atualiza(gps_.telemetria(), agora_ms);
     }
 
-    if (gps_.tem_fix(agora_ms) && base_ != nullptr) {
+    // `tem_base()`, e não `base_ != nullptr`: a base vive num array global de
+    // 24000 posições, cujo endereço nunca é nulo. Checar só o ponteiro deixava
+    // passar uma base de ZERO pontos, o laço não varria nada, e o veredito
+    // saía `Segura` — o aparelho afirmando "nenhum radar a menos de 300 m"
+    // quando o que havia era ausência de base.
+    if (gps_.tem_fix(agora_ms) && tem_base()) {
         veredito_ = maquina_.avalia(gps_.telemetria(), base_, quantos_,
                                     agora_ms);
     } else {
