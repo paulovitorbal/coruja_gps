@@ -58,6 +58,7 @@ add_executable(testes
     nucleo/SincronizadorHoraTest.cpp
     rede/SntpTest.cpp
     rede/CaixaDnsTest.cpp
+    rede/PrazoDeProgressoTest.cpp
     nucleo/VerificadorDownloadTest.cpp
     log/LoggerConsoleTest.cpp
     log/IdExecucaoTest.cpp

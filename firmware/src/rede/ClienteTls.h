@@ -8,6 +8,13 @@
 
 namespace coruja {
 
+/// Quanto tempo sem UM byte andar antes de desistir de um pedido HTTP.
+///
+/// Vale para todos os pedidos; o teto é que varia com o que se espera de
+/// cada um. Quinze segundos é bem mais do que qualquer troca sadia leva, e
+/// bem menos do que o teto, então é ele que responde quando a rede some.
+constexpr std::uint32_t kInatividadeHttpMs = 15'000;
+
 class Logger;
 
 /// Cliente HTTP **único** do aparelho, sobre `altcp` — com ou sem TLS.

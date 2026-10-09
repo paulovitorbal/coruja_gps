@@ -24,11 +24,19 @@ constexpr std::size_t kMaxRemessa = 12;
 /// uma para somar o CRC, outra para mandar.
 constexpr std::size_t kPedacoRemessa = 1024;
 
-/// Teto de cada pedido. O envio é mais generoso que a consulta porque carrega
-/// o corpo inteiro; a consulta devolve oito caracteres e, se demora isso, a
-/// rede não está boa o bastante para a remessa seguinte dar certo.
-constexpr std::uint32_t kTempoLimiteEnvioMs = 30'000;
-constexpr std::uint32_t kTempoLimiteConsultaMs = 10'000;
+/// Teto de cada pedido — o limite de paciência, não o de operação normal:
+/// quem desiste quando a rede some é `kInatividadeHttpMs`.
+///
+/// Os trinta segundos que estavam aqui eram um prazo de duração, e **isso
+/// derrubou quatro envios seguidos em 09/10/2026**: a -88 dBm o aperto de
+/// mão TLS sozinho consumia nove, e um `coruja.log` de 28 KB não cabia nos
+/// vinte e um que sobravam. Na mesma sessão os arquivos de algumas centenas
+/// de bytes subiam, o que fazia parecer limiar de tamanho.
+///
+/// O OTA já baixava 220 KB com 120 s. Pedir que o envio desse conta de 28 KB
+/// em um quarto disso nunca teve justificativa.
+constexpr std::uint32_t kTempoLimiteEnvioMs = 180'000;
+constexpr std::uint32_t kTempoLimiteConsultaMs = 30'000;
 
 enum class ResultadoRemessa : std::uint8_t {
     Enviada,          ///< tudo que havia foi entregue e confirmado

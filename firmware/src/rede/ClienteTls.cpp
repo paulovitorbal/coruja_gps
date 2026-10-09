@@ -1,5 +1,7 @@
 #include "rede/ClienteTls.h"
 
+#include "rede/PrazoDeProgresso.h"
+
 #include <lwip/altcp.h>
 #include <lwip/altcp_tcp.h>
 #include <lwip/altcp_tls.h>
@@ -567,14 +569,40 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         return saida;
     }
 
-    const absolute_time_t prazo = make_timeout_time_ms(tempo_limite_ms);
+    // `tempo_limite_ms` é o TETO; quem desiste no dia a dia é a inatividade.
+    // A troca está explicada em `rede/PrazoDeProgresso.h`: um enlace fraco
+    // mas vivo levava o pedido a ser abortado no meio do corpo.
+    PrazoDeProgresso prazo(kInatividadeHttpMs, tempo_limite_ms,
+                           to_ms_since_boot(get_absolute_time()));
+    std::size_t andou_antes = 0;
+    bool conectou_antes = false;
     while (!pedido.terminou) {
-        if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
+        const std::uint32_t agora = to_ms_since_boot(get_absolute_time());
+        // Bytes reconhecidos pelo outro lado mais bytes que chegaram: os dois
+        // só crescem, e qualquer um deles subindo prova que o enlace anda.
+        const std::size_t andou =
+            pedido.corpo_enviado + pedido.leitor.recebidos();
+        if (andou != andou_antes || pedido.conectou != conectou_antes) {
+            prazo.registra_progresso(agora);
+            andou_antes = andou;
+            conectou_antes = pedido.conectou;
+        }
+        if (prazo.expirou(agora)) {
+            const bool teto = prazo.estourou_o_teto(agora);
             cyw43_arch_lwip_begin();
             altcp_arg(pcb, nullptr);
             altcp_abort(pcb);
             cyw43_arch_lwip_end();
-            log.error(kOrigem, "tempo esgotado");
+            char msg[128];
+            std::snprintf(msg, sizeof msg,
+                          teto ? "tempo esgotado: %lu ms no total, o enlace "
+                                 "nao deu conta do tamanho"
+                               : "tempo esgotado: %lu ms sem nenhum byte "
+                                 "andar; olhe o sinal",
+                          static_cast<unsigned long>(
+                              teto ? prazo.decorrido(agora)
+                                   : prazo.parado_ha(agora)));
+            log.error(kOrigem, msg);
             saida.erro = ErroHttp::TempoEsgotado;
             saida.recebidos = pedido.leitor.recebidos();
             return saida;
