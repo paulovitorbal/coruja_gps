@@ -55,8 +55,12 @@ private:
     /// errado.
     enum class Passo : std::uint8_t { Ok, Nak, Silencio };
 
+    /// `obrigatorio` só muda a severidade do registro: um NAK esperado não
+    /// deve entrar no log como ERRO, senão o diagnóstico de verdade some no
+    /// meio do ruído.
     Passo comanda(const std::uint8_t* quadro, std::size_t tamanho,
-                  std::uint8_t id, const char* nome, Logger& log);
+                  std::uint8_t id, const char* nome, Logger& log,
+                  bool obrigatorio = true);
     bool espera_ack(std::uint8_t id, Logger& log, bool* recusou);
 
     Uart&            uart_;

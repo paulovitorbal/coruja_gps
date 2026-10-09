@@ -23,6 +23,10 @@ public:
     // --- roteiro
     /// Ids de CFG que devem receber NAK em vez de ACK.
     std::vector<std::uint8_t> recusa;
+    /// Ids NMEA cujo `CFG-MSG` deve receber NAK. Granularidade de sentença:
+    /// o módulo de verdade recusa a TXT e aceita as outras seis, e `recusa`
+    /// (por id de CFG) não sabe distinguir uma da outra.
+    std::vector<std::uint8_t> recusa_nmea;
     /// Ids de CFG a que o módulo simplesmente não responde.
     std::vector<std::uint8_t> muda;
     /// Quantas respostas engolir antes de começar a responder (testa
@@ -40,6 +44,11 @@ public:
     struct Comando { std::uint8_t classe, id; std::vector<std::uint8_t> payload; };
     std::vector<Comando>       comandos;
     std::vector<std::uint32_t> bauds;          ///< sequência de define_baud
+    /// Baud vigente quando cada comando foi escrito. `bauds` sozinho não
+    /// serve para afirmar ORDEM de sondagem: ele já começa com o de fábrica
+    /// porque é onde a porta nasce, e um configurador que sondasse na ordem
+    /// trocada teria o mesmo `bauds.front()`.
+    std::vector<std::uint32_t> baud_do_comando;
     /// Em que índice de `comandos` o baud mudou. Revela a ORDEM.
     int comandos_ate_trocar_baud = -1;
 
@@ -54,6 +63,7 @@ public:
         const std::size_t tam = bytes[4] | (bytes[5] << 8);
         c.payload.assign(bytes + 6, bytes + 6 + tam);
         comandos.push_back(c);
+        baud_do_comando.push_back(bauds.back());
         responde(c);
     }
 
@@ -92,6 +102,11 @@ private:
         for (const auto id : muda) { if (id == c.id) { return; } }
         bool nak = false;
         for (const auto id : recusa) { if (id == c.id) { nak = true; } }
+        if (c.id == ubx::kCfgMsg && c.payload.size() >= 2) {
+            for (const auto id : recusa_nmea) {
+                if (id == c.payload[1]) { nak = true; }
+            }
+        }
 
         if (intercala_nmea) {
             const char* s = "$GNRMC,123519.00,V,,,,,,,220926,,,N*63\r\n";
@@ -210,14 +225,102 @@ TEST(ConfiguradorGps, troca_o_baud_local_LOGO_APOS_mandar_o_CFG_PRT) {
 }
 
 TEST(ConfiguradorGps, o_modulo_que_so_responde_em_115200_ainda_e_configurado) {
-    // E o comportamento real: depois do CFG-PRT o modulo so fala no baud
-    // novo. O CFG-CFG adiante e quem prova que a porta nova esta de pe.
+    // ESTE e o defeito de 08/10/2026, e ele nao e hipotetico: o log do
+    // aparelho tem dois boots seguidos que morreram aqui, logo depois de um
+    // boot que terminou com `CFG-CFG persistir: ACK`.
+    //
+    // O modulo guarda a configuracao em BBR, que a bateria de backup mantem
+    // por horas. Parada curta -- a escola, o posto -- e ele volta falando
+    // 115200. O Pico religa assumindo o baud de fabrica, nao reconhece nada,
+    // e sem este sondar desistiria com o receptor inteiro do outro lado,
+    // funcionando, a 115200. Vinte minutos de viagem sem um fix.
     Bancada b;
     b.uart.baud_exigido = kBaudDesejado;
-    // Os comandos ate o CFG-PRT ficam sem resposta, entao a configuracao
-    // falha antes -- e este teste verifica justamente isso: sem o baud certo
-    // desde o inicio, nao se chega ao fim.
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+}
+
+TEST(ConfiguradorGps, sonda_o_baud_de_fabrica_ANTES_do_outro) {
+    // Ordem importa: o modulo recem-saido da caixa esta a 9600, e esse e o
+    // caso que nao pode pagar pedagio nenhum. So quem nao responde a 9600
+    // custa a sondagem extra.
+    Bancada b;
+    b.uart.baud_exigido = kBaudDesejado;    // so responde no outro
+    b.roda();
+    ASSERT_FALSE(b.uart.baud_do_comando.empty());
+    EXPECT_EQ(b.uart.baud_do_comando.front(), kBaudFabrica);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);  // e achou no segundo
+}
+
+TEST(ConfiguradorGps, modulo_mudo_nos_DOIS_bauds_ainda_e_sem_resposta) {
+    // O sondar nao pode transformar "nao ha ninguem ai" em outra coisa:
+    // fiacao solta, modulo sem energia e antena arrancada continuam tendo
+    // este nome, que e o que manda procurar no lugar certo.
+    Bancada b;
+    b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
     EXPECT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+}
+
+TEST(ConfiguradorGps, desistir_devolve_a_porta_ao_baud_de_fabrica) {
+    // Quem le a porta depois do configurador herda o baud que ele deixou.
+    // Desistir no meio da sondagem e deixar a porta em 115200 condenaria o
+    // leitor a um fluxo ilegivel mesmo que o modulo estivesse a 9600.
+    Bancada b;
+    b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_EQ(b.baud_final, kBaudFabrica);
+    EXPECT_EQ(b.uart.bauds.back(), kBaudFabrica);
+}
+
+TEST(ConfiguradorGps, o_sondar_nao_atropela_o_CFG_RATE_do_modulo_normal) {
+    // Modulo de fabrica responde de primeira: nenhuma sondagem extra, e o
+    // CFG-RATE sai uma vez so.
+    Bancada b;
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1U);
+}
+
+// ================================================== passos opcionais
+
+TEST(ConfiguradorGps, NAK_na_TXT_nao_derruba_a_configuracao) {
+    // O NEO-M8N deste aparelho recusa desligar a TXT: nove dos catorze boots
+    // do log de 08/10/2026 terminam em `TXT off: NAK`. A TXT e ruido de
+    // diagnostico que o parser ja descarta -- desistir da configuracao
+    // inteira por causa dela e que era desproporcional.
+    Bancada b;
+    b.uart.recusa_nmea.push_back(ubx::kNmeaTxt);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+}
+
+TEST(ConfiguradorGps, mesmo_recusando_a_TXT_a_RMC_ainda_e_ligada) {
+    // O prejuizo real do NAK da TXT era a sequencia abortar ANTES da RMC.
+    Bancada b;
+    b.uart.recusa_nmea.push_back(ubx::kNmeaTxt);
+    b.roda();
+    bool ligou_rmc = false;
+    for (const auto& c : b.uart.comandos) {
+        if (c.id == ubx::kCfgMsg && c.payload.size() >= 3 &&
+            c.payload[1] == ubx::kNmeaRmc && c.payload[2] == 1) {
+            ligou_rmc = true;
+        }
+    }
+    EXPECT_TRUE(ligou_rmc);
+}
+
+TEST(ConfiguradorGps, NAK_numa_sentenca_OBRIGATORIA_continua_recusando) {
+    // A tolerancia e da TXT, nao de qualquer NAK. Um modulo que recusa
+    // desligar a GSV deixa a porta congestionada a 9600, que e o sintoma
+    // que o RF01.2 existe para evitar.
+    Bancada b;
+    b.uart.recusa_nmea.push_back(ubx::kNmeaGsv);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Recusado);
+}
+
+TEST(ConfiguradorGps, NAK_na_RMC_continua_recusando) {
+    Bancada b;
+    b.uart.recusa_nmea.push_back(ubx::kNmeaRmc);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Recusado);
 }
 
 TEST(ConfiguradorGps, silencio_no_CFG_PRT_e_tolerado) {
@@ -259,11 +362,15 @@ TEST(ConfiguradorGps, NAK_nao_e_repetido) {
     EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1U);
 }
 
-TEST(ConfiguradorGps, silencio_e_repetido_uma_vez) {
+TEST(ConfiguradorGps, silencio_e_repetido_uma_vez_EM_CADA_BAUD) {
+    // Duas tentativas por baud, dois bauds sondados: quatro CFG-RATE antes de
+    // declarar que nao ha ninguem do outro lado. A garantia original -- nao
+    // insistir indefinidamente -- continua valendo; o que mudou e que ela
+    // agora vale por baud.
     Bancada b;
     b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
     b.roda();
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), kTentativasPorComando);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), kTentativasPorComando * 2);
 }
 
 TEST(ConfiguradorGps, recupera_na_segunda_tentativa) {
