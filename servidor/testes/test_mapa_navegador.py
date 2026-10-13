@@ -377,3 +377,140 @@ class JornadaNoNavegador(unittest.TestCase):
         # desenhado, faltaria uma das duas regioes.
         self.assertTrue(any(la < -10.3 for la in latitudes), latitudes)
         self.assertTrue(any(la > -10.1 for la in latitudes), latitudes)
+
+
+@unittest.skipIf(_falta("folium"), "folium nao instalado (teste opcional)")
+@unittest.skipIf(_falta("playwright"), "playwright nao instalado (teste opcional)")
+class FusoDoNavegador(unittest.TestCase):
+    """Os horários da página seguem o relógio de quem olha.
+
+    O aparelho grava UTC, e é assim que o dado fica no cartão e no servidor.
+    Mas quem abre a página quer saber a que horas SAIU DE CASA, e o relógio
+    da animação já respondia isso no fuso local — enquanto a listagem e os
+    avisos de pausa, montados no servidor, diziam UTC. Três horas de
+    diferença entre dois números da mesma tela.
+
+    ⚠️ Conferir a substring do HTML não serve aqui: o servidor não sabe o
+    fuso de ninguém. A conversão é do navegador, e só num navegador de
+    verdade, com fuso declarado, dá para afirmar que ela acontece.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+
+        import pagina
+        import viagem
+        from test_jornada import trecho
+        from playwright.sync_api import sync_playwright
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        d = Path(cls._tmp.name)
+        (d / "a.log").write_text(trecho("2026-10-11T12:40:00Z", 30, 0.0))
+        (d / "b.log").write_text(trecho("2026-10-11T14:39:12Z", 30, 8.0,
+                                        lat0=-10.4))
+        j = viagem.Jornada([viagem.le_viagem(d / "a.log"),
+                            viagem.le_viagem(d / "b.log")])
+        cls.jornada = j
+        (d / "lista.html").write_text(
+            pagina.listagem("aparelho", [viagem.resumo_da_jornada(j)]))
+        (d / "mapa.html").write_text(viagem.desenha(j))
+        cls.d = d
+
+        try:
+            cls._pw = sync_playwright().start()
+            cls.nav = cls._pw.chromium.launch()
+        except Exception as e:                       # noqa: BLE001
+            raise unittest.SkipTest(f"sem navegador: {e}") from e
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "nav"):
+            cls.nav.close()
+            cls._pw.stop()
+            cls._tmp.cleanup()
+
+    def _abre(self, arquivo: str, fuso: str):
+        ctx = self.nav.new_context(timezone_id=fuso)
+        pag = ctx.new_page()
+        pag.goto(f"file://{self.d / arquivo}")
+        pag.wait_for_timeout(1200)
+        return ctx, pag
+
+    def test_a_listagem_mostra_a_hora_de_BRASILIA(self):
+        # 12:40 UTC sao 09:40 em Brasilia. Era essa a hora no relogio de quem
+        # dirigiu.
+        ctx, pag = self._abre("lista.html", "America/Sao_Paulo")
+        try:
+            titulo = pag.locator(".viagem h2").inner_text()
+            self.assertIn("09:40", titulo)
+            self.assertNotIn("12:40", titulo)
+            # Formato brasileiro, 24 h: o fuso vem do navegador, mas o
+            # formato nao. `10/11/2026, 09:40 AM` num navegador em ingles
+            # seria lido como 10 de novembro nesta pagina.
+            self.assertIn("11/10/2026", titulo)
+            self.assertNotIn("AM", titulo)
+        finally:
+            ctx.close()
+
+    def test_a_mesma_listagem_em_OUTRO_fuso_mostra_outra_hora(self):
+        # Prova que a conversao e do NAVEGADOR: o HTML servido e o mesmo.
+        ctx, pag = self._abre("lista.html", "UTC")
+        try:
+            self.assertIn("12:40", pag.locator(".viagem h2").inner_text())
+        finally:
+            ctx.close()
+
+    def test_o_rodape_nao_promete_mais_UTC(self):
+        ctx, pag = self._abre("lista.html", "America/Sao_Paulo")
+        try:
+            self.assertNotIn("horários em UTC", pag.content())
+        finally:
+            ctx.close()
+
+    def test_o_aviso_de_pausa_tambem_segue_o_navegador(self):
+        # O relogio da animacao ja mostrava local. O aviso de pausa, montado
+        # no servidor, dizia UTC -- dois numeros da mesma tela, com tres
+        # horas de diferenca entre eles.
+        ctx, pag = self._abre("mapa.html", "America/Sao_Paulo")
+        try:
+            pag.wait_for_timeout(1500)
+            # Abre pela API do Leaflet, e não por `hover`: o marcador da
+            # pausa pode cair fora da viewport ou debaixo de outro, e um
+            # teste que depende de pixel falha sem haver defeito.
+            abertos = pag.evaluate(
+                "() => { let n = 0;"
+                "        window.timeDimensionControl._map.eachLayer(l => {"
+                "          if (l.getTooltip && l.getTooltip()) {"
+                "            l.openTooltip(); n++; }"
+                "        }); return n; }")
+            self.assertGreater(abertos, 0, "nenhum marcador tem aviso")
+            pag.wait_for_timeout(500)
+            avisos = pag.locator(".leaflet-tooltip")
+            textos = [avisos.nth(i).inner_text()
+                      for i in range(avisos.count())]
+            # Os marcadores de inicio e fim tambem tem aviso; o da pausa e o
+            # que interessa aqui.
+            pausas = [t for t in textos if "pausa de" in t]
+            self.assertTrue(pausas, textos)
+            texto = pausas[0]
+            # 12:42 UTC sao 09:42 em Brasilia.
+            self.assertIn("09:", texto)
+            self.assertNotIn("UTC", texto)
+        finally:
+            ctx.close()
+
+    def test_o_relogio_da_animacao_concorda_com_a_listagem(self):
+        # O defeito que isto impede e a INCOERENCIA: dois horarios da mesma
+        # viagem, na mesma tela, em fusos diferentes.
+        ctx_l, pag_l = self._abre("lista.html", "America/Sao_Paulo")
+        ctx_m, pag_m = self._abre("mapa.html", "America/Sao_Paulo")
+        try:
+            pag_m.wait_for_timeout(1500)
+            relogio = pag_m.locator(
+                ".leaflet-control-timecontrol.timecontrol-date").inner_text()
+            self.assertIn("09:40", pag_l.locator(".viagem h2").inner_text())
+            self.assertIn("09:40", relogio)
+        finally:
+            ctx_l.close()
+            ctx_m.close()

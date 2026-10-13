@@ -24,6 +24,8 @@ import html
 import json
 import math
 import struct
+
+import horario
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -578,6 +580,9 @@ def resumo_da_jornada(j: Jornada) -> dict:
         # com pausas ele é só o PRIMEIRO de vários, e identificar a viagem
         # por ele sugeria que os outros eram viagens separadas.
         "quando": j.inicio.strftime("%d/%m/%Y %H:%M"),
+        #: O mesmo instante como `<time>`, para o navegador pôr no fuso de
+        #: quem olha. Ver `horario.py`.
+        "quando_html": horario.marca(j.inicio),
         "duracao_min": round(j.duracao_gravada.total_seconds() / 60),
         "distancia_km": round(j.distancia_km, 2),
         "v_media_kmh": round(j.v_media_kmh, 1),
@@ -753,9 +758,10 @@ def desenha(v: Jornada | Viagem, chave_thunderforest: str = "",
         minutos = round(parada.total_seconds() / 60)
         folium.Marker(
             [anterior.pontos[-1].lat, anterior.pontos[-1].lon],
-            tooltip=(f"pausa de {minutos} min — "
-                     f"{anterior.fim.strftime('%H:%M')} às "
-                     f"{seguinte.inicio.strftime('%H:%M')} UTC"),
+            tooltip=folium.Tooltip(
+                f"pausa de {minutos} min — "
+                f"{horario.marca(anterior.fim, 'hora')} às "
+                f"{horario.marca(seguinte.inicio, 'hora')}"),
             icon=folium.Icon(color="orange", icon="pause",
                              prefix="fa")).add_to(mapa)
 
@@ -793,6 +799,9 @@ def desenha(v: Jornada | Viagem, chave_thunderforest: str = "",
     animacao.add_to(mapa)
 
     mapa.get_root().html.add_child(folium.Element(_painel(v)))
+    # Depois do painel e antes dos controles: o conversor precisa existir
+    # quando os avisos de pausa forem criados, e eles nascem no hover.
+    mapa.get_root().html.add_child(folium.Element(horario.SCRIPT))
     densos = [p for t in v.trechos for p in _densifica(t)]
     mapa.get_root().html.add_child(
         folium.Element(_controles_js(PASSO_S, densos)))

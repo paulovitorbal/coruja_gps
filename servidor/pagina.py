@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import html
 
+import horario
+
 ESTILO = """
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -91,7 +93,10 @@ def _moldura(titulo: str, miolo: str) -> str:
         # tem o token, e um buscador a listando so convidaria tentativa.
         '<meta name="robots" content="noindex, nofollow">'
         f"<title>{html.escape(titulo)}</title>"
-        f"<style>{ESTILO}</style></head><body><main>{miolo}</main></body></html>"
+        f"<style>{ESTILO}</style></head><body><main>{miolo}</main>"
+        # No fim do corpo: o conversor precisa dos `<time>` já no DOM, e
+        # `defer` não vale para script embutido.
+        f"{horario.SCRIPT}</body></html>"
     )
 
 
@@ -131,7 +136,7 @@ def listagem(aparelho: str, viagens: list[dict]) -> str:
         itens = "".join(f"""
           <a class="viagem" href="/viagens/{html.escape(v['nome'])}"
              title="{html.escape(v['nome'])}">
-            <h2>{html.escape(v.get('quando', v['inicio']))} <small>UTC</small></h2>
+            <h2>{v.get('quando_html', html.escape(v['inicio']))}</h2>
             <div class="nums">
               <span><b>{v['distancia_km']}</b> km</span>
               <span><b>{v['duracao_min']}</b> min</span>
@@ -155,7 +160,9 @@ def listagem(aparelho: str, viagens: list[dict]) -> str:
       <p class="sub">{contagem}</p>
       {itens}
       <div class="rodape">
-        <span>horários em UTC, como o aparelho grava</span>
+        <span>horários no fuso deste computador<noscript> — sem
+              JavaScript eles ficam em UTC, como o aparelho grava</noscript>
+        </span>
         <form method="post" action="/viagens/sair"><button>sair</button></form>
       </div>
     """)
