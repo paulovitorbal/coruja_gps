@@ -106,6 +106,19 @@ def formulario(erro: str = "") -> str:
     """)
 
 
+def _trechos(v: dict) -> str:
+    """"em N trechos", só quando a viagem foi partida por pausas.
+
+    Sem isto a duração fica sem explicação: uma viagem que começou 12:40 e
+    terminou 15:31 mostrando "35 min" parece erro, quando o que houve foram
+    duas paradas longas — e o tempo contado é o de viagem, não o de relógio.
+    """
+    n = v.get("trechos", 1)
+    if n <= 1:
+        return ""
+    return f'<span class="trechos">em <b>{n}</b> trechos</span>'
+
+
 def listagem(aparelho: str, viagens: list[dict]) -> str:
     if viagens:
         itens = "".join(f"""
@@ -117,6 +130,7 @@ def listagem(aparelho: str, viagens: list[dict]) -> str:
               <span><b>{v['duracao_min']}</b> min</span>
               <span>média <b>{v['v_media_kmh']}</b> km/h</span>
               <span>máx <b>{v['v_maxima_kmh']}</b> km/h</span>
+              {_trechos(v)}
             </div>
           </a>""" for v in viagens)
         contagem = f"{len(viagens)} viagem" + ("ns" if len(viagens) > 1 else "")

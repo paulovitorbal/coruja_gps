@@ -734,16 +734,30 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         if aparelho is None:
             self._html(200, pagina.formulario())
             return
-        viagens = []
-        pasta = self._pasta_do_aparelho(aparelho)
-        if pasta.is_dir():
-            for arquivo in sorted(pasta.iterdir(), reverse=True):
-                if not arquivo.is_file() or not PADRAO_VIAGEM.match(arquivo.name):
-                    continue
-                r = viagem.resumo(arquivo)
-                if r is not None:
-                    viagens.append(r)
+        jornadas = self._jornadas(aparelho)
+        viagens = [viagem.resumo_da_jornada(j) for j in reversed(jornadas)]
         self._html(200, pagina.listagem(aparelho, viagens))
+
+    def _jornadas(self, aparelho: str) -> list:
+        """As viagens do aparelho, com os trechos de cada uma reunidos.
+
+        O aparelho grava um arquivo por TRECHO: ao religar o carro ele retoma
+        a viagem pelo `viagem.est`, mas o arquivo novo leva o nome da hora da
+        retomada. Listar arquivo a arquivo mostrava a mesma viagem partida em
+        quatro, cada pedaço com a distância acumulada do todo.
+        """
+        pasta = self._pasta_do_aparelho(aparelho)
+        if not pasta.is_dir():
+            return []
+        trechos = []
+        for arquivo in sorted(pasta.iterdir()):
+            if not arquivo.is_file() or not PADRAO_VIAGEM.match(arquivo.name):
+                continue
+            try:
+                trechos.append(viagem.le_viagem(arquivo))
+            except viagem.ErroDeViagem:
+                continue
+        return viagem.agrupa_em_jornadas(trechos)
 
     def _pagina_mapa(self, nome: str) -> None:
         aparelho = self._sessao()
@@ -754,11 +768,15 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         if not arquivo.is_file():
             self._html(404, pagina.aviso("viagem nao encontrada"))
             return
-        try:
-            v = viagem.le_viagem(arquivo)
-        except viagem.ErroDeViagem as e:
-            self._html(422, pagina.aviso(f"nao da para desenhar: {e}"))
-            return
+        # Qualquer trecho abre a viagem INTEIRA: os links já compartilhados
+        # apontam para um pedaço do meio, e continuam valendo.
+        v = viagem.jornada_de(self._jornadas(aparelho), nome)
+        if v is None:
+            try:
+                v = viagem.le_viagem(arquivo)
+            except viagem.ErroDeViagem as e:
+                self._html(422, pagina.aviso(f"nao da para desenhar: {e}"))
+                return
         try:
             # Os radares da regiao vem da MESMA base que os aparelhos
             # baixam. Se o arquivo faltar ou nao servir, `le_radares` devolve

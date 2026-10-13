@@ -346,7 +346,7 @@ class LeituraDeViagem(unittest.TestCase):
         # coordenadas --, e o marcador ficava 60 s parado. Quem mostrou foi o
         # teste de navegador.
         v = viagem.le_viagem(self.escreve(viagem_sintetica(pontos=6)))
-        g = viagem._trilha_geojson(v)
+        g = viagem.trilha_da_jornada(viagem.Jornada([v]))
         feicao = g["features"][0]
         self.assertEqual(feicao["geometry"]["type"], "LineString")
         esperado = 5 * (60 // viagem.PASSO_S) + 1  # o sintetico padrao e v1
@@ -398,7 +398,8 @@ class LeituraDeViagem(unittest.TestCase):
         # do outro lado do planeta sem erro nenhum.
         v = viagem.le_viagem(self.escreve(
             viagem_sintetica(pontos=3, lat0=-10.0, lon0=-40.0)))
-        primeiro = viagem._trilha_geojson(v)["features"][0]["geometry"][
+        primeiro = viagem.trilha_da_jornada(
+            viagem.Jornada([v]))["features"][0]["geometry"][
             "coordinates"][0]
         self.assertAlmostEqual(primeiro[0], -40.0, places=4)
         self.assertAlmostEqual(primeiro[1], -10.0, places=4)

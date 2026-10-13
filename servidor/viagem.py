@@ -153,7 +153,20 @@ class Viagem:
 
     @property
     def distancia_km(self) -> float:
-        return self.pontos[-1].dist_km
+        """O que se andou NESTE arquivo, e não desde o início da viagem.
+
+        ⚠️ `dist_km` é cumulativa da **viagem**, não do arquivo. Quando o
+        carro é desligado o aparelho não encerra a viagem — sem fix ele nem
+        chega a contar o tempo parado —, e o `viagem.est` a retoma no
+        religamento com a distância continuando. O arquivo novo, porém, ganha
+        o nome da hora da retomada.
+
+        Tomar o último valor como "distância do arquivo" somava tudo o que
+        viera antes da pausa. Em 11/10/2026 um trecho de 5,3 min que andou
+        1,45 km reportou 17,32 km, e a média saiu em **196 km/h** com máxima
+        de 45,2.
+        """
+        return self.pontos[-1].dist_km - self.pontos[0].dist_km
 
     @property
     def v_maxima_kmh(self) -> float:
@@ -224,6 +237,142 @@ class Viagem:
         """
         horas = self.duracao.total_seconds() / 3600
         return self.distancia_km / horas if horas > 0 else 0.0
+
+
+#: Quanto a distância pode avançar entre o fim de um trecho e o começo do
+#: seguinte e ainda ser a mesma viagem, em km.
+#:
+#: Nos arquivos reais a emenda é de 0,00 a 0,01 km — a primeira fatia do
+#: trecho novo já andou alguns metros antes de ser gravada. Um quilômetro de
+#: folga cobre isso com sobra e continua longe de qualquer viagem nova, que
+#: recomeça do zero.
+EMENDA_MAXIMA_KM = 1.0
+
+
+@dataclass(frozen=True)
+class Jornada:
+    """Uma viagem de verdade: todos os trechos em que ela foi gravada.
+
+    O que o aparelho chama de arquivo é um PEDAÇO. Quem dirige fez uma
+    viagem só, com paradas — e é assim que ela tem de aparecer no mapa.
+    """
+
+    trechos: list["Viagem"]
+
+    @property
+    def nome(self) -> str:
+        """O do primeiro trecho: é o horário em que a viagem começou."""
+        return self.trechos[0].nome
+
+    @property
+    def inicio(self) -> datetime.datetime:
+        return self.trechos[0].inicio
+
+    @property
+    def fim(self) -> datetime.datetime:
+        return self.trechos[-1].fim
+
+    @property
+    def pausas(self) -> int:
+        return len(self.trechos) - 1
+
+    @property
+    def pontos(self) -> list[PontoViagem]:
+        """Todos os pontos, em ordem. Para enquadrar o mapa e centralizar.
+
+        ⚠️ Não use para desenhar a trilha: emendar os trechos numa linha só
+        desenha o caminho da pausa, que ninguém percorreu.
+        """
+        return [p for t in self.trechos for p in t.pontos]
+
+    @property
+    def distancia_km(self) -> float:
+        return sum(t.distancia_km for t in self.trechos)
+
+    @property
+    def duracao_gravada(self) -> datetime.timedelta:
+        """Tempo com o aparelho gravando, somando os trechos.
+
+        Diferente de `fim - inicio`, que inclui as horas de carro desligado
+        entre um trecho e outro.
+        """
+        total = datetime.timedelta()
+        for t in self.trechos:
+            total += t.duracao
+        return total
+
+    @property
+    def v_media_kmh(self) -> float:
+        """Distância sobre o tempo GRAVADO.
+
+        Usar `fim - inicio` poria as seis horas de estacionamento de sábado
+        no denominador e devolveria uma média que não descreve viagem
+        nenhuma.
+        """
+        horas = self.duracao_gravada.total_seconds() / 3600
+        return self.distancia_km / horas if horas > 0 else 0.0
+
+    @property
+    def v_maxima_kmh(self) -> float:
+        return max(t.v_maxima_kmh for t in self.trechos)
+
+    @property
+    def fracao_em_perigo(self) -> float | None:
+        conhecidas = [p.zona for p in self.pontos if p.zona is not None]
+        if not conhecidas:
+            return None
+        return sum(1 for z in conhecidas if z >= 5) / len(conhecidas)
+
+    @property
+    def divergencias_de_radar(self) -> int:
+        return sum(t.divergencias_de_radar for t in self.trechos)
+
+    @property
+    def intervalo_s(self) -> int:
+        return self.trechos[0].intervalo_s
+
+
+def agrupa_em_jornadas(trechos: list["Viagem"]) -> list[Jornada]:
+    """Reúne os trechos que são a mesma viagem.
+
+    **O sinal é a distância, não o tempo.** `dist_km` só volta a zero quando
+    uma viagem nova começa; enquanto ela continua, o trecho seguinte emenda
+    onde o anterior parou. Agrupar por proximidade no relógio erraria dos
+    dois lados: uma pausa pode durar seis horas, e duas viagens distintas
+    podem ser seguidas.
+    """
+    jornadas: list[Jornada] = []
+    atual: list[Viagem] = []
+    for t in sorted(trechos, key=lambda x: x.inicio):
+        if atual and _emenda(atual[-1], t):
+            atual.append(t)
+            continue
+        if atual:
+            jornadas.append(Jornada(atual))
+        atual = [t]
+    if atual:
+        jornadas.append(Jornada(atual))
+    return jornadas
+
+
+def _emenda(anterior: "Viagem", seguinte: "Viagem") -> bool:
+    """O `seguinte` continua a viagem do `anterior`?"""
+    if seguinte.inicio < anterior.fim:
+        return False
+    avanco = seguinte.pontos[0].dist_km - anterior.pontos[-1].dist_km
+    return 0.0 <= avanco <= EMENDA_MAXIMA_KM
+
+
+def jornada_de(jornadas: list[Jornada], nome: str) -> Jornada | None:
+    """A jornada que contém o trecho de nome `nome`.
+
+    As URLs já compartilhadas apontam para um trecho qualquer, às vezes do
+    meio. Continuam abrindo — agora com a viagem inteira.
+    """
+    for j in jornadas:
+        if any(t.nome == nome for t in j.trechos):
+            return j
+    return None
 
 
 #: Até onde um radar conta como "na região da rota", em metros.
@@ -416,14 +565,20 @@ def resumo(caminho: Path) -> dict | None:
         v = le_viagem(caminho)
     except ErroDeViagem:
         return None
+    return resumo_da_jornada(Jornada([v]))
+
+
+def resumo_da_jornada(j: Jornada) -> dict:
+    """Os números da viagem inteira, para a listagem."""
     return {
-        "nome": v.nome,
-        "inicio": v.inicio.strftime("%Y-%m-%d %H:%M"),
-        "duracao_min": round(v.duracao.total_seconds() / 60),
-        "distancia_km": round(v.distancia_km, 2),
-        "v_media_kmh": round(v.v_media_kmh, 1),
-        "v_maxima_kmh": round(v.v_maxima_kmh, 1),
-        "pontos": len(v.pontos),
+        "nome": j.nome,
+        "inicio": j.inicio.strftime("%Y-%m-%d %H:%M"),
+        "duracao_min": round(j.duracao_gravada.total_seconds() / 60),
+        "distancia_km": round(j.distancia_km, 2),
+        "v_media_kmh": round(j.v_media_kmh, 1),
+        "v_maxima_kmh": round(j.v_maxima_kmh, 1),
+        "pontos": len(j.pontos),
+        "trechos": len(j.trechos),
     }
 
 
@@ -495,12 +650,10 @@ def _densifica(v: Viagem, passo_s: int = PASSO_S) -> list[PontoViagem]:
     return denso
 
 
-def _trilha_geojson(v: Viagem) -> dict:
-    """A viagem como uma LineString com carimbo por vértice, já adensada."""
+def _feature_do_trecho(v: Viagem) -> dict:
+    """Um trecho como LineString com carimbo por vértice, já adensada."""
     pontos = _densifica(v)
     return {
-        "type": "FeatureCollection",
-        "features": [{
             "type": "Feature",
             "geometry": {
                 "type": "LineString",
@@ -520,11 +673,28 @@ def _trilha_geojson(v: Viagem) -> dict:
                     "radius": 7,
                 },
             },
-        }],
     }
 
 
-def desenha(v: Viagem, chave_thunderforest: str = "",
+def trilha_da_jornada(j: Jornada) -> dict:
+    """Um Feature por trecho — nunca uma linha só.
+
+    ⚠️ Emendar os trechos numa única LineString desenharia o caminho da
+    pausa: uma reta por cima de quarteirões, do lugar onde o carro parou até
+    onde ele voltou a andar. Ninguém percorreu aquilo, e o mapa estaria
+    afirmando que sim.
+
+    Separados, a animação ainda atravessa a jornada inteira na ordem certa —
+    quem manda nela são os carimbos de cada vértice, e os da pausa
+    simplesmente não existem.
+    """
+    return {
+        "type": "FeatureCollection",
+        "features": [_feature_do_trecho(t) for t in j.trechos],
+    }
+
+
+def desenha(v: Jornada | Viagem, chave_thunderforest: str = "",
             radares: list[RadarNoMapa] | None = None) -> str:
     """Devolve o HTML do mapa, com os controles de reprodução.
 
@@ -534,6 +704,11 @@ def desenha(v: Viagem, chave_thunderforest: str = "",
     """
     import folium                      # noqa: PLC0415
     from folium.plugins import TimestampedGeoJson  # noqa: PLC0415
+
+    # Um trecho solto é uma jornada de um trecho só. Assim o resto da função
+    # não precisa saber qual dos dois recebeu.
+    if isinstance(v, Viagem):
+        v = Jornada([v])
 
     centro = [
         sum(p.lat for p in v.pontos) / len(v.pontos),
@@ -565,6 +740,20 @@ def desenha(v: Viagem, chave_thunderforest: str = "",
         [v.pontos[-1].lat, v.pontos[-1].lon], tooltip="fim",
         icon=folium.Icon(color="red", icon="stop", prefix="fa")).add_to(mapa)
 
+    # Onde a viagem foi interrompida. Sem estes pinos a trilha simplesmente
+    # some num ponto e recomeça noutro, e quem olha o mapa fica sem saber se
+    # faltou dado ou se o carro ficou parado ali.
+    for anterior, seguinte in zip(v.trechos, v.trechos[1:]):
+        parada = (seguinte.inicio - anterior.fim)
+        minutos = round(parada.total_seconds() / 60)
+        folium.Marker(
+            [anterior.pontos[-1].lat, anterior.pontos[-1].lon],
+            tooltip=(f"pausa de {minutos} min — "
+                     f"{anterior.fim.strftime('%H:%M')} às "
+                     f"{seguinte.inicio.strftime('%H:%M')} UTC"),
+            icon=folium.Icon(color="orange", icon="pause",
+                             prefix="fa")).add_to(mapa)
+
     # Os radares da regiao, ANTES da animacao: assim a trilha e o marcador
     # ficam por cima deles, e nao atras.
     for r in (radares or []):
@@ -581,7 +770,7 @@ def desenha(v: Viagem, chave_thunderforest: str = "",
     # velocidade. Ver `PASSO_S` e `VELOCIDADES`: em 1x, cada passo de 5 s de
     # dado leva 5 s de relogio -- tempo real.
     animacao = TimestampedGeoJson(
-        _trilha_geojson(v),
+        trilha_da_jornada(v),
         period=f"PT{PASSO_S}S",
         duration=None,          # o rastro fica, em vez de sumir atras
         transition_time=PASSO_S * 1000,
@@ -599,8 +788,9 @@ def desenha(v: Viagem, chave_thunderforest: str = "",
     animacao.add_to(mapa)
 
     mapa.get_root().html.add_child(folium.Element(_painel(v)))
+    densos = [p for t in v.trechos for p in _densifica(t)]
     mapa.get_root().html.add_child(
-        folium.Element(_controles_js(PASSO_S, _densifica(v))))
+        folium.Element(_controles_js(PASSO_S, densos)))
     return mapa.get_root().render()
 
 
@@ -622,15 +812,19 @@ def _pino_radar(limite: int) -> str:
     )
 
 
-def _painel(v: Viagem) -> str:
+def _painel(v: Jornada) -> str:
     """Os números da viagem, fixos num canto do mapa."""
     linhas = [
         ("distancia", f"{v.distancia_km:.2f} km"),
-        ("duracao", f"{round(v.duracao.total_seconds() / 60)} min"),
+        ("duracao", f"{round(v.duracao_gravada.total_seconds() / 60)} min"),
         ("media", f"{v.v_media_kmh:.1f} km/h"),
         ("maxima", f"{v.v_maxima_kmh:.1f} km/h"),
         ("pontos", f"{len(v.pontos)}"),
     ]
+    # Só quando a viagem foi partida. "0 pausas" em toda viagem inteira seria
+    # ruído, e a duração passaria a precisar de explicação que ela não pede.
+    if v.pausas > 0:
+        linhas.insert(2, ("pausas", f"{v.pausas}"))
     # Só aparece quando há divergência. Uma linha com "0" em toda viagem sem
     # radar seria ruído -- e ruído num painel treina quem lê a ignorá-lo.
     if v.divergencias_de_radar > 0:
@@ -706,6 +900,10 @@ def _controles_js(passo_s: int, pontos: list[PontoViagem]) -> str:
         int(p.quando.timestamp() * 1000): round(p.v_media_kmh, 1)
         for p in pontos
     })
+    # Os instantes que EXISTEM, para substituir a linha do tempo uniforme.
+    # Ver `ligaInstantes` adiante.
+    instantes = json.dumps(sorted(
+        {int(p.quando.timestamp() * 1000) for p in pontos}))
     return f"""
 <div class="cg-vel" id="cg-vel" role="group" aria-label="velocidade">
   <span class="cg-nota">velocidade</span>
@@ -715,6 +913,7 @@ def _controles_js(passo_s: int, pontos: list[PontoViagem]) -> str:
   var PASSO_MS = {passo_s * 1000};
   var VELOCIDADES = {velocidades};
   var VEL_POR_INSTANTE = {por_instante};
+  var INSTANTES = {instantes};
 
   // O reprodutor vive DENTRO do controle de linha do tempo, que o folium
   // cria como `var timeDimensionControl` no topo do proprio bloco de script
@@ -728,6 +927,20 @@ def _controles_js(passo_s: int, pontos: list[PontoViagem]) -> str:
   function achaReprodutor() {{
     var c = window.timeDimensionControl;
     return (c && c._player) ? c._player : null;
+  }}
+
+  // A linha do tempo passa a ter SO os instantes gravados.
+  //
+  // O TimeDimension monta a dele sozinho, uniforme, do primeiro carimbo ao
+  // ultimo de `period` em `period`. Numa viagem com pausas isso enche o
+  // intervalo de carro desligado de quadros: as duas horas de 11/10/2026
+  // viravam 1440 instantes em que nada acontece, e a reproducao arrastava
+  // por eles antes de chegar ao trecho seguinte.
+  //
+  // `setAvailableTimes(..., 'replace')` e API publica do TimeDimension.
+  function ligaInstantes(td) {{
+    if (!td || !INSTANTES.length) {{ return; }}
+    td.setAvailableTimes(INSTANTES, 'replace');
   }}
 
   function liga(reprodutor) {{
@@ -803,7 +1016,7 @@ def _controles_js(passo_s: int, pontos: list[PontoViagem]) -> str:
       liga(r);
       var c = window.timeDimensionControl;
       var td = (c && c._timeDimension) ? c._timeDimension : null;
-      if (td) {{ ligaVelocidade(td); }}
+      if (td) {{ ligaInstantes(td); ligaVelocidade(td); }}
       return;
     }}
     // Desiste depois de 10 s em vez de girar para sempre: se o reprodutor

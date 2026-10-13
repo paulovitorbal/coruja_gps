@@ -267,3 +267,113 @@ class MapaNoNavegador(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _falta_mod(nome: str) -> bool:
+    return _falta(nome)
+
+
+@unittest.skipIf(_falta("folium"), "folium nao instalado (teste opcional)")
+@unittest.skipIf(_falta("playwright"), "playwright nao instalado (teste opcional)")
+class JornadaNoNavegador(unittest.TestCase):
+    """Uma viagem partida por pausas, num mapa só.
+
+    ⚠️ Conferir o HTML por substring diria que há dois `Feature`. Não diria
+    que a animação atravessa os dois, nem que o controle de tempo cobre a
+    jornada inteira em vez de parar no fim do primeiro trecho. É o mesmo
+    motivo pelo qual este arquivo existe.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+
+        import viagem
+        from test_jornada import trecho
+        from playwright.sync_api import sync_playwright
+
+        cls.viagem_mod = viagem
+        cls._tmp = tempfile.TemporaryDirectory()
+        d = Path(cls._tmp.name)
+        # Dois trechos distantes no espaço e separados por duas horas: é o
+        # formato de sábado, 11/10/2026.
+        (d / "a.log").write_text(trecho("2026-10-11T12:40:00Z", 30, 0.0,
+                                        lat0=-10.0))
+        (d / "b.log").write_text(trecho("2026-10-11T14:39:12Z", 30, 8.0,
+                                        lat0=-10.4))
+        cls.jornada = viagem.Jornada([viagem.le_viagem(d / "a.log"),
+                                      viagem.le_viagem(d / "b.log")])
+
+        pagina_html = d / "mapa.html"
+        pagina_html.write_text(viagem.desenha(cls.jornada))
+
+        try:
+            cls._pw = sync_playwright().start()
+            cls.nav = cls._pw.chromium.launch()
+        except Exception as e:                       # noqa: BLE001
+            raise unittest.SkipTest(f"sem navegador: {e}") from e
+
+        cls.erros = []
+        cls.pag = cls.nav.new_page()
+        cls.pag.on("pageerror", lambda e: cls.erros.append(str(e)))
+        cls.pag.on("console", lambda m: cls.erros.append(m.text)
+                   if m.type == "error" else None)
+        cls.pag.goto(f"file://{pagina_html}")
+        cls.pag.wait_for_timeout(2500)
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "nav"):
+            cls.nav.close()
+            cls._pw.stop()
+            cls._tmp.cleanup()
+
+    def test_a_pagina_da_jornada_carrega_sem_erro_de_javascript(self):
+        reais = [e for e in self.erros
+                 if "ERR_" not in e and "net::" not in e
+                 and "tile" not in e.lower()]
+        self.assertEqual(reais, [])
+
+    def test_a_linha_do_tempo_cobre_ate_o_fim_do_ULTIMO_trecho(self):
+        # Se o controle parasse no fim do primeiro trecho, a segunda metade
+        # da viagem existiria no mapa e seria inalcançável pela reprodução.
+        ultimo = self.pag.evaluate(
+            "() => { const t = window.timeDimensionControl._timeDimension;"
+            "        const ts = t.getAvailableTimes();"
+            "        return ts[ts.length - 1]; }")
+        esperado = self.jornada.fim.timestamp() * 1000
+        self.assertGreaterEqual(ultimo, esperado - 60_000)
+
+    def test_a_linha_do_tempo_NAO_inventa_instantes_na_pausa(self):
+        # Duas horas de carro desligado não podem virar quadros de animação:
+        # o marcador atravessaria a cidade em linha reta, devagar, como se
+        # alguém tivesse dirigido aquilo.
+        tempos = self.pag.evaluate(
+            "() => window.timeDimensionControl._timeDimension"
+            ".getAvailableTimes()")
+        fim_a = self.jornada.trechos[0].fim.timestamp() * 1000
+        inicio_b = self.jornada.trechos[1].inicio.timestamp() * 1000
+        dentro = [t for t in tempos if fim_a + 60_000 < t < inicio_b - 60_000]
+        self.assertEqual(dentro, [])
+
+    def test_os_dois_trechos_estao_desenhados(self):
+        # Pelas POLILINHAS desenhadas, e nao por `l.feature`: o
+        # TimeDimension nao guarda o GeoJSON original na camada, e procurar
+        # por ele daria zero mesmo com os dois trechos no mapa -- um teste
+        # que falha sem haver defeito ensina a ignorar o teste.
+        self.pag.evaluate(
+            "() => { const td = window.timeDimensionControl._timeDimension;"
+            "        const ts = td.getAvailableTimes();"
+            "        td.setCurrentTime(ts[ts.length - 1]); }")
+        self.pag.wait_for_timeout(1500)
+        latitudes = self.pag.evaluate(
+            "() => { const out = [];"
+            "        window.timeDimensionControl._map.eachLayer(l => {"
+            "          if (!l.getLatLngs) return;"
+            "          const ps = l.getLatLngs().flat(99);"
+            "          if (ps.length) out.push(ps[0].lat);"
+            "        }); return out; }")
+        # Um trecho comeca em -10,0 e o outro em -10,4: se so um estivesse
+        # desenhado, faltaria uma das duas regioes.
+        self.assertTrue(any(la < -10.3 for la in latitudes), latitudes)
+        self.assertTrue(any(la > -10.1 for la in latitudes), latitudes)
