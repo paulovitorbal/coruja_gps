@@ -156,6 +156,92 @@ class AgrupamentoEmJornadas(unittest.TestCase):
         self.assertEqual(viagem.agrupa_em_jornadas([]), [])
 
 
+class ListagemDeJornadas(unittest.TestCase):
+    """Uma linha por viagem, identificada por quando ela começou."""
+
+    def monta(self, d: Path) -> list[viagem.Jornada]:
+        grava(d, "20261011_124010.log",
+              trecho("2026-10-11T12:40:00Z", 163, dist0=0.0))
+        grava(d, "20261011_143912.log",
+              trecho("2026-10-11T14:39:12Z", 134, dist0=10.80))
+        grava(d, "20261011_152603.log",
+              trecho("2026-10-11T15:26:00Z", 54, dist0=19.73))
+        return viagem.agrupa_em_jornadas(
+            [viagem.le_viagem(p) for p in sorted(d.glob("*.log"))])
+
+    def test_tres_trechos_dao_UMA_entrada(self):
+        import pagina
+        with tempfile.TemporaryDirectory() as d:
+            js = self.monta(Path(d))
+            html = pagina.listagem("aparelho", [viagem.resumo_da_jornada(j)
+                                                for j in js])
+            self.assertEqual(html.count('class="viagem"'), 1)
+
+    def test_o_titulo_e_a_data_e_hora_e_nao_o_nome_do_arquivo(self):
+        # O nome do arquivo é um detalhe do cartão: diz a hora de início em
+        # `20261011_124010`, que ninguém lê de relance, e numa viagem com
+        # pausas nem é o único arquivo.
+        import pagina
+        with tempfile.TemporaryDirectory() as d:
+            js = self.monta(Path(d))
+            html = pagina.listagem("aparelho", [viagem.resumo_da_jornada(j)
+                                                for j in js])
+            self.assertIn("11/10/2026 12:40", html)
+            self.assertNotIn("<h2>20261011_124010.log</h2>", html)
+
+    def test_o_link_continua_apontando_para_um_trecho_real(self):
+        # Trocar o TÍTULO não pode trocar o destino: a rota é por nome de
+        # arquivo, e é dele que o servidor acha a jornada.
+        import pagina
+        with tempfile.TemporaryDirectory() as d:
+            js = self.monta(Path(d))
+            html = pagina.listagem("aparelho", [viagem.resumo_da_jornada(j)
+                                                for j in js])
+            self.assertIn('href="/viagens/20261011_124010.log"', html)
+
+    def test_o_plural_de_viagem_e_viagens(self):
+        # Saía "2 viagemns": o código acrescentava "ns" a "viagem" em vez de
+        # trocar o -m.
+        import pagina
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            grava(p, "20261011_124010.log",
+                  trecho("2026-10-11T12:40:00Z", 20, dist0=0.0))
+            grava(p, "20261011_192802.log",
+                  trecho("2026-10-11T19:28:00Z", 20, dist0=0.0))
+            js = viagem.agrupa_em_jornadas(
+                [viagem.le_viagem(x) for x in sorted(p.glob("*.log"))])
+            html = pagina.listagem("aparelho",
+                                   [viagem.resumo_da_jornada(j) for j in js])
+            self.assertIn("2 viagens", html)
+            self.assertNotIn("viagemns", html)
+
+    def test_uma_viagem_so_fica_no_singular(self):
+        import pagina
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            grava(p, "20261011_124010.log",
+                  trecho("2026-10-11T12:40:00Z", 20, dist0=0.0))
+            js = viagem.agrupa_em_jornadas(
+                [viagem.le_viagem(x) for x in p.glob("*.log")])
+            html = pagina.listagem("aparelho",
+                                   [viagem.resumo_da_jornada(j) for j in js])
+            self.assertIn("1 viagem", html)
+            self.assertNotIn("1 viagens", html)
+
+    def test_a_data_sai_mesmo_numa_viagem_de_um_trecho_so(self):
+        with tempfile.TemporaryDirectory() as d:
+            import pagina
+            p = Path(d)
+            grava(p, "20261011_192802.log",
+                  trecho("2026-10-11T19:28:00Z", 143, dist0=0.0))
+            js = viagem.agrupa_em_jornadas(
+                [viagem.le_viagem(x) for x in p.glob("*.log")])
+            html = pagina.listagem("aparelho",
+                                   [viagem.resumo_da_jornada(j) for j in js])
+            self.assertIn("11/10/2026 19:28", html)
+
+
 class MapaDaJornada(unittest.TestCase):
     """Os trechos num mapa só, sem inventar o caminho das pausas."""
 

@@ -573,6 +573,11 @@ def resumo_da_jornada(j: Jornada) -> dict:
     return {
         "nome": j.nome,
         "inicio": j.inicio.strftime("%Y-%m-%d %H:%M"),
+        # Como se lê num relógio, para ser o título da entrada. O `nome` é o
+        # arquivo, que continua sendo o endereço da página — mas numa viagem
+        # com pausas ele é só o PRIMEIRO de vários, e identificar a viagem
+        # por ele sugeria que os outros eram viagens separadas.
+        "quando": j.inicio.strftime("%d/%m/%Y %H:%M"),
         "duracao_min": round(j.duracao_gravada.total_seconds() / 60),
         "distancia_km": round(j.distancia_km, 2),
         "v_media_kmh": round(j.v_media_kmh, 1),

@@ -59,8 +59,15 @@ ESTILO = """
     text-decoration: none; color: inherit; transition: border-color .12s;
   }
   .viagem:hover { border-color: #d7263d; }
-  .viagem h2 { margin: 0 0 8px; font-size: 15px;
-               font-family: ui-monospace, monospace; font-weight: 600; }
+  /* Era monoespacado porque o titulo era o NOME DO ARQUIVO, e maiusculizar
+     ou espacar um identificador o faz deixar de bater com o que esta no
+     cartao. Agora o titulo e a data da viagem, que se le melhor na fonte do
+     resto da pagina. O nome do arquivo continua no `title` do link, para
+     quem precisar casar com o cartao. */
+  .viagem h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600;
+               letter-spacing: -.01em; }
+  .viagem h2 small { font-size: 12px; font-weight: 500; color: #767676;
+                     margin-left: 4px; }
   .nums { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px;
           color: #767676; }
   .nums b { color: inherit; font-weight: 600; }
@@ -122,10 +129,10 @@ def _trechos(v: dict) -> str:
 def listagem(aparelho: str, viagens: list[dict]) -> str:
     if viagens:
         itens = "".join(f"""
-          <a class="viagem" href="/viagens/{html.escape(v['nome'])}">
-            <h2>{html.escape(v['nome'])}</h2>
+          <a class="viagem" href="/viagens/{html.escape(v['nome'])}"
+             title="{html.escape(v['nome'])}">
+            <h2>{html.escape(v.get('quando', v['inicio']))} <small>UTC</small></h2>
             <div class="nums">
-              <span>{html.escape(v['inicio'])} UTC</span>
               <span><b>{v['distancia_km']}</b> km</span>
               <span><b>{v['duracao_min']}</b> min</span>
               <span>média <b>{v['v_media_kmh']}</b> km/h</span>
@@ -133,7 +140,10 @@ def listagem(aparelho: str, viagens: list[dict]) -> str:
               {_trechos(v)}
             </div>
           </a>""" for v in viagens)
-        contagem = f"{len(viagens)} viagem" + ("ns" if len(viagens) > 1 else "")
+        # "viagem" + "ns" dava **viagemns**. O plural de "viagem" troca o
+        # -m por -ns; não acrescenta.
+        contagem = (f"{len(viagens)} viagens" if len(viagens) > 1
+                    else "1 viagem")
     else:
         itens = ('<div class="cartao vazio">Nenhuma viagem recebida deste '
                  'aparelho ainda. Use <b>enviar dados</b> no menu do '
