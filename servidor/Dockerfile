@@ -27,7 +27,16 @@ RUN groupadd --system --gid 10001 coruja \
 RUN pip install --no-cache-dir folium==0.20.0
 
 WORKDIR /app
-COPY servidor.py viagem.py pagina.py /app/
+# Um a um, e não `COPY . /app`: o diretório tem `recebidos/`, com as viagens
+# de quem usa o aparelho, e um `COPY` do todo as levaria para a imagem — daí
+# para o registro e para o `docker history`.
+#
+# ⚠️ O preço é que esta lista envelhece em SILÊNCIO. Em 13/10/2026 o
+# `horario.py` ficou de fora: a imagem construiu sem reclamar e o container
+# entrou em laço de reinício com `ModuleNotFoundError`, já implantado. Quem
+# acrescentar módulo aqui tem de acrescentar na lista — e
+# `testes/test_imagem.py` falha quando isso for esquecido.
+COPY servidor.py viagem.py pagina.py horario.py /app/
 
 USER coruja
 
