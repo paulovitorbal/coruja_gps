@@ -125,6 +125,9 @@ bool graus_minutos(const Campo& c, std::size_t digitos_de_grau, double* destino)
 
 constexpr double kNoParaKmh = 1.852;
 constexpr std::size_t kCamposRmc = 10;  ///< até a data, que é o índice 9
+/// Até o HDOP, que é o índice 7. A altitude e a separação geoidal vêm
+/// depois e não interessam a este aparelho.
+constexpr std::size_t kCamposGga = 8;
 
 }  // namespace
 
@@ -136,6 +139,7 @@ const char* descreve(ErroNmea erro) {
         case ErroNmea::SemAsterisco:       return "sem '*' de checksum";
         case ErroNmea::ChecksumMalformado: return "checksum sem dois digitos hex";
         case ErroNmea::ChecksumInvalido:   return "checksum nao confere";
+        case ErroNmea::NaoEhGga:            return "nao e uma GGA";
         case ErroNmea::NaoEhRmc:           return "nao e uma sentenca RMC";
         case ErroNmea::CamposDeMenos:      return "campos de menos";
         case ErroNmea::SemFix:             return "sem fix (status V)";
@@ -275,6 +279,68 @@ ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
     }
 
     *destino = t;
+    return ErroNmea::Nenhum;
+}
+
+ErroNmea analisa_gga(const char* sentenca, std::size_t tamanho,
+                     QualidadeFix* destino) {
+    if (sentenca == nullptr || destino == nullptr || tamanho == 0) {
+        return ErroNmea::Vazia;
+    }
+    const std::size_t n = sem_terminador(sentenca, tamanho);
+    if (n == 0) return ErroNmea::Vazia;
+    if (sentenca[0] != '$') return ErroNmea::SemCifrao;
+
+    const std::size_t ast = posicao_asterisco(sentenca, n);
+    if (ast >= n) return ErroNmea::SemAsterisco;
+    if (n - ast != 3 || valor_hex(sentenca[ast + 1]) < 0 ||
+        valor_hex(sentenca[ast + 2]) < 0) {
+        return ErroNmea::ChecksumMalformado;
+    }
+    if (!checksum_valido(sentenca, tamanho)) return ErroNmea::ChecksumInvalido;
+
+    //   índice  0  1 2  3 4 5  6
+    //           $  G N  G G A  ,
+    if (ast < 7 || sentenca[3] != 'G' || sentenca[4] != 'G' ||
+        sentenca[5] != 'A' || sentenca[6] != ',') {
+        return ErroNmea::NaoEhGga;
+    }
+
+    Campo campos[kCamposGga];
+    std::size_t quantos = 0;
+    std::size_t inicio = 7;
+    for (std::size_t i = 7; i <= ast && quantos < kCamposGga; ++i) {
+        if (i == ast || sentenca[i] == ',') {
+            campos[quantos].ini = sentenca + inicio;
+            campos[quantos].n = i - inicio;
+            ++quantos;
+            inicio = i + 1;
+        }
+    }
+    if (quantos < kCamposGga) return ErroNmea::CamposDeMenos;
+
+    // 0=hora 1=lat 2=N/S 3=lon 4=E/W 5=qualidade 6=satelites 7=hdop
+    const Campo& c_qualidade = campos[5];
+    const Campo& c_satelites = campos[6];
+    const Campo& c_hdop      = campos[7];
+
+    if (c_qualidade.vazio()) return ErroNmea::CampoInvalido;
+    // `0` é "sem solução": sentença íntegra, dado ausente. Não é erro de
+    // formato, e não pode sobrescrever a última qualidade conhecida.
+    if (c_qualidade.ini[0] == '0') return ErroNmea::SemFix;
+
+    std::uint32_t satelites = 0;
+    if (!inteiro(c_satelites, &satelites)) return ErroNmea::CampoInvalido;
+    if (satelites > kMaxSatelites) return ErroNmea::CampoInvalido;
+
+    double hdop = 0.0;
+    if (!decimal(c_hdop, &hdop)) return ErroNmea::CampoInvalido;
+    // Diluição de precisão negativa não existe. `decimal` aceita o sinal
+    // porque outros campos o usam; aqui ele só pode vir de lixo.
+    if (hdop < 0.0) return ErroNmea::CampoInvalido;
+
+    destino->satelites = static_cast<std::uint8_t>(satelites);
+    destino->hdop = static_cast<float>(hdop);
     return ErroNmea::Nenhum;
 }
 

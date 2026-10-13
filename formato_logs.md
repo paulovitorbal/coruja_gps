@@ -147,6 +147,25 @@ estruturado. A forma da linha mudou duas vezes:
   acumula entre elas.
 - **`NÍVEL`** é `DEBUG`, `INFO`, `WARN` ou `ERRO`.
 
+### Linhas que existem para diagnóstico
+
+Até a **v0.2.12** este arquivo cobria só o boot: nenhuma das viagens gravadas
+no cartão aparecia nele, nem a abertura do arquivo. Quando uma viagem de
+08/10/2026 registrou "segura" do começo ao fim passando a 43 m de um radar,
+não havia como saber qual binário estava rodando, se o piloto tinha base, nem
+o que ele via. Da **v0.2.13** em diante:
+
+| origem | linha | o que responde |
+|---|---|---|
+| `boot` | `v0.2.13` | qual firmware escreveu este log |
+| `base` | `piloto recebeu N pontos` | a base chegou a quem alerta — sai como **ERRO** se `N` for zero |
+| `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
+| `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
+
+⚠️ **A `vigia` amostra de cinco em cinco minutos.** Ela prova base e fix; a
+`zona` ali é um instante qualquer, e quase nunca cai num alerta. Quem responde
+"o aparelho viu o radar?" é o log de **viagem**, que tem uma linha a cada 6 s.
+
 ### `remessa.log`
 
 Mesma forma do `coruja.log`. Existe desde a **v0.2.8**, e recebe o log

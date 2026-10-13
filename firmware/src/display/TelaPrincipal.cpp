@@ -8,6 +8,44 @@
 namespace coruja {
 
 namespace {
+
+/// Geometria do indicador de HDOP, no canto direito da faixa superior.
+///
+/// Barras crescentes, como as de sinal de celular, porque a leitura é a
+/// mesma: mais barras, melhor. O trilho apagado fica visível quando a
+/// geometria é ruim — um indicador que some não distingue "ruim" de "não
+/// existe", e é quando piora que ele precisa ser visto.
+constexpr int kBarraLargura = 4;
+constexpr int kBarraEspaco  = 2;
+constexpr int kBarraMargem  = 4;      ///< da borda direita e da base
+constexpr int kBarraBase    = 6;      ///< altura da primeira
+constexpr int kBarraPasso   = 4;      ///< quanto cada uma cresce
+
+/// Quanto o indicador toma da faixa, incluindo a margem.
+constexpr int kLarguraIndicadorHdop =
+    kBarrasHdop * kBarraLargura + (kBarrasHdop - 1) * kBarraEspaco +
+    kBarraMargem * 2;
+
+static_assert(kBarraBase + (kBarrasHdop - 1) * kBarraPasso + kBarraMargem <=
+                  tela::kFaixaSuperior,
+              "a barra mais alta tem de caber na faixa superior");
+
+void desenha_hdop(Visor& visor, int acesas) {
+    const int x0 = tela::kLargura - kLarguraIndicadorHdop + kBarraMargem;
+    const int base = tela::kYFaixaSuperior + tela::kFaixaSuperior -
+                     kBarraMargem;
+    for (int k = 0; k < kBarrasHdop; ++k) {
+        const int altura = kBarraBase + k * kBarraPasso;
+        visor.retangulo(x0 + k * (kBarraLargura + kBarraEspaco),
+                        base - altura, kBarraLargura, altura,
+                        k < acesas ? paleta::kTexto : paleta::kMoldura);
+    }
+}
+
+}  // namespace
+
+
+namespace {
 /// Margem esquerda da faixa inferior quando o texto cabe.
 constexpr int kMargemInferior = 8;
 }  // namespace
@@ -163,8 +201,17 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
     // O deslocamento das faixas que rolam sai daqui, junto do resto do
     // instantâneo, e não no meio do desenho: ele muda com o TEMPO e não com
     // o conteúdo, e é a comparação com o anterior que decide o redesenho.
+    // `-1` quando não há medida: o indicador nem é desenhado. Ver
+    // `desenha_hdop`.
+    i.barras_hdop = (e.hdop == FaixaHdop::Desconhecida)
+                        ? -1 : barras_de_hdop(e.hdop);
+    // A faixa encurta quando o indicador está lá, senão o texto cresceria
+    // para a direita por baixo das barras.
+    const int largura_util = (i.barras_hdop >= 0)
+                                 ? tela::kLargura - kLarguraIndicadorHdop
+                                 : tela::kLargura;
     i.x_superior = rolagem(largura_da_fonte(Fonte::TextoGrande, i.superior),
-                           tela::kLargura, agora_ms).x;
+                           largura_util, agora_ms).x;
     const Rolagem rol_inf =
         rolagem(largura_da_fonte(Fonte::Texto, i.inferior),
                 tela::kLargura - kMargemInferior, agora_ms);
@@ -201,7 +248,8 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
     // rede: sem elas, a primeira frase longa que alguem acrescentar volta
     // a perder glifos em silencio, que e o defeito que a rolagem corrigiu.
     if (tudo || std::strcmp(agora.superior, anterior_.superior) != 0 ||
-        agora.x_superior != anterior_.x_superior) {
+        agora.x_superior != anterior_.x_superior ||
+        agora.barras_hdop != anterior_.barras_hdop) {
         visor.retangulo(0, tela::kYFaixaSuperior, tela::kLargura,
                         tela::kFaixaSuperior, paleta::kFundo);
         // Centralizado quando cabe: a faixa tem um ocupante por vez e nada
@@ -212,6 +260,9 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         visor.texto(agora.x_superior, tela::kYFaixaSuperior + 1,
                     agora.superior, Fonte::TextoGrande, paleta::kTexto,
                     Alinhamento::Esquerda);
+        if (agora.barras_hdop >= 0) {
+            desenha_hdop(visor, agora.barras_hdop);
+        }
         ++regioes;
     }
 

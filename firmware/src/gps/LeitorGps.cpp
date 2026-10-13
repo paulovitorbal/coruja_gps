@@ -9,8 +9,29 @@ void LeitorGps::reinicia() {
     sem_fix_ = 0;
     descartadas_ = 0;
     telemetria_ = Telemetria{};
+    qualidade_ = QualidadeFix{};
+    tem_qualidade_ = false;
     monitor_.reinicia();
     ubx_.reinicia();
+}
+
+bool LeitorGps::tem_qualidade(std::uint32_t agora_ms) const {
+    // Mesma janela do fix, e pelo mesmo motivo: passado esse tempo o número
+    // descreve um instante que já não é o atual.
+    return tem_qualidade_ && (agora_ms - qualidade_ms_) < kFixVelhoMs;
+}
+
+void LeitorGps::processa_gga(const char* linha, std::size_t tamanho,
+                             std::uint32_t agora_ms) {
+    QualidadeFix nova;
+    if (analisa_gga(linha, tamanho, &nova) != ErroNmea::Nenhum) {
+        // Inclui `SemFix`: o receptor dizendo que ainda não tem solução não
+        // pode apagar a última qualidade conhecida.
+        return;
+    }
+    qualidade_ = nova;
+    qualidade_ms_ = agora_ms;
+    tem_qualidade_ = true;
 }
 
 bool LeitorGps::tem_fix(std::uint32_t agora_ms) const {
@@ -43,6 +64,13 @@ void LeitorGps::processa_linha(const char* linha, std::size_t tamanho,
             // apresentou como sentença e não fechou. É o que o RF01.5 quer
             // contar à parte.
             monitor_.registra_checksum_invalido();
+            return;
+
+        case ErroNmea::NaoEhRmc:
+            // Pode ser a GGA, que é de onde vêm os satélites e o HDOP. O
+            // checksum já foi validado acima para QUALQUER sentença, então
+            // o que chega aqui está íntegro.
+            processa_gga(linha, tamanho, agora_ms);
             return;
 
         default:

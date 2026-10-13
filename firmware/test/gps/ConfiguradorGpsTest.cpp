@@ -180,19 +180,37 @@ TEST(ConfiguradorGps, pede_250_ms_que_sao_os_4_hz_do_rf01_4) {
     FAIL() << "nao mandou CFG-RATE";
 }
 
-TEST(ConfiguradorGps, liga_a_RMC_e_desliga_as_outras_seis) {
+TEST(ConfiguradorGps, liga_a_RMC_e_a_GGA_e_desliga_as_outras_cinco) {
     Bancada b;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
     unsigned ligadas = 0, desligadas = 0;
+    bool rmc = false, gga = false;
     for (const auto& c : b.uart.comandos) {
         if (c.id != ubx::kCfgMsg) { continue; }
         ASSERT_EQ(c.payload.size(), 3U);
         EXPECT_EQ(c.payload[0], ubx::kClasseNmea);
         if (c.payload[2] == 0) { ++desligadas; }
-        else { ++ligadas; EXPECT_EQ(c.payload[1], ubx::kNmeaRmc); }
+        else {
+            ++ligadas;
+            if (c.payload[1] == ubx::kNmeaRmc) { rmc = true; }
+            if (c.payload[1] == ubx::kNmeaGga) { gga = true; }
+        }
     }
-    EXPECT_EQ(ligadas, 1U);
-    EXPECT_EQ(desligadas, 6U) << "a GSV sozinha ja estoura a linha a 9600";
+    EXPECT_EQ(ligadas, 2U);
+    EXPECT_TRUE(rmc);
+    EXPECT_TRUE(gga) << "a GGA traz satelites e HDOP, que a RMC nao tem";
+    EXPECT_EQ(desligadas, 5U) << "a GSV sozinha ja estoura a linha a 9600";
+}
+
+TEST(ConfiguradorGps, a_GGA_cabe_no_enlace_a_115200) {
+    // Conta, nao impressao: a GGA tem ~80 B e sai 4 vezes por segundo, logo
+    // ~320 B/s. Somada a RMC (~70 B x 4 = 280 B/s), da ~600 B/s num enlace
+    // de 11.520 B/s -- cerca de 5% de ocupacao. A 9600 seriam 62%, e e por
+    // isso que o passo do baud vem ANTES de a GGA comecar a sair.
+    constexpr unsigned kBytesGga = 80, kBytesRmc = 70, kHz = 4;
+    constexpr unsigned kCapacidade115200 = 115200 / 10;   // 8N1
+    const unsigned gasto = (kBytesGga + kBytesRmc) * kHz;
+    EXPECT_LT(gasto * 100 / kCapacidade115200, 10U);
 }
 
 TEST(ConfiguradorGps, pede_115200) {

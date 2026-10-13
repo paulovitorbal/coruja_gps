@@ -84,6 +84,12 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
         aberto && menu_.estado() == EstadoMenu::Informando;
     if (informando && !informando_antes_) {
         info_.taxa_hz = gps_.monitor().taxa_hz();
+        // Congelados pelo mesmo motivo da taxa: esta é a tela onde se LÊ, e
+        // número tremendo enquanto se lê é ruído.
+        info_.satelites = gps_.tem_qualidade(agora_ms)
+                              ? gps_.qualidade().satelites : 0;
+        info_.hdop = gps_.tem_qualidade(agora_ms)
+                         ? gps_.qualidade().hdop : 0.0F;
     }
     informando_antes_ = informando;
 
@@ -99,6 +105,13 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.telemetria = gps_.telemetria();
     e.tem_fix = gps_.tem_fix(agora_ms);
     e.taxa = gps_.monitor().estado();
+    // ⚠️ `tem_qualidade` ANTES de ler o HDOP. RMC e GGA chegam separadas e
+    // envelhecem separadas; sem a bandeira, um HDOP de minutos atrás seria
+    // desenhado ao lado de uma posição recente, afirmando uma precisão que
+    // já não existe.
+    e.hdop = gps_.tem_qualidade(agora_ms)
+                 ? classifica_hdop(gps_.qualidade().hdop)
+                 : FaixaHdop::Desconhecida;
     e.sem_sinal_desde_ms = sem_sinal_desde_ms_;
     e.aviso_ota_em_ms = aviso_ota_em_ms_;
     e.houve_aviso_ota = houve_aviso_ota_;

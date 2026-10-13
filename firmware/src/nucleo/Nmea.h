@@ -27,6 +27,29 @@ struct Telemetria {
     bool data_valida = false;
 };
 
+/// Quão boa é a solução de posição, da sentença GGA.
+///
+/// **Satélites e HDOP são coisas diferentes, e o segundo é o que importa.**
+/// HDOP é a GEOMETRIA: doze satélites amontoados num canto do céu dão HDOP
+/// ruim, cinco bem espalhados dão HDOP bom. Ele multiplica o erro — no
+/// NEO-M8N, erro horizontal ≈ HDOP × 2 a 3 m —, e por isso nunca é deduzido
+/// da contagem.
+///
+/// Não vira porcentagem: HDOP não tem teto de bondade, e inventar um seria
+/// afirmar precisão que ninguém mediu.
+struct QualidadeFix {
+    /// Satélites usados NA SOLUÇÃO — não os visíveis, que é outro número e
+    /// vem da GSV, cara demais para o enlace.
+    std::uint8_t satelites = 0;
+
+    /// Diluição horizontal de precisão. Menor é melhor; 1 é ideal.
+    float hdop = 0.0F;
+};
+
+/// Acima disto o campo é lixo que passou pelo checksum, ou coluna deslocada:
+/// o M8N usa dezenas de satélites numa solução, nunca centenas.
+constexpr std::uint32_t kMaxSatelites = 64;
+
 enum class ErroNmea {
     Nenhum,
     Vazia,
@@ -35,6 +58,7 @@ enum class ErroNmea {
     ChecksumMalformado, ///< `*` presente, mas sem dois dígitos hexadecimais
     ChecksumInvalido,
     NaoEhRmc,
+    NaoEhGga,
     CamposDeMenos,
     SemFix,             ///< sentença íntegra, campo de status = `V`
     CampoInvalido,
@@ -58,5 +82,14 @@ bool checksum_valido(const char* sentenca, std::size_t tamanho);
 /// que uma sentença sem fix não zere a última posição conhecida por acidente.
 ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
                      Telemetria* destino);
+
+/// Interpreta uma sentença GGA, de onde saem os satélites e o HDOP.
+///
+/// Mesmas regras da RMC: qualquer talker serve, o checksum é quem barra o
+/// lixo, e **não escreve em `destino` quando devolve erro** — inclusive em
+/// `SemFix`, para que uma sentença sem solução não apague a última qualidade
+/// conhecida.
+ErroNmea analisa_gga(const char* sentenca, std::size_t tamanho,
+                     QualidadeFix* destino);
 
 }  // namespace coruja

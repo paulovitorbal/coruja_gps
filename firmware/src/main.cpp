@@ -678,10 +678,17 @@ int main() {
     // linhas por hora de viagem.
     const auto registra_vigilia = [&log, &piloto, &gps](std::uint32_t t_ms) {
         char msg[96];
-        std::snprintf(msg, sizeof msg, "base %u pts | fix %s | zona %u",
+        char hdop[24] = "sem medida";
+        if (gps.tem_qualidade(t_ms)) {
+            std::snprintf(hdop, sizeof hdop, "%.1f (%u sat)",
+                          static_cast<double>(gps.qualidade().hdop),
+                          static_cast<unsigned>(gps.qualidade().satelites));
+        }
+        std::snprintf(msg, sizeof msg,
+                      "base %u pts | fix %s | zona %u | hdop %s",
                       static_cast<unsigned>(piloto.pontos_da_base()),
                       gps.tem_fix(t_ms) ? "sim" : "NAO",
-                      static_cast<unsigned>(piloto.veredito().zona));
+                      static_cast<unsigned>(piloto.veredito().zona), hdop);
         log.info("vigia", msg);
     };
 

@@ -58,8 +58,27 @@ O firmware deve enviar, e reenviar a cada boot:
 | :--- | :--- |
 | `CFG-RATE` | período de medição = **250 ms (4 Hz)** — ver RF01.4 |
 | `CFG-PRT` | baud rate da UART = **115200 bps** |
-| `CFG-MSG` | desabilitar todas as sentenças **exceto RMC** |
+| `CFG-MSG` | desabilitar todas as sentenças **exceto RMC e GGA** |
 | `CFG-CFG` | persistir configuração (BBR e EEPROM da placa, se presente) |
+
+A **GGA fica ligada** desde 13/10/2026, e é a única que traz o `HDOP`. A RMC
+diz onde o receptor acha que está; a GGA diz quanto isso vale — satélites
+usados na solução e a geometria deles. Sem ela, um fix de 3 m e um de 60 m
+chegam ao aparelho com a mesma cara.
+
+O custo cabe: ~80 B a 4 Hz são 320 B/s, contra 11.520 B/s a 115200 — e a RMC
+já ocupava ~280 B/s. Juntas ficam em ~5% do enlace. **A 9600 seriam 62%**, e
+é por isso que o passo do baud vem antes de a GGA começar a sair. A GSV
+continua desligada: é ela que estoura a linha.
+
+⚠️ **O `HDOP` não vira porcentagem.** Ele não tem teto de bondade — 0,7 é
+melhor que 1,0, e não existe "100%". Inventar um máximo afirmaria precisão
+que ninguém mediu. A tela mostra faixas (`<1` ideal … `≥10` ruim), pela
+convenção da indústria de GNSS, e a tela de informação mostra o número.
+
+⚠️ **`HDOP` zero não é perfeição**: é o que o módulo emite sem solução.
+Tratá-lo como ideal afirmaria a melhor precisão possível exatamente quando
+não há nenhuma.
 
 #### [RF01.4] Modo GNSS e taxa de navegação
 

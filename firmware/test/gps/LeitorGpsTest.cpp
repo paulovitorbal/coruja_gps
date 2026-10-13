@@ -252,3 +252,92 @@ TEST(LeitorGps, reinicia_zera_tudo) {
 }
 
 }  // namespace
+
+// ======================================================= qualidade do fix ==
+//
+// A RMC diz ONDE o receptor acha que está; a GGA diz QUANTO isso vale. Sem a
+// segunda, um fix de 3 m e um de 60 m chegam ao aparelho com a mesma cara.
+
+namespace {
+
+std::string gga(const std::string& qualidade = "1",
+                const std::string& satelites = "09",
+                const std::string& hdop = "0.92") {
+    return com_checksum(
+        "$GNGGA,123519.00,1947.99496,S,04401.26264,W," + qualidade + "," +
+        satelites + "," + hdop + ",545.4,M,46.9,M,,") + "\r\n";
+}
+
+}  // namespace
+
+TEST(LeitorGps, a_GGA_preenche_a_qualidade) {
+    Bancada b;
+    b.uart.injeta(gga());
+    b.leitor.atualiza(1000);
+    EXPECT_TRUE(b.leitor.tem_qualidade(1000));
+    EXPECT_EQ(b.leitor.qualidade().satelites, 9);
+    EXPECT_NEAR(b.leitor.qualidade().hdop, 0.92F, 1e-4F);
+}
+
+TEST(LeitorGps, a_GGA_NAO_conta_como_fix) {
+    // O monitor de taxa do RF01.5 conta ÉPOCAS DE NAVEGAÇÃO, e quem as marca
+    // é a RMC. Contar a GGA dobraria a taxa medida e esconderia um receptor
+    // caído pela metade.
+    Bancada b;
+    b.uart.injeta(gga());
+    b.leitor.atualiza(1000);
+    EXPECT_FALSE(b.leitor.tem_fix(1000));
+}
+
+TEST(LeitorGps, a_GGA_nao_atrapalha_a_RMC_que_vem_junto) {
+    Bancada b;
+    b.uart.injeta(gga());
+    b.uart.injeta(kRmcValida);
+    b.leitor.atualiza(1000);
+    EXPECT_TRUE(b.leitor.tem_fix(1000));
+    EXPECT_TRUE(b.leitor.tem_qualidade(1000));
+    EXPECT_EQ(b.leitor.qualidade().satelites, 9);
+}
+
+TEST(LeitorGps, a_qualidade_ENVELHECE_como_o_fix) {
+    // ⚠️ Esta é a armadilha de emparelhar duas sentenças: sem carimbo
+    // próprio, um HDOP de dez minutos atrás seria exibido ao lado de uma
+    // posição recente, afirmando precisão que já não existe.
+    Bancada b;
+    b.uart.injeta(gga());
+    b.leitor.atualiza(1000);
+    ASSERT_TRUE(b.leitor.tem_qualidade(1000));
+    EXPECT_FALSE(b.leitor.tem_qualidade(1000 + kFixVelhoMs));
+}
+
+TEST(LeitorGps, GGA_sem_solucao_nao_apaga_a_qualidade_anterior) {
+    Bancada b;
+    b.uart.injeta(gga("1", "11", "0.80"));
+    b.leitor.atualiza(1000);
+    b.uart.injeta(gga("0", "00", "99.99"));
+    b.leitor.atualiza(1250);
+    EXPECT_EQ(b.leitor.qualidade().satelites, 11);
+    EXPECT_NEAR(b.leitor.qualidade().hdop, 0.80F, 1e-4F);
+}
+
+TEST(LeitorGps, GGA_corrompida_conta_no_checksum_como_qualquer_sentenca) {
+    // Não é regressão: `analisa_rmc` já devolvia `ChecksumInvalido` para
+    // QUALQUER sentença mal fechada, muito antes de olhar se era RMC. Ligar
+    // a GGA não muda a regra -- só dá mais sentenças para ela valer.
+    Bancada b;
+    std::string ruim = gga();
+    ruim[ruim.size() - 3] = (ruim[ruim.size() - 3] == '0') ? '1' : '0';
+    b.uart.injeta(ruim);
+    b.leitor.atualiza(1000);
+    EXPECT_GT(b.leitor.monitor().checksums_invalidos(), 0U);
+    EXPECT_FALSE(b.leitor.tem_qualidade(1000));
+}
+
+TEST(LeitorGps, reinicia_esquece_a_qualidade) {
+    Bancada b;
+    b.uart.injeta(gga());
+    b.leitor.atualiza(1000);
+    ASSERT_TRUE(b.leitor.tem_qualidade(1000));
+    b.leitor.reinicia();
+    EXPECT_FALSE(b.leitor.tem_qualidade(1000));
+}

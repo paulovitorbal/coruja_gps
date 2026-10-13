@@ -37,6 +37,7 @@ add_library(coruja_nucleo STATIC
     nucleo/FormatoLog.cpp
     nucleo/RetomadaViagem.cpp
     nucleo/MonitorTaxa.cpp
+    nucleo/FaixaHdop.cpp
     nucleo/Ubx.cpp
     nucleo/PeriodoDoDia.cpp
 )

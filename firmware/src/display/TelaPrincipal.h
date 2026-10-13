@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "display/Visor.h"
+#include "nucleo/FaixaHdop.h"
 #include "nucleo/MonitorTaxa.h"
 #include "nucleo/Nmea.h"
 #include "nucleo/Zonamento.h"
@@ -40,6 +41,14 @@ struct EstadoTela {
     bool        tem_fix = false;
     bool        base_disponivel = true;
     EstadoTaxa  taxa = EstadoTaxa::Nominal;
+
+    /// Geometria dos satélites, já classificada.
+    ///
+    /// A taxa diz se as sentenças CHEGAM; isto diz se a posição PRESTA. São
+    /// perguntas diferentes: um receptor a 4 Hz nominais pode estar
+    /// entregando posição com dezenas de metros de erro debaixo de um
+    /// viaduto, e até aqui o aparelho tratava os dois casos como iguais.
+    FaixaHdop   hdop = FaixaHdop::Desconhecida;
     /// Desde quando está sem sinal, para o contador `0:14`.
     std::uint32_t sem_sinal_desde_ms = 0;
     /// Instante do clique de OTA recusado por veículo em movimento.
@@ -91,6 +100,8 @@ private:
         char   inferior[48] = {};
         Icone  icone = Icone::Nenhum;
         int    barra_pct = -1;
+        /// Barras acesas do indicador de geometria; `-1` não desenha nada.
+        int    barras_hdop = -1;
         /// Deslocamento das faixas que rolam. Faz parte do instantaneo
         /// porque muda com o TEMPO, e nao com o conteudo.
         int    x_superior = 0;

@@ -1,5 +1,7 @@
 #include "display/TelaMenu.h"
 
+#include "nucleo/FaixaHdop.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -76,11 +78,22 @@ TelaMenu::Instantaneo TelaMenu::compoe(const MenuAjustes& menu,
         // Uma casa decimal: a diferença entre 4,0 e 3,6 Hz é o que separa
         // "normal" de "degradado" no RF01.5, e sem a decimal os dois
         // apareceriam como 4.
-        std::snprintf(i.info[3], sizeof i.info[3], "gps: %.1f Hz",
-                      static_cast<double>(info.taxa_hz));
+        std::snprintf(i.info[3], sizeof i.info[3], "gps: %.1f Hz, %u sat",
+                      static_cast<double>(info.taxa_hz),
+                      static_cast<unsigned>(info.satelites));
+        // O número E a faixa: o número sozinho não diz nada a quem não
+        // conhece a escala, e a faixa sozinha esconde a diferença entre 2,1
+        // e 4,9 -- que no M8N são ~6 m contra ~15 m de erro.
+        const FaixaHdop faixa = classifica_hdop(info.hdop);
+        if (faixa == FaixaHdop::Desconhecida) {
+            std::snprintf(i.info[4], sizeof i.info[4], "hdop: sem medida");
+        } else {
+            std::snprintf(i.info[4], sizeof i.info[4], "hdop: %.1f (%s)",
+                          static_cast<double>(info.hdop), descreve(faixa));
+        }
         // Por ultimo porque e a linha que menos se consulta -- e a que mais
         // importa quando algo nao bate com o que se espera do firmware.
-        std::snprintf(i.info[4], sizeof i.info[4], "fw: %s",
+        std::snprintf(i.info[5], sizeof i.info[5], "fw: %s",
                       info.versao[0] != '\0' ? info.versao : "?");
     }
 
@@ -135,13 +148,19 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
             // Três linhas em corpo de texto: aqui se lê, não se relanceia.
             // É a única tela do aparelho com essa premissa, e ela só é
             // válida porque o carro está parado.
-            // Cinco linhas centralizadas na area: 5x20 de altura mais
-            // 4x10 de vao dao 140 px nos 166 disponiveis.
-            const int passo = altura_da_fonte(Fonte::Texto) + 10;
-            const int altura_bloco = 5 * altura_da_fonte(Fonte::Texto) +
-                                     4 * 10;
+            // SEIS linhas centralizadas na area: 6x20 de altura mais
+            // 5x9 de vao dao 165 px nos 166 disponiveis.
+            //
+            // ⚠️ O vao caiu de 10 para 9 quando o HDOP ganhou linha propria:
+            // com 10 o bloco daria 170 e vazaria 4 px para fora da area,
+            // por cima da faixa inferior. `o_bloco_de_informacao_cabe_na_
+            // area` guarda essa conta.
+            const int passo = altura_da_fonte(Fonte::Texto) + kVaoInfo;
+            const int altura_bloco =
+                kLinhasInfo * altura_da_fonte(Fonte::Texto) +
+                (kLinhasInfo - 1) * kVaoInfo;
             int y = tela::kYAreaNumero + (tela::kAreaNumero - altura_bloco) / 2;
-            for (int l = 0; l < 5; ++l) {
+            for (int l = 0; l < kLinhasInfo; ++l) {
                 // A linha da base passa de 320 px com uma versao datada e
                 // 18 mil pontos, e e a unica desta tela que rola. Cabendo,
                 // `rolagem` devolve o `x` centralizado.

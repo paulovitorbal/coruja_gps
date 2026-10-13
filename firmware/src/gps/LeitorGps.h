@@ -43,6 +43,15 @@ public:
     bool tem_fix(std::uint32_t agora_ms) const;
 
     const Telemetria& telemetria() const { return telemetria_; }
+    /// A qualidade da última solução, da GGA.
+    ///
+    /// ⚠️ **Olhe `tem_qualidade()` antes.** RMC e GGA são sentenças
+    /// separadas, com carimbos próprios, e exibir um HDOP velho ao lado de
+    /// uma posição recente afirma precisão que já não existe.
+    const QualidadeFix& qualidade() const { return qualidade_; }
+
+    bool tem_qualidade(std::uint32_t agora_ms) const;
+
     const MonitorTaxa& monitor() const { return monitor_; }
     MonitorTaxa& monitor() { return monitor_; }
 
@@ -56,11 +65,16 @@ public:
     void reinicia();
 
 private:
+    void processa_gga(const char* linha, std::size_t tamanho,
+                      std::uint32_t agora_ms);
     void processa_linha(const char* linha, std::size_t tamanho,
                         std::uint32_t agora_ms);
 
     Uart&          uart_;
     MonitorTaxa    monitor_;
+    QualidadeFix   qualidade_;
+    std::uint32_t  qualidade_ms_ = 0;
+    bool           tem_qualidade_ = false;
     ubx::LeitorUbx ubx_;
     Telemetria     telemetria_;
     char           linha_[kLinhaMaxima + 1] = {};

@@ -37,6 +37,8 @@ add_executable(testes
     menu/MenuAjustesTest.cpp
     nucleo/CarregadorFluxoTest.cpp
     nucleo/NmeaTest.cpp
+    nucleo/NmeaGgaTest.cpp
+    nucleo/FaixaHdopTest.cpp
     nucleo/ZonamentoTest.cpp
     nucleo/DetectorInfracaoTest.cpp
     nucleo/AcumuladorViagemTest.cpp
@@ -82,6 +84,7 @@ add_executable(testes
     led/PadraoLedTest.cpp
     led/PadraoLedOtaTest.cpp
     display/TelaPrincipalTest.cpp
+    display/IndicadorHdopTest.cpp
     display/TelaMenuTest.cpp
     display/TelaOtaTest.cpp
     display/TextoRolanteTest.cpp

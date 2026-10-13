@@ -132,7 +132,14 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     struct { std::uint8_t id; std::uint8_t taxa; const char* nome;
              bool obrigatorio; } const
     mensagens[] = {
-        {ubx::kNmeaGga, 0, "CFG-MSG GGA off", true},
+        // **Ligada**, e esta é a única que traz o HDOP. A RMC diz onde o
+        // receptor acha que está; a GGA diz o quanto isso vale — satélites
+        // usados e a geometria deles. Sem ela o aparelho não distingue um
+        // fix de 3 m de um de 60 m, e trata os dois como verdade.
+        //
+        // Cabe no enlace: ~80 B a 4 Hz são 320 B/s, contra 11.520 B/s a
+        // 115200. A GSV é que seria cara, e segue desligada.
+        {ubx::kNmeaGga, 1, "CFG-MSG GGA on", true},
         {ubx::kNmeaGll, 0, "CFG-MSG GLL off", true},
         {ubx::kNmeaGsa, 0, "CFG-MSG GSA off", true},
         {ubx::kNmeaGsv, 0, "CFG-MSG GSV off", true},
@@ -190,7 +197,7 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
         return ResultadoConfigGps::NaoPersistiu;
     }
 
-    log.info("gps", "==== receptor configurado: 4 Hz, so RMC, 115200 ====");
+    log.info("gps", "==== receptor configurado: 4 Hz, RMC + GGA, 115200 ====");
     return ResultadoConfigGps::Configurado;
 }
 

@@ -13,6 +13,13 @@ namespace coruja {
 /// saber. Ele decide navegação; a versão da base, a contagem de pontos e a
 /// taxa do GPS pertencem a três subsistemas diferentes, e dar a ele
 /// ponteiros para os três só para exibir texto inverteria as dependências.
+/// Linhas da tela de informação, e o vão entre elas.
+///
+/// Juntas elas têm de caber em `tela::kAreaNumero`, e a conta é apertada:
+/// ver `o_bloco_de_informacao_cabe_na_area`.
+constexpr int kLinhasInfo = 6;
+constexpr int kVaoInfo = 9;
+
 struct InfoAparelho {
     char          nome[24] = {};      ///< qual das duas unidades é esta
     /// Data da base, do cabeçalho do `radares.bin` (formato v2).
@@ -33,6 +40,14 @@ struct InfoAparelho {
     /// lê em vez de relancear, e número tremendo enquanto se lê é ruído. A
     /// taxa instantânea tem lugar próprio na tela de dirigir.
     float         taxa_hz = 0.0F;
+
+    /// Satélites usados e a geometria deles, da GGA — congelados na entrada,
+    /// como a taxa.
+    ///
+    /// A taxa diz se as sentenças CHEGAM; o HDOP diz se a posição PRESTA.
+    /// Zero no `hdop` significa "sem medida", e não geometria perfeita.
+    std::uint8_t  satelites = 0;
+    float         hdop = 0.0F;
 
     /// Identificação do build, do `git describe`.
     ///
@@ -92,7 +107,7 @@ private:
         /// do autor, 2026-09-30). Juntas davam 324 px numa tela de 320 —
         /// era a única linha do aparelho que precisava rolar, e rolar 4 px
         /// parece tremor, não rolagem. Separadas, as duas cabem.
-        char       info[5][40] = {};
+        char       info[kLinhasInfo][40] = {};
         EstadoMenu estado = EstadoMenu::Fechado;
         bool       valido = false;
     };

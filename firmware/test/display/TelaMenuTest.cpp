@@ -534,3 +534,14 @@ TEST(TelaMenu, as_cinco_linhas_cabem_na_area_do_numero) {
 }
 
 }  // namespace
+
+TEST(TelaMenu, o_bloco_de_informacao_cabe_na_area) {
+    // A conta é apertada e mudou quando o HDOP ganhou linha própria: com o
+    // vão antigo, seis linhas davam 170 px numa área de 166 e vazavam por
+    // cima da faixa inferior. Sem este teste, a próxima linha acrescentada
+    // vaza em silêncio — o desenho não reclama, só desenha fora.
+    const int altura = kLinhasInfo * altura_da_fonte(Fonte::Texto) +
+                       (kLinhasInfo - 1) * kVaoInfo;
+    EXPECT_LE(altura, tela::kAreaNumero)
+        << "o bloco de " << kLinhasInfo << " linhas nao cabe";
+}
