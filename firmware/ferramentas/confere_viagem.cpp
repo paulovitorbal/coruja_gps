@@ -27,6 +27,10 @@
 #include "gps/LeitorGps.h"
 #include "gps/Uart.h"
 #include "led/LedRgb.h"
+#include "app/DiarioBordo.h"
+#include "armazenamento/Armazenamento.h"
+#include "log/Logger.h"
+#include <map>
 #include "nucleo/Zonamento.h"
 
 namespace {
@@ -132,7 +136,10 @@ std::string monta_rmc(const coruja::Telemetria& t) {
     };
     char corpo[160];
     std::snprintf(corpo, sizeof corpo,
-                  "GNRMC,%02u%02u%02u.00,A,%s,%c,%s,%c,%.2f,%.1f,0801026,,,A",
+                  // DDMMYY -- seis digitos. Estava `0801026`, com sete:
+                  // a data saia invalida, `data_valida` ficava falso e o
+                  // acumulador devolvia `Nada` em todas as amostras.
+                  "GNRMC,%02u%02u%02u.00,A,%s,%c,%s,%c,%.2f,%.1f,111026,,,A",
                   static_cast<unsigned>(t.hora), static_cast<unsigned>(t.minuto),
                   static_cast<unsigned>(t.segundo),
                   graus_min(t.lat, 2).c_str(), t.lat < 0 ? 'S' : 'N',
@@ -147,6 +154,53 @@ std::string monta_rmc(const coruja::Telemetria& t) {
     std::snprintf(linha, sizeof linha, "$%s*%02X\r\n", corpo, ck);
     return std::string(linha);
 }
+
+/// Cartão em memória: guarda o que seria escrito.
+class CartaoEmMemoria : public coruja::Armazenamento {
+public:
+    std::map<std::string, std::string> arquivos;
+
+    coruja::ErroCartao le_arquivo(const char* nome, char* destino,
+                                  std::size_t cap, std::size_t* lidos,
+                                  coruja::Logger&) override {
+        const auto it = arquivos.find(nome);
+        if (it == arquivos.end()) { return coruja::ErroCartao::ArquivoAusente; }
+        if (it->second.size() >= cap) { return coruja::ErroCartao::ArquivoGrande; }
+        std::memcpy(destino, it->second.data(), it->second.size());
+        if (lidos != nullptr) { *lidos = it->second.size(); }
+        return coruja::ErroCartao::Nenhum;
+    }
+    coruja::ErroCartao grava_arquivo(const char* nome, const char* c,
+                                     std::size_t n, coruja::Logger&) override {
+        arquivos[nome] = std::string(c, n);
+        return coruja::ErroCartao::Nenhum;
+    }
+    coruja::ErroCartao acrescenta_arquivo(const char* nome, const char* c,
+                                          std::size_t n,
+                                          coruja::Logger&) override {
+        arquivos[nome] += std::string(c, n);
+        return coruja::ErroCartao::Nenhum;
+    }
+    coruja::ErroCartao abre_para_escrita(const char*,
+                                         coruja::Logger&) override {
+        return coruja::ErroCartao::Nenhum;
+    }
+    bool escreve(const std::uint8_t*, std::size_t) override { return true; }
+    coruja::ErroCartao conclui_escrita(coruja::Logger&) override {
+        return coruja::ErroCartao::Nenhum;
+    }
+    void descarta_escrita(const char*, coruja::Logger&) override {}
+    coruja::ErroCartao promove(const char*, const char*, const char*,
+                               coruja::Logger&) override {
+        return coruja::ErroCartao::Nenhum;
+    }
+};
+
+class LogMudo : public coruja::Logger {
+public:
+    void registra(coruja::Nivel, const char*, const char*) override {}
+    void define_nivel_minimo(coruja::Nivel) override {}
+};
 
 int main(int argc, char** argv) {
     if (argc != 3) {
@@ -282,6 +336,65 @@ int main(int argc, char** argv) {
         std::printf("\n-- caminho completo (UART -> LeitorGps -> Piloto) --\n");
         std::printf("com fix: %u | n_candidatos>0: %u | segura: %u | "
                     "sem sinal: %u\n", com_fix, cheio, zona_segura, sem_sinal);
+    }
+
+    // ---- terceira passada: ate o DIARIO, que e quem grava a linha ----
+    //
+    // O aparelho ALERTA certo (LED e buzzer respondem), e mesmo assim grava
+    // `zona 1`. Entao o defeito esta entre o veredito e o registro -- o unico
+    // trecho que as duas passadas acima nao atravessam.
+    {
+        std::FILE* f3 = std::fopen(argv[1], "r");
+        UartDeLog uart;
+        coruja::LeitorGps leitor(uart);
+        LedMudo led;
+        BuzzerMudo buzzer;
+        coruja::PilotoAlerta piloto(leitor, led, buzzer);
+        piloto.define_base(pontos.data(), r.pontos);
+        CartaoEmMemoria cartao;
+        LogMudo mudo;
+        coruja::DiarioBordo diario(cartao, mudo);
+        // Sem isto o acumulador fica `Parada` e devolve `Nada` em tudo: no
+        // aparelho quem a inicia e o item de menu, ou a retomada pelo
+        // `viagem.est`.
+        diario.alterna_viagem();
+
+        std::uint32_t ms = 0;
+        while (std::fgets(linha, sizeof linha, f3) != nullptr) {
+            const Amostra a = le_linha(linha);
+            if (!a.valida) { continue; }
+            uart.entrega(monta_rmc(a.t));
+            ms += 250;
+            piloto.passo(ms);
+            diario.passo(piloto.veredito(), leitor.telemetria(),
+                         leitor.tem_fix(ms), ms);
+        }
+        std::fclose(f3);
+
+        unsigned linhas = 0, com_zona = 0, com_n = 0;
+        for (const auto& [nome, conteudo] : cartao.arquivos) {
+            if (nome.find(".log") == std::string::npos) { continue; }
+            std::size_t ini = 0;
+            while (ini < conteudo.size()) {
+                const std::size_t fim = conteudo.find('\n', ini);
+                const std::string l = conteudo.substr(
+                    ini, (fim == std::string::npos ? conteudo.size() : fim) - ini);
+                ini = (fim == std::string::npos) ? conteudo.size() : fim + 1;
+                if (l.empty() || l[0] == '#' || l[0] == 'u') { continue; }
+                ++linhas;
+                // ...;rumo;zona;n_radares  -> os dois ultimos campos
+                const std::size_t p2 = l.rfind(';');
+                const std::size_t p1 = l.rfind(';', p2 - 1);
+                if (p1 == std::string::npos) { continue; }
+                const int zona = std::atoi(l.c_str() + p1 + 1);
+                const int n = std::atoi(l.c_str() + p2 + 1);
+                if (zona > 1) { ++com_zona; }
+                if (n > 0) { ++com_n; }
+            }
+        }
+        std::printf("\n-- ate o DIARIO (o que seria gravado no cartao) --\n");
+        std::printf("linhas: %u | zona > segura: %u | n_radares > 0: %u\n",
+                    linhas, com_zona, com_n);
     }
 
     static const char* kNomes[6] = {"sem sinal", "segura", "conforme",
