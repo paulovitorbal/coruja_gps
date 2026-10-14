@@ -3,7 +3,6 @@
 
 #include "display/Visor.h"
 #include "nucleo/FaixaHdop.h"
-#include "nucleo/MonitorTaxa.h"
 #include "nucleo/Nmea.h"
 #include "nucleo/Zonamento.h"
 
@@ -40,7 +39,6 @@ struct EstadoTela {
     Telemetria  telemetria;
     bool        tem_fix = false;
     bool        base_disponivel = true;
-    EstadoTaxa  taxa = EstadoTaxa::Nominal;
 
     /// Geometria dos satélites, já classificada.
     ///

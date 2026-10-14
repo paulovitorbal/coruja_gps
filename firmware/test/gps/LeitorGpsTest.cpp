@@ -130,6 +130,42 @@ TEST(LeitorGps, sem_fix_nao_apaga_a_ultima_telemetria_boa) {
     EXPECT_FLOAT_EQ(b.leitor.telemetria().velocidade_kmh, v);
 }
 
+// ================================= RF01.5: o tunel nao e defeito de config
+
+TEST(LeitorGps, um_tunel_nao_pede_reconfiguracao_do_receptor) {
+    // O aparelho entra em falha de taxa dentro de qualquer tunel -- sem fix,
+    // a taxa cai a zero. Reenviar a sequencia UBX ali reescreveria a
+    // configuracao do receptor, CFG-CFG incluido, a cada viaduto do caminho.
+    Bancada b;
+    for (std::uint32_t t = 0; t <= 4000; t += 250) {
+        b.uart.injeta(kRmcValida);
+        b.leitor.atualiza(t);
+    }
+    ASSERT_EQ(b.leitor.monitor().estado(), EstadoTaxa::Nominal);
+
+    for (std::uint32_t t = 4250; t <= 16000; t += 250) {
+        b.uart.injeta(kRmcSemFix);
+        b.leitor.atualiza(t);
+    }
+    ASSERT_EQ(b.leitor.monitor().estado(), EstadoTaxa::Falha);
+    EXPECT_FALSE(b.leitor.monitor().precisa_reconfigurar())
+        << "o receptor esta falando: falta ceu, nao configuracao";
+}
+
+TEST(LeitorGps, o_receptor_que_emudece_pede_reconfiguracao) {
+    Bancada b;
+    for (std::uint32_t t = 0; t <= 4000; t += 250) {
+        b.uart.injeta(kRmcValida);
+        b.leitor.atualiza(t);
+    }
+    // Silencio na linha: nem fix, nem "sem solucao", nem lixo.
+    for (std::uint32_t t = 4250; t <= 16000; t += 250) {
+        b.leitor.atualiza(t);
+    }
+    ASSERT_EQ(b.leitor.monitor().estado(), EstadoTaxa::Falha);
+    EXPECT_TRUE(b.leitor.monitor().precisa_reconfigurar());
+}
+
 // ==================================================== RF01.5: contagens
 
 TEST(LeitorGps, checksum_invalido_e_contado_a_parte) {

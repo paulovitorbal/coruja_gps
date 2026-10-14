@@ -161,6 +161,18 @@ o que ele via. Da **v0.2.13** em diante:
 | `base` | `piloto recebeu N pontos` | a base chegou a quem alerta — sai como **ERRO** se `N` for zero |
 | `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
 | `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
+| `gps` | `taxa de fixes em 2.0 Hz com posicao presente (falha)` | **WARN** — a cadência caiu com o receptor entregando posição |
+| `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima |
+| `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
+| `gps` | `reconfiguracao em voo: configurado; a porta ficou em 115200` | como ela terminou (ERRO se não foi `configurado`) |
+
+⚠️ **A degradação de taxa só existe aqui.** Ela ocupava a faixa superior da tela de
+dirigir e saiu dela em 14/10/2026: como a taxa conta apenas fixes aproveitados, o aviso
+aparecia em todo túnel, no lugar do relógio, dizendo o que o `SEM SINAL` já dizia. A
+linha do log sai sob a condição que a torna informativa — taxa baixa **com fix
+presente**, sustentada por mais de 3 s. Um receptor que voltou a 1 Hz por ter perdido a
+configuração não aparece em mais lugar nenhum: as barras de HDOP medem geometria, não
+cadência, e continuam cheias.
 
 ⚠️ **A `vigia` amostra de cinco em cinco minutos.** Ela prova base e fix; a
 `zona` ali é um instante qualquer, e quase nunca cai num alerta. Quem responde

@@ -17,13 +17,27 @@ void MonitorTaxa::reinicia() {
     quantos_ = 0;
     houve_algum_ = false;
     abaixo_ = false;
+    houve_sem_fix_ = false;
     checksums_invalidos_ = 0;
     estado_ = EstadoTaxa::Aquecendo;
     taxa_hz_ = 0.0F;
     precisa_reconfigurar_ = false;
+    tentou_nesta_falha_ = false;
 }
 
 void MonitorTaxa::registra_checksum_invalido() { ++checksums_invalidos_; }
+
+void MonitorTaxa::registra_sem_fix(std::uint32_t agora_ms) {
+    // Não toca na janela: isto não é fix. O que ele marca é que o módulo
+    // está do outro lado da linha, falando.
+    ultimo_sem_fix_ms_ = agora_ms;
+    houve_sem_fix_ = true;
+}
+
+bool MonitorTaxa::sem_solucao_recente(std::uint32_t agora_ms) const {
+    // Subtração em unsigned: correta através do estouro de 49 dias.
+    return houve_sem_fix_ && (agora_ms - ultimo_sem_fix_ms_) < kJanelaMs;
+}
 
 void MonitorTaxa::registra_fix(std::uint32_t agora_ms) {
     if (!houve_algum_) {
@@ -61,16 +75,19 @@ EstadoTaxa MonitorTaxa::avalia(std::uint32_t agora_ms) {
     if (!houve_algum_ || (agora_ms - primeiro_ms_) < kJanelaMs) {
         estado_ = EstadoTaxa::Aquecendo;
         abaixo_ = false;
+        tentou_nesta_falha_ = false;
         return estado_;
     }
 
     if (taxa_hz_ >= kTaxaNominalHz) {
         abaixo_ = false;
+        tentou_nesta_falha_ = false;
         estado_ = EstadoTaxa::Nominal;
         return estado_;
     }
     if (taxa_hz_ >= kTaxaPisoHz) {
         abaixo_ = false;
+        tentou_nesta_falha_ = false;
         estado_ = EstadoTaxa::Degradado;
         return estado_;
     }
@@ -82,11 +99,17 @@ EstadoTaxa MonitorTaxa::avalia(std::uint32_t agora_ms) {
         abaixo_desde_ms_ = agora_ms;
     }
     if ((agora_ms - abaixo_desde_ms_) >= kSustentacaoFalhaMs) {
-        if (estado_ != EstadoTaxa::Falha) {
-            // Borda de entrada: arma o pedido de reconfiguração UMA vez.
-            // Rearmar a cada ciclo faria o firmware reenviar a sequência UBX
-            // quatro vezes por segundo contra um módulo que já não responde.
+        // Uma tentativa por falha, e só quando há o que tentar. Rearmar a
+        // cada ciclo faria o firmware reenviar a sequência UBX quatro vezes
+        // por segundo contra um módulo que já não responde; armar com o
+        // receptor dizendo "sem solução" reconfiguraria o GPS a cada túnel.
+        //
+        // A condição é verificada a cada volta, e não na borda de entrada:
+        // uma falha que começa dentro do túnel e vira silêncio depois não
+        // produz borda nenhuma, e perderia a tentativa para sempre.
+        if (!tentou_nesta_falha_ && !sem_solucao_recente(agora_ms)) {
             precisa_reconfigurar_ = true;
+            tentou_nesta_falha_ = true;
         }
         estado_ = EstadoTaxa::Falha;
     } else {

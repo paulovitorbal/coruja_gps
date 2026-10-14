@@ -55,7 +55,13 @@ void LeitorGps::processa_linha(const char* linha, std::size_t tamanho,
         case ErroNmea::SemFix:
             // O receptor está falando e dizendo que não sabe onde está. Não
             // conta como fix, e **não** conta como erro de interpretação.
+            //
+            // O monitor precisa saber disto, e não só da ausência de fix:
+            // para a taxa, o túnel e o módulo mudo são a mesma coisa, e é
+            // esta linha que os separa na hora de decidir se vale reenviar
+            // a configuração (RF01.5).
             ++sem_fix_;
+            monitor_.registra_sem_fix(agora_ms);
             return;
 
         case ErroNmea::ChecksumInvalido:

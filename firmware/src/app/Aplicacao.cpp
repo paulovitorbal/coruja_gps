@@ -8,6 +8,16 @@ namespace coruja {
 
 namespace {
 constexpr const char* kOrigem = "app";
+/// Origem própria para o que descreve o receptor, e não a aplicação: quem
+/// procura um problema de GPS no log filtra por isto.
+constexpr const char* kOrigemGps = "gps";
+
+/// Quanto a taxa baixa precisa durar **com fix** para virar linha de log.
+///
+/// Mais que `kFixVelhoMs`, de proposito: e o tempo em que a perda de sinal
+/// ainda se parece com degradacao, porque o ultimo fix continua recente
+/// enquanto a janela ja caiu.
+constexpr std::uint32_t kSustentacaoAvisoTaxaMs = 3000;
 }
 
 Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
@@ -104,7 +114,6 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.veredito = piloto_.veredito();
     e.telemetria = gps_.telemetria();
     e.tem_fix = gps_.tem_fix(agora_ms);
-    e.taxa = gps_.monitor().estado();
     // ⚠️ `tem_qualidade` ANTES de ler o HDOP. RMC e GGA chegam separadas e
     // envelhecem separadas; sem a bandeira, um HDOP de minutos atrás seria
     // desenhado ao lado de uma posição recente, afirmando uma precisão que
@@ -119,6 +128,53 @@ void Aplicacao::desenha(std::uint32_t agora_ms) {
     e.brilho_mexido_em_ms = brilho_mexido_em_ms_;
     e.houve_ajuste_brilho = houve_ajuste_brilho_;
     tela_.desenha(e, agora_ms, *visor_);
+}
+
+void Aplicacao::anota_taxa(std::uint32_t agora_ms, bool tem_fix) {
+    const EstadoTaxa estado = gps_.monitor().estado();
+    // **Só com fix**, e isto é o que separa defeito de túnel. A taxa conta
+    // fixes aproveitados: sem posição ela é zero por definição — num túnel,
+    // numa garagem, no cold start —, e avisar ali encheria o log de linhas
+    // que não descrevem defeito nenhum. A queda que interessa é a que
+    // acontece COM o receptor entregando posição, porque aí a posição
+    // envelhece entre uma amostra e a seguinte sem ninguém perceber.
+    const bool baixa = tem_fix && (estado == EstadoTaxa::Degradado ||
+                                   estado == EstadoTaxa::Falha);
+    if (!baixa) {
+        caindo_ = false;
+        if (!taxa_avisada_) { return; }
+        taxa_avisada_ = false;
+        // Sem fix o aviso apenas deixa de valer, e dizer "normalizou" seria
+        // falso: a taxa continua em zero, agora por falta de céu.
+        if (estado == EstadoTaxa::Nominal) {
+            char fim[96];
+            std::snprintf(fim, sizeof fim, "taxa de fixes normalizada: %.1f Hz",
+                          static_cast<double>(gps_.monitor().taxa_hz()));
+            log_.info(kOrigemGps, fim);
+        }
+        return;
+    }
+
+    // ⚠️ **A condição precisa DURAR**, e não é detalhe: na entrada de um
+    // túnel o último fix ainda é recente por 1 s (`kFixVelhoMs`) enquanto a
+    // janela de 3 s já esvaziou, e nesse vão as duas condições valem ao
+    // mesmo tempo. Sem a sustentação, todo viaduto deixava uma linha de
+    // aviso — foi o que `OTunelNaoVirouAvisoDeTaxaNoLog` pegou.
+    if (!caindo_) {
+        caindo_ = true;
+        caindo_desde_ms_ = agora_ms;
+    }
+    if (taxa_avisada_ ||
+        (agora_ms - caindo_desde_ms_) < kSustentacaoAvisoTaxaMs) {
+        return;
+    }
+    taxa_avisada_ = true;
+    char msg[96];
+    std::snprintf(msg, sizeof msg,
+                  "taxa de fixes em %.1f Hz com posicao presente (%s)",
+                  static_cast<double>(gps_.monitor().taxa_hz()),
+                  descreve(estado));
+    log_.warning(kOrigemGps, msg);
 }
 
 void Aplicacao::invalida_tela() {
@@ -149,6 +205,8 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
     // menu.** Uma infracao consumada nao pode esperar o usuario soltar o
     // encoder, e o ponto de viagem tem hora marcada.
     diario_.passo(piloto_.veredito(), gps_.telemetria(), tem_fix, agora_ms);
+
+    anota_taxa(agora_ms, tem_fix);
 
     if (tem_fix) {
         detector_.atualiza(gps_.telemetria().velocidade_kmh, agora_ms);

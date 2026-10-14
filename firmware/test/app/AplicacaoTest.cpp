@@ -173,6 +173,69 @@ struct Bancada {
     }
 };
 
+// --- a degradacao de taxa saiu da tela e foi para o log (14/10/2026) ---
+
+/// Alimenta o laco com fix numa cadencia escolhida, em vez dos 4 Hz do
+/// `roda`. E a cadencia que esta sob teste aqui.
+void roda_em(Bancada* b, Aplicacao* app, std::uint32_t de, std::uint32_t ate,
+             std::uint32_t periodo_fix_ms) {
+    for (std::uint32_t t = de; t <= ate; t += 50) {
+        if (periodo_fix_ms != 0 && t % periodo_fix_ms == 0) {
+            b->uart.emite_rmc(60.0F);
+        }
+        app->passo(t);
+    }
+}
+
+TEST(Aplicacao, ATaxaBaixaComPosicaoPresenteVaiParaOLog) {
+    // A tela nao mostra mais o aviso (decisao de 14/10/2026). Se isto nao
+    // for registrado, uma cadencia caida para 2 Hz -- posicao envelhecendo
+    // meio segundo entre amostras -- nao deixa rastro em lugar nenhum.
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    ASSERT_FALSE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+
+    roda_em(&b, &app, 4050, 10000, 500);   // 2 Hz, com fix sempre recente
+    EXPECT_TRUE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+}
+
+TEST(Aplicacao, OTunelNaoVirouAvisoDeTaxaNoLog) {
+    // ⚠️ O motivo de a condicao exigir fix. Sem posicao a taxa e zero por
+    // definicao -- tunel, garagem, cold start --, e avisar ali encheria o
+    // log de linhas que nao descrevem defeito nenhum.
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    roda_em(&b, &app, 4050, 20000, 0);     // silencio: nenhum fix
+    EXPECT_FALSE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+}
+
+TEST(Aplicacao, ATaxaQueVoltaAoNormalTambemEhRegistrada) {
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    roda_em(&b, &app, 4050, 10000, 500);
+    ASSERT_TRUE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+
+    roda_em(&b, &app, 10050, 16000, 250);
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "normalizada"));
+}
+
+TEST(Aplicacao, OSinalPerdidoNaoFingeQueATaxaNormalizou) {
+    // O aviso deixa de valer quando o fix some, mas a taxa nao melhorou --
+    // ela continua em zero, agora por falta de ceu. Dizer "normalizada" ali
+    // seria afirmar um conserto que nao houve.
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    roda_em(&b, &app, 4050, 12000, 500);
+    ASSERT_TRUE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+
+    roda_em(&b, &app, 12050, 20000, 0);
+    EXPECT_FALSE(b.log.contem(Nivel::Info, "normalizada"));
+}
+
 // --- a pre-condicao chega ao menu ---
 
 TEST(Aplicacao, ParadoOGiroAbreOMenu) {

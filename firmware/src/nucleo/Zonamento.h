@@ -13,7 +13,7 @@ namespace coruja {
 /// depende disso: com vários pontos na janela, vence o de maior valor. Não
 /// reordene sem reler aquele requisito.
 enum class Zona : std::uint8_t {
-    SemSinal = 0,             ///< sem fix — alertas suspensos, LED apagado
+    SemSinal = 0,             ///< sem fix — alertas suspensos, LED azul fixo
     Segura,                   ///< nenhum ponto válido a ≤ 300 m
     AproximacaoConforme,      ///< `velocidade ≤ limite` — amarelo fixo
     Semaforo,                 ///< `limite == 0`

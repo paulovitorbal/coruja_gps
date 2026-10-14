@@ -158,8 +158,32 @@ erro de configuração na bancada e descobri-lo depois de meses rodando a 1 Hz s
   (causa 3) — dois problemas com correções opostas.
 * Ao detectar estado de **falha**, reenviar a sequência de configuração UBX do RF01.2
   uma vez antes de escalar para o RF07. Cobre o caso de configuração perdida.
+
+  ⚠️ **Só quando o receptor está calado.** A taxa conta *fixes aproveitados*, então ela
+  desaba em todo túnel, garagem ou cold start — e nesses casos o módulo está vivo,
+  emitindo RMC que dizem `V` (sem solução). Reconfigurar ali reescreveria a configuração
+  do receptor, `CFG-CFG` incluído, a cada viaduto do caminho, para consertar algo que não
+  está quebrado. O que separa os dois é a RMC válida *sem fix*: enquanto ela estiver
+  chegando, falta céu, não configuração. Implementado em 14/10/2026; até então a bandeira
+  era levantada corretamente pelo monitor e **ninguém a lia** — a recuperação prevista
+  aqui nunca chegou a acontecer em campo.
+
+  A tentativa é **uma por falha**, e a condição é verificada a cada volta em vez de na
+  borda de entrada: uma falha que começa dentro do túnel e vira silêncio depois não
+  produz borda nova, e perderia a tentativa para sempre.
+
+  ⚠️ **Ela bloqueia o laço** por até ~20 s se o módulo não responder a nada — cada
+  comando espera o ACK duas vezes. Aceita-se porque só chega ali quem já está sem posição
+  nenhuma, e porque a sondagem de baud que o configurador faz é exatamente o que teria
+  evitado a viagem de 08/10/2026, passada inteira muda com o receptor funcionando do
+  outro lado.
 * A taxa medida e a contagem de checksums inválidos devem estar visíveis em algum ponto
-  da interface (tela de diagnóstico ou tela de boot), não apenas em log.
+  da interface (tela de diagnóstico ou tela de boot), não apenas em log. A taxa aparece na
+  **tela de informação** do menu, congelada na entrada (§4.1).
+* A **queda** de taxa é registrada no log, e não na tela de dirigir — ver a nota no RF07.
+  A linha só sai quando a taxa está baixa **com fix presente** e isso dura mais de 3 s:
+  é o que distingue defeito de ausência de sinal, porque na entrada de um túnel o último
+  fix ainda é recente por 1 s enquanto a janela de 3 s já esvaziou.
 
 #### [RF01.3] Conversão de velocidade
 
@@ -904,7 +928,7 @@ Comportamento obrigatório nas condições de falha:
 | **`radares.bin` inválido** | Tentar `radares.bak`. Se ambos falharem, tratar como cartão ilegível. |
 | **Travamento do firmware** | **Watchdog de hardware** com janela de 2 s. O motorista não pode reiniciar o dispositivo dirigindo. |
 | **Cold start do GPS** | TTFF de **26 s** em GPS+GLONASS (datasheet, Tabela 1); hot start 1 s, aided 2 s. A tela de boot deve deixar explícito que ainda não há proteção ativa. |
-| **Taxa abaixo de 3 Hz** sustentada (RF01.5) | Reenviar a configuração UBX uma vez. Se persistir, exibir aviso de degradação e **manter os alertas ativos** — 1 Hz ainda protege melhor que nada, mas o motorista precisa saber que a precisão caiu. |
+| **Taxa abaixo de 3 Hz** sustentada (RF01.5) | Reenviar a configuração UBX uma vez, **se o receptor estiver calado** (ver RF01.5). Se persistir, **registrar no log** e **manter os alertas ativos** — 1 Hz ainda protege melhor que nada. |
 
 ---
 
@@ -1086,7 +1110,7 @@ nos atuadores visuais e sonoros do dispositivo.
 | **Clique do Encoder com carro parado** | Sincronismo OTA | Altera tela para "Atualizando base de dados...". | **Azul fixo** | Silencioso |
 | **Wi-Fi autenticado e baixando arquivo** | Transferência | Barra de progresso ou animação de download. | **Azul fixo** | Silencioso |
 | **Fim do download / Falha no Timeout** | Conclusão | Exibe "Sucesso!" ou "Falha na conexão — base anterior mantida". Retorna ao velocímetro após 2s. | Restaura estado da via | Silencioso |
-| **Taxa de GPS abaixo de 3 Hz** | Degradação | Indicador discreto de taxa reduzida, sem ocultar o velocímetro. Alertas seguem ativos. | Mantém estado da via | Silencioso |
+| **Taxa de GPS abaixo de 3 Hz** | Degradação | **Nada na tela** desde 14/10/2026 — a linha vai para o log (RF01.5). Alertas seguem ativos. | Mantém estado da via | Silencioso |
 | **Cartão SD ausente ou base inválida** | Falha de Dados | `⚠ BASE INDISPONÍVEL — sem alertas` **permanente** na faixa inferior, em **cinza**, não 3 s. Sem base não há ponto, logo a barra de proximidade nunca teria o que mostrar: a faixa fica livre. Corrige o **R-30**. | **Azul fixo** | Silencioso |
 
 ---
@@ -1171,9 +1195,24 @@ fica vazia de propósito — o vazio é a mensagem, e é ele que dá contraste a
 
 | Prioridade | Ocupante | Duração |
 | :---: | :--- | :--- |
-| 1 | Taxa de GPS reduzida (RF07) | persistente |
-| 2 | Barra de ajuste de brilho | transitório, ~1,5 s |
-| 3 | Relógio `dd/mm/aa hh:mm` | padrão |
+| 1 | Barra de ajuste de brilho | transitório, ~1,5 s |
+| 2 | Relógio `dd/mm/aa hh:mm` | padrão |
+
+No canto direito desta faixa, **sempre**, o indicador de geometria (HDOP) — quatro
+barras crescentes, à maneira do sinal de celular. Ele não é um ocupante: a área de texto
+encurta para ceder-lhe os 26 px, e os dois convivem. Some apenas quando não há medida
+nenhuma, porque um indicador vazio não distingue "geometria péssima" de "não sei".
+
+⚠️ **O aviso `TAXA DE GPS REDUZIDA` ocupava a prioridade 1 e foi removido em
+14/10/2026**, por decisão do autor. Ele aparecia a **um quarto de segundo** da perda de
+sinal — medido —, porque a taxa só conta fixes: dentro de qualquer túnel ele tomava o
+lugar do relógio para dizer, em cima, o que o `SEM SINAL` já dizia embaixo. A degradação
+passou a viver no log (RF01.5), com a condição que a torna informativa.
+
+⚠️ **O indicador de HDOP não o substitui, e a diferença importa:** HDOP é *geometria* —
+a posição presta? —, taxa é *cadência* — ela chega? Um receptor que voltou a 1 Hz por ter
+perdido o `CFG-RATE` mostra quatro barras e atualiza a posição uma vez por segundo. Quem
+responde à segunda pergunta hoje é o log, e só ele.
 
 O relógio vem do GPS. **Não há RTC com bateria no BOM**, então ele mostra
 `--/--/-- --:--` até o primeiro fix — até **26 s** em cold start (RNF datasheet). Fuso

@@ -188,7 +188,10 @@ Veredito MaquinaZona::sem_fix(std::uint32_t agora_ms) {
         faixa_ = FaixaSonora::Nenhuma;
     }
     Veredito v;
-    v.zona = Zona::SemSinal;  // alertas suspensos de imediato, LED apagado
+    // Alertas suspensos de imediato. O LED vai a AZUL FIXO, e não apagado:
+    // ver a justificativa em `PadraoLed::cor` — apagado significaria duas
+    // coisas ao mesmo tempo, "perdi o GPS" e "o aparelho morreu".
+    v.zona = Zona::SemSinal;
     return v;
 }
 

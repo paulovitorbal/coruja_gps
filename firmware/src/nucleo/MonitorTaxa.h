@@ -45,6 +45,15 @@ public:
     /// Uma sentença RMC válida **com fix** chegou.
     void registra_fix(std::uint32_t agora_ms);
 
+    /// Uma RMC **válida** chegou dizendo que o receptor não tem solução.
+    ///
+    /// ⚠️ **É o que separa o túnel do módulo mudo.** Para a taxa os dois são
+    /// a mesma coisa — zero fix por segundo —, e tratá-los igual faria o
+    /// aparelho reenviar a configuração do receptor a cada viaduto, CFG-CFG
+    /// incluído, para consertar algo que não está quebrado. Aqui o módulo
+    /// está vivo e falando: o que falta é céu, não configuração.
+    void registra_sem_fix(std::uint32_t agora_ms);
+
     /// Uma sentença chegou com checksum inválido. Não entra na taxa: ela
     /// mede o que foi aproveitado, não o que passou no fio.
     void registra_checksum_invalido();
@@ -69,6 +78,11 @@ public:
     /// Entrou em falha e a reconfiguração UBX ainda não foi tentada **nesta
     /// falha**. O RF01.5 manda reenviar a sequência do RF01.2 uma vez antes
     /// de escalar para o RF07 — uma, não em laço.
+    ///
+    /// **Fica em falso enquanto o receptor estiver dizendo "sem solução"**,
+    /// pelo motivo de `registra_sem_fix`. A proteção não é eterna: se ele
+    /// emudecer depois, a condição passa a valer sem precisar de uma falha
+    /// nova — senão a tentativa nunca aconteceria, porque não haveria borda.
     bool precisa_reconfigurar() const { return precisa_reconfigurar_; }
     void reconfiguracao_enviada() { precisa_reconfigurar_ = false; }
 
@@ -76,6 +90,10 @@ public:
 
 private:
     void descarta_antigos(std::uint32_t agora_ms);
+    /// O receptor falou "sem solução" há menos de uma janela. Mesma janela
+    /// da taxa, e pela mesma razão: passado esse tempo o que se sabia já não
+    /// descreve o instante atual.
+    bool sem_solucao_recente(std::uint32_t agora_ms) const;
 
     std::uint32_t instantes_[kCapacidadeJanela] = {};
     std::size_t   inicio_ = 0;   ///< índice do mais antigo
@@ -84,10 +102,16 @@ private:
     bool          houve_algum_ = false;
     std::uint32_t abaixo_desde_ms_ = 0;
     bool          abaixo_ = false;
+    std::uint32_t ultimo_sem_fix_ms_ = 0;
+    bool          houve_sem_fix_ = false;
     std::uint32_t checksums_invalidos_ = 0;
     EstadoTaxa    estado_ = EstadoTaxa::Aquecendo;
     float         taxa_hz_ = 0.0F;
     bool          precisa_reconfigurar_ = false;
+    /// Já se tentou reconfigurar nesta falha. Substitui a borda de entrada:
+    /// com ela, uma falha que começa dentro de um túnel perdia a tentativa
+    /// para sempre, porque a borda acontecia uma vez só.
+    bool          tentou_nesta_falha_ = false;
 };
 
 }  // namespace coruja

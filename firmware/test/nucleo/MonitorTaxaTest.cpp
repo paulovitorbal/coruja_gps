@@ -36,6 +36,23 @@ void alimenta(MonitorTaxa* m, std::uint32_t de, std::uint32_t ate,
     }
 }
 
+/// O tunel: o modulo continua falando na cadencia certa, mas toda RMC diz
+/// que nao ha solucao. Para a TAXA isso e indistinguivel do silencio -- as
+/// duas dao zero --, e e justamente essa confusao que estes testes guardam.
+EstadoTaxa roda_sem_solucao(MonitorTaxa* m, std::uint32_t de,
+                            std::uint32_t ate, std::uint32_t periodo_ms) {
+    EstadoTaxa e = m->estado();
+    std::uint32_t proxima = de;
+    for (std::uint32_t t = de; t <= ate; t += kPasso) {
+        if (t >= proxima) {
+            m->registra_sem_fix(t);
+            proxima = t + periodo_ms;
+        }
+        e = m->avalia(t);
+    }
+    return e;
+}
+
 // ================================================================ aquecimento
 
 TEST(MonitorTaxa, comeca_aquecendo_e_nao_acusa_falha_no_boot) {
@@ -159,6 +176,52 @@ TEST(MonitorTaxa, a_falha_arma_a_reconfiguracao_uma_unica_vez) {
     // vezes por segundo contra um modulo que ja nao responde.
     ASSERT_EQ(roda(&m, 8100, 12000, 500), EstadoTaxa::Falha);
     EXPECT_FALSE(m.precisa_reconfigurar());
+}
+
+TEST(MonitorTaxa, o_tunel_NAO_pede_reconfiguracao) {
+    // ⚠️ O caso que motivou tudo isto. Sem fix a taxa cai a zero, e o
+    // aparelho entra em falha dentro de qualquer tunel ou garagem. Mas o
+    // modulo esta falando e dizendo que nao sabe onde esta: nao ha o que
+    // reconfigurar, e tentar reescreveria a configuracao do receptor --
+    // inclusive o CFG-CFG, que grava -- a cada viaduto do caminho.
+    MonitorTaxa m;
+    ASSERT_EQ(roda(&m, 0, 4000, 250), EstadoTaxa::Nominal);
+    ASSERT_EQ(roda_sem_solucao(&m, 4050, 16000, 250), EstadoTaxa::Falha);
+    EXPECT_FALSE(m.precisa_reconfigurar())
+        << "o receptor esta vivo: falta ceu, nao configuracao";
+}
+
+TEST(MonitorTaxa, o_receptor_mudo_pede_reconfiguracao) {
+    // O outro lado da mesma moeda: nada chega. Pode ser a configuracao
+    // perdida, pode ser o baud errado -- e os dois se tentam consertar
+    // reenviando a sequencia do RF01.2.
+    MonitorTaxa m;
+    ASSERT_EQ(roda(&m, 0, 4000, 250), EstadoTaxa::Nominal);
+    ASSERT_EQ(roda(&m, 4050, 16000, 0), EstadoTaxa::Falha);
+    EXPECT_TRUE(m.precisa_reconfigurar());
+}
+
+TEST(MonitorTaxa, o_tunel_que_virou_silencio_acaba_pedindo_reconfiguracao) {
+    // A protecao do tunel nao pode ser eterna. Se o modulo emudece DEPOIS
+    // de a falha ja estar declarada, nao ha borda nova para armar o pedido
+    // -- e sem isto a tentativa nunca aconteceria.
+    MonitorTaxa m;
+    ASSERT_EQ(roda(&m, 0, 4000, 250), EstadoTaxa::Nominal);
+    ASSERT_EQ(roda_sem_solucao(&m, 4050, 16000, 250), EstadoTaxa::Falha);
+    ASSERT_FALSE(m.precisa_reconfigurar());
+
+    ASSERT_EQ(roda(&m, 16050, 24000, 0), EstadoTaxa::Falha);
+    EXPECT_TRUE(m.precisa_reconfigurar())
+        << "o modulo parou de falar: agora ha o que tentar";
+}
+
+TEST(MonitorTaxa, sem_solucao_nao_conta_como_fix) {
+    // Se contasse, o tunel apareceria como taxa nominal -- e o aparelho
+    // diria que esta tudo bem com a posicao congelada na entrada dele.
+    MonitorTaxa m;
+    ASSERT_EQ(roda(&m, 0, 4000, 250), EstadoTaxa::Nominal);
+    roda_sem_solucao(&m, 4050, 8000, 250);
+    EXPECT_FLOAT_EQ(m.taxa_hz(), 0.0F);
 }
 
 TEST(MonitorTaxa, uma_falha_nova_depois_de_recuperar_arma_de_novo) {

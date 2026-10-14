@@ -705,6 +705,37 @@ int main() {
     while (true) {
         app.passo(pausa.agora_ms());
 
+        // RF01.5: taxa em falha com o receptor **calado**. Reenviar a
+        // sequencia do RF01.2 uma vez antes de escalar para o RF07 -- e o
+        // monitor ja descartou o caso do tunel, em que o modulo fala e diz
+        // que nao sabe onde esta. Reconfigurar nao devolve ceu.
+        //
+        // ⚠️ **Isto bloqueia o laco**: ate ~20 s se o modulo nao responder a
+        // nada, porque cada comando espera o ACK duas vezes. A tela fica
+        // parada e o encoder nao responde nesse intervalo. Aceita-se porque
+        // so chega aqui quem ja esta sem posicao nenhuma, e porque a sonda
+        // de baud que o configurador faz e exatamente o que teria salvado a
+        // viagem de 08/10/2026 -- o aparelho passou-a inteira mudo, lendo um
+        // fluxo ilegivel, com o receptor funcionando do outro lado.
+        if (gps.monitor().precisa_reconfigurar()) {
+            // Consome ANTES de tentar: o que nao pode acontecer e voltar
+            // aqui a cada volta do laco contra um modulo que nao responde.
+            gps.monitor().reconfiguracao_enviada();
+            log.warning("gps", "taxa em falha e receptor calado: reenviando "
+                               "a configuracao (RF01.5)");
+            const coruja::ResultadoConfigGps refeita = configurador.executa(log);
+            char aviso[160];
+            std::snprintf(aviso, sizeof aviso,
+                          "reconfiguracao em voo: %s; a porta ficou em %lu",
+                          coruja::descreve(refeita),
+                          static_cast<unsigned long>(configurador.baud_final()));
+            if (refeita == coruja::ResultadoConfigGps::Configurado) {
+                log.info("gps", aviso);
+            } else {
+                log.error("gps", aviso);
+            }
+        }
+
         // Subtracao sem sinal: a comparacao atravessa a virada do contador de
         // 32 bits, que acontece a cada ~49 dias de ligacao continua. Comparar
         // `agora >= proxima` direto pararia de registrar depois dela.

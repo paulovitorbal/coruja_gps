@@ -127,7 +127,12 @@ TEST(IndicadorHdop, o_texto_da_faixa_nao_passa_por_baixo_das_barras) {
     ASSERT_LT(menor_x_barra, tela::kLargura);
     ASSERT_FALSE(v.textos.empty());
     for (const auto& [x, s] : v.textos) {
-        EXPECT_LT(x, menor_x_barra) << "texto '" << s << "' invade as barras";
+        // O FIM do texto, e nao o comeco: um relogio que comeca a esquerda
+        // das barras ainda pode terminar por baixo delas, e e o fim que
+        // decide a sobreposicao.
+        EXPECT_LE(x + largura_da_fonte(Fonte::TextoGrande, s.c_str()),
+                  menor_x_barra)
+            << "texto '" << s << "' invade as barras";
     }
 }
 

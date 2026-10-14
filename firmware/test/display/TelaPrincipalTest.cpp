@@ -372,11 +372,17 @@ TEST(TelaPrincipal, a_fonte_maior_cabe_na_faixa_e_nas_frases) {
     // quebraria em silencio:
     //
     //   altura — a faixa tem 26 px, e fonte mais alta vazaria sobre o numero;
-    //   largura — "TAXA DE GPS REDUZIDA" e a frase mais longa da faixa, e
-    //             passando de 320 px ela comecaria a ROLAR para dizer o que
-    //             hoje se le de uma vez.
+    //   largura — o relogio e a frase mais longa da faixa desde que o aviso
+    //             de taxa saiu dela (14/10/2026), e passando de 320 px ele
+    //             comecaria a ROLAR para dizer o que hoje se le de uma vez.
+    //
+    // ⚠️ A largura util ENCOLHE quando o indicador de HDOP esta aceso. Quem
+    // guarda aquela conta e `IndicadorHdop.o_texto_da_faixa_nao_passa_por_
+    // baixo_das_barras`, que a mede no desenho em vez de repetir a formula.
     EXPECT_LE(altura_da_fonte(Fonte::TextoGrande), tela::kFaixaSuperior);
-    EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "TAXA DE GPS REDUZIDA"),
+    EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "28/09/26 14:35"),
+              tela::kLargura);
+    EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "--/--/-- --:--"),
               tela::kLargura);
     EXPECT_LE(largura_da_fonte(Fonte::TextoGrande, "BRILHO 100%"),
               tela::kLargura);
@@ -397,14 +403,22 @@ TEST(TelaPrincipal, a_faixa_inferior_fica_a_esquerda) {
     }
 }
 
-TEST(TelaPrincipal, taxa_reduzida_vence_o_relogio_na_faixa_superior) {
+TEST(TelaPrincipal, a_faixa_superior_nao_avisa_mais_sobre_taxa) {
+    // O aviso `TAXA DE GPS REDUZIDA` saiu da tela em 14/10/2026: a taxa so
+    // conta fixes, entao ele aparecia em todo tunel junto com o `SEM SINAL`,
+    // e custava o relogio para repetir o que a faixa de baixo ja dizia. A
+    // degradacao passou a viver no log (`Aplicacao::anota_taxa`).
+    //
+    // Quem guarda a remocao e o compilador -- `EstadoTela` nao tem mais o
+    // campo. O que este teste guarda e a CONSEQUENCIA: o relogio continua na
+    // faixa inclusive sem fix, que e quando a taxa esta em zero.
     VisorEspiao v;
     TelaPrincipal tela;
     EstadoTela e = dirigindo(75.0F);
-    e.taxa = EstadoTaxa::Degradado;
+    e.tem_fix = false;
     tela.desenha(e, 0, v);
-    EXPECT_TRUE(v.tem_texto("TAXA DE GPS REDUZIDA"));
-    EXPECT_FALSE(v.tem_texto("28/09/26"));
+    EXPECT_TRUE(v.tem_texto("28/09/26"));
+    EXPECT_FALSE(v.tem_texto("TAXA"));
 }
 
 TEST(TelaPrincipal, a_barra_de_brilho_e_transitoria) {
@@ -686,8 +700,6 @@ TEST(TelaPrincipal, nenhuma_frase_da_tela_principal_estoura) {
     EstadoTela aviso = dirigindo(60.0F);
     aviso.houve_aviso_ota = true;
     aviso.aviso_ota_em_ms = 0;
-    EstadoTela taxa = dirigindo(60.0F);
-    taxa.taxa = EstadoTaxa::Degradado;
     EstadoTela alerta = dirigindo(120.0F);
     alerta.veredito.zona = Zona::Perigo;
     alerta.veredito.tem_alvo = true;
@@ -695,8 +707,7 @@ TEST(TelaPrincipal, nenhuma_frase_da_tela_principal_estoura) {
     alerta.veredito.distancia_m = 90.0F;
 
     const Caso casos[] = {{"sem fix", sem_fix}, {"sem base", sem_base},
-                          {"aviso de OTA", aviso}, {"taxa reduzida", taxa},
-                          {"120/120", alerta}};
+                          {"aviso de OTA", aviso}, {"120/120", alerta}};
     for (const auto& c : casos) {
         v.limpa();
         tela.invalida();
@@ -712,16 +723,15 @@ TEST(TelaPrincipal, nenhuma_frase_da_tela_principal_estoura) {
 
 TEST(TelaPrincipal, o_texto_que_cabe_nao_anda) {
     // Movimento sem informacao custa atencao numa tela que se olha de
-    // relance. "TAXA DE GPS REDUZIDA" tem 240 px e cabe.
+    // relance. O relogio tem 196 px e cabe.
     VisorEspiao v;
     TelaPrincipal tela;
     EstadoTela e = dirigindo(60.0F);
-    e.taxa = EstadoTaxa::Degradado;
 
     tela.desenha(e, 0, v);
     int x1 = 999;
     for (const auto& t : v.textos) {
-        if (t.s.find("TAXA") != std::string::npos) { x1 = t.x; }
+        if (t.s.find("28/09/26") != std::string::npos) { x1 = t.x; }
     }
     ASSERT_NE(x1, 999);
 

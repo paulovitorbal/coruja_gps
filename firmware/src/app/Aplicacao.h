@@ -125,6 +125,20 @@ private:
     void aplica_ajustes();
     void executa(AcaoMenu acao);
     void desenha(std::uint32_t agora_ms);
+    /// Registra no log quando a cadência de fixes cai — e quando volta.
+    ///
+    /// **Este é o único lugar onde a degradação de taxa existe desde
+    /// 14/10/2026.** Ela ocupava a faixa superior da tela de dirigir, no
+    /// lugar do relógio, e saiu de lá por decisão do autor: como a taxa só
+    /// conta fixes, ela desabava em todo túnel, e o aviso aparecia junto
+    /// com o `SEM SINAL` que já dizia a mesma coisa.
+    ///
+    /// ⚠️ **O indicador de HDOP não cobre isto.** Ele mede a geometria dos
+    /// satélites, não a cadência: um receptor que voltou a 1 Hz por ter
+    /// perdido a configuração mostra quatro barras e atualiza a posição uma
+    /// vez por segundo. Quem responde "a posição está chegando com que
+    /// frequência?" é esta linha do log, e só ela.
+    void anota_taxa(std::uint32_t agora_ms, bool tem_fix);
 
     LeitorGps&     gps_;
     Encoder&       encoder_;
@@ -154,6 +168,12 @@ private:
     InfoAparelho   info_;
     std::uint32_t  sem_sinal_desde_ms_ = 0;
     bool           houve_fix_ = false;
+    /// O aviso de taxa já foi registrado nesta queda. Uma linha por evento,
+    /// não uma por volta do laço.
+    bool           taxa_avisada_ = false;
+    /// Desde quando a taxa está baixa COM fix, para exigir sustentação.
+    std::uint32_t  caindo_desde_ms_ = 0;
+    bool           caindo_ = false;
     char*          trabalho_;
     std::size_t    capacidade_;
     ResultadoGravacao ultima_gravacao_ = ResultadoGravacao::Gravado;

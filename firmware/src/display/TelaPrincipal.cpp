@@ -153,9 +153,17 @@ TelaPrincipal::Instantaneo TelaPrincipal::compoe(const EstadoTela& e,
     }
 
     // ---- faixa superior, um ocupante por vez ----------------------------
-    if (e.taxa == EstadoTaxa::Degradado || e.taxa == EstadoTaxa::Falha) {
-        copia(i.superior, sizeof i.superior, "TAXA DE GPS REDUZIDA");
-    } else if (e.houve_ajuste_brilho &&
+    //
+    // ⚠️ **O aviso `TAXA DE GPS REDUZIDA` saiu daqui em 14/10/2026**, por
+    // decisão do autor. A taxa só conta fixes aproveitados, então ela desaba
+    // em todo túnel: o aviso aparecia a um quarto de segundo da perda de
+    // sinal — medido —, junto com o `SEM SINAL` da faixa de baixo, que já
+    // dizia a mesma coisa, e custava o relógio para repeti-la.
+    //
+    // A degradação não foi perdida: vive no log, em `Aplicacao::anota_taxa`,
+    // e lá com a condição que a torna informativa — taxa baixa **com fix
+    // presente**, que é defeito de verdade e não ausência de céu.
+    if (e.houve_ajuste_brilho &&
                (agora_ms - e.brilho_mexido_em_ms) < kBarraBrilhoMs) {
         std::snprintf(i.superior, sizeof i.superior, "BRILHO %u%%",
                       static_cast<unsigned>(e.brilho_pct));
