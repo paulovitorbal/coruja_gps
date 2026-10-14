@@ -127,6 +127,22 @@ discovery.docker "local" {
 discovery.relabel "containers" {
   targets = discovery.docker.local.targets
 
+  // 🔴 **Só os containers do Coruja**, e isto não é esmero: a máquina que
+  // hospeda a API roda uma dúzia de coisas sem relação nenhuma com este
+  // projeto -- banco, receitas, orçamento, proxy. Medido na implantação de
+  // 14/10/2026: sem este filtro, entraram linhas de 2022 do `mysql` e do
+  // `portainer`, que além de ruído foram RECUSADAS pelo piso do esquema e
+  // reenviadas em laço.
+  //
+  // O log dos outros serviços é assunto deles. Para incluí-los, troque a
+  // expressão -- e desça o piso do `schema_config` até antes do log mais
+  // antigo que existir na máquina.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/coruja-.*"
+    action        = "keep"
+  }
+
   // O nome vem com uma barra na frente, como o Docker o devolve.
   rule {
     source_labels = ["__meta_docker_container_name"]

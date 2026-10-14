@@ -33,7 +33,7 @@ Sobe **separado da API** de propósito. Quem clonar o repositório para
 distribuir base de radares não precisa de três serviços a mais, e uma pilha de
 observabilidade que derruba o que observa é pior que não ter nenhuma.
 
-## Três coisas que custaram uma subida de teste para descobrir
+## Cinco coisas que custaram uma subida de teste para descobrir
 
 ### 1. A data do esquema é um piso, e o que vem antes dela é recusado
 
@@ -68,6 +68,32 @@ docker exec -it coruja-grafana grafana-cli admin reset-admin-password '<nova>'
 
 Ou apagar o volume `grafana-dados`, o que também apaga preferências e qualquer
 painel criado pela tela.
+
+### 4. Linha atrasada é descartada, e às vezes em silêncio
+
+A janela de aceitação de uma linha **atrasada** é metade do `max_chunk_age`, e
+o padrão de 2 h dava uma hora. O diário do aparelho chega dias depois do que
+descreve: com o padrão, quase nada dele é indexado.
+
+Medido: uma linha de nove dias atrás simplesmente não chegava. Às vezes o
+coletor registrava `entry too far behind`; às vezes **não registrava nada**, e
+o silêncio é pior — o arquivo está no servidor, a consulta não acha, e nada
+aponta para o motivo. Por isso `max_chunk_age: 2160h`, que dá **45 dias** de
+janela.
+
+Remessa mais atrasada que isso continua no arquivo original, em `recebidos/`.
+Esta pilha é um índice do que já está guardado, não a cópia única.
+
+### 5. O coletor leva todo container da máquina, se deixarem
+
+A máquina que hospeda a API roda uma dúzia de serviços sem relação nenhuma com
+este projeto. Na primeira implantação entraram linhas **de 2022** do `mysql` e
+do `portainer` — que além de ruído foram recusadas pelo piso do esquema e
+reenviadas em laço.
+
+Por isso o `discovery.relabel` tem um `keep` em `/coruja-.*`. Para incluir
+outros serviços, troque a expressão — e desça o piso do `schema_config` até
+antes do log mais antigo que existir na máquina.
 
 ## O soquete do Docker, e como dispensá-lo
 

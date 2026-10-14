@@ -123,6 +123,25 @@ class ConfiguracaoDoLoki(unittest.TestCase):
             "com a recusa ligada, uma remessa de viagens antigas e descartada "
             "na ingestao -- sem erro em lugar nenhum")
 
+    def test_a_janela_de_atraso_cobre_semanas(self):
+        """🔴 O descarte mais traiçoeiro dos dois, e as vezes SILENCIOSO.
+
+        A janela de aceitacao de linha atrasada e METADE do `max_chunk_age`,
+        e o padrao de 2 h dava uma hora -- o que descarta praticamente todo o
+        diario do aparelho, que chega dias depois do que descreve. Medido em
+        14/10/2026: uma linha de nove dias atras nao chegava, e nem sempre
+        havia erro no coletor.
+        """
+        texto = LOKI.read_text(encoding="utf-8")
+        achado = re.search(r"^\s*max_chunk_age:\s*(\d+)h\s*$", texto, re.M)
+        self.assertIsNotNone(
+            achado, "sem `max_chunk_age`, o Loki so aceita a ultima hora")
+        # Metade disso e a janela. Uma semana de atraso e rotina: o aparelho
+        # so manda quando o motorista lembra.
+        self.assertGreaterEqual(
+            int(achado.group(1)) // 2, 24 * 14,
+            "a janela (metade do max_chunk_age) tem de cobrir semanas")
+
     def test_o_idexec_nao_vira_rotulo(self):
         # São 8 caracteres sorteados a cada ligação. Como rótulo, cada boot
         # abriria fluxos próprios no índice.
@@ -169,6 +188,20 @@ class Compose(unittest.TestCase):
         texto = COMPOSE.read_text(encoding="utf-8")
         bloco = texto[texto.index("  loki:"):texto.index("  alloy:")]
         self.assertNotIn("ports:", bloco)
+
+    def test_so_os_containers_do_coruja_sao_coletados(self):
+        """A maquina que hospeda a API roda uma duzia de coisas alheias.
+
+        Medido na implantacao: sem o filtro entraram linhas de 2022 do
+        `mysql` e do `portainer` -- ruido, e ainda por cima recusadas pelo
+        piso do esquema e reenviadas em laco.
+        """
+        alloy = ALLOY.read_text(encoding="utf-8")
+        bloco = alloy[alloy.index('discovery.relabel "containers"'):]
+        bloco = bloco[:bloco.index("loki.source.docker")]
+        self.assertIn('action        = "keep"', bloco,
+                      "sem um `keep`, o coletor leva TODO container da maquina")
+        self.assertIn('regex         = "/coruja-.*"', bloco)
 
     def test_o_que_o_aparelho_mandou_entra_somente_leitura(self):
         texto = COMPOSE.read_text(encoding="utf-8")

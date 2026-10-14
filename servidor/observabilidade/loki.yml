@@ -51,6 +51,23 @@ schema_config:
         prefix: index_
         period: 24h
 
+ingester:
+  # 🔴 **A janela de aceitação de linha ATRASADA é metade disto**, e o padrão
+  # de 2 h dava 1 h — o que descarta quase todo o diário do aparelho.
+  #
+  # Medido: com o padrão, uma linha de nove dias atrás simplesmente não
+  # chega. Às vezes o coletor registra `entry too far behind`; às vezes
+  # não registra nada, e o silêncio é pior — o arquivo está no servidor, a
+  # consulta não acha, e nada aponta para o motivo.
+  #
+  # 90 dias dão 45 de janela, que é o atraso máximo que uma remessa pode ter
+  # e ainda ser indexada. Mais que isso continua no arquivo original, em
+  # `recebidos/`, que é a fonte e não a cópia.
+  #
+  # Não é caro aqui: o que mantém o pedaço aberto na memória é a atividade,
+  # e `chunk_idle_period` (30 min) fecha stream parado muito antes disso.
+  max_chunk_age: 2160h
+
 limits_config:
   # 🔴 **O diário do aparelho chega ATRASADO, e por isso isto é `false`.**
   #
