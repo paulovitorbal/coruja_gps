@@ -161,10 +161,19 @@ o que ele via. Da **v0.2.13** em diante:
 | `base` | `piloto recebeu N pontos` | a base chegou a quem alerta — sai como **ERRO** se `N` for zero |
 | `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
 | `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
+| `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
+| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s \| aop ligado` | por que ela demorou — no primeiro fix e a cada 5 min |
 | `gps` | `taxa de fixes em 2.0 Hz com posicao presente (falha)` | **WARN** — a cadência caiu com o receptor entregando posição |
 | `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima |
 | `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
 | `gps` | `reconfiguracao em voo: configurado; a porta ficou em 115200` | como ela terminou (ERRO se não foi `configurado`) |
+
+⚠️ **A linha `radio:` compara dois relógios de propósito.** O `primeiro fix`
+conta desde o boot do Pico e inclui a configuração do receptor; o `ttff do
+modulo` é o que o próprio módulo mediu. Divergirem muito aponta o atraso para
+o nosso lado, e não para o céu. Ela sai como **WARN** quando a interferência
+derruba o fix ou a antena está em curto ou aberta — que é quando o aparelho
+parece quebrado sem estar.
 
 ⚠️ **A degradação de taxa só existe aqui.** Ela ocupava a faixa superior da tela de
 dirigir e saiu dela em 14/10/2026: como a taxa conta apenas fixes aproveitados, o aviso

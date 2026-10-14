@@ -24,7 +24,12 @@ public:
         saida.insert(saida.end(), b.begin(), b.end());
     }
 
-    void escreve(const std::uint8_t*, std::size_t) override {}
+    /// O que o leitor MANDA para o receptor -- as consultas de diagnóstico
+    /// são a única coisa que ele escreve.
+    std::vector<std::uint8_t> escritos;
+    void escreve(const std::uint8_t* dados, std::size_t n) override {
+        escritos.insert(escritos.end(), dados, dados + n);
+    }
     void define_baud(std::uint32_t) override {}
     std::size_t le(std::uint8_t* destino, std::size_t capacidade) override {
         const std::size_t teto = capacidade < pedaco ? capacidade : pedaco;
@@ -128,6 +133,127 @@ TEST(LeitorGps, sem_fix_nao_apaga_a_ultima_telemetria_boa) {
     b.uart.injeta(kRmcSemFix);
     b.leitor.atualiza(250);
     EXPECT_FLOAT_EQ(b.leitor.telemetria().velocidade_kmh, v);
+}
+
+// ============================= diagnostico: por que o fix demorou 2:48
+
+/// Monta um quadro UBX completo, com checksum, para injetar na porta.
+std::vector<std::uint8_t> quadro_ubx(std::uint8_t classe, std::uint8_t id,
+                                     const std::vector<std::uint8_t>& payload) {
+    std::vector<std::uint8_t> q = {
+        0xB5, 0x62, classe, id,
+        static_cast<std::uint8_t>(payload.size() & 0xFF),
+        static_cast<std::uint8_t>(payload.size() >> 8)};
+    q.insert(q.end(), payload.begin(), payload.end());
+    std::uint8_t a = 0, b2 = 0;
+    for (std::size_t i = 2; i < q.size(); ++i) {
+        a = static_cast<std::uint8_t>(a + q[i]);
+        b2 = static_cast<std::uint8_t>(b2 + a);
+    }
+    q.push_back(a);
+    q.push_back(b2);
+    return q;
+}
+
+TEST(LeitorGps, a_consulta_de_diagnostico_pede_as_tres_mensagens) {
+    Bancada b;
+    b.leitor.pergunta_diagnostico();
+    // Classe e id de cada consulta, na ordem em que saem.
+    const std::vector<std::pair<std::uint8_t, std::uint8_t>> esperadas = {
+        {ubx::kClasseNav, ubx::kNavStatus},
+        {ubx::kClasseMon, ubx::kMonHw},
+        {ubx::kClasseNav, ubx::kNavAopStatus}};
+    ASSERT_EQ(b.uart.escritos.size(), esperadas.size() * 8)
+        << "consulta tem 8 bytes: cabecalho e checksum, sem payload";
+    for (std::size_t i = 0; i < esperadas.size(); ++i) {
+        EXPECT_EQ(b.uart.escritos[i * 8 + 2], esperadas[i].first);
+        EXPECT_EQ(b.uart.escritos[i * 8 + 3], esperadas[i].second);
+    }
+}
+
+TEST(LeitorGps, a_resposta_de_nav_status_vira_o_ttff_do_modulo) {
+    // ⚠️ Este numero e o do RECEPTOR. O nosso conta desde o boot do Pico e
+    // inclui a configuracao; divergirem aponta o atraso para o nosso lado.
+    Bancada b;
+    std::vector<std::uint8_t> p(16, 0);
+    p[4] = 3;                   // 3D
+    p[5] = 0x01;                // gpsFixOK
+    p[8] = 0x10; p[9] = 0x92; p[10] = 0x02;   // ttff = 168464 ms
+    b.uart.injeta(quadro_ubx(ubx::kClasseNav, ubx::kNavStatus, p));
+    b.leitor.atualiza(1000);
+
+    EXPECT_TRUE(b.leitor.navegacao().teve_fix);
+    EXPECT_EQ(b.leitor.navegacao().ttff_ms, 168464U);
+    EXPECT_EQ(b.leitor.navegacao().tipo_fix, 3);
+    EXPECT_EQ(b.leitor.respostas_diagnostico(), 1U);
+}
+
+TEST(LeitorGps, a_resposta_de_mon_hw_vira_ruido_e_interferencia) {
+    Bancada b;
+    std::vector<std::uint8_t> p(60, 0);
+    p[16] = 85;      // noisePerMS
+    p[18] = 0x08; p[19] = 0x07;  // agcCnt = 1800
+    p[20] = 2;       // antena ok
+    p[22] = 0x08;    // jammingState = 2
+    p[45] = 42;      // jamInd
+    b.uart.injeta(quadro_ubx(ubx::kClasseMon, ubx::kMonHw, p));
+    b.leitor.atualiza(1000);
+
+    EXPECT_EQ(b.leitor.radio().ruido, 85);
+    EXPECT_EQ(b.leitor.radio().agc, 1800);
+    EXPECT_EQ(b.leitor.radio().antena, AntenaGps::Ok);
+    EXPECT_EQ(b.leitor.radio().interferencia, 42);
+    EXPECT_EQ(b.leitor.radio().jamming, Jamming::Aviso);
+}
+
+TEST(LeitorGps, o_diagnostico_atravessa_sentencas_NMEA_na_mesma_linha) {
+    // Na linha de verdade o quadro binario chega ENTRE sentencas de texto, e
+    // e por isso que o leitor de UBX e de fluxo.
+    Bancada b;
+    std::vector<std::uint8_t> p(16, 0);
+    p[4] = 0x01;   // aopCfg: useAOP
+    p[5] = 0x00;   // ocioso, que e o estado normal de quem esta em dia
+    b.uart.injeta(kRmcValida);
+    b.uart.injeta(quadro_ubx(ubx::kClasseNav, ubx::kNavAopStatus, p));
+    b.uart.injeta(kRmcSemFix);
+    b.leitor.atualiza(1000);
+
+    EXPECT_TRUE(b.leitor.aop().ligado);
+    EXPECT_FALSE(b.leitor.aop().calculando);
+    EXPECT_EQ(b.leitor.fixes(), 1U) << "a sentenca de texto se perdeu";
+}
+
+TEST(LeitorGps, quadro_UBX_de_outra_mensagem_nao_conta_como_resposta) {
+    // ⚠️ Quem pergunta espera TRES respostas e relata quando elas chegam.
+    // Contar um quadro qualquer faria o relato sair cedo, com o conteudo da
+    // consulta anterior -- numero velho apresentado como medida de agora.
+    Bancada b;
+    b.uart.injeta(quadro_ubx(ubx::kClasseNav, 0x07, std::vector<std::uint8_t>(92, 0)));
+    b.leitor.atualiza(1000);
+    EXPECT_EQ(b.leitor.respostas_diagnostico(), 0U);
+}
+
+TEST(LeitorGps, resposta_curta_demais_nao_conta_nem_preenche) {
+    // Payload curto e outra versao de protocolo ou dessincronia. Decodificar
+    // o que nao existe daria ruido com cara de medida.
+    Bancada b;
+    b.uart.injeta(quadro_ubx(ubx::kClasseMon, ubx::kMonHw,
+                             std::vector<std::uint8_t>(20, 0xAB)));
+    b.leitor.atualiza(1000);
+    EXPECT_EQ(b.leitor.respostas_diagnostico(), 0U);
+    EXPECT_EQ(b.leitor.radio().ruido, 0);
+}
+
+TEST(LeitorGps, quadro_de_diagnostico_corrompido_nao_vira_diagnostico) {
+    Bancada b;
+    std::vector<std::uint8_t> p(60, 0);
+    p[45] = 200;
+    auto q = quadro_ubx(ubx::kClasseMon, ubx::kMonHw, p);
+    q[q.size() - 1] ^= 0xFF;   // estraga o checksum
+    b.uart.injeta(q);
+    b.leitor.atualiza(1000);
+    EXPECT_EQ(b.leitor.respostas_diagnostico(), 0U);
+    EXPECT_EQ(b.leitor.radio().interferencia, 0);
 }
 
 // ================================= RF01.5: o tunel nao e defeito de config

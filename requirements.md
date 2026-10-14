@@ -59,6 +59,7 @@ O firmware deve enviar, e reenviar a cada boot:
 | `CFG-RATE` | período de medição = **250 ms (4 Hz)** — ver RF01.4 |
 | `CFG-PRT` | baud rate da UART = **115200 bps** |
 | `CFG-MSG` | desabilitar todas as sentenças **exceto RMC e GGA** |
+| `CFG-NAVX5` | ligar a **previsão autônoma de órbita** (AOP) — *opcional* |
 | `CFG-CFG` | persistir configuração (BBR e EEPROM da placa, se presente) |
 
 A **GGA fica ligada** desde 13/10/2026, e é a única que traz o `HDOP`. A RMC
@@ -70,6 +71,54 @@ O custo cabe: ~80 B a 4 Hz são 320 B/s, contra 11.520 B/s a 115200 — e a RMC
 já ocupava ~280 B/s. Juntas ficam em ~5% do enlace. **A 9600 seriam 62%**, e
 é por isso que o passo do baud vem antes de a GGA começar a sair. A GSV
 continua desligada: é ela que estoura a linha.
+
+##### Previsão autônoma de órbita (AOP), desde 14/10/2026
+
+O `CFG-NAVX5` com `useAOP` faz o módulo **prever onde os satélites estarão**
+nos próximos dias, a partir das efemérides que já capturou, em vez de esperar
+a transmissão de órbita — que é o que faz um cold start levar dezenas de
+segundos. Não depende de rede: é cálculo no próprio módulo.
+
+**Por que entrou:** em 14/10/2026 o primeiro fix levou **2 min 48 s**, com o
+carro parado um minuto numa garagem descoberta (tela de sombrite, que não
+atenua L1 de forma relevante). São **seis vezes** o cold start de 26 s do
+datasheet.
+
+⚠️ **Depende de a BBR sobreviver ao desligamento**, porque é lá que a previsão
+fica. Neste aparelho sabemos que sobrevive — foi exatamente isso que causou o
+incidente de 08/10/2026, quando o módulo voltou de uma parada curta ainda
+falando 115200 enquanto o Pico religava em 9600.
+
+⚠️ **É um passo opcional.** Um NAK nele não derruba a configuração, pela mesma
+razão da TXT: um ganho de partida não pode custar a RMC e o baud.
+
+⚠️ **Vem antes do `CFG-CFG`.** Depois, a previsão não entraria na configuração
+gravada e se perderia no próximo boot — que é justamente quando ela serve.
+
+##### Instrumentação da partida
+
+Antes de 14/10/2026 **não havia como saber por que um fix demorou**: o diário
+não registrava o instante do primeiro fix, e a linha `vigia` amostra de cinco
+em cinco minutos. As duas hipóteses para 2:48 eram opostas — o receptor parte
+sem dado nenhum, ou parte cego por ruído — e a segunda tem como suspeito o
+próprio aparelho, com o SPI do painel a 16 MHz e o do cartão a centímetros da
+antena.
+
+O firmware passa a registrar:
+
+| Linha | Responde |
+| :--- | :--- |
+| `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto demorou, pelo **nosso** relógio — inclui boot e configuração |
+| `ttff do modulo` (`NAV-STATUS`) | quanto demorou pelo relógio **do receptor**; divergir muito aponta o atraso para o nosso lado |
+| `ruido`, `agc`, `antena`, `interferencia` (`MON-HW`) | se o front-end está afogado — e o `jamInd` diz quanto |
+| `aop` (`NAV-AOPSTATUS`) | se a previsão de órbita está mesmo ligada |
+
+As três mensagens são **consultadas**, não assinadas: ligar a emissão
+periódica da `MON-HW`, que tem 60 bytes, gastaria banda permanente para
+responder a uma pergunta que se faz de cinco em cinco minutos.
+
+⚠️ **`jamming` desconhecido não é "sem interferência"**: é o monitor
+desligado. Num o número não foi medido; no outro foi e deu limpo.
 
 ⚠️ **O `HDOP` não vira porcentagem.** Ele não tem teto de bondade — 0,7 é
 melhor que 1,0, e não existe "100%". Inventar um máximo afirmaria precisão
@@ -927,7 +976,7 @@ Comportamento obrigatório nas condições de falha:
 | **Cartão presente mas ilegível** | Visor indica **"cartão ilegível"** — falha que o motorista não resolve dirigindo. Opera como velocímetro simples. Não travar nem reiniciar em laço. |
 | **`radares.bin` inválido** | Tentar `radares.bak`. Se ambos falharem, tratar como cartão ilegível. |
 | **Travamento do firmware** | **Watchdog de hardware** com janela de 2 s. O motorista não pode reiniciar o dispositivo dirigindo. |
-| **Cold start do GPS** | TTFF de **26 s** em GPS+GLONASS (datasheet, Tabela 1); hot start 1 s, aided 2 s. A tela de boot deve deixar explícito que ainda não há proteção ativa. |
+| **Cold start do GPS** | TTFF de **26 s** em GPS+GLONASS (datasheet, Tabela 1); hot start 1 s, aided 2 s. A tela de boot deve deixar explícito que ainda não há proteção ativa. ⚠️ **Medido em campo: 2 min 48 s** em 14/10/2026 — seis vezes o datasheet. Daí o AOP e a instrumentação do RF01.2. |
 | **Taxa abaixo de 3 Hz** sustentada (RF01.5) | Reenviar a configuração UBX uma vez, **se o receptor estiver calado** (ver RF01.5). Se persistir, **registrar no log** e **manter os alertas ativos** — 1 Hz ainda protege melhor que nada. |
 
 ---

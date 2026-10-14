@@ -16,10 +16,15 @@ constexpr std::size_t kSobrecarga = 8;
 /// perderia todos os quadros bons do caminho.
 constexpr std::uint16_t kMaxPayloadLido = 512;
 
-/// Quanto do payload o leitor guarda. ACK e NAK têm 2 bytes; o resto é
-/// somado ao checksum e descartado, o que mantém a RAM constante sem deixar
-/// de validar o quadro inteiro.
-constexpr std::size_t kMaxPayloadGuardado = 8;
+/// Quanto do payload o leitor guarda. O que passa disso é somado ao checksum
+/// e descartado, o que mantém a RAM constante sem deixar de validar o quadro
+/// inteiro.
+///
+/// **Eram 8 bytes**, que bastavam para ACK e NAK. Passou a 64 por causa do
+/// `MON-HW`: o indicador de interferência mora no byte **45**, depois de 17
+/// bytes reservados, e é ele que diz se o receptor está cego por ruído. Os
+/// 56 bytes a mais são o preço de poder responder essa pergunta.
+constexpr std::size_t kMaxPayloadGuardado = 64;
 
 // ------------------------------------------------------------- classes/ids
 
@@ -42,6 +47,16 @@ constexpr std::uint8_t kNmeaGsv = 0x03;
 constexpr std::uint8_t kNmeaRmc = 0x04;
 constexpr std::uint8_t kNmeaVtg = 0x05;
 constexpr std::uint8_t kNmeaTxt = 0x41;
+
+constexpr std::uint8_t kCfgNavx5 = 0x23;
+
+/// Classes de diagnóstico, só de leitura — ver `UbxDiagnostico.h` para o
+/// motivo de cada uma existir.
+constexpr std::uint8_t kClasseNav = 0x01;
+constexpr std::uint8_t kNavStatus = 0x03;
+constexpr std::uint8_t kNavAopStatus = 0x60;
+constexpr std::uint8_t kClasseMon = 0x0A;
+constexpr std::uint8_t kMonHw = 0x09;
 
 /// Bits de `deviceMask` do `CFG-CFG`.
 constexpr std::uint8_t kDispBbr     = 0x01;
@@ -82,6 +97,34 @@ std::size_t monta_cfg_msg(std::uint8_t classe_msg, std::uint8_t id_msg,
 /// enviar tem de trocar a própria UART antes de esperar o ACK.
 std::size_t monta_cfg_prt_uart(std::uint32_t baud, std::uint8_t* destino,
                                std::size_t capacidade);
+
+/// Consulta: quadro de payload **zero**, que no UBX quer dizer "me mande esta
+/// mensagem agora". A resposta vem com a mesma classe e id.
+///
+/// Consultar em vez de ligar a emissão periódica é deliberado: o diagnóstico
+/// é olhado de cinco em cinco minutos, e uma mensagem de 60 bytes a 4 Hz
+/// ocuparia banda permanente para responder a uma pergunta ocasional.
+std::size_t monta_consulta(std::uint8_t classe, std::uint8_t id,
+                           std::uint8_t* destino, std::size_t capacidade);
+
+/// `CFG-NAVX5` ligando (ou desligando) a **previsão autônoma de órbita**.
+///
+/// O receptor usa as efemérides que já capturou para prever onde os
+/// satélites estarão nos próximos dias, e parte com essa previsão em vez de
+/// esperar a transmissão de órbita — que é o que faz um cold start levar
+/// dezenas de segundos. Não precisa de rede: é cálculo no próprio módulo.
+///
+/// ⚠️ **Depende da BBR sobreviver ao desligamento**, porque é lá que a
+/// previsão fica. Neste aparelho sabemos que sobrevive: foi exatamente isso
+/// que causou o incidente de 08/10/2026, quando o módulo voltou de uma
+/// parada curta ainda falando 115200 enquanto o Pico religava em 9600.
+///
+/// ⚠️ **Só o bit de AOP é aplicado.** O `mask1` seleciona quais campos valem,
+/// e os outros 38 bytes vão zerados: sem essa seleção, este comando
+/// reescreveria mínimo de satélites, limiar de C/N0 e rollover de semana com
+/// zero — um efeito colateral que ninguém pediu.
+std::size_t monta_cfg_navx5_aop(bool liga, std::uint8_t* destino,
+                                std::size_t capacidade);
 
 /// `CFG-CFG`: persiste a configuração corrente nos dispositivos indicados.
 std::size_t monta_cfg_cfg(std::uint32_t mascara_salvar,
@@ -127,6 +170,17 @@ public:
     /// Classe e id do último quadro completo lido, seja ele qual for.
     std::uint8_t classe() const { return classe_; }
     std::uint8_t id() const { return id_; }
+
+    /// O payload do último quadro, até `kMaxPayloadGuardado` bytes.
+    ///
+    /// O tamanho devolvido é o que FOI GUARDADO, e não o que o quadro
+    /// declarou: quem decodifica tem de recusar o payload curto em vez de
+    /// ler além do que existe — e os decodificadores de `UbxDiagnostico.h`
+    /// recusam.
+    const std::uint8_t* payload() const { return payload_; }
+    std::size_t tamanho_payload() const {
+        return tam_ < kMaxPayloadGuardado ? tam_ : kMaxPayloadGuardado;
+    }
 
     std::uint32_t quadros_invalidos() const { return invalidos_; }
     void reinicia();

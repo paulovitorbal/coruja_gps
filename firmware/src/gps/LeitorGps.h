@@ -6,6 +6,7 @@
 #include "nucleo/MonitorTaxa.h"
 #include "nucleo/Nmea.h"
 #include "nucleo/Ubx.h"
+#include "nucleo/UbxDiagnostico.h"
 
 namespace coruja {
 
@@ -55,6 +56,28 @@ public:
     const MonitorTaxa& monitor() const { return monitor_; }
     MonitorTaxa& monitor() { return monitor_; }
 
+    /// Pede ao receptor as três mensagens de diagnóstico de partida.
+    ///
+    /// **Pergunta, não assina.** Ligar a emissão periódica destas mensagens
+    /// gastaria banda permanente -- a `MON-HW` tem 60 bytes -- para
+    /// responder a uma pergunta que se faz de cinco em cinco minutos.
+    ///
+    /// A resposta não vem aqui: ela chega pela linha, entre sentenças NMEA,
+    /// e é guardada quando chegar. Quem pergunta olha `respostas_diagnostico`
+    /// para saber que chegou.
+    void pergunta_diagnostico();
+
+    /// O que o receptor disse do próprio fix, do rádio e da previsão de
+    /// órbita. Ver `UbxDiagnostico.h` para o que cada campo responde.
+    const EstadoNavegacao& navegacao() const { return navegacao_; }
+    const EstadoRadio& radio() const { return radio_; }
+    const EstadoAop& aop() const { return aop_; }
+
+    /// Quantas respostas de diagnóstico foram decodificadas desde o boot.
+    /// Serve a quem perguntou para saber que a resposta chegou, sem precisar
+    /// comparar conteúdo.
+    std::uint32_t respostas_diagnostico() const { return diagnosticos_; }
+
     /// Último quadro UBX de interesse, para quem espera um ACK.
     ubx::LeitorUbx& ubx() { return ubx_; }
 
@@ -67,6 +90,8 @@ public:
 private:
     void processa_gga(const char* linha, std::size_t tamanho,
                       std::uint32_t agora_ms);
+    /// Um quadro UBX fechou: se for diagnóstico, decodifica e guarda.
+    void guarda_diagnostico();
     void processa_linha(const char* linha, std::size_t tamanho,
                         std::uint32_t agora_ms);
 
@@ -76,6 +101,10 @@ private:
     std::uint32_t  qualidade_ms_ = 0;
     bool           tem_qualidade_ = false;
     ubx::LeitorUbx ubx_;
+    EstadoNavegacao navegacao_;
+    EstadoRadio     radio_;
+    EstadoAop       aop_;
+    std::uint32_t   diagnosticos_ = 0;
     Telemetria     telemetria_;
     char           linha_[kLinhaMaxima + 1] = {};
     std::size_t    usados_ = 0;

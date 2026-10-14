@@ -87,6 +87,15 @@ public:
         }
         return false;
     }
+    /// O primeiro comando com este id, para olhar o payload. Aborta no
+    /// teste se nao houver -- `mandou()` responde essa pergunta.
+    const Comando& comando(std::uint8_t id) const {
+        for (const auto& c : comandos) {
+            if (c.classe == ubx::kClasseCfg && c.id == id) { return c; }
+        }
+        static const Comando vazio{};
+        return vazio;
+    }
     unsigned quantos(std::uint8_t id) const {
         unsigned n = 0;
         for (const auto& c : comandos) {
@@ -165,6 +174,52 @@ TEST(ConfiguradorGps, manda_os_quatro_comandos_do_requisito) {
     EXPECT_TRUE(b.uart.mandou(ubx::kCfgPrt));
     EXPECT_TRUE(b.uart.mandou(ubx::kCfgMsg));
     EXPECT_TRUE(b.uart.mandou(ubx::kCfgCfg));
+}
+
+// ====================================== previsao de orbita (AOP), 14/10/2026
+
+TEST(ConfiguradorGps, liga_a_previsao_de_orbita) {
+    // Existe por causa de um primeiro fix de 2 min 48 s -- seis vezes o cold
+    // start do datasheet. O AOP faz o modulo prever a orbita dos satelites a
+    // partir do que ja capturou, em vez de esperar a transmissao.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    ASSERT_TRUE(b.uart.mandou(ubx::kCfgNavx5));
+
+    const auto& c = b.uart.comando(ubx::kCfgNavx5);
+    ASSERT_EQ(c.payload.size(), 40U);
+    EXPECT_EQ(c.payload[27] & 0x01, 0x01) << "o bit useAOP nao foi ligado";
+    // ⚠️ mask1 com SO o bit 14: sem isso, os 38 bytes zerados do payload
+    // reescreveriam minimo de satelites, C/N0 e rollover de semana.
+    EXPECT_EQ(c.payload[2] | (c.payload[3] << 8), 0x4000);
+}
+
+TEST(ConfiguradorGps, o_AOP_e_OPCIONAL_e_um_NAK_nele_nao_derruba_o_resto) {
+    // Mesma licao da TXT: nove dos catorze boots de 08/10/2026 terminaram em
+    // `TXT off: NAK`, e abortar ali deixava a porta em 9600 com a RMC
+    // desligada. Um extra recusado nao pode custar o essencial.
+    Bancada b;
+    b.uart.recusa.push_back(ubx::kCfgNavx5);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+    EXPECT_TRUE(b.log.contem(Nivel::Warning, "AOP"))
+        << "a recusa tem de aparecer no log, ou ninguem descobre";
+}
+
+TEST(ConfiguradorGps, o_AOP_e_pedido_ANTES_de_persistir) {
+    // Se fosse depois do CFG-CFG, a previsao nao estaria na configuracao
+    // gravada -- e seria perdida no proximo boot, que e exatamente quando
+    // ela serve.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    int ordem_aop = -1, ordem_cfg = -1;
+    for (std::size_t i = 0; i < b.uart.comandos.size(); ++i) {
+        if (b.uart.comandos[i].id == ubx::kCfgNavx5) { ordem_aop = int(i); }
+        if (b.uart.comandos[i].id == ubx::kCfgCfg) { ordem_cfg = int(i); }
+    }
+    ASSERT_GE(ordem_aop, 0);
+    ASSERT_GE(ordem_cfg, 0);
+    EXPECT_LT(ordem_aop, ordem_cfg);
 }
 
 TEST(ConfiguradorGps, pede_250_ms_que_sao_os_4_hz_do_rf01_4) {

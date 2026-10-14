@@ -109,6 +109,20 @@ std::size_t monta_cfg_prt_uart(std::uint32_t baud, std::uint8_t* destino,
     return monta(kClasseCfg, kCfgPrt, p, sizeof p, destino, capacidade);
 }
 
+std::size_t monta_consulta(std::uint8_t classe, std::uint8_t id,
+                           std::uint8_t* destino, std::size_t capacidade) {
+    return monta(classe, id, nullptr, 0, destino, capacidade);
+}
+
+std::size_t monta_cfg_navx5_aop(bool liga, std::uint8_t* destino,
+                                std::size_t capacidade) {
+    std::uint8_t p[40] = {};
+    poe_u16(&p[0], 2);        // version 2: a do protocolo do M8
+    poe_u16(&p[2], 0x4000);   // mask1, bit 14: aplique SÓ o AOP
+    p[27] = liga ? 0x01 : 0x00;   // aopCfg, bit 0: useAOP
+    return monta(kClasseCfg, kCfgNavx5, p, sizeof p, destino, capacidade);
+}
+
 std::size_t monta_cfg_cfg(std::uint32_t mascara_salvar,
                           std::uint8_t dispositivos, std::uint8_t* destino,
                           std::size_t capacidade) {

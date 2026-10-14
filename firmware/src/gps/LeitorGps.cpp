@@ -11,8 +11,46 @@ void LeitorGps::reinicia() {
     telemetria_ = Telemetria{};
     qualidade_ = QualidadeFix{};
     tem_qualidade_ = false;
+    navegacao_ = EstadoNavegacao{};
+    radio_ = EstadoRadio{};
+    aop_ = EstadoAop{};
+    diagnosticos_ = 0;
     monitor_.reinicia();
     ubx_.reinicia();
+}
+
+void LeitorGps::pergunta_diagnostico() {
+    // As três de uma vez: elas respondem juntas a mesma pergunta, e separar
+    // em três momentos só daria três instantes diferentes para comparar.
+    const struct { std::uint8_t classe, id; } consultas[] = {
+        {ubx::kClasseNav, ubx::kNavStatus},
+        {ubx::kClasseMon, ubx::kMonHw},
+        {ubx::kClasseNav, ubx::kNavAopStatus},
+    };
+    std::uint8_t quadro[ubx::kSobrecarga];
+    for (const auto& c : consultas) {
+        const std::size_t n =
+            ubx::monta_consulta(c.classe, c.id, quadro, sizeof quadro);
+        if (n > 0) { uart_.escreve(quadro, n); }
+    }
+}
+
+void LeitorGps::guarda_diagnostico() {
+    const std::uint8_t* p = ubx_.payload();
+    const std::size_t tam = ubx_.tamanho_payload();
+    bool decodificou = false;
+    if (ubx_.classe() == ubx::kClasseNav && ubx_.id() == ubx::kNavStatus) {
+        decodificou = analisa_nav_status(p, tam, &navegacao_);
+    } else if (ubx_.classe() == ubx::kClasseMon && ubx_.id() == ubx::kMonHw) {
+        decodificou = analisa_mon_hw(p, tam, &radio_);
+    } else if (ubx_.classe() == ubx::kClasseNav &&
+               ubx_.id() == ubx::kNavAopStatus) {
+        decodificou = analisa_nav_aopstatus(p, tam, &aop_);
+    }
+    // Só conta o que foi entendido. Um quadro de outra classe, ou curto
+    // demais, não é resposta à pergunta que alguém fez — e quem espera a
+    // resposta ficaria achando que ela chegou.
+    if (decodificou) { ++diagnosticos_; }
 }
 
 bool LeitorGps::tem_qualidade(std::uint32_t agora_ms) const {
@@ -93,7 +131,9 @@ void LeitorGps::atualiza(std::uint32_t agora_ms) {
         for (std::size_t i = 0; i < lidos; ++i) {
             const char c = static_cast<char>(bloco[i]);
             // Todo byte vai ao leitor de UBX também: é a mesma linha.
-            ubx_.consome(bloco[i]);
+            if (ubx_.consome(bloco[i]) == ubx::EventoUbx::Outro) {
+                guarda_diagnostico();
+            }
 
             if (c == '\n') {
                 // O `\r` do fim fica: o `analisa_rmc` acha o `*` e para ali,

@@ -29,6 +29,23 @@ const std::vector<std::uint8_t> kCfgPrt115200 = {
 const std::vector<std::uint8_t> kCfgCfgSalva = {
     0xB5, 0x62, 0x06, 0x09, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x1F, 0xAD};
+/// Consultas: quadro de payload ZERO, que no UBX quer dizer "me mande esta
+/// mensagem". Mesma classe e id da resposta esperada.
+const std::vector<std::uint8_t> kConsultaNavStatus = {
+    0xB5, 0x62, 0x01, 0x03, 0x00, 0x00, 0x04, 0x0D};
+const std::vector<std::uint8_t> kConsultaMonHw = {
+    0xB5, 0x62, 0x0A, 0x09, 0x00, 0x00, 0x13, 0x43};
+const std::vector<std::uint8_t> kConsultaAopStatus = {
+    0xB5, 0x62, 0x01, 0x60, 0x00, 0x00, 0x61, 0x24};
+/// `CFG-NAVX5` com `mask1` marcando SÓ o bit de AOP: os outros campos vão
+/// zerados e o módulo os ignora, em vez de a mensagem reescrever o resto da
+/// configuração de navegação com zeros.
+const std::vector<std::uint8_t> kCfgNavx5Aop = {
+    0xB5, 0x62, 0x06, 0x23, 0x28, 0x00, 0x02, 0x00, 0x00, 0x40,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x16};
 const std::vector<std::uint8_t> kAckDeCfgRate = {
     0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, 0x06, 0x08, 0x16, 0x3F};
 const std::vector<std::uint8_t> kNakDeCfgPrt = {
@@ -77,6 +94,42 @@ TEST(UbxMonta, cfg_cfg_persiste_em_bbr_e_eeprom) {
     EXPECT_EQ(montado([](std::uint8_t* d, std::size_t c) {
                   return monta_cfg_cfg(0xFFFFU, kDispBbr | kDispEeprom, d, c); }),
               kCfgCfgSalva);
+}
+
+TEST(UbxMonta, consulta_e_quadro_de_payload_zero) {
+    EXPECT_EQ(montado([](std::uint8_t* d, std::size_t c) {
+                  return monta_consulta(kClasseNav, kNavStatus, d, c); }),
+              kConsultaNavStatus);
+    EXPECT_EQ(montado([](std::uint8_t* d, std::size_t c) {
+                  return monta_consulta(kClasseMon, kMonHw, d, c); }),
+              kConsultaMonHw);
+    EXPECT_EQ(montado([](std::uint8_t* d, std::size_t c) {
+                  return monta_consulta(kClasseNav, kNavAopStatus, d, c); }),
+              kConsultaAopStatus);
+}
+
+TEST(UbxMonta, cfg_navx5_liga_o_aop_sem_tocar_no_resto) {
+    // ⚠️ O `mask1` é o que torna esta mensagem segura: sem o bit 14 marcado,
+    // ela aplicaria os 40 bytes inteiros -- e os outros campos vão zerados,
+    // o que reescreveria mínimo de satélites, C/N0 e rollover de semana com
+    // zeros. Um comando de "ligue a previsão de órbita" não pode ter esse
+    // efeito colateral.
+    EXPECT_EQ(montado([](std::uint8_t* d, std::size_t c) {
+                  return monta_cfg_navx5_aop(true, d, c); }),
+              kCfgNavx5Aop);
+}
+
+TEST(UbxMonta, cfg_navx5_desligando_difere_so_no_byte_do_aop) {
+    std::uint8_t ligado[64] = {};
+    std::uint8_t desligado[64] = {};
+    const std::size_t n = monta_cfg_navx5_aop(true, ligado, sizeof ligado);
+    ASSERT_EQ(n, monta_cfg_navx5_aop(false, desligado, sizeof desligado));
+    int diferentes = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (ligado[i] != desligado[i]) { ++diferentes; }
+    }
+    // O byte do `aopCfg` e os dois do checksum.
+    EXPECT_EQ(diferentes, 3);
 }
 
 TEST(UbxMonta, tamanho_e_little_endian_no_campo_de_comprimento) {

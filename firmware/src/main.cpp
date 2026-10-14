@@ -692,6 +692,61 @@ int main() {
         log.info("vigia", msg);
     };
 
+    // ===================== instrumentacao de partida (TTFF), 14/10/2026
+    //
+    // Em 14/10 o primeiro fix levou **2 min 48 s** com o carro parado um
+    // minuto numa garagem descoberta -- seis vezes o cold start de 26 s do
+    // datasheet. Nao havia COMO saber por que: o diario nao registrava o
+    // instante do primeiro fix, e a linha `vigia` amostra de cinco em cinco
+    // minutos, que nunca pegaria isso com precisao.
+    //
+    // Duas perguntas, dois numeros, e as duas respostas vem do proprio
+    // modulo: ele partiu sem dado nenhum, ou partiu cego por ruido?
+    bool ttff_registrado = false;
+    bool esperando_diagnostico = false;
+    std::uint32_t diagnostico_pedido_ms = 0;
+    std::uint32_t respostas_antes = 0;
+
+    const auto pede_diagnostico = [&](std::uint32_t t_ms) {
+        respostas_antes = gps.respostas_diagnostico();
+        diagnostico_pedido_ms = t_ms;
+        esperando_diagnostico = true;
+        gps.pergunta_diagnostico();
+    };
+
+    // ⚠️ A resposta NAO e sincrona: ela volta pela linha, entre sentencas
+    // NMEA, alguns ciclos depois. Esperar por ela dentro do laco travaria o
+    // alerta; por isso quem pede so marca, e quem relata e o laco.
+    const auto registra_diagnostico = [&log, &gps](std::uint32_t t_ms) {
+        char msg[192];
+        char ttff[32] = "ainda nao fixou";
+        if (gps.navegacao().teve_fix) {
+            std::snprintf(ttff, sizeof ttff, "%.1f s",
+                          gps.navegacao().ttff_ms / 1000.0);
+        }
+        std::snprintf(msg, sizeof msg,
+                      "radio: ruido %u | agc %u/8191 | antena %s | "
+                      "interferencia %u/255 (%s) | ttff do modulo %s | "
+                      "aop %s%s",
+                      static_cast<unsigned>(gps.radio().ruido),
+                      static_cast<unsigned>(gps.radio().agc),
+                      coruja::descreve(gps.radio().antena),
+                      static_cast<unsigned>(gps.radio().interferencia),
+                      coruja::descreve(gps.radio().jamming), ttff,
+                      gps.aop().ligado ? "ligado" : "DESLIGADO",
+                      gps.aop().calculando ? ", calculando" : "");
+        // Aviso e nao informacao quando a interferencia derruba o fix: e
+        // exatamente o caso em que o aparelho parece quebrado sem estar.
+        if (gps.radio().jamming == coruja::Jamming::Critico ||
+            gps.radio().antena == coruja::AntenaGps::Curto ||
+            gps.radio().antena == coruja::AntenaGps::Aberta) {
+            log.warning("gps", msg);
+        } else {
+            log.info("gps", msg);
+        }
+        (void)t_ms;
+    };
+
     log.info("boot", "pronto");
     log.descarrega();
 
@@ -740,9 +795,42 @@ int main() {
         // 32 bits, que acontece a cada ~49 dias de ligacao continua. Comparar
         // `agora >= proxima` direto pararia de registrar depois dela.
         const std::uint32_t agora_ms = pausa.agora_ms();
+
+        // O primeiro fix da ligacao, com a hora do NOSSO relogio: ela conta
+        // desde o boot do Pico e inclui a configuracao do receptor, entao
+        // divergir muito do `ttff` do modulo aponta o atraso para o nosso
+        // lado -- e essa e metade do diagnostico.
+        if (!ttff_registrado && gps.tem_fix(agora_ms)) {
+            ttff_registrado = true;
+            char msg[96];
+            char qualidade[32] = "sem medida";
+            if (gps.tem_qualidade(agora_ms)) {
+                std::snprintf(qualidade, sizeof qualidade, "%u sat, hdop %.1f",
+                              static_cast<unsigned>(gps.qualidade().satelites),
+                              static_cast<double>(gps.qualidade().hdop));
+            }
+            std::snprintf(msg, sizeof msg, "primeiro fix em %.1f s (%s)",
+                          agora_ms / 1000.0, qualidade);
+            log.info("gps", msg);
+            pede_diagnostico(agora_ms);
+        }
+
+        // Tres segundos de teto: se o modulo nao responder, relata o que ha.
+        // Ficar esperando para sempre deixaria o diagnostico sem nenhuma
+        // linha -- que e o pior desfecho para algo que existe para explicar.
+        if (esperando_diagnostico &&
+            (gps.respostas_diagnostico() >= respostas_antes + 3 ||
+             agora_ms - diagnostico_pedido_ms > 3000U)) {
+            esperando_diagnostico = false;
+            registra_diagnostico(agora_ms);
+        }
+
         if (agora_ms - proxima_temperatura_ms < (1U << 31)) {
             registra_temperatura();
             registra_vigilia(agora_ms);
+            // Junto da vigilia, e pelo mesmo motivo dela: o ruido de agora
+            // nao se mede depois da viagem.
+            pede_diagnostico(agora_ms);
             proxima_temperatura_ms = agora_ms + kIntervaloTemperaturaMs;
         }
 

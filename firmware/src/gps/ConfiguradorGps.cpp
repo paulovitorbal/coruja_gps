@@ -186,6 +186,27 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
                         "adiante e quem confirma que a porta nova responde");
     }
 
+    // --- 3b. previsão autônoma de órbita -----------------------------------
+    //
+    // Existe por causa de 14/10/2026: o primeiro fix levou **2 min 48 s** com
+    // o carro parado um minuto numa garagem descoberta — seis vezes o cold
+    // start de 26 s do datasheet. O AOP faz o módulo prever a órbita a partir
+    // das efemérides que já capturou, em vez de esperar a transmissão.
+    //
+    // **Opcional de propósito**, como a TXT: é um ganho de partida, e um
+    // módulo que o recuse não pode custar a RMC e o baud — foi abortar num
+    // NAK esperado que deixou o aparelho mudo em 08/10.
+    //
+    // ⚠️ Vem ANTES do `CFG-CFG`: depois, a previsão não entraria na
+    // configuração gravada e se perderia no próximo boot, que é justamente
+    // quando ela serve.
+    n = ubx::monta_cfg_navx5_aop(true, q, sizeof q);
+    if (comanda(q, n, ubx::kCfgNavx5, "CFG-NAVX5 AOP on", log,
+                /*obrigatorio=*/false) != Passo::Ok) {
+        log.warning("gps", "sem previsao de orbita (AOP); o primeiro fix de "
+                           "cada ligacao vai demorar mais");
+    }
+
     // --- 4. persistir ------------------------------------------------------
     //
     // Este passo faz dois trabalhos. Grava a configuração, e **prova que o
