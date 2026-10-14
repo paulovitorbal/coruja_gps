@@ -118,8 +118,9 @@ private:
     Instantaneo anterior_;
     std::uint32_t agora_ms_ = 0;
     /// Deslocamento de cada linha de informacao, para detectar que ela
-    /// andou e ter de redesenhar.
-    int x_info_[4] = {0, 0, 0, 0};
+    /// andou e ter de redesenhar. Uma posicao por linha -- o tamanho sai de
+    /// `kLinhasInfo` para nao ficar para tras quando a tela crescer.
+    int x_info_[kLinhasInfo] = {};
 };
 
 }  // namespace coruja

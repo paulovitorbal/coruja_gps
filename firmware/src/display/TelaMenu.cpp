@@ -120,14 +120,19 @@ int TelaMenu::desenha(const MenuAjustes& menu, const InfoAparelho& info,
         ++regioes;
     }
 
+    // ⚠️ `kLinhasInfo`, e nao um numero. Os dois lacos andavam ate 4 com a
+    // tela ja tendo seis linhas: ficaram para tras quando o HDOP entrou, e
+    // as duas ultimas podiam mudar sem redesenho nenhum. Ninguem viu porque
+    // elas congelam na entrada da tela -- defeito sem sintoma, que e o tipo
+    // que espera a proxima mudanca para aparecer.
     bool info_mudou = false;
-    for (int l = 0; l < 4; ++l) {
+    for (int l = 0; l < kLinhasInfo; ++l) {
         info_mudou = info_mudou ||
                      std::strcmp(agora.info[l], anterior_.info[l]) != 0;
     }
     bool info_rolando = false;
     if (agora.estado == EstadoMenu::Informando) {
-        for (int l = 0; l < 4; ++l) {
+        for (int l = 0; l < kLinhasInfo; ++l) {
             const Rolagem r =
                 rolagem(largura_da_fonte(Fonte::Texto, agora.info[l]),
                         tela::kLargura, agora_ms);

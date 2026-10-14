@@ -334,6 +334,46 @@ TEST(TelaMenu, informacao_mostra_unidade_base_e_taxa) {
     EXPECT_TRUE(v.tem_texto("3.6")) << "a taxa perdeu a casa decimal";
 }
 
+TEST(TelaMenu, qualquer_linha_de_informacao_que_muda_redesenha) {
+    // ⚠️ Os lacos de deteccao andavam ate 4 com a tela tendo SEIS linhas.
+    // Ficaram para tras quando o HDOP entrou e a tela cresceu de 5 para 6:
+    // as duas ultimas -- hdop e firmware -- podiam mudar sem ninguem
+    // perceber, e a tela seguiria mostrando o valor velho.
+    //
+    // Hoje elas congelam na entrada da tela, entao o defeito nao tinha
+    // sintoma. Este teste existe para que a proxima linha que mude ao vivo
+    // nao o encontre de volta.
+    Bancada b;
+    VisorEspiao v;
+    TelaMenu tela;
+    b.avanca_ate(ItemMenu::Informacao);
+    b.clica();
+    ASSERT_EQ(b.menu().estado(), EstadoMenu::Informando);
+
+    for (int linha = 0; linha < kLinhasInfo; ++linha) {
+        InfoAparelho antes = info_exemplo();
+        antes.hdop = 1.5F;
+        tela.invalida();
+        v.limpa();
+        tela.desenha(b.menu(), antes, 0, v);
+
+        InfoAparelho depois = antes;
+        switch (linha) {
+            case 0: std::snprintf(depois.nome, sizeof depois.nome, "%s",
+                                  "corolla"); break;
+            case 1: depois.dia = 1; depois.mes = 1; break;
+            case 2: depois.pontos = 999; break;
+            case 3: depois.taxa_hz = 1.0F; break;
+            case 4: depois.hdop = 8.0F; break;
+            default: std::snprintf(depois.versao, sizeof depois.versao, "%s",
+                                   "v9.9.9"); break;
+        }
+        v.limpa();
+        EXPECT_GT(tela.desenha(b.menu(), depois, 0, v), 0)
+            << "a linha " << linha << " mudou e a tela nao redesenhou";
+    }
+}
+
 TEST(TelaMenu, o_nome_da_unidade_vem_primeiro) {
     // Com duas unidades, saber QUAL aparelho se esta olhando vale mais que
     // qualquer outro numero desta tela -- e e a razao de a chave `nome`
