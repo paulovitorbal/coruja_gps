@@ -1,0 +1,21 @@
+# A fonte de dados entra por provisionamento, e não pela tela.
+#
+# Configurada à mão, ela viveria só no volume do Grafana: recriar o container
+# com o volume limpo deixaria os painéis apontando para o nada, e a correção
+# seria lembrar de uma sequência de cliques. Aqui ela está no repositório.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: coruja-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    # Editável pela tela, não: a definição vive aqui, e o que se muda no
+    # navegador seria desfeito no próximo `up` sem avisar ninguém.
+    editable: false
+    jsonData:
+      # Quantas linhas uma consulta devolve. O padrão é 1000, e um boot do
+      # aparelho sozinho passa disso quando o nível está em DEBUG.
+      maxLines: 5000

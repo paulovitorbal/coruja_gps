@@ -23,6 +23,10 @@ servidor/recebidos/*
 # a lista de aparelhos tem os SEGREDOS de verdade. O .exemplo e versionado.
 servidor/aparelhos.cfg
 
+# Valores de implantacao: uid do dono dos volumes, porta publicada, senha do
+# Grafana. O `env.exemplo` ao lado e versionado; este nunca.
+.env
+
 # Atalho para a pty do simulador, recriado a cada execucao.
 simulador/serial
 .venv/

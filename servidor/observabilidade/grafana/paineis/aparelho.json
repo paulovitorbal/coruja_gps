@@ -1,0 +1,98 @@
+{
+  "uid": "coruja-aparelho",
+  "title": "Coruja — diário do aparelho",
+  "tags": ["coruja"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "",
+  "time": { "from": "now-30d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "aparelho",
+        "label": "aparelho",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "coruja-loki" },
+        "query": { "label": "aparelho", "refId": "aparelhos", "type": 1 },
+        "refresh": 1,
+        "includeAll": true,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Avisos e erros, por origem",
+      "description": "Onde o aparelho reclamou. A origem é o subsistema: gps, sd, http, base, vigia.",
+      "datasource": { "type": "loki", "uid": "coruja-loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "sum by (origem) (count_over_time({servico=\"coruja-aparelho\", aparelho=~\"$aparelho\", nivel=~\"WARN|ERRO\"} [$__auto]))",
+          "legendFormat": "{{origem}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "logs",
+      "title": "Só o que deu errado",
+      "description": "WARN e ERRO, em ordem. É por onde se começa a procurar.",
+      "datasource": { "type": "loki", "uid": "coruja-loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{servico=\"coruja-aparelho\", aparelho=~\"$aparelho\", nivel=~\"WARN|ERRO\"}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "A vigília: base, fix, zona e geometria",
+      "description": "Uma amostra a cada 5 minutos do estado de quem decide o alerta. ⚠️ A zona aqui é um instante qualquer e quase nunca cai num alerta — quem responde 'o aparelho viu o radar?' é o log de viagem, que tem uma linha a cada 6 s.",
+      "datasource": { "type": "loki", "uid": "coruja-loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 18 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{servico=\"coruja-aparelho\", aparelho=~\"$aparelho\", origem=\"vigia\"}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Diário completo",
+      "description": "Tudo, inclusive as linhas que ainda não têm nível reconhecido — o diário é texto livre, e o que não casa com a expressão continua aqui inteiro.",
+      "datasource": { "type": "loki", "uid": "coruja-loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 28 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{servico=\"coruja-aparelho\", aparelho=~\"$aparelho\"}"
+        }
+      ]
+    }
+  ]
+}

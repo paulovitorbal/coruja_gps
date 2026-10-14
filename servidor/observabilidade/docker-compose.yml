@@ -1,0 +1,99 @@
+# Observabilidade do Coruja: Loki guarda, Alloy coleta, Grafana mostra.
+#
+#   cd servidor/observabilidade
+#   cp .env.exemplo .env && $EDITOR .env      # a senha do Grafana
+#   docker compose up -d
+#   xdg-open http://localhost:3000
+#
+# Sobe SEPARADO da API de propósito. A API serve a base de radares e não
+# depende disto para nada; quem clonar o repositório para distribuir base não
+# precisa subir três serviços a mais, e uma pilha de observabilidade que
+# derruba o que observa é pior que não ter nenhuma.
+
+services:
+  loki:
+    image: grafana/loki:3.7.8
+    container_name: coruja-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+      - loki-dados:/loki
+    # Não publica porta: quem consulta é o Grafana, pela rede interna. Expor
+    # 3100 daria a qualquer um na rede local leitura de tudo que o aparelho
+    # registrou — onde ele esteve e quando — sem pedir senha.
+    expose:
+      - "3100"
+    # A máquina tem ~3 GB livres e a API precisa deles. Sem teto, um pico de
+    # ingestão do Loki empurra o que importa para a troca.
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  alloy:
+    image: grafana/alloy:v1.20.1
+    container_name: coruja-alloy
+    restart: unless-stopped
+    depends_on: [loki]
+    command:
+      - run
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/alloy.alloy
+    volumes:
+      - ./alloy.alloy:/etc/alloy/alloy.alloy:ro
+      # O que os aparelhos mandaram. **Somente leitura**: o coletor não tem
+      # nada a escrever ali, e esses arquivos são o original de que o
+      # histórico do Loki é apenas uma cópia indexada.
+      - ../recebidos:/recebidos:ro
+      # ⚠️ **Soquete do Docker.** Quem o tem tem, na prática, raiz no
+      # hospedeiro — somente-leitura reduz, não elimina. Serve só para os
+      # logs dos containers. Para dispensá-lo, comente esta linha e os dois
+      # blocos marcados no `alloy.alloy`: o diário dos aparelhos, que é o
+      # motivo desta pilha existir, continua funcionando inteiro.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Onde ele guarda a posição de leitura de cada arquivo. Sem volume, uma
+      # reinicialização releria o histórico inteiro e duplicaria tudo.
+      - alloy-posicoes:/var/lib/alloy
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    container_name: coruja-grafana
+    restart: unless-stopped
+    depends_on: [loki]
+    ports:
+      # Na rede local, como a API — é de outra máquina que se olha isto.
+      - "${CORUJA_PORTA_GRAFANA:-3000}:3000"
+    environment:
+      # 🔴 Sem padrão: `docker compose up` falha se o `.env` não tiver a
+      # senha. Um `admin/admin` embutido viveria para sempre, e este painel
+      # mostra o histórico de deslocamento de quem dirige o carro.
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_SENHA:?defina GRAFANA_SENHA no .env}"
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_USUARIO:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisionamento:/etc/grafana/provisioning:ro
+      - ./grafana/paineis:/var/lib/grafana/paineis:ro
+      - grafana-dados:/var/lib/grafana
+    # 🔴 **Medido, não estimado.** Parado, o Grafana 13 come 327 MiB — contra
+    # 62 do Loki e 53 do Alloy. Com teto de 384 ele subia a 85% da própria
+    # cota sem ninguém ter aberto um painel, e a primeira consulta grande
+    # terminaria em morte por falta de memória, que no Docker aparece como
+    # container reiniciando sem explicação.
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  loki-dados:
+  alloy-posicoes:
+  grafana-dados:

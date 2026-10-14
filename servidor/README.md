@@ -399,6 +399,23 @@ A quebra é **contida**: só o `viagem.py` importa folium, e o import acontece
 distribui a base — a função principal —, e quem abre a página recebe uma
 mensagem em vez de um 500.
 
+## Olhar o diário do aparelho
+
+O que chega em `recebidos/` é arquivo, e `coruja.log` é um arquivo que cresce
+para sempre, misturando dezenas de ligações com carimbos de dias diferentes.
+Para consultá-lo por data, nível, origem ou ligação, há uma pilha opcional em
+[`observabilidade/`](observabilidade/README.md) — Loki, Alloy e Grafana, com
+painel pronto:
+
+```sh
+cd observabilidade
+cp env.exemplo .env && $EDITOR .env
+docker compose up -d
+```
+
+Ela sobe **separada desta API** e não é necessária para nada que o aparelho
+faça. ~440 MiB de memória, medidos.
+
 ## Decisões que valem conhecer
 
 **Duas rotas fixas, não um servidor de arquivos.** Herdar de

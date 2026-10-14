@@ -1,0 +1,2 @@
+# O Grafana reclama em ERRO se a pasta nao existir, e o que ela guardaria
+# (plugins e alertas provisionados) este projeto nao usa.

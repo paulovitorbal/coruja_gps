@@ -1,0 +1,155 @@
+// Coletor: lê o diário dos aparelhos e os logs dos containers, e empurra
+// tudo para o Loki.
+//
+// A parte que justifica a pilha é a PRIMEIRA. Os logs de container qualquer
+// `docker logs` mostra; o diário do aparelho, não — ele chega em remessas,
+// de dias diferentes, misturando várias ligações do aparelho num arquivo só
+// que cresce para sempre. Procurar "o que o aparelho viu naquela terça" num
+// arquivo desses é `grep` com data na mão.
+
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+// ===================================================== diário dos aparelhos
+
+// Um arquivo por aparelho, debaixo da impressão do token. É o histórico
+// append-only do servidor, e não o arquivo de nome fixo: o de nome fixo é
+// SUBSTITUÍDO a cada remessa, e o coletor veria o arquivo encolher e perder
+// posição. Ver `SUBDIR_HISTORICO` no servidor.py.
+local.file_match "aparelhos" {
+  path_targets = [{ __path__ = "/recebidos/*/historico/coruja.log" }]
+  // Pasta nova aparece quando um aparelho novo manda a primeira remessa.
+  sync_period = "1m"
+}
+
+discovery.relabel "aparelhos" {
+  targets = local.file_match.aparelhos.targets
+
+  // A impressão do token vira rótulo. **É a impressão, não o token** — 16
+  // dígitos de SHA-256, que identificam sem revelar o segredo que também
+  // envia. O servidor nomeia as pastas assim pela mesma razão.
+  rule {
+    source_labels = ["__path__"]
+    regex         = "/recebidos/([0-9a-f]+)/historico/.*"
+    target_label  = "aparelho"
+  }
+
+  rule {
+    target_label = "servico"
+    replacement  = "coruja-aparelho"
+  }
+
+  // ⚠️ `service_name` é rótulo da convenção do Loki, e não um sinônimo em
+  // inglês do de cima: quando ele falta, o Loki INVENTA um — todo fluxo do
+  // aparelho entrava como `unknown_service`, medido numa subida de teste.
+  // Para os containers ele se vira sozinho, deduzindo do nome; para
+  // arquivo, não há de onde deduzir.
+  rule {
+    target_label = "service_name"
+    replacement  = "coruja-aparelho"
+  }
+}
+
+loki.source.file "aparelhos" {
+  targets    = discovery.relabel.aparelhos.output
+  forward_to = [loki.process.aparelho.receiver]
+}
+
+loki.process "aparelho" {
+  forward_to = [loki.write.local.receiver]
+
+  // As três formas que o diário já teve (ver formato_logs.md §3):
+  //
+  //   [INFO] sd: mensagem                              v0.1.0 – v0.2.1
+  //   EGMHMD4E [INFO] sd: mensagem                     v0.2.2 – v0.2.9
+  //   2026-10-07T14:41:22Z EGMHMD4E [INFO] sd: ...     v0.2.10 em diante
+  //   +00003412 EGMHMD4E [INFO] sd: ...                antes de o relógio
+  //                                                     ser acertado
+  //
+  // ⚠️ O carimbo é reconhecido pela FORMA, e não por "o primeiro campo". O
+  // alfabeto do `idexec` inclui dígitos de 2 a 9, então um identificador
+  // como `4EGMHMD4` seria confundido com um carimbo por qualquer expressão
+  // que só olhasse a posição.
+  stage.regex {
+    expression = "^(?:(?P<carimbo>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z|\\+\\d+) )?(?:(?P<idexec>[2-9A-HJ-NP-Z]{8}) )?\\[(?P<nivel>DEBUG|INFO|WARN|ERRO)\\] (?P<origem>[^:\\s]+): (?P<mensagem>.*)$"
+  }
+
+  // Poucos valores possíveis cada um: quatro níveis e uma dúzia de origens.
+  stage.labels {
+    values = {
+      nivel  = "",
+      origem = "",
+    }
+  }
+
+  // Uma ligação do aparelho. Milhares de valores distintos ao longo do
+  // tempo — como rótulo, cada um abriria um fluxo próprio no índice.
+  stage.structured_metadata {
+    values = { idexec = "" }
+  }
+
+  // ⚠️ `skip` em vez de erro, e é o caso comum e não a exceção: o RP2350 não
+  // tem bateria no relógio, então TODA ligação começa com carimbos `+ms` que
+  // não correspondem a hora nenhuma. Nesses, o instante que o Loki guarda é
+  // o da leitura do arquivo — o que é impreciso e honesto; inventar uma data
+  // a partir do boot seria preciso e falso.
+  stage.timestamp {
+    source            = "carimbo"
+    format            = "RFC3339"
+    action_on_failure = "skip"
+  }
+
+  // ⚠️ O `filename` é posto pela PRÓPRIA fonte de arquivo, depois do
+  // `discovery.relabel` — tirá-lo lá em cima não adianta, e foi o que uma
+  // subida de teste mostrou. O caminho completo não diz nada que o rótulo
+  // `aparelho` já não diga, e ia junto em cada fluxo.
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  // Linha que não casou com a expressão não ganha rótulo nenhum e continua
+  // guardada inteira. Diário é texto livre: descartar o que não se entende
+  // seria perder justamente a linha nova que ninguém previu.
+}
+
+// ====================================================== logs dos containers
+
+// ⚠️ **Isto exige o soquete do Docker**, montado somente-leitura no compose.
+// Quem tem o soquete tem, na prática, raiz no hospedeiro. Se você não quiser
+// isso, comente o volume no `docker-compose.yml` e estes dois blocos: o
+// diário do aparelho, que é o motivo desta pilha existir, continua inteiro.
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.local.targets
+
+  // O nome vem com uma barra na frente, como o Docker o devolve.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    target_label = "servico"
+    replacement  = "docker"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.write.local.receiver]
+}
+
+// ============================================================== saída
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

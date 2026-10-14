@@ -1,0 +1,14 @@
+# Painéis versionados, carregados da pasta montada.
+apiVersion: 1
+
+providers:
+  - name: coruja
+    folder: Coruja
+    type: file
+    # Painel editado na tela é devolvido ao arquivo no próximo carregamento.
+    # É deliberado: o que vale está no repositório, e um painel que só existe
+    # num volume some com ele.
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/paineis
+      foldersFromFilesStructure: false

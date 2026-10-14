@@ -1,0 +1,83 @@
+# Loki de uma máquina só: binário único, índice e blocos em disco local.
+#
+# Não há cluster, não há S3 e não há memcached. A alternativa — o modo
+# distribuído, com ingester, querier e distributor separados — existe para
+# quem escala horizontalmente, e aqui o problema é o oposto: cabem três
+# serviços na máquina de casa que hospeda a API, com ~3 GB livres.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  # `info` enche o log do container com uma linha por requisição, e quem
+  # observa o observador é ninguém.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # v13 + tsdb é o esquema corrente.
+    #
+    # 🔴 **Esta data é um PISO, e tudo anterior a ela é RECUSADO** — com
+    # `500` no push e o coletor reenviando para sempre, não com um descarte
+    # silencioso. Medido numa subida de teste: com `from: 2026-10-01`, o
+    # próprio log do container da API, de 20/09, voltou catorze vezes com
+    # `no schema config found for time`.
+    #
+    # Isso importa muito mais aqui do que num Loki comum, porque o diário do
+    # aparelho carrega carimbos antigos: ele acumula no cartão e só sobe
+    # quando o motorista manda. Por isso a data fica bem ANTES de existir
+    # qualquer dado deste projeto, e não na implantação.
+    #
+    # Ela não muda depois de haver dado gravado: alterá-la move a fronteira
+    # entre esquemas e torna ilegível o que já está no disco.
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 🔴 **O diário do aparelho chega ATRASADO, e por isso isto é `false`.**
+  #
+  # O aparelho acumula o log no cartão e só o envia quando o motorista manda,
+  # pelo menu — podem passar dias. Com a recusa ligada (o padrão) e a janela
+  # de uma semana, uma remessa de viagens antigas seria silenciosamente
+  # descartada na ingestão: o arquivo está no servidor, a consulta não acha
+  # nada, e não há erro em lugar nenhum. É o pior desfecho possível.
+  reject_old_samples: false
+
+  # 90 dias. O cartão guarda pouco e o histórico do servidor é append-only;
+  # o que se perde aqui continua no arquivo original, em `recebidos/`.
+  retention_period: 2160h
+
+  # O `idexec` de cada ligação vive aqui, e não como rótulo: são 8 caracteres
+  # sorteados a cada boot, e um rótulo com milhares de valores distintos é o
+  # jeito clássico de fazer o Loki ficar lento.
+  allow_structured_metadata: true
+
+  volume_enabled: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+# Sem telemetria para fora. Este serviço existe para olhar um aparelho de
+# uso pessoal, e o que ele guarda é onde alguém esteve e quando.
+analytics:
+  reporting_enabled: false
