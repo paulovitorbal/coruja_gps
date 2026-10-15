@@ -41,8 +41,10 @@
 #include "display/RetroiluminacaoPwm.h"
 #include "display/VisorSt7789.h"
 #include "encoder/EncoderKy040.h"
+#include "gps/BaudSalvo.h"
 #include "gps/ConfiguradorGps.h"
 #include "gps/LeitorGps.h"
+#include "nucleo/UbxDiagnostico.h"
 #include "gps/UartPico.h"
 #include "led/LedRgbAnodoComum.h"
 #include "log/CarimboExecucao.h"
@@ -581,7 +583,25 @@ int main() {
     // quando o passo 1 não acha o módulo, a porta não é reconfigurada e o
     // aparelho fica lendo um fluxo ilegível — mudo, não lento. Descartar este
     // retorno era jogar fora o único aviso que existia.
-    coruja::ConfiguradorGps configurador(uart, pausa);
+    // Em que velocidade o modulo respondeu da ultima vez. Sem lembranca,
+    // 9600 -- o de fabrica, e o comportamento de sempre.
+    std::uint32_t baud_lembrado = coruja::kBaudFabrica;
+    {
+        char buf[coruja::kTamBaudSalvo] = {};
+        std::size_t lidos = 0;
+        if (cartao.le_arquivo(coruja::kArquivoBaudGps, buf, sizeof buf, &lidos,
+                              log) == coruja::ErroCartao::Nenhum) {
+            coruja::analisa_baud(buf, lidos, &baud_lembrado);
+        }
+        // A porta tem de ESTAR na velocidade que o configurador vai supor;
+        // prometer 115200 com a porta a 9600 faria o primeiro comando sair
+        // ilegivel e a sondagem concluir o contrario do que houve.
+        if (baud_lembrado != coruja::kBaudFabrica) {
+            uart.define_baud(baud_lembrado);
+        }
+    }
+
+    coruja::ConfiguradorGps configurador(uart, pausa, baud_lembrado);
     const coruja::ResultadoConfigGps desfecho = configurador.executa(log);
     if (desfecho != coruja::ResultadoConfigGps::Configurado) {
         char aviso[160];
@@ -591,6 +611,19 @@ int main() {
                       coruja::descreve(desfecho),
                       static_cast<unsigned long>(configurador.baud_final()));
         log.error("gps", aviso);
+    }
+
+    // Guarda ONDE ELE RESPONDEU, e so quando mudou: numa partida morna atras
+    // da outra o cartao nao e tocado. Falhar aqui nao e erro -- a lembranca
+    // poupa tempo, nunca corrige nada, e o proximo boot volta a sondar.
+    if (desfecho == coruja::ResultadoConfigGps::Configurado &&
+        configurador.baud_encontrado() != baud_lembrado) {
+        char buf[coruja::kTamBaudSalvo];
+        const auto n = coruja::formata_baud(configurador.baud_encontrado(),
+                                            buf, sizeof buf);
+        if (n > 0) {
+            cartao.grava_arquivo(coruja::kArquivoBaudGps, buf, n, log);
+        }
     }
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
@@ -718,32 +751,26 @@ int main() {
     // NMEA, alguns ciclos depois. Esperar por ela dentro do laco travaria o
     // alerta; por isso quem pede so marca, e quem relata e o laco.
     const auto registra_diagnostico = [&log, &gps](std::uint32_t t_ms) {
-        char msg[192];
-        char ttff[32] = "ainda nao fixou";
-        if (gps.navegacao().teve_fix) {
-            std::snprintf(ttff, sizeof ttff, "%.1f s",
-                          gps.navegacao().ttff_ms / 1000.0);
+        char msg[coruja::kTamDiagnostico];
+        if (coruja::formata_diagnostico(gps.navegacao(), gps.radio(),
+                                        gps.aop(), msg, sizeof msg) == 0) {
+            log.error("gps", "a linha de diagnostico nao coube");
+            return;
         }
-        std::snprintf(msg, sizeof msg,
-                      "radio: ruido %u | agc %u/8191 | antena %s | "
-                      "interferencia %u/255 (%s) | ttff do modulo %s | "
-                      "aop %s%s",
-                      static_cast<unsigned>(gps.radio().ruido),
-                      static_cast<unsigned>(gps.radio().agc),
-                      coruja::descreve(gps.radio().antena),
-                      static_cast<unsigned>(gps.radio().interferencia),
-                      coruja::descreve(gps.radio().jamming), ttff,
-                      gps.aop().ligado ? "ligado" : "DESLIGADO",
-                      gps.aop().calculando ? ", calculando" : "");
         // Aviso e nao informacao quando a interferencia derruba o fix: e
         // exatamente o caso em que o aparelho parece quebrado sem estar.
-        if (gps.radio().jamming == coruja::Jamming::Critico ||
-            gps.radio().antena == coruja::AntenaGps::Curto ||
-            gps.radio().antena == coruja::AntenaGps::Aberta) {
-            log.warning("gps", msg);
-        } else {
-            log.info("gps", msg);
-        }
+        //
+        // ⚠️ So julga o que foi MEDIDO. Sem a resposta do MON-HW a estrutura
+        // esta zerada, e `AntenaGps::Iniciando` virava "nada de errado" por
+        // acidente -- o mesmo acidente que publicou `agc 0/8191` como se
+        // fosse medida em 15/10/2026.
+        const bool alarme =
+            gps.radio().respondeu &&
+            (gps.radio().jamming == coruja::Jamming::Critico ||
+             gps.radio().antena == coruja::AntenaGps::Curto ||
+             gps.radio().antena == coruja::AntenaGps::Aberta);
+        if (alarme) { log.warning("gps", msg); }
+        else        { log.info("gps", msg); }
         (void)t_ms;
     };
 

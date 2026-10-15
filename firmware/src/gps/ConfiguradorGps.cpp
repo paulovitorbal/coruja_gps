@@ -91,7 +91,13 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     // Sondar custa até 2 s, e só para quem não respondeu a 9600. O módulo
     // recém-saído da caixa responde na primeira e não paga nada.
     std::size_t n = ubx::monta_cfg_rate(kPeriodoNavegacaoMs, q, sizeof q);
-    constexpr std::uint32_t kBaudsASondar[] = {kBaudFabrica, kBaudDesejado};
+    // A ORDEM vem da lembrança: começa pelo baud em que o módulo respondeu da
+    // última vez. Numa partida morna isso poupa as duas recusas por silêncio
+    // que custaram 1,2 s na medida de 15/10/2026 — com o módulo tendo fixado
+    // em 0,4 s e quem dirigia esperando 5,9 s.
+    const std::uint32_t outro =
+        baud_final_ == kBaudFabrica ? kBaudDesejado : kBaudFabrica;
+    const std::uint32_t kBaudsASondar[] = {baud_final_, outro};
     bool achou = false;
     for (const std::uint32_t baud : kBaudsASondar) {
         if (baud != baud_final_) {
@@ -107,7 +113,7 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
         }
         const Passo r = comanda(q, n, ubx::kCfgRate, "CFG-RATE 250 ms", log);
         if (r == Passo::Nak) { return ResultadoConfigGps::Recusado; }
-        if (r == Passo::Ok)  { achou = true; break; }
+        if (r == Passo::Ok)  { achou = true; baud_encontrado_ = baud; break; }
     }
     if (!achou) {
         // Deixar a porta em 115200 aqui condenaria quem lê depois a um fluxo

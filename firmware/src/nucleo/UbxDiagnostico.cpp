@@ -1,5 +1,7 @@
 #include "nucleo/UbxDiagnostico.h"
 
+#include <cstdio>
+
 namespace coruja {
 
 namespace {
@@ -84,6 +86,7 @@ bool analisa_nav_status(const std::uint8_t* payload, std::size_t tamanho,
     // Zero é "ainda não houve fix", e a bandeira própria evita que alguém
     // leia isso como "fixou instantaneamente".
     destino->teve_fix = destino->ttff_ms != 0;
+    destino->respondeu = true;
     return true;
 }
 
@@ -103,6 +106,7 @@ bool analisa_mon_hw(const std::uint8_t* payload, std::size_t tamanho,
     // Bits 2-3 de `flags`.
     destino->jamming =
         static_cast<Jamming>((payload[monhw::kFlags] >> 2) & 0x03);
+    destino->respondeu = true;
     return true;
 }
 
@@ -115,7 +119,68 @@ bool analisa_nav_aopstatus(const std::uint8_t* payload, std::size_t tamanho,
     destino->ligado =
         (payload[aopstatus::kConfig] & aopstatus::kBitUsaAop) != 0;
     destino->calculando = payload[aopstatus::kStatus] != 0;
+    destino->respondeu = true;
     return true;
+}
+
+std::size_t formata_diagnostico(const EstadoNavegacao& nav,
+                                const EstadoRadio& radio, const EstadoAop& aop,
+                                char* destino, std::size_t capacidade) {
+    if (destino == nullptr || capacidade < kTamDiagnostico) {
+        return 0;
+    }
+
+    // Três pedaços independentes, e cada um sabe dizer que não respondeu. A
+    // alternativa — um `snprintf` só com tudo dentro — foi o que produziu a
+    // linha mentirosa de 15/10/2026: ela não tinha onde pôr a ressalva.
+    char rad[96];
+    if (radio.respondeu) {
+        std::snprintf(rad, sizeof rad,
+                      "ruido %u | agc %u/8191 | antena %s | "
+                      "interferencia %u/255 (%s)",
+                      static_cast<unsigned>(radio.ruido),
+                      static_cast<unsigned>(radio.agc), descreve(radio.antena),
+                      static_cast<unsigned>(radio.interferencia),
+                      descreve(radio.jamming));
+    } else {
+        std::snprintf(rad, sizeof rad, "MON-HW sem resposta");
+    }
+
+    char nav_txt[72];
+    if (!nav.respondeu) {
+        std::snprintf(nav_txt, sizeof nav_txt, "NAV-STATUS sem resposta");
+    } else if (!nav.teve_fix) {
+        // Respondeu DIZENDO que ainda não fixou. É informação, e diferente
+        // de silêncio.
+        std::snprintf(nav_txt, sizeof nav_txt,
+                      "ttff do modulo ainda nao fixou (ligado ha %.1f s)",
+                      nav.desde_boot_ms / 1000.0);
+    } else {
+        // O relógio do próprio módulo ao lado do TTFF: com ele, a diferença
+        // para o nosso cronômetro vira aritmética em vez de inferência.
+        std::snprintf(nav_txt, sizeof nav_txt,
+                      "ttff do modulo %.1f s (ligado ha %.1f s)",
+                      nav.ttff_ms / 1000.0, nav.desde_boot_ms / 1000.0);
+    }
+
+    char aop_txt[48];
+    if (!aop.respondeu) {
+        // ⚠️ "DESLIGADO" é uma AFIRMAÇÃO sobre a configuração do módulo.
+        // Dizê-la porque a pergunta não voltou manda procurar defeito onde
+        // não há.
+        std::snprintf(aop_txt, sizeof aop_txt, "NAV-AOPSTATUS sem resposta");
+    } else {
+        std::snprintf(aop_txt, sizeof aop_txt, "aop %s%s",
+                      aop.ligado ? "ligado" : "DESLIGADO",
+                      aop.calculando ? ", calculando" : "");
+    }
+
+    const int n = std::snprintf(destino, capacidade, "radio: %s | %s | %s",
+                                rad, nav_txt, aop_txt);
+    if (n <= 0 || static_cast<std::size_t>(n) >= capacidade) {
+        return 0;
+    }
+    return static_cast<std::size_t>(n);
 }
 
 }  // namespace coruja

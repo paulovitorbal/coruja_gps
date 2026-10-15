@@ -47,6 +47,13 @@ const char* descreve(Jamming j);
 
 /// `UBX-NAV-STATUS` (0x01 0x03): o que o receptor diz do próprio fix.
 struct EstadoNavegacao {
+    /// A pergunta voltou? **Sem isto, zero é indistinguível de silêncio.**
+    ///
+    /// ⚠️ Em 15/10/2026 o diário gravou `agc 0/8191 | antena iniciando`
+    /// numa partida em que o `MON-HW` simplesmente não respondeu. Lê-se como
+    /// front-end morto; não havia nada de errado com o front-end. Quem
+    /// relata precisa saber a diferença entre "medi zero" e "não medi".
+    bool          respondeu = false;
     std::uint8_t  tipo_fix = 0;        ///< 0 nenhum, 2 2D, 3 3D, 5 só hora
     bool          fix_valido = false;  ///< `gpsFixOK`: o módulo assina a solução
     bool          teve_fix = false;    ///< houve TTFF nesta ligação
@@ -60,6 +67,7 @@ struct EstadoNavegacao {
 
 /// `UBX-MON-HW` (0x0A 0x09): o estado do front-end de rádio.
 struct EstadoRadio {
+    bool          respondeu = false;   ///< ver `EstadoNavegacao::respondeu`
     std::uint16_t ruido = 0;           ///< `noisePerMS`
     std::uint16_t agc = 0;             ///< `agcCnt`, de 0 a 8191
     AntenaGps     antena = AntenaGps::Iniciando;
@@ -69,6 +77,7 @@ struct EstadoRadio {
 
 /// `UBX-NAV-AOPSTATUS` (0x01 0x60): a previsão de órbita está mesmo ligada?
 struct EstadoAop {
+    bool respondeu = false;   ///< ver `EstadoNavegacao::respondeu`
     bool ligado = false;      ///< `aopCfg` bit 0
     /// Calculando agora. **Ocioso é o estado normal** de quem está ligado e
     /// em dia — ler isso como "não funciona" faria desligar o que funciona.
@@ -84,5 +93,26 @@ bool analisa_mon_hw(const std::uint8_t* payload, std::size_t tamanho,
                     EstadoRadio* destino);
 bool analisa_nav_aopstatus(const std::uint8_t* payload, std::size_t tamanho,
                            EstadoAop* destino);
+
+/// Tamanho mínimo do destino de `formata_diagnostico`.
+///
+/// A linha mais longa é a de tudo respondido, com antena e jamming pelos
+/// nomes compridos. 224 dá folga de uns 60 caracteres sobre ela; abaixo
+/// disto a função recusa em vez de truncar, porque meia linha de diagnóstico
+/// é pior que nenhuma — ela parece inteira.
+constexpr std::size_t kTamDiagnostico = 224;
+
+/// Monta a linha de diagnóstico do diário. Devolve o tamanho, ou zero se não
+/// coubesse.
+///
+/// **Vive aqui, e não no laço principal, para ter teste.** O defeito de
+/// 15/10/2026 — zeros publicados como medida — morava exatamente no trecho
+/// do `main.cpp` que nenhum teste alcança.
+///
+/// Cada uma das três perguntas aparece na linha dizendo o que respondeu ou
+/// que não respondeu. Nenhuma delas afirma nada sobre uma estrutura vazia.
+std::size_t formata_diagnostico(const EstadoNavegacao& nav,
+                                const EstadoRadio& radio, const EstadoAop& aop,
+                                char* destino, std::size_t capacidade);
 
 }  // namespace coruja

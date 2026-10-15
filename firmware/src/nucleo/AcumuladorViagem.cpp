@@ -1,5 +1,7 @@
 #include "nucleo/AcumuladorViagem.h"
 
+#include "nucleo/RetomadaViagem.h"
+
 #include <cstdio>
 
 #include "nucleo/DetectorParado.h"
@@ -7,9 +9,15 @@
 namespace coruja {
 
 const char* descreve(EstadoViagem e) {
+    // ⚠️ **Rótulo de AÇÃO, não de estado** — é o que o item de menu promete.
+    // `Aguardando` dizia "aguardando", que é estado, e isso passou a doer em
+    // 15/10/2026: antes a espera durava os segundos entre o clique e o
+    // primeiro fix, e agora dura toda parada de mais de cinco minutos. Quem
+    // quisesse encerrar a gravação leria "aguardando" e não saberia que o
+    // clique encerra — e o clique é a ÚNICA coisa que encerra.
     switch (e) {
         case EstadoViagem::Parada:     return "iniciar";
-        case EstadoViagem::Aguardando: return "aguardando";
+        case EstadoViagem::Aguardando: return "parar";
         case EstadoViagem::Gravando:   return "parar";
     }
     return "?";
@@ -21,6 +29,10 @@ void AcumuladorViagem::inicia(float dist_inicial_km) {
     tem_passo_anterior_ = false;
     amostra_aberta_ = false;
     contando_parado_ = false;
+    // Um começo explícito nunca exige movimento: quem clicou "iniciar" quer
+    // o arquivo no primeiro fix, mesmo com o carro parado.
+    exige_movimento_ = false;
+    ponto_ = PontoViagem{};
     nome_[0] = '\0';
 }
 
@@ -29,6 +41,7 @@ void AcumuladorViagem::para() {
     amostra_aberta_ = false;
     tem_passo_anterior_ = false;
     contando_parado_ = false;
+    exige_movimento_ = false;
 }
 
 void AcumuladorViagem::monta_nome(const Telemetria& t) {
@@ -97,6 +110,34 @@ void AcumuladorViagem::fecha_amostra() {
     ponto_.radar = radar_da_fatia_;
 }
 
+void AcumuladorViagem::fecha_trecho() {
+    // A fatia em curso NÃO é gravada — faltam segundos para ela fechar. É a
+    // mesma perda de até 5 s do clique em "parar" e do corte de energia, e
+    // pelo mesmo motivo: metade de uma média não é uma média.
+    estado_ = EstadoViagem::Aguardando;
+    amostra_aberta_ = false;
+    tem_passo_anterior_ = false;
+    contando_parado_ = false;
+    exige_movimento_ = true;
+    // `dist_km_` CONTINUA: quem decide se zera é o reencontro com o
+    // movimento, comparando o relógio.
+}
+
+bool AcumuladorViagem::passou_da_janela(const Telemetria& t) const {
+    const std::int32_t antes = minutos_utc(ponto_.ano, ponto_.mes, ponto_.dia,
+                                           ponto_.hora, ponto_.minuto);
+    const std::int32_t agora = minutos_utc(t.ano, t.mes, t.dia, t.hora,
+                                           t.minuto);
+    if (antes < 0 || agora < 0) {
+        // Data que não dá para interpretar. Começar limpo é mais seguro que
+        // emendar quilometragem sobre dado duvidoso.
+        return true;
+    }
+    // Relógio andando para trás também indica dado estragado.
+    if (agora < antes) { return true; }
+    return static_cast<std::uint32_t>(agora - antes) > kJanelaRetomadaMin;
+}
+
 EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
                                         const RadarDaAmostra& radar,
                                         bool tem_fix,
@@ -120,6 +161,21 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     }
 
     if (estado_ == EstadoViagem::Aguardando) {
+        // Depois de um fechamento por veículo parado, quem reabre é o
+        // movimento. Reabrir no fix faria um arquivo a cada cinco minutos
+        // com o carro estacionado.
+        if (exige_movimento_) {
+            if (t.velocidade_kmh < kVelocidadeParadoKmh) {
+                return EventoViagem::Nada;
+            }
+            // Voltou a andar. A pergunta agora é se ainda é a mesma viagem,
+            // e a régua é a mesma da retomada depois do corte de energia —
+            // porque é a mesma pergunta.
+            if (ponto_.ano != 0 && passou_da_janela(t)) {
+                dist_km_ = 0.0F;
+            }
+            exige_movimento_ = false;
+        }
         monta_nome(t);
         estado_ = EstadoViagem::Gravando;
         abre_amostra(t);
@@ -179,9 +235,9 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
         if (!contando_parado_) {
             contando_parado_ = true;
             parado_desde_ms_ = agora_ms;
-        } else if (agora_ms - parado_desde_ms_ >= kParadoEncerraViagemMs) {
-            para();
-            return EventoViagem::Encerra;
+        } else if (agora_ms - parado_desde_ms_ >= kParadoFechaTrechoMs) {
+            fecha_trecho();
+            return EventoViagem::FechaTrecho;
         }
     } else {
         contando_parado_ = false;

@@ -189,7 +189,11 @@ TEST(DiarioBordo, retoma_dentro_da_janela_em_arquivo_novo_com_a_distancia) {
     EXPECT_NEAR(d.dist_viagem_km(), 180.45F, 0.01F) << "a distancia continua";
 }
 
-TEST(DiarioBordo, fora_da_janela_nao_retoma_e_apaga_a_bandeira) {
+TEST(DiarioBordo, fora_da_janela_comeca_viagem_nova_sem_desligar_a_gravacao) {
+    // ⚠️ **Mudou em 15/10/2026.** Antes isto apagava a bandeira e a gravacao
+    // acabava ali: passando das duas horas, o aparelho ficava parado ate
+    // alguem lembrar de clicar em "iniciar". Agora a gravacao e um MODO --
+    // so o menu a desliga --, e a parada longa apenas comeca viagem nova.
     CartaoFalso c; LoggerMock l;
     c.arquivos[kArquivoEstadoViagem] =
         "ativa=1\nutc=2026-10-04T07:00Z\ndist_km=180.45\n";
@@ -197,10 +201,59 @@ TEST(DiarioBordo, fora_da_janela_nao_retoma_e_apaga_a_bandeira) {
 
     d.passo(Veredito{}, em(17, 30, 0, 60.0F), true, 1000);   // 10h30 depois
 
-    EXPECT_EQ(d.estado_viagem(), EstadoViagem::Parada);
-    EXPECT_NE(c.arquivos[kArquivoEstadoViagem].find("ativa=0"),
-              std::string::npos)
-        << "deixou a bandeira ligada, e a proxima energizacao tentaria de novo";
+    EXPECT_NE(d.estado_viagem(), EstadoViagem::Parada);
+    // A quilometragem da viagem anterior NAO vem junto: e isso que faz o
+    // servidor mostrar duas jornadas em vez de uma emendada.
+    EXPECT_FLOAT_EQ(d.dist_viagem_km(), 0.0F);
+}
+
+TEST(DiarioBordo, dentro_da_janela_a_quilometragem_vem_junto) {
+    CartaoFalso c; LoggerMock l;
+    c.arquivos[kArquivoEstadoViagem] =
+        "ativa=1\nutc=2026-10-04T17:00Z\ndist_km=180.45\n";
+    DiarioBordo d(c, l);
+    d.passo(Veredito{}, em(17, 30, 0, 60.0F), true, 1000);   // 30 min depois
+    EXPECT_FLOAT_EQ(d.dist_viagem_km(), 180.45F);
+}
+
+TEST(DiarioBordo, trecho_fechado_por_veiculo_parado_mantem_a_bandeira) {
+    // ⚠️ **O caso que o corte de energia transforma em perda de modo.** O
+    // carro para no shopping, cinco minutos fecham o trecho, a chave desliga
+    // o aparelho. Se a bandeira tivesse sido apagada aqui, voltar ao carro
+    // vinte minutos depois nao gravaria nada -- e ninguem avisaria.
+    CartaoFalso c; LoggerMock l;
+    DiarioBordo d(c, l);
+    d.alterna_viagem();
+
+    // Anda um pouco, para haver ponto gravado com carimbo.
+    for (std::uint32_t i = 0; i <= 20; ++i) {
+        d.passo(Veredito{}, em(17, 30, static_cast<std::uint8_t>(i), 90.0F),
+                true, i * 1000);
+    }
+    ASSERT_NE(c.arquivos[kArquivoEstadoViagem].find("ativa=1"),
+              std::string::npos);
+
+    // Cinco minutos parado fecham o trecho.
+    for (std::uint32_t ms = 21000; ms <= 21000 + kParadoFechaTrechoMs + 2000;
+         ms += 1000) {
+        const auto seg = static_cast<std::uint8_t>((ms / 1000) % 60);
+        const auto min = static_cast<std::uint8_t>(30 + ms / 60000);
+        d.passo(Veredito{}, em(17, min, seg, 0.0F), true, ms);
+    }
+
+    EXPECT_NE(d.estado_viagem(), EstadoViagem::Parada)
+        << "o veiculo parado desligou a gravacao, e so o menu pode faze-lo";
+
+    // ⚠️ **A asserção que vale é esta.** A primeira versão deste teste
+    // conferia `ativa=1` no arquivo e passava sozinha: o último ponto
+    // gravado já o tinha escrito, e apagar a gravação do fechamento não
+    // quebrava nada. A mutação mostrou. O que importa é RELIGAR.
+    DiarioBordo depois(c, l);
+    depois.passo(Veredito{}, em(17, 50, 0, 60.0F), true, 1000);
+    EXPECT_NE(depois.estado_viagem(), EstadoViagem::Parada)
+        << "o corte de energia depois de um trecho fechado perdeu o modo";
+    EXPECT_GT(depois.dist_viagem_km(), 0.0F)
+        << "religou, mas comecou viagem nova dentro da janela de 2 h";
 }
 
 TEST(DiarioBordo, estado_inativo_no_cartao_nao_retoma) {

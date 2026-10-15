@@ -41,12 +41,30 @@ constexpr std::uint16_t kPeriodoNavegacaoMs = 250;   // 4 Hz, RF01.4
 /// o módulo que recusa, o que não responde, e a troca de baud no meio.
 class ConfiguradorGps {
 public:
-    ConfiguradorGps(Uart& uart, Pausa& pausa) : uart_(uart), pausa_(pausa) {}
+    /// `baud_inicial` é a velocidade em que a porta JÁ ESTÁ e em que o
+    /// módulo provavelmente fala — a lembrança de `BaudSalvo`. A sondagem
+    /// começa por ela e, se não houver resposta, cai na outra.
+    ///
+    /// ⚠️ Quem constrói é responsável por ter aberto a UART nessa mesma
+    /// velocidade. Prometer 115200 com a porta a 9600 faria o primeiro
+    /// comando sair ilegível e a sondagem concluir o contrário do que houve.
+    ConfiguradorGps(Uart& uart, Pausa& pausa,
+                    std::uint32_t baud_inicial = kBaudFabrica)
+        : uart_(uart), pausa_(pausa), baud_final_(baud_inicial),
+          baud_encontrado_(baud_inicial) {}
 
     ResultadoConfigGps executa(Logger& log);
 
     /// Baud em que a porta ficou. Interessa a quem for ler depois.
     std::uint32_t baud_final() const { return baud_final_; }
+
+    /// Baud em que o módulo RESPONDEU, antes de a porta ser trocada.
+    ///
+    /// É este, e não o `baud_final()`, que vale guardar para a próxima
+    /// energização: o final é sempre 115200 depois de um sucesso, e guardá-lo
+    /// faria toda partida tentar 115200 primeiro — inclusive aquelas em que a
+    /// BBR do receptor drenou e ele voltou aos 9600 de fábrica.
+    std::uint32_t baud_encontrado() const { return baud_encontrado_; }
 
 private:
     /// Desfecho de um comando. Silêncio e recusa **não** são a mesma coisa:
@@ -67,6 +85,7 @@ private:
     Pausa&           pausa_;
     ubx::LeitorUbx   leitor_;
     std::uint32_t    baud_final_ = kBaudFabrica;
+    std::uint32_t    baud_encontrado_ = kBaudFabrica;
 };
 
 }  // namespace coruja

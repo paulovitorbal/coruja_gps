@@ -123,15 +123,26 @@ struct PontoViagem {
 
 enum class EventoViagem : std::uint8_t {
     Nada,
-    Abre,     ///< criar o arquivo — nome em `nome_arquivo()`
-    Grava,    ///< gravar um ponto — dados em `ultimo_ponto()`
-    Encerra,  ///< encerramento automático por veículo parado
+    Abre,        ///< criar o arquivo — nome em `nome_arquivo()`
+    Grava,       ///< gravar um ponto — dados em `ultimo_ponto()`
+    /// Fechar o arquivo em curso. **A gravação NÃO para**: o acumulador
+    /// volta a `Aguardando` e o próximo movimento abre arquivo novo.
+    ///
+    /// ⚠️ Chamava-se `Encerra`, e o nome mentia depois de 15/10/2026: só o
+    /// item de menu encerra a gravação agora.
+    FechaTrecho,
 };
 
-/// Tempo contínuo abaixo de `kVelocidadeParadoKmh` que encerra a viagem
-/// sozinha. Existe para o esquecimento: sem ele, "iniciar" valeria até alguém
-/// lembrar de parar, e o aparelho registraria o carro na garagem.
-constexpr std::uint32_t kParadoEncerraViagemMs = 5U * 60U * 1000U;
+/// Tempo contínuo abaixo de `kVelocidadeParadoKmh` que fecha o trecho.
+///
+/// **Não encerra a gravação** — fecha o arquivo. O que ele evita é o
+/// aparelho gravar o estacionamento ponto a ponto: parado com fix, dez
+/// escritas por minuto no cartão sem o carro sair do lugar.
+///
+/// Voltar a andar dentro de `kJanelaRetomadaMin` abre arquivo novo
+/// CONTINUANDO a quilometragem, e o servidor junta os trechos numa viagem
+/// só. Passando dessa janela, a quilometragem zera e começa viagem nova.
+constexpr std::uint32_t kParadoFechaTrechoMs = 5U * 60U * 1000U;
 
 /// Passo máximo que entra na integração de distância.
 ///
@@ -168,6 +179,9 @@ public:
     /// `dist_inicial_km` retoma a distância de um trecho anterior; zero
     /// começa viagem nova.
     void inicia(float dist_inicial_km = 0.0F);
+
+    /// O que o item "parar" do menu faz: **a única coisa que encerra a
+    /// gravação**. Nenhuma regra automática chega aqui.
     void para();
 
     EstadoViagem estado() const { return estado_; }
@@ -186,6 +200,10 @@ public:
 
 private:
     void monta_nome(const Telemetria& t);
+    /// Fecha o arquivo em curso sem parar a gravação.
+    void fecha_trecho();
+    /// A parada passou de `kJanelaRetomadaMin` desde o último ponto gravado?
+    bool passou_da_janela(const Telemetria& t) const;
     void abre_amostra(const Telemetria& t);
     /// Guarda a leitura se ela for mais perto que a melhor desta fatia.
     void considera_radar(const RadarDaAmostra& r);
@@ -215,9 +233,17 @@ private:
     float         ultima_lat_ = 0.0F;
     float         ultima_lon_ = 0.0F;
 
-    // Encerramento automático
+    // Fechamento automático do trecho
     bool          contando_parado_ = false;
     std::uint32_t parado_desde_ms_ = 0;
+
+    /// Fechou o trecho por veículo parado e ainda não voltou a andar.
+    ///
+    /// ⚠️ **Sem isto o fechamento vira um laço**: `Aguardando` abre arquivo
+    /// no primeiro fix, o carro continua parado, cinco minutos depois fecha
+    /// de novo — um arquivo a cada cinco minutos enquanto o carro estiver
+    /// estacionado sob o céu aberto. O que reabre é MOVIMENTO, não fix.
+    bool          exige_movimento_ = false;
 
     PontoViagem   ponto_{};
 };

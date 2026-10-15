@@ -1,5 +1,7 @@
 #include "nucleo/AcumuladorViagem.h"
 
+#include "nucleo/RetomadaViagem.h"
+
 #include <gtest/gtest.h>
 
 #include <vector>
@@ -24,6 +26,38 @@ Telemetria em(std::uint8_t hora, std::uint8_t minuto, std::uint8_t segundo,
     t.hora = hora; t.minuto = minuto; t.segundo = segundo;
     t.data_valida = true;
     return t;
+}
+
+Telemetria em_dia(std::uint8_t dia, std::uint8_t hora, std::uint8_t minuto,
+                  std::uint8_t segundo, float velocidade_kmh) {
+    Telemetria t = em(hora, minuto, segundo, velocidade_kmh);
+    t.dia = dia;
+    return t;
+}
+
+/// Roda o relogio parado, a partir de `ms0`, ate o trecho fechar. Devolve o
+/// instante em ms em que isso aconteceu, ou zero se nao fechou.
+std::uint32_t ate_fechar(AcumuladorViagem& a, std::uint32_t ms0 = 0) {
+    for (std::uint32_t ms = ms0 + 1000;
+         ms <= ms0 + kParadoFechaTrechoMs + 2000; ms += 1000) {
+        const auto s = static_cast<std::uint8_t>((ms / 1000) % 60);
+        const auto m = static_cast<std::uint8_t>(30 + ms / 60000);
+        if (a.alimenta(em(17, m, s, 0.0F), kSemRadar, true, ms) ==
+            EventoViagem::FechaTrecho) {
+            return ms;
+        }
+    }
+    return 0;
+}
+
+/// Anda `segundos` a 90 km/h, um passo por segundo. O passo tem de caber em
+/// `kMaxPassoIntegracaoMs` (2 s), senao a distancia nao integra e o teste
+/// mede zero sem dizer por que.
+void anda(AcumuladorViagem& a, std::uint32_t segundos) {
+    for (std::uint32_t i = 0; i <= segundos; ++i) {
+        a.alimenta(em(17, 30, static_cast<std::uint8_t>(i), 90.0F), kSemRadar,
+                   true, i * 1000);
+    }
 }
 
 // --- a maquina de estados ---
@@ -262,19 +296,138 @@ TEST(AcumuladorViagem, a_distancia_do_ponto_e_a_acumulada) {
 
 // --- encerramento automatico ---
 
-TEST(AcumuladorViagem, cinco_minutos_parado_encerra_sozinha) {
+TEST(AcumuladorViagem, cinco_minutos_parado_fecha_o_trecho_sem_parar) {
+    // ⚠️ **Mudou em 15/10/2026.** Antes isto encerrava a gravacao, e so o
+    // menu a religava. Agora a gravacao e um MODO: so o "parar" do menu a
+    // desliga, e o veiculo parado apenas fecha o arquivo em curso.
     AcumuladorViagem a;
     a.inicia();
     a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0);
-    EventoViagem ultimo = EventoViagem::Nada;
-    for (std::uint32_t ms = 1000; ms <= kParadoEncerraViagemMs + 2000; ms += 1000) {
-        const auto s = static_cast<std::uint8_t>((ms / 1000) % 60);
-        const auto m = static_cast<std::uint8_t>(30 + ms / 60000);
-        const auto e = a.alimenta(em(17, m, s, 0.0F), kSemRadar, true, ms);
-        if (e == EventoViagem::Encerra) { ultimo = e; break; }
+    ASSERT_GT(ate_fechar(a), 0u);
+    EXPECT_EQ(a.estado(), EstadoViagem::Aguardando);
+    EXPECT_TRUE(a.ativa());
+}
+
+TEST(AcumuladorViagem, depois_de_fechar_so_o_movimento_reabre) {
+    // ⚠️ Sem esta regra o fechamento vira um laco: `Aguardando` abriria
+    // arquivo no primeiro fix, o carro continua parado, e cinco minutos
+    // depois fecha de novo -- um arquivo a cada cinco minutos com o carro
+    // estacionado sob o ceu aberto.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0);
+    const auto fechou_ms = ate_fechar(a);  // NOLINT
+    ASSERT_GT(fechou_ms, 0u);
+
+    // Mais cinco minutos parado: nada acontece.
+    for (std::uint32_t ms = fechou_ms + 1000; ms <= fechou_ms + 300000;
+         ms += 1000) {
+        EXPECT_EQ(a.alimenta(em(17, 40, 0, 0.0F), kSemRadar, true, ms),
+                  EventoViagem::Nada);
     }
-    EXPECT_EQ(ultimo, EventoViagem::Encerra);
+    // Andou: abre arquivo novo.
+    EXPECT_EQ(a.alimenta(em(17, 45, 0, 50.0F), kSemRadar, true,
+                         fechou_ms + 400000),
+              EventoViagem::Abre);
+    EXPECT_STREQ(a.nome_arquivo(), "20261004_174500.log");
+}
+
+TEST(AcumuladorViagem, o_trecho_novo_continua_a_quilometragem) {
+    // Parada curta -- posto, padaria -- e a mesma viagem. O servidor junta
+    // os dois arquivos numa jornada so, porque `dist_km` emenda.
+    AcumuladorViagem a;
+    a.inicia();
+    anda(a, 20);
+    const float antes = a.dist_km();
+    ASSERT_GT(antes, 0.0F);
+    ASSERT_GT(ate_fechar(a, 20000), 0u);
+    a.alimenta(em(17, 50, 0, 50.0F), kSemRadar, true, 1200000);
+    EXPECT_FLOAT_EQ(a.dist_km(), antes);
+}
+
+TEST(AcumuladorViagem, parada_de_mais_de_duas_horas_comeca_viagem_nova) {
+    AcumuladorViagem a;
+    a.inicia();
+    // Anda o bastante para fechar uma fatia e gravar um ponto -- e o carimbo
+    // dele que mede a parada.
+    anda(a, 20);
+    ASSERT_GT(a.dist_km(), 0.0F);
+    ASSERT_GT(ate_fechar(a, 20000), 0u);
+
+    // Volta a andar no dia seguinte.
+    EXPECT_EQ(a.alimenta(em_dia(5, 8, 0, 0, 50.0F), kSemRadar, true, 9000000),
+              EventoViagem::Abre);
+    EXPECT_FLOAT_EQ(a.dist_km(), 0.0F);
+}
+
+TEST(AcumuladorViagem, a_fronteira_das_duas_horas_e_INCLUSIVA) {
+    // ⚠️ **A mesma pergunta e respondida em dois lugares**, e eles tem de
+    // concordar: o `pode_retomar` decide depois do corte de energia e o
+    // acumulador decide com o aparelho ligado. O `pode_retomar` usa
+    // `<= kJanelaRetomadaMin`, entao 120 minutos CRAVADOS ainda sao a mesma
+    // viagem. Divergir aqui faria o mesmo almoco contar de dois jeitos
+    // conforme a chave tivesse sido girada ou nao.
+    AcumuladorViagem a;
+    a.inicia();
+    anda(a, 20);
+    const float antes = a.dist_km();
+    ASSERT_GT(ate_fechar(a, 20000), 0u);
+
+    const auto& ultimo = a.ultimo_ponto();
+    const int minuto_do_dia = ultimo.hora * 60 + ultimo.minuto;
+    const int alvo = minuto_do_dia + static_cast<int>(kJanelaRetomadaMin);
+    a.alimenta(em(static_cast<std::uint8_t>(alvo / 60),
+                  static_cast<std::uint8_t>(alvo % 60), 0, 50.0F),
+               kSemRadar, true, 9000000);
+    EXPECT_FLOAT_EQ(a.dist_km(), antes) << "120 min cravados comecaram viagem "
+                                           "nova, e o pode_retomar retomaria";
+}
+
+TEST(AcumuladorViagem, um_minuto_alem_da_janela_ja_e_viagem_nova) {
+    AcumuladorViagem a;
+    a.inicia();
+    anda(a, 20);
+    ASSERT_GT(a.dist_km(), 0.0F);
+    ASSERT_GT(ate_fechar(a, 20000), 0u);
+
+    const auto& ultimo = a.ultimo_ponto();
+    const int alvo = ultimo.hora * 60 + ultimo.minuto +
+                     static_cast<int>(kJanelaRetomadaMin) + 1;
+    a.alimenta(em(static_cast<std::uint8_t>(alvo / 60),
+                  static_cast<std::uint8_t>(alvo % 60), 0, 50.0F),
+               kSemRadar, true, 9000000);
+    EXPECT_FLOAT_EQ(a.dist_km(), 0.0F);
+}
+
+TEST(AcumuladorViagem, parada_de_uma_hora_ainda_e_a_mesma_viagem) {
+    AcumuladorViagem a;
+    a.inicia();
+    anda(a, 20);
+    const float antes = a.dist_km();
+    ASSERT_GT(antes, 0.0F);
+    ASSERT_GT(ate_fechar(a, 20000), 0u);
+    a.alimenta(em(18, 25, 0, 50.0F), kSemRadar, true, 3400000);
+    EXPECT_FLOAT_EQ(a.dist_km(), antes);
+}
+
+TEST(AcumuladorViagem, parar_no_menu_encerra_mesmo_depois_de_fechar_trecho) {
+    // A unica coisa que desliga a gravacao.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0);
+    ASSERT_GT(ate_fechar(a), 0u);
+    a.para();
     EXPECT_EQ(a.estado(), EstadoViagem::Parada);
+    EXPECT_EQ(a.alimenta(em(17, 45, 0, 50.0F), kSemRadar, true, 900000),
+              EventoViagem::Nada);
+}
+
+TEST(AcumuladorViagem, iniciar_pelo_menu_nao_exige_movimento) {
+    // Quem clicou "iniciar" quer o arquivo no primeiro fix, mesmo parado.
+    AcumuladorViagem a;
+    a.inicia();
+    EXPECT_EQ(a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0),
+              EventoViagem::Abre);
 }
 
 TEST(AcumuladorViagem, andar_reinicia_a_contagem_de_parado) {
@@ -287,7 +440,7 @@ TEST(AcumuladorViagem, andar_reinicia_a_contagem_de_parado) {
     }
     a.alimenta(em(17, 34, 1, 20.0F), kSemRadar, true, 241000);
     for (std::uint32_t ms = 242000; ms <= 480000; ms += 1000) {
-        EXPECT_NE(a.alimenta(em(17, 38, 0, 0.0F), kSemRadar, true, ms), EventoViagem::Encerra)
+        EXPECT_NE(a.alimenta(em(17, 38, 0, 0.0F), kSemRadar, true, ms), EventoViagem::FechaTrecho)
             << "encerrou em " << ms << " ms, mas o relogio reiniciou aos 241 s";
     }
     EXPECT_EQ(a.estado(), EstadoViagem::Gravando);
@@ -308,7 +461,7 @@ TEST(AcumuladorViagem, parado_e_perdendo_o_fix_nao_encerra_ao_voltar) {
     }
 
     EXPECT_NE(a.alimenta(em(17, 37, 0, 0.0F), kSemRadar, true, 401000),
-              EventoViagem::Encerra)
+              EventoViagem::FechaTrecho)
         << "encerrou assim que o fix voltou";
     EXPECT_EQ(a.estado(), EstadoViagem::Gravando);
 }
@@ -326,12 +479,12 @@ TEST(AcumuladorViagem, o_limiar_de_encerramento_e_inclusivo) {
     a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 1000);     // comeca a contar aqui
 
     EXPECT_NE(a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true,
-                         1000 + kParadoEncerraViagemMs - 1),
-              EventoViagem::Encerra)
+                         1000 + kParadoFechaTrechoMs - 1),
+              EventoViagem::FechaTrecho)
         << "encerrou um milissegundo antes do limiar";
     EXPECT_EQ(a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true,
-                         1000 + kParadoEncerraViagemMs),
-              EventoViagem::Encerra)
+                         1000 + kParadoFechaTrechoMs),
+              EventoViagem::FechaTrecho)
         << "o limiar e inclusivo";
 }
 
@@ -341,8 +494,8 @@ TEST(AcumuladorViagem, sem_fix_nao_conta_para_o_encerramento) {
     AcumuladorViagem a;
     a.inicia();
     a.alimenta(em(17, 30, 0, 80.0F), kSemRadar, true, 0);
-    for (std::uint32_t ms = 1000; ms <= kParadoEncerraViagemMs + 60000; ms += 1000) {
-        EXPECT_NE(a.alimenta(Telemetria{}, kSemRadar, false, ms), EventoViagem::Encerra);
+    for (std::uint32_t ms = 1000; ms <= kParadoFechaTrechoMs + 60000; ms += 1000) {
+        EXPECT_NE(a.alimenta(Telemetria{}, kSemRadar, false, ms), EventoViagem::FechaTrecho);
     }
     EXPECT_EQ(a.estado(), EstadoViagem::Gravando);
 }

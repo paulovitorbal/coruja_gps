@@ -126,6 +126,14 @@ private:
         const std::uint8_t id_confirmado =
             responde_pelo_comando_errado
                 ? static_cast<std::uint8_t>(c.id ^ 0x7FU) : c.id;
+        // O modulo de verdade troca a PROPRIA velocidade ao processar o
+        // CFG-PRT. Sem isto o simulador nao consegue representar o caso em
+        // que ele comeca a 9600 -- BBR drenada -- e termina a 115200, que e
+        // exatamente a partida fria de 15/10/2026.
+        if (c.classe == ubx::kClasseCfg && c.id == ubx::kCfgPrt &&
+            baud_exigido != 0) {
+            baud_exigido = kBaudDesejado;
+        }
         const std::uint8_t carga[2] = {c.classe, id_confirmado};
         std::uint8_t quadro[16];
         const std::size_t n = ubx::monta(ubx::kClasseAck,
@@ -150,14 +158,68 @@ struct Bancada {
     SimuladorUart         uart;
     PausaFalsa        pausa;
     teste::LoggerMock log;
-    ResultadoConfigGps roda() {
-        ConfiguradorGps c(uart, pausa);
+    ResultadoConfigGps roda(std::uint32_t baud_inicial = kBaudFabrica) {
+        // A porta de verdade e aberta nessa velocidade por quem constroi; o
+        // simulador comeca em 9600, entao aqui ele acompanha.
+        if (baud_inicial != kBaudFabrica) { uart.define_baud(baud_inicial); }
+        ConfiguradorGps c(uart, pausa, baud_inicial);
         const auto r = c.executa(log);
         baud_final = c.baud_final();
+        baud_encontrado = c.baud_encontrado();
         return r;
     }
     std::uint32_t baud_final = 0;
+    std::uint32_t baud_encontrado = 0;
 };
+
+// ============================================ a lembranca do baud (15/10)
+//
+// ⚠️ A sondagem custa ~1,2 s em toda partida morna: o `CFG-CFG` grava 115200
+// na BBR, a bateria de reserva a mantem por horas, e no religamento o modulo
+// ja fala 115200 enquanto nos pedimos a 9600 e levamos duas recusas por
+// silencio. Medido: o modulo fixou em 0,4 s e quem dirigia esperou 5,9 s.
+
+TEST(ConfiguradorGps, comecando_pelo_baud_lembrado_nao_sonda) {
+    Bancada b;
+    b.uart.baud_exigido = kBaudDesejado;   // o modulo lembrou a configuracao
+    ASSERT_EQ(b.roda(kBaudDesejado), ResultadoConfigGps::Configurado);
+    // O primeiro comando ja sai na velocidade certa: nenhuma recusa por
+    // silencio, nenhum aviso de sondagem.
+    EXPECT_EQ(b.uart.baud_do_comando.front(), kBaudDesejado);
+    EXPECT_EQ(b.baud_encontrado, kBaudDesejado);
+}
+
+TEST(ConfiguradorGps, lembranca_errada_cai_na_outra_velocidade) {
+    // A BBR drenou e o modulo voltou aos 9600 de fabrica. A lembranca erra,
+    // e o preco e exatamente a sondagem que ela existe para evitar -- nunca
+    // um aparelho mudo.
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;   // so fala 9600, ate o CFG-PRT
+    ASSERT_EQ(b.roda(kBaudDesejado), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+}
+
+TEST(ConfiguradorGps, sem_lembranca_o_comportamento_e_o_de_sempre) {
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.uart.baud_do_comando.front(), kBaudFabrica);
+    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
+}
+
+TEST(ConfiguradorGps, o_que_se_guarda_e_onde_respondeu_e_nao_onde_terminou) {
+    // ⚠️ O `baud_final` e sempre 115200 depois de um sucesso. Guardar ELE
+    // faria toda partida tentar 115200 primeiro, inclusive as que comecam
+    // com a BBR drenada -- e aí a lembranca passaria a custar o tempo que
+    // deveria poupar.
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
+    EXPECT_NE(b.baud_encontrado, b.baud_final);
+}
 
 // ================================================== sequência do RF01.2
 

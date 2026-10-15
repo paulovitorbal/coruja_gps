@@ -166,6 +166,156 @@ TEST(UbxDiagnostico, aopstatus_ligado_mas_ocioso_e_o_estado_NORMAL) {
     EXPECT_FALSE(a.calculando);
 }
 
+// ================================================== a linha do diagnostico
+//
+// ⚠️ **Esta secao existe por causa da partida de 15/10/2026.** O aparelho
+// gravou, numa partida fria de verdade:
+//
+//     radio: ruido 0 | agc 0/8191 | antena iniciando | interferencia 0/255
+//
+// Nada daquilo foi medido. O `MON-HW` nao respondeu dentro dos tres segundos
+// de teto -- a linha saiu exatamente 3000 ms depois do fix, esgotando a
+// espera -- e o que foi impresso era a estrutura zerada. `agc 0/8191` le-se
+// como front-end morto, e nao havia nada de errado com o front-end.
+//
+// Formatar aqui, e nao no `main.cpp`, e o que torna isso testavel: o laco
+// principal nao tem teste, e foi justamente ali que o defeito morou.
+
+TEST(UbxDiagnostico, a_linha_traz_os_tres_quando_os_tres_responderam) {
+    EstadoNavegacao nav;
+    nav.respondeu = true; nav.teve_fix = true;
+    nav.ttff_ms = 400; nav.desde_boot_ms = 5500;
+    EstadoRadio radio;
+    radio.respondeu = true; radio.ruido = 90; radio.agc = 1716;
+    radio.antena = AntenaGps::Ok; radio.interferencia = 5;
+    EstadoAop aop;
+    aop.respondeu = true; aop.ligado = true;
+
+    char linha[224] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EXPECT_NE(std::strstr(linha, "ruido 90"), nullptr);
+    EXPECT_NE(std::strstr(linha, "agc 1716/8191"), nullptr);
+    EXPECT_NE(std::strstr(linha, "antena ok"), nullptr);
+    EXPECT_NE(std::strstr(linha, "0.4 s"), nullptr);
+    EXPECT_NE(std::strstr(linha, "aop ligado"), nullptr);
+}
+
+TEST(UbxDiagnostico, sem_resposta_do_mon_hw_a_linha_diz_isso_e_nao_zeros) {
+    // O caso de 15/10/2026, e o unico teste que realmente importa nesta
+    // secao: numero nenhum pode sair de uma estrutura que ninguem preencheu.
+    EstadoNavegacao nav;
+    nav.respondeu = true; nav.teve_fix = true; nav.ttff_ms = 38200;
+    EstadoRadio radio;   // respondeu = false
+    EstadoAop aop;
+    aop.respondeu = true; aop.ligado = true;
+
+    char linha[224] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EXPECT_NE(std::strstr(linha, "MON-HW sem resposta"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "agc"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "ruido"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "antena"), nullptr);
+    // O que respondeu continua sendo relatado.
+    EXPECT_NE(std::strstr(linha, "38.2 s"), nullptr);
+}
+
+TEST(UbxDiagnostico, sem_resposta_do_nav_status_nao_inventa_ttff) {
+    EstadoNavegacao nav;   // respondeu = false
+    EstadoRadio radio;
+    radio.respondeu = true; radio.antena = AntenaGps::Ok;
+    EstadoAop aop;
+    aop.respondeu = true;
+
+    char linha[224] = {};
+    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "NAV-STATUS sem resposta"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "ttff do modulo 0.0"), nullptr);
+}
+
+TEST(UbxDiagnostico, sem_resposta_do_aopstatus_nao_afirma_desligado) {
+    // ⚠️ "DESLIGADO" e uma AFIRMACAO sobre a configuracao do modulo. Dizer
+    // isso porque a pergunta nao voltou mandaria procurar defeito onde nao
+    // ha.
+    EstadoNavegacao nav; nav.respondeu = true;
+    EstadoRadio radio;   radio.respondeu = true;
+    EstadoAop aop;       // respondeu = false
+
+    char linha[224] = {};
+    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "NAV-AOPSTATUS sem resposta"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "aop DESLIGADO"), nullptr);
+}
+
+TEST(UbxDiagnostico, a_linha_traz_o_relogio_do_proprio_modulo) {
+    // Sem isto, a diferenca entre o nosso cronometro e o dele -- 7,2 s na
+    // partida de 15/10 -- so da para inferir. Com o `msss` ao lado, ela fica
+    // aritmetica: o modulo diz ha quanto tempo ELE esta ligado.
+    EstadoNavegacao nav;
+    nav.respondeu = true; nav.teve_fix = true;
+    nav.ttff_ms = 38200; nav.desde_boot_ms = 44900;
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+
+    char linha[224] = {};
+    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "44.9 s"), nullptr);
+}
+
+TEST(UbxDiagnostico, ainda_sem_fix_e_diferente_de_sem_resposta) {
+    EstadoNavegacao nav;
+    nav.respondeu = true;   // o modulo respondeu...
+    nav.teve_fix = false;   // ...dizendo que ainda nao fixou
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+
+    char linha[224] = {};
+    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "ainda nao fixou"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "NAV-STATUS sem resposta"), nullptr);
+}
+
+TEST(UbxDiagnostico, nenhum_respondeu_ainda_produz_linha) {
+    // Linha nenhuma seria o pior desfecho para algo que existe para
+    // explicar: quem le o diario precisa ver que a pergunta foi feita.
+    EstadoNavegacao nav; EstadoRadio radio; EstadoAop aop;
+    char linha[224] = {};
+    EXPECT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EXPECT_NE(std::strstr(linha, "sem resposta"), nullptr);
+}
+
+TEST(UbxDiagnostico, buffer_curto_nao_estoura_e_devolve_zero) {
+    EstadoNavegacao nav; EstadoRadio radio; EstadoAop aop;
+    char linha[8] = {};
+    EXPECT_EQ(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+}
+
+// ============================ a bandeira de "esta estrutura foi preenchida"
+
+TEST(UbxDiagnostico, decodificar_marca_a_estrutura_como_respondida) {
+    Payload<16> p;
+    EstadoNavegacao nav;
+    ASSERT_FALSE(nav.respondeu);
+    ASSERT_TRUE(analisa_nav_status(p.b, sizeof p.b, &nav));
+    EXPECT_TRUE(nav.respondeu);
+
+    Payload<60> q;
+    EstadoRadio radio;
+    ASSERT_TRUE(analisa_mon_hw(q.b, sizeof q.b, &radio));
+    EXPECT_TRUE(radio.respondeu);
+
+    Payload<16> r;
+    EstadoAop aop;
+    ASSERT_TRUE(analisa_nav_aopstatus(r.b, sizeof r.b, &aop));
+    EXPECT_TRUE(aop.respondeu);
+}
+
+TEST(UbxDiagnostico, quadro_curto_demais_nao_marca_como_respondida) {
+    Payload<8> curto;
+    EstadoRadio radio;
+    EXPECT_FALSE(analisa_mon_hw(curto.b, sizeof curto.b, &radio));
+    EXPECT_FALSE(radio.respondeu);
+}
+
 TEST(UbxDiagnostico, aopstatus_curto_demais_e_recusado) {
     Payload<5> p;
     EstadoAop a{};

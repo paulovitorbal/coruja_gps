@@ -162,7 +162,10 @@ o que ele via. Da **v0.2.13** em diante:
 | `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
 | `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
 | `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
-| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s \| aop ligado` | por que ela demorou — no primeiro fix e a cada 5 min |
+| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado` | por que ela demorou — no primeiro fix e a cada 5 min |
+| `gps` | `radio: MON-HW sem resposta \| ttff do modulo 38.2 s (ligado ha 44.9 s) \| aop ligado` | a mesma linha quando uma das três perguntas não voltou |
+| `diario` | `trecho fechado: veiculo parado` | fechou o arquivo; **a gravação continua** |
+| `diario` | `viagem retomada` / `viagem nova: a parada passou de 2 h` | o que a energização decidiu sobre a viagem anterior |
 | `gps` | `taxa de fixes em 2.0 Hz com posicao presente (falha)` | **WARN** — a cadência caiu com o receptor entregando posição |
 | `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima |
 | `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
@@ -170,10 +173,22 @@ o que ele via. Da **v0.2.13** em diante:
 
 ⚠️ **A linha `radio:` compara dois relógios de propósito.** O `primeiro fix`
 conta desde o boot do Pico e inclui a configuração do receptor; o `ttff do
-modulo` é o que o próprio módulo mediu. Divergirem muito aponta o atraso para
-o nosso lado, e não para o céu. Ela sai como **WARN** quando a interferência
-derruba o fix ou a antena está em curto ou aberta — que é quando o aparelho
-parece quebrado sem estar.
+modulo` é o que o próprio módulo mediu, e o `ligado ha` é o relógio interno
+dele. Com os três, a diferença entre os dois cronômetros vira aritmética em
+vez de inferência — na partida de 15/10/2026 ela foi de 7,2 s. Divergirem
+muito aponta o atraso para o nosso lado, e não para o céu. Ela sai como
+**WARN** quando a interferência derruba o fix ou a antena está em curto ou
+aberta — que é quando o aparelho parece quebrado sem estar.
+
+🔴 **Cada uma das três perguntas diz se respondeu.** Em 15/10/2026 o diário
+gravou `ruido 0 | agc 0/8191 | antena iniciando | interferencia 0/255` numa
+partida fria: o `MON-HW` não respondeu dentro dos três segundos de teto — a
+linha saiu exatamente 3000 ms depois do fix, esgotando a espera — e o que
+foi impresso era a estrutura zerada. `agc 0/8191` lê-se como front-end
+morto, e não havia nada de errado com o front-end. Agora a parte que não
+voltou aparece como `MON-HW sem resposta`, `NAV-STATUS sem resposta` ou
+`NAV-AOPSTATUS sem resposta`, e o alarme de antena/interferência só julga o
+que foi de fato medido.
 
 ⚠️ **A degradação de taxa só existe aqui.** Ela ocupava a faixa superior da tela de
 dirigir e saiu dela em 14/10/2026: como a taxa conta apenas fixes aproveitados, o aviso
@@ -205,9 +220,62 @@ servidor.
 
 ## 4. Estado da viagem — `viagem.est`
 
-Arquivo minúsculo, reescrito a cada ponto gravado. Permite retomar uma viagem
-depois de desligar e religar o aparelho, em vez de abrir outra. Guarda se há
-viagem ativa, a data/hora da última amostra e a distância acumulada.
+Arquivo minúsculo, reescrito a cada ponto gravado. Guarda se a **gravação
+está ligada**, a data/hora da última amostra e a distância acumulada.
+
+Não é log e não sobe para o servidor.
+
+### Gravar é um MODO, e só o menu o desliga
+
+Desde 15/10/2026 o item de menu liga e desliga um modo, em vez de abrir e
+fechar uma viagem. Dentro dele as viagens começam e terminam sozinhas:
+
+| o que acontece | o arquivo | a quilometragem |
+|---|---|---|
+| clicou **iniciar** | abre no primeiro fix | zera |
+| 5 min parado | **fecha** | continua |
+| voltou a andar em menos de 2 h | abre outro | **continua** |
+| voltou a andar depois de 2 h | abre outro | **zera** — viagem nova |
+| corte de energia, religou em menos de 2 h | abre outro | continua |
+| corte de energia, religou depois de 2 h | abre outro | zera — viagem nova |
+| clicou **parar** | fecha | zera, e o modo desliga |
+
+Duas regras valem a pena destacar:
+
+- **Nenhuma regra automática desliga a gravação.** Antes, cinco minutos
+  parado encerravam tudo e só o menu religava — bastava um semáforo longo
+  para o resto do trajeto não ser gravado, sem ninguém avisar.
+- **A janela de 2 h é a mesma dos dois lados** — com o aparelho ligado e
+  depois do corte de energia —, porque é a mesma pergunta: "isto ainda é a
+  mesma viagem?". O limite é **inclusivo**: 120 minutos cravados ainda são a
+  mesma viagem. O caso que define o número é o almoço de estrada.
+
+O que o servidor vê disso: trechos cuja `dist_km` emenda viram **uma jornada
+só**, com um pino de pausa entre eles; quando ela zera, começa outra jornada.
+
+### Limite conhecido
+
+Com o aparelho **ligado e com fix**, parar o carro por duas horas não começa
+viagem nova — ele apenas fecha o trecho em cinco minutos e espera o
+movimento. A contagem das 2 h sai do carimbo do último ponto gravado, então
+ela mede o tempo entre uma amostra e a seguinte. Na prática a alimentação é
+pós-chave e o aparelho desliga junto com o carro, que é o caso para o qual a
+regra foi escrita.
+
+---
+
+## 5. Baud do receptor — `gps.est`
+
+Uma linha, `baud=115200`, com a velocidade em que o módulo respondeu da
+última vez. Existe para poupar os ~1,2 s que a sondagem custa em toda
+partida morna: o `CFG-CFG` grava 115200 na BBR do receptor e a bateria de
+reserva a mantém por horas, então no religamento ele já fala 115200 enquanto
+o aparelho começava pedindo a 9600 e levava duas recusas por silêncio.
+
+**É lembrança, não configuração.** Apagar o arquivo custa tempo na próxima
+partida, nunca correção — e só os dois bauds conhecidos são aceitos na
+leitura, porque obedecer a um número estragado abriria a porta numa
+velocidade em que ninguém fala.
 
 Não é log e não sobe para o servidor.
 

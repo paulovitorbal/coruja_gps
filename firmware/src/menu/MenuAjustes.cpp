@@ -209,9 +209,9 @@ void MenuAjustes::valor(ItemMenu i, char* destino,
             std::snprintf(destino, capacidade, "%u%%", cfg_.volume_buzzer);
             break;
         case ItemMenu::Viagem:
-            // "iniciar", "aguardando" ou "parar": a segunda linha diz o que
-            // o clique vai FAZER, nao o estado em que se esta. Rotulo de
-            // acao e o que o item de menu promete.
+            // "iniciar" ou "parar": a segunda linha diz o que o clique vai
+            // FAZER, nao o estado em que se esta. Rotulo de acao e o que o
+            // item de menu promete.
             copia_texto(destino, capacidade, descreve(viagem_));
             break;
         default:

@@ -456,8 +456,12 @@ TEST(MenuAjustes, a_segunda_linha_segue_o_estado_informado) {
     c.abre();
     c.vai_ate(ItemMenu::Viagem);
 
+    // ⚠️ "parar", e nao "aguardando": o rotulo e a ACAO do clique. Aguardando
+    // deixou de ser um instante entre o clique e o primeiro fix -- agora e
+    // toda parada de mais de cinco minutos --, e quem quisesse encerrar leria
+    // um estado em vez da unica acao que encerra.
     c.menu().define_estado_viagem(EstadoViagem::Aguardando);
-    EXPECT_EQ(c.valor(ItemMenu::Viagem), "aguardando");
+    EXPECT_EQ(c.valor(ItemMenu::Viagem), "parar");
 
     c.menu().define_estado_viagem(EstadoViagem::Gravando);
     EXPECT_EQ(c.valor(ItemMenu::Viagem), "parar");

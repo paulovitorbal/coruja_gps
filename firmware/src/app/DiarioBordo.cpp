@@ -76,10 +76,21 @@ void DiarioBordo::tenta_retomar(const Telemetria& t) {
     if (!analisa_estado(buf, lidos, &salvo)) {
         return;
     }
+    if (!salvo.ativa) {
+        // O usuário parou a gravação pelo menu. Nada a fazer: só o menu a
+        // liga de novo.
+        return;
+    }
     if (!pode_retomar(salvo, t)) {
-        // Fora da janela: a viagem anterior acabou. Apaga a bandeira para
-        // que a próxima energização não tente de novo.
-        if (salvo.ativa) { limpa_estado(); }
+        // ⚠️ **Mudou em 15/10/2026.** Antes isto apagava a bandeira e a
+        // gravação acabava ali — fora da janela, o aparelho ficava parado
+        // até alguém lembrar de clicar em "iniciar".
+        //
+        // Agora a gravação é um MODO: passar das duas horas não a desliga,
+        // começa VIAGEM NOVA. Zera a quilometragem, e é isso que faz o
+        // servidor mostrar duas jornadas em vez de uma emendada.
+        viagem_.inicia(0.0F);
+        log_.info(kOrigem, "viagem nova: a parada passou de 2 h");
         return;
     }
     viagem_.inicia(salvo.dist_km);
@@ -136,9 +147,17 @@ void DiarioBordo::trata_viagem(const Veredito& v, const Telemetria& t,
             salva_estado(true, p);
             break;
         }
-        case EventoViagem::Encerra:
-            limpa_estado();
-            log_.info(kOrigem, "viagem encerrada por inatividade");
+        case EventoViagem::FechaTrecho:
+            // ⚠️ **O que importa aqui é o que NÃO se faz: apagar a bandeira.**
+            // Até 15/10/2026 esta linha era `limpa_estado()`, e com ela a
+            // gravação acabava no primeiro semáforo longo.
+            //
+            // Nada é escrito: o último `Grava` já salvou o estado com o
+            // carimbo deste mesmo ponto, e é ele que a próxima energização
+            // compara. Gravar de novo seria uma escrita de cartão por nada —
+            // a mutação provou que era redundante, apagando-a sem quebrar
+            // teste nenhum.
+            log_.info(kOrigem, "trecho fechado: veiculo parado");
             break;
         case EventoViagem::Nada:
             break;
