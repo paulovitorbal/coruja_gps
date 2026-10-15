@@ -56,6 +56,69 @@ def trecho(distancias_m: list[float], nome: str = "20261015_080000.log",
                 for i, d in enumerate(distancias_m)])
 
 
+def passa_por_casa(nome: str = "20261015_080000.log") -> viagem.Viagem:
+    """Chega pelo nordeste, cruza a vizinhança de casa e sai pelo noroeste.
+
+    ⚠️ **O formato da rota importa neste arquivo.** A rota reta ao norte dos
+    outros testes tem caixa de enquadramento degenerada — longitude
+    constante —, e uma caixa degenerada esconde toda uma classe de falso
+    positivo da varredura. Esta tem extremos de latitude e de longitude que
+    não coincidem, e parte em dois fragmentos com as pontas em lados opostos
+    da zona, que é a forma de uma viagem de verdade.
+    """
+    pontos = []
+    passos = ([(k, +1) for k in range(20, -1, -1)] +
+              [(k, -1) for k in range(1, 21)])
+    for i, (k, lado) in enumerate(passos):
+        pontos.append(viagem.PontoViagem(
+            quando=INICIO + datetime.timedelta(seconds=i * 6),
+            lat=CASA.lat + k * 0.002,
+            lon=CASA.lon + lado * k * 0.001,
+            v_media_kmh=40.0 + i % 11, dist_km=i * 0.06))
+    return viagem.Viagem(nome=nome, pontos=pontos)
+
+
+#: Um desvio pequeno, de uns 13 m, para as pernas do cotovelo não caírem na
+#: latitude e na longitude EXATAS do centro. Rua nenhuma passa pelo ponto
+#: matemático, e um valor redondo sairia do HTML sem casas decimais
+#: suficientes para a varredura enxergar.
+_DESVIO = 0.00012
+
+
+def cotovelo_em_volta_de_casa(
+        nome: str = "20261015_080000.log") -> viagem.Viagem:
+    """Vem do leste na altura de casa, corta a esquina e sobe ao norte dela.
+
+    ⚠️ **Esta rota existe por causa da implantação de 15/10/2026.** A
+    conferência na página real acusou um par de números a 581 m do centro, e
+    ele não era ponto nenhum: era a longitude de um canto da caixa de
+    enquadramento com a latitude do OUTRO canto.
+
+    O formato aqui reproduz isso de propósito. Uma perna passa na latitude de
+    casa, longe a leste; outra passa na longitude de casa, longe ao norte.
+    Nenhum dos dois pontos está perto — mas o canto sudoeste da caixa, que
+    combina os dois extremos, cai em cima da casa. É o que torna o descarte
+    do `fitBounds` necessário, e não decorativo.
+    """
+    pontos = []
+    # Perna 1: na altura de casa, de 4,4 km a 1,3 km a leste.
+    passos = [(_DESVIO, k * 0.001) for k in range(40, 11, -1)]
+    # Perna 2: corta a esquina em diagonal, passando perto de casa.
+    # O `_DESVIO` tambem aqui: sem ele a perna termina na longitude
+    # REDONDA do centro, o HTML a escreve como `-40.0` e a varredura,
+    # que exige quatro casas decimais, deixaria de ver o canto.
+    passos += [(j * 0.001, (12 - j) * 0.001 + _DESVIO)
+               for j in range(1, 13)]
+    # Perna 3: sobe ao norte, na longitude de casa.
+    passos += [(j * 0.001, _DESVIO) for j in range(13, 41)]
+    for i, (dlat, dlon) in enumerate(passos):
+        pontos.append(viagem.PontoViagem(
+            quando=INICIO + datetime.timedelta(seconds=i * 6),
+            lat=CASA.lat + dlat, lon=CASA.lon + dlon,
+            v_media_kmh=40.0 + i % 11, dist_km=i * 0.06))
+    return viagem.Viagem(nome=nome, pontos=pontos)
+
+
 def so_casa(raio_m: float = 1000.0, folga_m: float = 0.0) -> p.Privacidade:
     return p.Privacidade(zonas=(CASA,), raio_m=raio_m, folga_m=folga_m)
 
@@ -332,6 +395,45 @@ class NoMapa(unittest.TestCase):
                   if _dentro(par, 1000.0)]
         self.assertEqual(dentro, [])
 
+    def test_rota_que_cruza_a_zona_nao_deixa_coordenada_dentro(self):
+        # A rota reta ao norte dos outros testes tem caixa de enquadramento
+        # degenerada e nao exercita a forma de uma viagem de verdade: dois
+        # fragmentos com as pontas em lados opostos da zona.
+        j = viagem.Jornada([passa_por_casa()])
+        saida = p.esconde_jornada(j, so_casa())
+        self.assertEqual(len(saida.trechos), 2)
+        html = viagem.desenha(saida)
+        dentro = [par for par in _pares_de_coordenadas(html)
+                  if _dentro(par, 1000.0)]
+        self.assertEqual(dentro, [])
+
+    def test_cotovelo_em_volta_de_casa_nao_deixa_coordenada_dentro(self):
+        # A rota que reproduz o falso positivo de 15/10/2026 -- ver
+        # `cotovelo_em_volta_de_casa`. Nenhum PONTO desenhado cai na zona.
+        saida = p.esconde_jornada(
+            viagem.Jornada([cotovelo_em_volta_de_casa()]), so_casa())
+        html = viagem.desenha(saida)
+        dentro = [par for par in _pares_de_coordenadas(html)
+                  if _dentro(par, 1000.0)]
+        self.assertEqual(dentro, [])
+
+    def test_o_canto_da_caixa_cai_em_cima_de_casa_e_nao_e_vazamento(self):
+        # ⚠️ **A guarda contra a propria varredura.** Sem o descarte do
+        # `fitBounds`, o teste acima reprovaria por um canto de caixa que nao
+        # e ponto nenhum -- e teste que grita sem motivo treina quem o le a
+        # ignora-lo. Este fixa que o canto ESTA mesmo sobre a casa, para que
+        # o descarte continue sendo necessario e nao vire enfeite.
+        saida = p.esconde_jornada(
+            viagem.Jornada([cotovelo_em_volta_de_casa()]), so_casa())
+        html = viagem.desenha(saida)
+        caixa = _ENQUADRAMENTO.search(html)
+        self.assertIsNotNone(caixa)
+        cantos = [float(x) for x in _NUMERO.findall(caixa.group())]
+        self.assertTrue(_dentro((cantos[0], cantos[1]), 1000.0),
+                        "o canto sudoeste tinha de cair dentro da zona")
+        # E o que o descarte tira e SO a caixa.
+        self.assertNotIn("fitBounds", _ENQUADRAMENTO.sub("", html))
+
     def test_o_par_do_centro_nao_aparece_escrito(self):
         # A rota destes testes corre no mesmo meridiano do centro, entao a
         # longitude dele aparece sozinha e isso nao e vazamento. O que nao
@@ -401,18 +503,56 @@ class NoMapa(unittest.TestCase):
 #: por folium ou por `json.dumps` cai aqui; `weight: 4` e `zoom: 14` não.
 _NUMERO = re.compile(r"-?\d+\.\d{4,}")
 
+#: O enquadramento — `fitBounds([[lat,lon],[lat,lon]])` — sai da varredura.
+#:
+#: ⚠️ **Não é conveniência, e foi medido na implantação de 15/10/2026.** Os
+#: CANTOS da caixa não são pontos do trajeto: cada um combina a latitude de
+#: um extremo com a longitude do outro. Numa viagem que sai e volta, esse
+#: canto cai a algumas centenas de metros do centro da zona sem que nenhum
+#: ponto desenhado esteja lá — foi exatamente o que a conferência na página
+#: real acusou, e que custou meia hora para ser descartado.
+#:
+#: Descartar é correto porque a caixa é FUNÇÃO da trilha visível: ela é o
+#: mínimo e o máximo do que já está desenhado. Tudo o que ela revela, a
+#: trilha que ela enquadra já revelou.
+_ENQUADRAMENTO = re.compile(r"fitBounds\(\s*\[\[.*?\]\]", re.S)
+
+
+#: Um par ENTRE COLCHETES: `[a, b]`. É como o folium escreve marcador e
+#: centro (`[lat, lon]`) e como o GeoJSON escreve vértice (`[lon, lat]`).
+_PAR = re.compile(r"\[\s*(-?\d+\.\d{4,})\s*,\s*(-?\d+\.\d{4,})\s*\]")
+
 
 def _pares_de_coordenadas(html: str) -> list[tuple[float, float]]:
-    """Todo par de números vizinhos do HTML, nas DUAS ordens.
+    """Todo par de coordenadas do HTML, nas DUAS ordens.
 
     O GeoJSON escreve `[lon, lat]` e o folium escreve `[lat, lon]`. Testar só
     uma das convenções deixaria passar metade dos vazamentos, então aqui se
-    testam as duas — um falso positivo custa um teste reprovado, e um falso
-    negativo custa o endereço.
+    testam as duas.
+
+    ⚠️ **Por que o colchete, e não "números vizinhos".** A primeira versão
+    desta função emparelhava todo número adjacente do documento, para não
+    depender de saber onde as coordenadas são escritas. Ela INVENTAVA pontos:
+    a latitude de um elemento com a longitude do seguinte vira uma posição
+    que não existe em lugar nenhum. Aconteceu duas vezes, e as duas na
+    conferência de 15/10/2026 —
+
+    - na caixa de enquadramento, combinando os dois cantos (ver
+      `_ENQUADRAMENTO`), que acusou um ponto a 581 m do centro numa página
+      cujo vértice mais próximo estava a 1091 m;
+    - na emenda entre dois fragmentos, onde as pontas estão em lados OPOSTOS
+      da zona: misturar a latitude de uma com a longitude da outra cai perto
+      do meio dela, que é o pior lugar para um alarme falso soar.
+
+    Alarme falso aqui é caro: ele treina quem lê a desconfiar do teste
+    justamente no assunto em que o teste precisa ser acreditado. O colchete
+    continua sem saber o que é marcador, trilha ou camada nova — qualquer
+    caminho novo que escreva um par cai aqui —, mas não costura dois
+    elementos num ponto que ninguém desenhou.
     """
-    n = [float(x) for x in _NUMERO.findall(html)]
     pares = []
-    for a, b in zip(n, n[1:]):
+    for m in _PAR.finditer(_ENQUADRAMENTO.sub("", html)):
+        a, b = float(m.group(1)), float(m.group(2))
         pares.append((a, b))
         pares.append((b, a))
     return pares
