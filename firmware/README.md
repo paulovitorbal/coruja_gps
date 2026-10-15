@@ -63,10 +63,15 @@ Só o alvo Pico precisa delas. Os testes no host rodam sem nenhuma.
 Não precisa de ARM nem de placa. Ver `docs/adr/0001`.
 
 ```sh
-cmake -S firmware -B firmware/build-teste -G Ninja -DCORUJA_TESTES=ON
-cmake --build firmware/build-teste
-ctest --test-dir firmware/build-teste --output-on-failure
+cmake -S firmware -B firmware/build-host -G Ninja -DCORUJA_TESTES=ON
+cmake --build firmware/build-host
+ctest --test-dir firmware/build-host --output-on-failure
 ```
+
+> O diretório é `build-host`, e não `build-teste`: é o nome que o
+> `scripts/libera_fw.sh` e o `scripts/mutante.sh` usam. Enquanto este
+> documento dizia outro nome, quem seguisse o README mantinha uma segunda
+> árvore de build inteira — 24 MB — que nenhum script olhava.
 
 ### Dados de teste
 
