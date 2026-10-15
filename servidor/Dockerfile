@@ -36,7 +36,7 @@ WORKDIR /app
 # entrou em laço de reinício com `ModuleNotFoundError`, já implantado. Quem
 # acrescentar módulo aqui tem de acrescentar na lista — e
 # `testes/test_imagem.py` falha quando isso for esquecido.
-COPY servidor.py viagem.py pagina.py horario.py /app/
+COPY servidor.py viagem.py privacidade.py pagina.py horario.py /app/
 
 USER coruja
 

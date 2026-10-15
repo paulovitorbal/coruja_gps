@@ -42,6 +42,7 @@ from typing import NamedTuple
 # DENTRO da funcao que desenha, entao a ausencia da dependencia nao impede o
 # servidor de subir e distribuir a base -- que e a funcao principal.
 import pagina
+import privacidade
 import viagem
 
 NOME_BASE = "radares.bin"
@@ -204,7 +205,7 @@ class ErroDeAparelhos(Exception):
 #: Fechada de proposito: `[mapas]` em vez de `[mapa]` seria um erro de
 #: digitacao que deixaria a chave do Thunderforest cair num balde ignorado, e
 #: o sintoma seria um mapa em branco sem explicacao.
-SECOES_CONHECIDAS = frozenset({"mapa"})
+SECOES_CONHECIDAS = frozenset({"mapa", "privacidade"})
 
 
 class ListaDeAparelhos(NamedTuple):
@@ -214,6 +215,8 @@ class ListaDeAparelhos(NamedTuple):
     por_token: dict[str, str]
     #: a secao `[mapa]`, com a chave do provedor de tiles
     mapa: dict[str, str]
+    #: a secao `[privacidade]`, ja validada -- ver `privacidade.py`
+    zonas: privacidade.Privacidade = privacidade.Privacidade()
 
 
 def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
@@ -223,13 +226,20 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
     nome a configurar: a pasta de cada aparelho e a IMPRESSAO do token dele --
     ver `impressao_do_token`.
 
-    Depois dos tokens pode vir `[mapa]`, com ajustes da pagina de viagens:
+    Depois dos tokens vem as secoes de ajuste:
 
         HBu2kQ3pR8tL5nW...
         9xT1pRvM2kS7bY4...
 
         [mapa]
         thunderforest=abc123...
+
+        [privacidade]
+        zona=-10.00000,-40.00000
+
+    Em `[mapa]` cada chave vale uma vez. Em `[privacidade]`, `zona` se repete
+    -- casa, trabalho, escola -- e por isso os valores de la sao acumulados
+    em lista e validados pelo `privacidade.monta`.
 
     Indexado por TOKEN porque e assim que a consulta acontece: chega um
     segredo e a pergunta e "de quem e este". O caminho inverso nunca e
@@ -245,6 +255,9 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
 
     por_token: dict[str, str] = {}
     mapa: dict[str, str] = {}
+    # `zona` se repete, entao aqui cada chave guarda uma LISTA. Quem valida e
+    # o `privacidade.monta`, que conhece as chaves e as faixas.
+    reservado: dict[str, list[str]] = {}
     secao = ""   # vazio = a lista de tokens
 
     for n_linha, bruta in enumerate(
@@ -261,12 +274,16 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
                     f"(conhecidas: {', '.join(sorted(SECOES_CONHECIDAS))})")
             continue
 
-        if secao == "mapa":
+        if secao in ("mapa", "privacidade"):
             if "=" not in linha:
                 raise ErroDeAparelhos(
-                    f"{caminho}:{n_linha}: em [mapa], esperava 'chave=valor'")
+                    f"{caminho}:{n_linha}: em [{secao}], esperava "
+                    "'chave=valor'")
             chave, valor = (parte.strip() for parte in linha.split("=", 1))
-            mapa[chave.lower()] = valor
+            if secao == "mapa":
+                mapa[chave.lower()] = valor
+            else:
+                reservado.setdefault(chave.lower(), []).append(valor)
             continue
 
         token = linha
@@ -291,7 +308,16 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
                 "de outro token. Gere outro segredo.")
         por_token[token] = impressao
 
-    return ListaDeAparelhos(por_token, mapa)
+    try:
+        zonas_privadas = privacidade.monta(reservado)
+    except privacidade.ErroDePrivacidade as e:
+        # Vira `ErroDeAparelhos` porque e o que o `main` trata, e o efeito
+        # pedido e o mesmo: **nao subir**. Um servidor que ignorasse a secao
+        # com defeito publicaria o endereco de casa no mapa achando que o
+        # estava escondendo -- o pior resultado possivel desta funcionalidade.
+        raise ErroDeAparelhos(f"{caminho}: {e}") from e
+
+    return ListaDeAparelhos(por_token, mapa, zonas_privadas)
 
 # Cabeçalho do radares.bin, de formato_dados.md §2:
 #   magic[4] | versao u16 | exp_escala u8 | tam_registro u8 | n u32 | crc32 u32
@@ -386,6 +412,11 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     recebidos: Path = Path()
     #: Ajustes da pagina de viagens, da secao `[mapa]` do `aparelhos.cfg`.
     mapa: dict[str, str] = {}
+    #: As zonas que o mapa nao desenha, da secao `[privacidade]`.
+    #:
+    #: Vazio por padrao: quem nao configurou ve o trajeto inteiro, como
+    #: sempre. Esconder por conta propria mudaria o mapa de quem nunca pediu.
+    zonas: privacidade.Privacidade = privacidade.Privacidade()
     #: {identificador: (nome do aparelho, instante de expiracao)}.
     #:
     #: Em memoria e sem limpeza periodica: reiniciar o servidor derruba as
@@ -777,11 +808,29 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             except viagem.ErroDeViagem as e:
                 self._html(422, pagina.aviso(f"nao da para desenhar: {e}"))
                 return
+        # ⚠️ **Aqui, e no servidor.** O recorte das zonas privadas acontece
+        # ANTES de a pagina existir: o que e escondido nunca chega ao
+        # navegador. Filtrar no JavaScript esconderia do olho e entregaria no
+        # codigo-fonte -- a aparencia de protecao sem a protecao.
+        #
+        # E so na pagina do MAPA. A listagem em /viagens nao tem coordenada
+        # nenhuma, e recortar la encolheria a distancia total de cada viagem
+        # sem esconder nada de novo.
+        v = privacidade.esconde_jornada(v, self.zonas)
+        if not v.tem_o_que_desenhar:
+            self._html(200, pagina.aviso(
+                "esta viagem inteira aconteceu dentro de uma zona privada; "
+                "nao ha trajeto a mostrar"))
+            return
         try:
             # Os radares da regiao vem da MESMA base que os aparelhos
             # baixam. Se o arquivo faltar ou nao servir, `le_radares` devolve
             # lista vazia e o mapa abre sem a camada -- os radares sao um
             # acrescimo, nao o conteudo da pagina.
+            #
+            # Recebem a jornada JA recortada de proposito: eles sao
+            # escolhidos por proximidade da rota, e os de dentro da zona
+            # redesenhariam, em pinos, o pedaco que acabou de ser apagado.
             corpo = viagem.desenha(
                 v, self.mapa.get("thunderforest", ""),
                 viagem.radares_na_rota(v, viagem.le_radares(
@@ -914,12 +963,14 @@ class Servidor(socketserver.ThreadingTCPServer):
 def cria_servidor(dados: Path, porta: int, endereco: str = "",
                   aparelhos: dict[str, str] | None = None,
                   recebidos: Path | None = None,
-                  mapa: dict[str, str] | None = None) -> Servidor:
+                  mapa: dict[str, str] | None = None,
+                  zonas: privacidade.Privacidade | None = None) -> Servidor:
     raiz = dados.resolve()
     manipulador = type("ManipuladorLigado", (Manipulador,),
                        {"dados": raiz,
                         "aparelhos": dict(aparelhos or {}),
                         "mapa": dict(mapa or {}),
+                        "zonas": zonas or privacidade.Privacidade(),
                         # Dicionarios PROPRIOS por servidor, e nao os da
                         # classe base: dois servidores no mesmo processo --
                         # o que a suite faz o tempo todo -- dividiriam
@@ -964,7 +1015,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         lista = le_aparelhos(args.aparelhos)
-        aparelhos, mapa = lista.por_token, lista.mapa
+        aparelhos, mapa, zonas = lista.por_token, lista.mapa, lista.zonas
     except ErroDeAparelhos as e:
         # Recusa subir. Um servidor que ignora a lista com defeito ficaria com
         # as rotas abertas e a recepcao desligada, parecendo funcionar.
@@ -986,6 +1037,14 @@ def main(argv: list[str] | None = None) -> int:
         if not mapa.get("thunderforest"):
             log.info("sem chave do Thunderforest em [mapa]: o mapa usa "
                      "OpenStreetMap")
+        # ⚠️ `resumo()` NAO imprime coordenada: o log vai para o terminal,
+        # para o `docker logs` e para o Loki, e o centro da zona e justamente
+        # o que esta secao existe para nao publicar.
+        if zonas.ativa:
+            log.info("privacidade: %s", zonas.resumo())
+        else:
+            log.info("sem [privacidade]: o mapa mostra o trajeto inteiro, "
+                     "inclusive o comeco e o fim de cada viagem")
         curtos = sum(1 for tk in aparelhos if len(tk) < TOKEN_CURTO)
         if curtos:
             log.warning("%d token(s) com menos de %d caracteres: curto demais "
@@ -1006,7 +1065,7 @@ def main(argv: list[str] | None = None) -> int:
                     arquivo)
 
     servidor = cria_servidor(args.dados, args.porta, args.endereco,
-                             aparelhos, args.recebidos, mapa)
+                             aparelhos, args.recebidos, mapa, zonas)
     log.info("escutando em %s:%d", args.endereco or "0.0.0.0", args.porta)
     log.warning("HTTP puro. O RF05.2 exige HTTPS: ponha um proxy reverso na "
                 "frente antes de usar fora da rede local.")

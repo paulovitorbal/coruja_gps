@@ -66,3 +66,46 @@ troque-me-tambem-e-por-outro-diferente
 # a quem abrir o inspetor. É assim com todo provedor com chave; a proteção
 # real é a cota e o limite de domínio no painel deles.
 #thunderforest=troque-me-pela-sua-chave
+
+
+# --- esconder o endereço de casa --------------------------------------
+#
+# Toda viagem começa na garagem e termina nela: o primeiro ponto do primeiro
+# trecho É o endereço residencial, com precisão de alguns metros.
+#
+# Com esta seção, nenhum ponto a menos de `raio_m` de um centro chega ao
+# navegador. O recorte acontece NO SERVIDOR, antes de a página existir —
+# filtrar no JavaScript esconderia do olho e entregaria no código-fonte.
+#
+# ⚠️ ERRO DE DIGITAÇÃO IMPEDE O SERVIDOR DE SUBIR, de propósito. `raio=` em
+# vez de `raio_m=`, ou `zonas=` em vez de `zona=`, deixaria a proteção
+# desligada com cara de ligada — e o sintoma seria um mapa perfeitamente
+# normal, com a casa no meio.
+#
+# As coordenadas saem do próprio mapa: abra uma viagem em /viagens, aproxime
+# até a rua e leia o par. Endereço escrito não é aceito — traduzi-lo em
+# coordenada exigiria mandá-lo a um serviço de geocodificação de terceiro,
+# publicando, para resolver, o dado que se quer esconder.
+#
+# ⚠️ Este arquivo NÃO é versionado, e é por isso que a coordenada pode morar
+# aqui. O log do servidor nunca a imprime: o arranque registra só quantas
+# zonas há e qual o raio.
+#[privacidade]
+
+# O centro, em graus decimais. PODE REPETIR: casa, trabalho, escola.
+#zona=-10.00000,-40.00000
+
+# O mínimo escondido à volta de cada centro, em metros. Padrão: 1000.
+#raio_m=1000
+
+# Quanto o raio pode crescer, por sorteio, além do pedido. Padrão: 400.
+#
+# ⚠️ POR QUE SORTEAR. Um trajeto cortado por um círculo continua apontando
+# para o centro dele: as pontas visíveis ficam todas sobre a mesma
+# circunferência, e três pontas determinam o círculo — portanto a casa. É a
+# fraqueza conhecida das "zonas de privacidade" dos aplicativos de corrida.
+#
+# Com folga, cada viagem recorta num raio próprio entre `raio_m` e
+# `raio_m + folga_m`, e as pontas caem num anel em vez de numa linha. O
+# sorteio NUNCA esconde menos que o `raio_m` pedido. `0` desliga.
+#folga_m=400

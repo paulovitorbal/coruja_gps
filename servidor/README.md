@@ -389,6 +389,79 @@ o tema é a aparência.
 > a quem abrir o inspetor. É assim com todo provedor com chave; a proteção
 > real é a cota e o limite de domínio no painel deles.
 
+### 🔴 Esconder o endereço de casa
+
+Toda viagem começa na garagem e termina nela. O primeiro ponto do primeiro
+trecho **é o endereço residencial**, com a precisão de alguns metros, e a
+página desenha o trajeto inteiro para quem tiver o token.
+
+No `aparelhos.cfg`:
+
+```
+[privacidade]
+zona=-10.00000,-40.00000
+raio_m=1000
+folga_m=400
+```
+
+Nenhum ponto a menos de `raio_m` do centro chega ao navegador. O recorte
+acontece **no servidor**, antes de a página existir: filtrar no JavaScript
+esconderia do olho e entregaria no código-fonte, que é a aparência de
+proteção sem a proteção.
+
+| chave | padrão | o que é |
+|---|---|---|
+| `zona` | — | `lat,lon` em graus decimais. **Pode repetir**: casa, trabalho, escola. |
+| `raio_m` | `1000` | o mínimo escondido à volta de cada centro |
+| `folga_m` | `400` | quanto o raio pode crescer, por sorteio. `0` desliga o sorteio |
+
+O par acima é **sintético**, longe de onde alguém more: é o mesmo que os
+testes e os exemplos de formato usam. As coordenadas de verdade saem do
+próprio mapa — abra uma viagem, aproxime até a rua e leia o par. Endereço escrito não é aceito de propósito: traduzi-lo em
+coordenada exigiria mandá-lo a um serviço de geocodificação de terceiro,
+publicando, para resolver, justamente o dado que se quer esconder.
+
+> ⚠️ **Erro de digitação impede o servidor de subir.** `raio=` em vez de
+> `raio_m=`, ou `zonas=` em vez de `zona=`, deixaria a proteção desligada com
+> cara de ligada — e o sintoma seria um mapa perfeitamente normal, com a casa
+> no meio. A seção é validada no arranque e recusa em voz alta.
+
+O centro **não aparece no log**: o arranque registra só `2 zona(s)
+privada(s), raio 1000 m`. O log vai para o terminal, para o `docker logs` e
+para o Loki, e nenhum dos três é segredo. A coordenada mora no
+`aparelhos.cfg`, que não é versionado.
+
+#### Por que o raio é sorteado
+
+Um trajeto cortado por um círculo **continua apontando para o centro dele**.
+As pontas visíveis ficam todas sobre a mesma circunferência, e três pontas
+determinam o círculo — portanto o centro, que é a casa. É a fraqueza
+conhecida das "zonas de privacidade" dos aplicativos de corrida, e ela não se
+resolve aumentando o raio.
+
+Por isso cada viagem recorta num raio próprio, entre `raio_m` e
+`raio_m + folga_m`. As pontas passam a cair num anel de 400 m de largura em
+vez de numa linha. O sorteio **nunca esconde menos** que o `raio_m` pedido, e
+é estável: sai de um resumo do nome da viagem, então recarregar a página não
+move a borda — duas renderizações com bordas diferentes dariam duas amostras
+do mesmo trajeto, que é justo o que o sorteio existe para negar.
+
+#### O que isto não resolve
+
+A listagem em `/viagens` publica a **distância total** de cada viagem, e a
+diferença entre ela e o que o mapa mostra diz quantos quilômetros ficaram
+escondidos. Quem tem o token, a malha viária da cidade e paciência estreita o
+cerco.
+
+Não é descuido, é escolha: a listagem não tem coordenada nenhuma, e encolher
+os números dela esconderia menos do que parece enquanto faria o painel do
+mapa discordar da listagem sobre a mesma viagem. **A proteção aqui é contra o
+olhar casual** — uma tela mostrada a alguém, uma captura compartilhada, um
+token que vazou —, e não contra análise dedicada com acesso à página.
+
+E o recorte é só do **mapa**. Os arquivos em `recebidos/` continuam com a
+viagem inteira, como gravada; é deles que qualquer análise futura depende.
+
 ### 🔴 O folium quebrou a regra da biblioteca padrão
 
 Era decisão documentada: sem `pip install`, sem camada de dependência para

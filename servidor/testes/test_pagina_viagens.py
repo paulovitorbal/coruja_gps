@@ -23,6 +23,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
+import privacidade  # noqa: E402
 import servidor as s  # noqa: E402
 import viagem  # noqa: E402
 
@@ -61,6 +62,11 @@ def viagem_sintetica(inicio="2026-10-06T12:38:00Z", pontos=22,
 
 
 class PaginaEmTeste(unittest.TestCase):
+    #: As zonas privadas deste servidor. `None` = nenhuma, que e o caso de
+    #: quase todos os testes: o recorte nao pode mudar a pagina de quem nao
+    #: configurou nada.
+    zonas = None
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -70,7 +76,7 @@ class PaginaEmTeste(unittest.TestCase):
         (self.recebidos / PASTA_OUTRO).mkdir(parents=True)
 
         self.srv = s.cria_servidor(self.dados, 0, "127.0.0.1", APARELHOS,
-                                   self.recebidos)
+                                   self.recebidos, zonas=self.zonas)
         self.porta = self.srv.server_address[1]
         self.t = threading.Thread(target=self.srv.serve_forever, daemon=True)
         self.t.start()
@@ -403,6 +409,91 @@ class LeituraDeViagem(unittest.TestCase):
             "coordinates"][0]
         self.assertAlmostEqual(primeiro[0], -40.0, places=4)
         self.assertAlmostEqual(primeiro[1], -10.0, places=4)
+
+
+class PaginaComZona(PaginaEmTeste):
+    """A pagina inteira de novo, com a casa sinteticamente em (-10, -40).
+
+    Herda de `PaginaEmTeste` de proposito: alem dos testes proprios, TODOS os
+    da pagina rodam outra vez com o recorte ligado. E a prova de que a zona
+    privada nao quebrou nada do resto -- sessao, listagem, 404, cookie.
+
+    Os testes de `test_privacidade.py` conferem a regra; estes conferem que
+    ela esta LIGADA no caminho que o navegador percorre, que e onde uma
+    funcionalidade de privacidade falha em silencio.
+    """
+
+    zonas = privacidade.Privacidade(
+        zonas=(privacidade.ZonaPrivada(lat=-10.0, lon=-40.0),),
+        raio_m=1000.0, folga_m=0.0)
+
+    # Os testes herdados nao rodam de novo aqui; esta classe so acrescenta.
+    # (unittest reexecuta os da base, e isso e desejado: eles provam que o
+    # recorte nao quebrou o resto da pagina.)
+
+    def test_nenhuma_coordenada_da_pagina_cai_dentro_da_zona(self):
+        # ⚠️ **O teste que importa.** O recorte acontece no servidor, entao o
+        # que vale e o que saiu no corpo da resposta -- nao o que a funcao
+        # devolveu.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261006_123858.log", cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertEqual(_dentro_da_zona(corpo), [])
+
+    def test_a_pagina_avisa_que_ha_trecho_oculto(self):
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        _st, corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261006_123858.log", cookie=cookie)
+        self.assertIn("zona privada", corpo)
+
+    def test_a_listagem_continua_com_a_distancia_inteira(self):
+        # A listagem nao tem coordenada nenhuma, entao recortar la encolheria
+        # a distancia sem esconder nada -- e o painel do mapa, que repete o
+        # numero da viagem gravada, passaria a discordar dela.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        _st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        inteiro = viagem.le_viagem(self.recebidos / PASTA /
+                                   "20261006_123858.log")
+        self.assertIn(f"{inteiro.distancia_km:.2f}", corpo)
+
+    def test_viagem_inteira_dentro_da_zona_explica_em_vez_de_quebrar(self):
+        # Uma volta no quarteirao. Sem a guarda isto seria uma divisao por
+        # zero no calculo do centro do mapa: 500 na pagina, e nada dizendo o
+        # que houve.
+        self.poe_viagem(PASTA, "20261006_140000.log",
+                        viagem_sintetica(inicio="2026-10-06T14:00:00Z",
+                                         pontos=5, passo_s=6))
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261006_140000.log", cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("zona privada", corpo)
+
+
+#: Numero com quatro casas ou mais: coordenada cai aqui, `weight: 4` nao.
+_NUMERO = re.compile(r"-?\d+\.\d{4,}")
+
+
+def _dentro_da_zona(html, raio_m=1000.0, centro=(-10.0, -40.0)):
+    """Os pares de numeros vizinhos do HTML que caem dentro da zona.
+
+    Testa as DUAS ordens porque o GeoJSON escreve `[lon, lat]` e o folium
+    escreve `[lat, lon]`. Um falso positivo custa um teste reprovado; um
+    falso negativo custa o endereco.
+    """
+    numeros = [float(x) for x in _NUMERO.findall(html)]
+    achados = []
+    for a, b in zip(numeros, numeros[1:]):
+        for lat, lon in ((a, b), (b, a)):
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                continue
+            if viagem.metros_entre(centro[0], centro[1], lat, lon) <= raio_m:
+                achados.append((lat, lon))
+    return achados
 
 
 if __name__ == "__main__":

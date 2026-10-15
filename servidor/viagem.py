@@ -141,6 +141,16 @@ class Viagem:
     nome: str
     pontos: list[PontoViagem]
 
+    #: Houve ponto REMOVIDO antes do primeiro / depois do último, por cair
+    #: numa zona privada — ver `privacidade.py`.
+    #:
+    #: ⚠️ Não é enfeite: sem estas marcas o mapa poria um pino verde "inicio"
+    #: na borda do recorte, que é uma placa apontando para o centro dele. E o
+    #: corte entre dois fragmentos viraria um pino de "pausa", com horário,
+    #: no mesmo lugar.
+    inicio_oculto: bool = False
+    fim_oculto: bool = False
+
     @property
     def inicio(self) -> datetime.datetime:
         return self.pontos[0].quando
@@ -261,22 +271,59 @@ class Jornada:
 
     trechos: list["Viagem"]
 
+    #: Os trechos COMO FORAM GRAVADOS, quando `trechos` já passou pelo
+    #: recorte de uma zona privada. `None` no caso normal, em que não houve
+    #: corte e os dois seriam a mesma lista.
+    #:
+    #: ⚠️ **A separação é o que mantém o painel honesto.** A geometria —
+    #: centro, enquadramento, trilha — sai de `trechos`, e só pode conter o
+    #: que é exibível. Os números — distância, duração, máxima — saem daqui, e
+    #: são os da viagem que aconteceu. Calculá-los sobre o que sobrou daria
+    #: uma distância que não bate com a da listagem em /viagens, que nunca é
+    #: recortada porque não tem coordenada nenhuma.
+    gravados: list["Viagem"] | None = None
+
+    @property
+    def _base(self) -> list["Viagem"]:
+        """Os trechos para CONTA, que não são os para desenho."""
+        return self.gravados if self.gravados is not None else self.trechos
+
+    @property
+    def cortada(self) -> bool:
+        """Alguma parte do trajeto foi escondida?"""
+        return self.gravados is not None
+
+    @property
+    def tem_o_que_desenhar(self) -> bool:
+        """Sobrou trajeto fora das zonas privadas?
+
+        `False` numa volta no quarteirão: a viagem inteira cabe dentro da
+        zona. A página tem de dizer isso, e não abrir um mapa vazio.
+        """
+        return bool(self.trechos)
+
     @property
     def nome(self) -> str:
         """O do primeiro trecho: é o horário em que a viagem começou."""
-        return self.trechos[0].nome
+        return self._base[0].nome
 
     @property
     def inicio(self) -> datetime.datetime:
-        return self.trechos[0].inicio
+        return self._base[0].inicio
 
     @property
     def fim(self) -> datetime.datetime:
-        return self.trechos[-1].fim
+        return self._base[-1].fim
 
     @property
     def pausas(self) -> int:
-        return len(self.trechos) - 1
+        """Quantas vezes o carro foi desligado no meio da viagem.
+
+        Conta sobre os trechos GRAVADOS. Um recorte de privacidade parte a
+        trilha sem que ninguém tenha parado, e contá-lo aqui poria no painel
+        uma parada que não houve.
+        """
+        return len(self._base) - 1
 
     @property
     def pontos(self) -> list[PontoViagem]:
@@ -284,12 +331,25 @@ class Jornada:
 
         ⚠️ Não use para desenhar a trilha: emendar os trechos numa linha só
         desenha o caminho da pausa, que ninguém percorreu.
+
+        ⚠️ **São os pontos EXIBÍVEIS.** Numa jornada recortada por zona
+        privada, os de dentro da zona não estão aqui — e é por isso que o
+        enquadramento, o centro e a escolha dos radares podem sair deles sem
+        revelar nada. Para contar, use `pontos_gravados`.
         """
         return [p for t in self.trechos for p in t.pontos]
 
     @property
+    def pontos_gravados(self) -> list[PontoViagem]:
+        """Todos os pontos do arquivo, inclusive os que o mapa não mostra.
+
+        É o que as estatísticas usam. **Nunca desenhe com eles.**
+        """
+        return [p for t in self._base for p in t.pontos]
+
+    @property
     def distancia_km(self) -> float:
-        return sum(t.distancia_km for t in self.trechos)
+        return sum(t.distancia_km for t in self._base)
 
     @property
     def duracao_gravada(self) -> datetime.timedelta:
@@ -299,7 +359,7 @@ class Jornada:
         entre um trecho e outro.
         """
         total = datetime.timedelta()
-        for t in self.trechos:
+        for t in self._base:
             total += t.duracao
         return total
 
@@ -316,22 +376,23 @@ class Jornada:
 
     @property
     def v_maxima_kmh(self) -> float:
-        return max(t.v_maxima_kmh for t in self.trechos)
+        return max(t.v_maxima_kmh for t in self._base)
 
     @property
     def fracao_em_perigo(self) -> float | None:
-        conhecidas = [p.zona for p in self.pontos if p.zona is not None]
+        conhecidas = [p.zona for p in self.pontos_gravados
+                      if p.zona is not None]
         if not conhecidas:
             return None
         return sum(1 for z in conhecidas if z >= 5) / len(conhecidas)
 
     @property
     def divergencias_de_radar(self) -> int:
-        return sum(t.divergencias_de_radar for t in self.trechos)
+        return sum(t.divergencias_de_radar for t in self._base)
 
     @property
     def intervalo_s(self) -> int:
-        return self.trechos[0].intervalo_s
+        return self._base[0].intervalo_s
 
 
 def agrupa_em_jornadas(trechos: list["Viagem"]) -> list[Jornada]:
@@ -439,8 +500,13 @@ def le_radares(caminho: Path) -> list[RadarNoMapa]:
     return saida
 
 
-def _metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
-    """Distância aproximada, equirretangular. Erro de centímetros nesta escala."""
+def metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
+    """Distância aproximada, equirretangular. Erro de centímetros nesta escala.
+
+    Pública porque o `privacidade.py` mede com ela. Duas implementações da
+    mesma conta divergiriam com o tempo, e aqui a divergência apareceria
+    como ponto exibido a 999 m de casa.
+    """
     leste = (lon1 - lon0) * _M_POR_GRAU * math.cos(math.radians(lat0))
     norte = (lat1 - lat0) * _M_POR_GRAU
     return math.hypot(leste, norte)
@@ -468,7 +534,7 @@ def radares_na_rota(v: Viagem, radares: list[RadarNoMapa],
     for r in radares:
         if not (lat_min <= r.lat <= lat_max and lon_min <= r.lon <= lon_max):
             continue
-        if any(_metros_entre(p.lat, p.lon, r.lat, r.lon) <= raio_m
+        if any(metros_entre(p.lat, p.lon, r.lat, r.lon) <= raio_m
                for p in v.pontos):
             perto.append(r)
     return perto
@@ -587,7 +653,7 @@ def resumo_da_jornada(j: Jornada) -> dict:
         "distancia_km": round(j.distancia_km, 2),
         "v_media_kmh": round(j.v_media_kmh, 1),
         "v_maxima_kmh": round(j.v_maxima_kmh, 1),
-        "pontos": len(j.pontos),
+        "pontos": len(j.pontos_gravados),
         "trechos": len(j.trechos),
     }
 
@@ -720,6 +786,15 @@ def desenha(v: Jornada | Viagem, chave_thunderforest: str = "",
     if isinstance(v, Viagem):
         v = Jornada([v])
 
+    # Uma jornada inteiramente dentro de uma zona privada chega aqui sem
+    # ponto nenhum. Sem esta guarda o sintoma seria uma divisao por zero no
+    # calculo do centro -- 500 na pagina, e nada dizendo o que houve. Quem
+    # chama confere `tem_o_que_desenhar` antes e mostra o aviso certo.
+    if not v.tem_o_que_desenhar:
+        raise ErroDeViagem(
+            "nao sobrou nenhum ponto fora das zonas privadas: a viagem "
+            "inteira aconteceu dentro de uma delas")
+
     centro = [
         sum(p.lat for p in v.pontos) / len(v.pontos),
         sum(p.lon for p in v.pontos) / len(v.pontos),
@@ -743,17 +818,32 @@ def desenha(v: Jornada | Viagem, chave_thunderforest: str = "",
                      [max(p.lat for p in v.pontos),
                       max(p.lon for p in v.pontos)]], padding=(30, 30))
 
-    folium.Marker(
-        [v.pontos[0].lat, v.pontos[0].lon], tooltip="inicio",
-        icon=folium.Icon(color="green", icon="play", prefix="fa")).add_to(mapa)
-    folium.Marker(
-        [v.pontos[-1].lat, v.pontos[-1].lon], tooltip="fim",
-        icon=folium.Icon(color="red", icon="stop", prefix="fa")).add_to(mapa)
+    # ⚠️ Só quando a ponta é a ponta de verdade. Numa viagem que sai de
+    # dentro de uma zona privada, o primeiro ponto exibível está na BORDA do
+    # recorte — e um pino verde "inicio" ali é uma placa dizendo "a casa fica
+    # a um quilômetro deste ponto". A trilha começar sem pino é discreto; o
+    # pino é uma afirmação.
+    if not v.trechos[0].inicio_oculto:
+        folium.Marker(
+            [v.pontos[0].lat, v.pontos[0].lon], tooltip="inicio",
+            icon=folium.Icon(color="green", icon="play",
+                             prefix="fa")).add_to(mapa)
+    if not v.trechos[-1].fim_oculto:
+        folium.Marker(
+            [v.pontos[-1].lat, v.pontos[-1].lon], tooltip="fim",
+            icon=folium.Icon(color="red", icon="stop",
+                             prefix="fa")).add_to(mapa)
 
     # Onde a viagem foi interrompida. Sem estes pinos a trilha simplesmente
     # some num ponto e recomeça noutro, e quem olha o mapa fica sem saber se
     # faltou dado ou se o carro ficou parado ali.
     for anterior, seguinte in zip(v.trechos, v.trechos[1:]):
+        # ⚠️ A quebra pode não ser pausa: pode ser o recorte de uma zona
+        # privada, que parte o trecho sem que ninguém tenha parado. O pino
+        # diria a hora e ficaria exatamente na borda do recorte — duas
+        # viagens, dois pinos, e já se tem uma corda do círculo.
+        if anterior.fim_oculto or seguinte.inicio_oculto:
+            continue
         parada = (seguinte.inicio - anterior.fim)
         minutos = round(parada.total_seconds() / 60)
         folium.Marker(
@@ -833,7 +923,11 @@ def _painel(v: Jornada) -> str:
         ("duracao", f"{round(v.duracao_gravada.total_seconds() / 60)} min"),
         ("media", f"{v.v_media_kmh:.1f} km/h"),
         ("maxima", f"{v.v_maxima_kmh:.1f} km/h"),
-        ("pontos", f"{len(v.pontos)}"),
+        # Os GRAVADOS, e nao os desenhados: a nota ao pe do painel promete
+        # que os numeros sao os da viagem inteira, e a listagem em /viagens
+        # publica este mesmo total. Contar so o que sobrou faria as duas
+        # paginas discordarem sobre a mesma viagem.
+        ("pontos", f"{len(v.pontos_gravados)}"),
     ]
     # Só quando a viagem foi partida. "0 pausas" em toda viagem inteira seria
     # ruído, e a duração passaria a precisar de explicação que ela não pede.
@@ -849,6 +943,12 @@ def _painel(v: Jornada) -> str:
         f'<div class="cg-item"><span>{html.escape(r)}</span>'
         f'<strong>{html.escape(d)}</strong></div>'
         for r, d in linhas)
+    # Dizer que falta pedaço, e por quê. Sem isto a falha na trilha se lê
+    # como perda de sinal, e este projeto já gastou caro com aparelho que
+    # deixa quem olha adivinhando o proprio estado. Os numeros acima
+    # continuam sendo os da viagem inteira -- é o que a frase promete.
+    corte = ("; parte do trajeto esta oculta por zona privada, e os numeros "
+             "acima sao os da viagem inteira" if v.cortada else "")
     return f"""
 <style>
   .cg-painel {{
@@ -891,7 +991,7 @@ def _painel(v: Jornada) -> str:
   <h3>{html.escape(v.nome)}</h3>
   {itens}
   <p class="cg-nota-painel">um registro a cada {v.intervalo_s} s; a posicao
-  entre eles e interpolada, nao medida</p>
+  entre eles e interpolada, nao medida{corte}</p>
 </div>
 """
 

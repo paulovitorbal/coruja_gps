@@ -987,6 +987,42 @@ class LeAparelhos(unittest.TestCase):
         r = self.le_tudo("[mapa]\nthunderforest=AbCdEf123\n")
         self.assertEqual(r.mapa["thunderforest"], "AbCdEf123")
 
+    # -- a secao [privacidade] --
+
+    def test_le_a_zona_privada(self):
+        r = self.le_tudo("abc\n\n[privacidade]\nzona=-10.0,-40.0\n")
+        self.assertTrue(r.zonas.ativa)
+        self.assertEqual(len(r.zonas.zonas), 1)
+        self.assertEqual(r.zonas.raio_m, 1000.0)
+
+    def test_varias_zonas_na_mesma_secao(self):
+        # A chave se repete, ao contrario das do [mapa]: casa, trabalho,
+        # escola das criancas.
+        r = self.le_tudo("abc\n[privacidade]\nzona=-10,-40\nzona=-11,-41\n")
+        self.assertEqual(len(r.zonas.zonas), 2)
+
+    def test_sem_secao_de_privacidade_nao_ha_zona(self):
+        # Quem nunca pediu ve o trajeto inteiro, como sempre viu.
+        self.assertFalse(self.le_tudo("abc\n").zonas.ativa)
+
+    def test_zona_torta_impede_o_servidor_de_subir(self):
+        # ⚠️ Recusar e o ponto. Um servidor que ignorasse a secao com defeito
+        # publicaria o endereco de casa no mapa achando que o escondia -- o
+        # pior resultado possivel desta funcionalidade.
+        with self.assertRaises(s.ErroDeAparelhos) as e:
+            self.le_tudo("abc\n[privacidade]\nzona=minha casa\n")
+        self.assertIn("zona", str(e.exception))
+
+    def test_chave_errada_na_privacidade_e_erro(self):
+        # `raio=` em vez de `raio_m=` cairia num balde ignorado e o mapa
+        # sairia com o raio padrao sem avisar.
+        with self.assertRaises(s.ErroDeAparelhos):
+            self.le_tudo("abc\n[privacidade]\nzona=-10,-40\nraio=500\n")
+
+    def test_a_secao_de_privacidade_nao_vira_token(self):
+        r = self.le_tudo("abc\n[privacidade]\nzona=-10,-40\n")
+        self.assertEqual(set(r.por_token), {"abc"})
+
     def test_a_mensagem_de_erro_diz_a_linha(self):
         # O arquivo é editado à mão e o erro impede o servidor de subir;
         # dizer "erro no arquivo" mandaria procurar.
