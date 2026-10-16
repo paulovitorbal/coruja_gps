@@ -76,6 +76,30 @@ struct EstadoRadio {
 };
 
 /// `UBX-NAV-AOPSTATUS` (0x01 0x60): a previsão de órbita está mesmo ligada?
+/// Quanto sinal chega da antena. **A pergunta que decide se vale investir em
+/// assistencia**: AssistNow e RTC entregam a orbita, mas o receptor ainda
+/// precisa OUVIR o satelite, e com C/N0 baixo nenhum dos dois compra os 2 s
+/// de *aided start* do datasheet.
+struct EstadoSinal {
+    bool respondeu = false;   ///< ver `EstadoNavegacao::respondeu`
+    /// Quantos o modulo RASTREIA, do cabecalho do quadro — exato mesmo
+    /// quando o resto foi cortado.
+    std::uint8_t vistos = 0;
+    /// Quantos entraram na solucao. ⚠️ Ver oito e usar quatro aponta para
+    /// geometria ou sinal no limiar, nao para falta de satelite.
+    std::uint8_t usados = 0;
+    std::uint8_t melhor_cno = 0;   ///< em dBHz
+    std::uint8_t bons = 0;         ///< quantos com C/N0 >= `kCnoUtil`
+    /// O quadro nao coube inteiro: o resumo e dos que couberam.
+    bool truncado = false;
+};
+
+/// A partir daqui o satelite serve para navegar com folga.
+///
+/// 40 dBHz e bom, 30 e limiar, abaixo de 30 entra e sai. 35 separa "conta
+/// como sinal" de "o receptor esta lutando" sem ser otimista.
+constexpr std::uint8_t kCnoUtil = 35;
+
 struct EstadoAop {
     bool respondeu = false;   ///< ver `EstadoNavegacao::respondeu`
     bool ligado = false;      ///< `aopCfg` bit 0
@@ -94,13 +118,18 @@ bool analisa_mon_hw(const std::uint8_t* payload, std::size_t tamanho,
 bool analisa_nav_aopstatus(const std::uint8_t* payload, std::size_t tamanho,
                            EstadoAop* destino);
 
+/// Resume o `NAV-SAT`. O total de satelites vem do cabecalho e vale mesmo
+/// com o payload cortado; o resto do resumo e dos registros que couberam.
+bool analisa_nav_sat(const std::uint8_t* payload, std::size_t tamanho,
+                     EstadoSinal* destino);
+
 /// Tamanho mínimo do destino de `formata_diagnostico`.
 ///
 /// A linha mais longa é a de tudo respondido, com antena e jamming pelos
 /// nomes compridos. 224 dá folga de uns 60 caracteres sobre ela; abaixo
 /// disto a função recusa em vez de truncar, porque meia linha de diagnóstico
 /// é pior que nenhuma — ela parece inteira.
-constexpr std::size_t kTamDiagnostico = 224;
+constexpr std::size_t kTamDiagnostico = 288;
 
 /// Monta a linha de diagnóstico do diário. Devolve o tamanho, ou zero se não
 /// coubesse.
@@ -113,6 +142,7 @@ constexpr std::size_t kTamDiagnostico = 224;
 /// que não respondeu. Nenhuma delas afirma nada sobre uma estrutura vazia.
 std::size_t formata_diagnostico(const EstadoNavegacao& nav,
                                 const EstadoRadio& radio, const EstadoAop& aop,
-                                char* destino, std::size_t capacidade);
+                                const EstadoSinal& sinal, char* destino,
+                                std::size_t capacidade);
 
 }  // namespace coruja

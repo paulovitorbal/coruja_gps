@@ -107,6 +107,24 @@ else()
     # ⚠️ Ligar o nucleo 1 passa a ser INVALIDO -- a pilha dele seria a nossa.
     # Se um dia for preciso, isto tem de ser desfeito primeiro.
     target_compile_definitions(coruja_gps PRIVATE PICO_STACK_SIZE=0x6000)
+
+    # Quanto o firmware do CARRO espera o console USB enumerar antes de
+    # comecar.
+    #
+    # ⚠️ **Zero, e isso vale 1,5 s em toda partida.** O valor era 1500 fixo,
+    # e media-se assim na partida de 15/10/2026: o modulo tinha fix em 0,5 s
+    # e quem dirigia esperava 6,0 s. Um segundo e meio daquilo era espera por
+    # um console que, no carro, nunca esta ligado.
+    #
+    # As bancadas nao usam este `main.cpp` -- elas tem fontes proprias --,
+    # entao ninguem perde o console por causa disto. Para depurar o firmware
+    # do carro por USB, reconfigure com:
+    #
+    #     cmake -S firmware -B firmware/build-pico -DCORUJA_ESPERA_CONSOLE_MS=1500
+    set(CORUJA_ESPERA_CONSOLE_MS 0 CACHE STRING
+        "ms de espera pelo console USB no firmware do carro")
+    target_compile_definitions(coruja_gps PRIVATE
+        CORUJA_ESPERA_CONSOLE_MS=${CORUJA_ESPERA_CONSOLE_MS})
     target_link_options(coruja_gps PRIVATE
         -Wl,--defsym=RAM_LENGTH=0x7C000
         -Wl,--defsym=SCRATCH_Y_ORIGIN=0x2007C000

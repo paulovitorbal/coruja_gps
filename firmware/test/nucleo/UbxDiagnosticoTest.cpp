@@ -166,6 +166,117 @@ TEST(UbxDiagnostico, aopstatus_ligado_mas_ocioso_e_o_estado_NORMAL) {
     EXPECT_FALSE(a.calculando);
 }
 
+// ===================================================== NAV-SAT: o SINAL
+//
+// ⚠️ **Existe por causa de `primeiro fix em 6.0 s (5 sat, hdop 5.8)`.** Cinco
+// satelites e HDOP 5,8 sao fracos -- ceu aberto da 8 a 12 e HDOP abaixo de
+// 1,5. A tabela do datasheet promete 26 s de cold start a -130 dBm, e a
+// antena patch dentro da caixa, na garagem sob sombrite, nao esta a -130 dBm.
+//
+// Isso decide o proximo passo do projeto: assistencia (AssistNow, RTC) entrega
+// a ORBITA, mas o receptor ainda precisa OUVIR o satelite. Com C/N0 baixo, o
+// dinheiro e o firmware da assistencia nao compram os 2 s prometidos. Medir
+// antes de comprar.
+
+TEST(UbxDiagnostico, nav_sat_resume_o_melhor_sinal_e_quantos_prestam) {
+    // Cinco satelites: 44, 38, 22, 36 e um EXATAMENTE no limiar. Quatro
+    // passam -- o limiar e inclusivo, e sem um satelite em cima dele nada
+    // distinguiria `>=` de `>`.
+    Payload<8 + 12 * 5> p;
+    p.b[5] = 5;                       // numSvs
+    const std::uint8_t cnos[] = {44, 38, 22, 36, kCnoUtil};
+    for (std::size_t i = 0; i < 5; ++i) {
+        p.b[8 + i * 12 + 2] = cnos[i];                  // cno
+        p.b[8 + i * 12 + 8] = 0x08;                     // flags: svUsed
+    }
+    EstadoSinal s;
+    ASSERT_TRUE(analisa_nav_sat(p.b, sizeof p.b, &s));
+    EXPECT_TRUE(s.respondeu);
+    EXPECT_EQ(s.vistos, 5);
+    EXPECT_EQ(s.melhor_cno, 44);
+    EXPECT_EQ(s.bons, 4);             // >= kCnoUtil, inclusivo
+    EXPECT_EQ(s.usados, 5);
+    EXPECT_FALSE(s.truncado);
+}
+
+TEST(UbxDiagnostico, nav_sat_conta_como_usado_so_quem_tem_o_bit) {
+    // ⚠️ "Rastreado" e "usado na solucao" sao coisas diferentes, e a
+    // diferenca entre eles e meio diagnostico: ver oito e usar quatro aponta
+    // para geometria ou para sinal no limiar, nao para falta de satelite.
+    Payload<8 + 12 * 3> p;
+    p.b[5] = 3;
+    for (std::size_t i = 0; i < 3; ++i) { p.b[8 + i * 12 + 2] = 40; }
+    p.b[8 + 0 * 12 + 8] = 0x08;       // so o primeiro entrou na solucao
+    EstadoSinal s;
+    ASSERT_TRUE(analisa_nav_sat(p.b, sizeof p.b, &s));
+    EXPECT_EQ(s.vistos, 3);
+    EXPECT_EQ(s.usados, 1);
+}
+
+TEST(UbxDiagnostico, nav_sat_sem_satelite_nenhum_e_resposta_valida) {
+    // Zero satelite e uma MEDIDA -- e a mais eloquente de todas numa
+    // partida que nao fixa. Nao pode ser confundida com "nao respondeu".
+    Payload<8> p;
+    p.b[5] = 0;
+    EstadoSinal s;
+    ASSERT_TRUE(analisa_nav_sat(p.b, sizeof p.b, &s));
+    EXPECT_TRUE(s.respondeu);
+    EXPECT_EQ(s.vistos, 0);
+    EXPECT_EQ(s.melhor_cno, 0);
+}
+
+TEST(UbxDiagnostico, nav_sat_truncado_diz_quantos_HAVIA_e_que_foi_cortado) {
+    // ⚠️ O quadro completo passa de 300 bytes com o ceu cheio, e o leitor
+    // guarda menos que isso. O numero de satelites vem do CABECALHO, entao
+    // continua certo; o resumo e dos que couberam, e a bandeira avisa.
+    constexpr std::size_t kCabem = 5;
+    Payload<8 + 12 * kCabem> p;
+    p.b[5] = 24;                      // o modulo viu 24...
+    for (std::size_t i = 0; i < kCabem; ++i) {
+        p.b[8 + i * 12 + 2] = static_cast<std::uint8_t>(30 + i);
+    }
+    EstadoSinal s;
+    ASSERT_TRUE(analisa_nav_sat(p.b, sizeof p.b, &s));
+    EXPECT_EQ(s.vistos, 24) << "o total tem de vir do cabecalho";
+    EXPECT_TRUE(s.truncado);
+    EXPECT_EQ(s.melhor_cno, 34);      // o melhor dos que couberam
+}
+
+TEST(UbxDiagnostico, nav_sat_curto_demais_e_recusado) {
+    Payload<6> p;
+    EstadoSinal s;
+    EXPECT_FALSE(analisa_nav_sat(p.b, sizeof p.b, &s));
+    EXPECT_FALSE(s.respondeu);
+}
+
+TEST(UbxDiagnostico, a_linha_traz_o_sinal_quando_ele_respondeu) {
+    EstadoNavegacao nav; nav.respondeu = true;
+    EstadoRadio radio;   radio.respondeu = true;
+    EstadoAop aop;       aop.respondeu = true;
+    EstadoSinal sinal;
+    sinal.respondeu = true; sinal.vistos = 9; sinal.usados = 5;
+    sinal.melhor_cno = 41; sinal.bons = 4;
+
+    char linha[kTamDiagnostico] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha),
+              0u);
+    EXPECT_NE(std::strstr(linha, "9 vistos"), nullptr);
+    EXPECT_NE(std::strstr(linha, "5 usados"), nullptr);
+    EXPECT_NE(std::strstr(linha, "41"), nullptr);
+}
+
+TEST(UbxDiagnostico, sem_resposta_do_nav_sat_a_linha_diz_isso) {
+    EstadoNavegacao nav; nav.respondeu = true;
+    EstadoRadio radio;   radio.respondeu = true;
+    EstadoAop aop;       aop.respondeu = true;
+    EstadoSinal sinal;   // respondeu = false
+
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "NAV-SAT sem resposta"), nullptr);
+    EXPECT_EQ(std::strstr(linha, "0 vistos"), nullptr);
+}
+
 // ================================================== a linha do diagnostico
 //
 // ⚠️ **Esta secao existe por causa da partida de 15/10/2026.** O aparelho
@@ -191,8 +302,9 @@ TEST(UbxDiagnostico, a_linha_traz_os_tres_quando_os_tres_responderam) {
     EstadoAop aop;
     aop.respondeu = true; aop.ligado = true;
 
-    char linha[224] = {};
-    ASSERT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha), 0u);
     EXPECT_NE(std::strstr(linha, "ruido 90"), nullptr);
     EXPECT_NE(std::strstr(linha, "agc 1716/8191"), nullptr);
     EXPECT_NE(std::strstr(linha, "antena ok"), nullptr);
@@ -209,8 +321,9 @@ TEST(UbxDiagnostico, sem_resposta_do_mon_hw_a_linha_diz_isso_e_nao_zeros) {
     EstadoAop aop;
     aop.respondeu = true; aop.ligado = true;
 
-    char linha[224] = {};
-    ASSERT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha), 0u);
     EXPECT_NE(std::strstr(linha, "MON-HW sem resposta"), nullptr);
     EXPECT_EQ(std::strstr(linha, "agc"), nullptr);
     EXPECT_EQ(std::strstr(linha, "ruido"), nullptr);
@@ -226,8 +339,9 @@ TEST(UbxDiagnostico, sem_resposta_do_nav_status_nao_inventa_ttff) {
     EstadoAop aop;
     aop.respondeu = true;
 
-    char linha[224] = {};
-    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
     EXPECT_NE(std::strstr(linha, "NAV-STATUS sem resposta"), nullptr);
     EXPECT_EQ(std::strstr(linha, "ttff do modulo 0.0"), nullptr);
 }
@@ -240,8 +354,9 @@ TEST(UbxDiagnostico, sem_resposta_do_aopstatus_nao_afirma_desligado) {
     EstadoRadio radio;   radio.respondeu = true;
     EstadoAop aop;       // respondeu = false
 
-    char linha[224] = {};
-    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
     EXPECT_NE(std::strstr(linha, "NAV-AOPSTATUS sem resposta"), nullptr);
     EXPECT_EQ(std::strstr(linha, "aop DESLIGADO"), nullptr);
 }
@@ -256,8 +371,9 @@ TEST(UbxDiagnostico, a_linha_traz_o_relogio_do_proprio_modulo) {
     EstadoRadio radio; radio.respondeu = true;
     EstadoAop aop;     aop.respondeu = true;
 
-    char linha[224] = {};
-    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
     EXPECT_NE(std::strstr(linha, "44.9 s"), nullptr);
 }
 
@@ -268,8 +384,9 @@ TEST(UbxDiagnostico, ainda_sem_fix_e_diferente_de_sem_resposta) {
     EstadoRadio radio; radio.respondeu = true;
     EstadoAop aop;     aop.respondeu = true;
 
-    char linha[224] = {};
-    formata_diagnostico(nav, radio, aop, linha, sizeof linha);
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
     EXPECT_NE(std::strstr(linha, "ainda nao fixou"), nullptr);
     EXPECT_EQ(std::strstr(linha, "NAV-STATUS sem resposta"), nullptr);
 }
@@ -277,16 +394,17 @@ TEST(UbxDiagnostico, ainda_sem_fix_e_diferente_de_sem_resposta) {
 TEST(UbxDiagnostico, nenhum_respondeu_ainda_produz_linha) {
     // Linha nenhuma seria o pior desfecho para algo que existe para
     // explicar: quem le o diario precisa ver que a pergunta foi feita.
-    EstadoNavegacao nav; EstadoRadio radio; EstadoAop aop;
-    char linha[224] = {};
-    EXPECT_GT(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EstadoNavegacao nav; EstadoRadio radio; EstadoAop aop; EstadoSinal sinal;
+    char linha[kTamDiagnostico] = {};
+    EXPECT_GT(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha), 0u);
     EXPECT_NE(std::strstr(linha, "sem resposta"), nullptr);
 }
 
 TEST(UbxDiagnostico, buffer_curto_nao_estoura_e_devolve_zero) {
     EstadoNavegacao nav; EstadoRadio radio; EstadoAop aop;
+    EstadoSinal sinal;
     char linha[8] = {};
-    EXPECT_EQ(formata_diagnostico(nav, radio, aop, linha, sizeof linha), 0u);
+    EXPECT_EQ(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha), 0u);
 }
 
 // ============================ a bandeira de "esta estrutura foi preenchida"

@@ -24,7 +24,14 @@ constexpr std::uint16_t kMaxPayloadLido = 512;
 /// `MON-HW`: o indicador de interferência mora no byte **45**, depois de 17
 /// bytes reservados, e é ele que diz se o receptor está cego por ruído. Os
 /// 56 bytes a mais são o preço de poder responder essa pergunta.
-constexpr std::size_t kMaxPayloadGuardado = 64;
+/// ⚠️ **256, e o que manda e o `NAV-SAT`.** O `ACK` precisa de 2 bytes; o
+/// `jamInd` do `MON-HW` mora no byte 45; o `NAV-SAT` traz 8 de cabecalho
+/// mais 12 por satelite, e com o ceu cheio passa de 300.
+///
+/// Guardar tudo custaria RAM por um dado que so interessa resumido, entao
+/// cabem 20 satelites e o resto e cortado -- o `numSvs` vem do CABECALHO e
+/// continua exato, e quem resume marca que cortou. Ver `analisa_nav_sat`.
+constexpr std::size_t kMaxPayloadGuardado = 8 + 12 * 20;
 
 // ------------------------------------------------------------- classes/ids
 
@@ -54,6 +61,7 @@ constexpr std::uint8_t kCfgNavx5 = 0x23;
 /// motivo de cada uma existir.
 constexpr std::uint8_t kClasseNav = 0x01;
 constexpr std::uint8_t kNavStatus = 0x03;
+constexpr std::uint8_t kNavSat = 0x35;
 constexpr std::uint8_t kNavAopStatus = 0x60;
 constexpr std::uint8_t kClasseMon = 0x0A;
 constexpr std::uint8_t kMonHw = 0x09;

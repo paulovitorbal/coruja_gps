@@ -26,6 +26,10 @@ void LeitorGps::pergunta_diagnostico() {
         {ubx::kClasseNav, ubx::kNavStatus},
         {ubx::kClasseMon, ubx::kMonHw},
         {ubx::kClasseNav, ubx::kNavAopStatus},
+        // ⚠️ A mais cara das quatro: com o ceu cheio o quadro passa de 300
+        // bytes, e o leitor guarda 248. O resumo sai dos que couberam e o
+        // total vem do cabecalho -- ver `analisa_nav_sat`.
+        {ubx::kClasseNav, ubx::kNavSat},
     };
     std::uint8_t quadro[ubx::kSobrecarga];
     for (const auto& c : consultas) {
@@ -46,6 +50,8 @@ void LeitorGps::guarda_diagnostico() {
     } else if (ubx_.classe() == ubx::kClasseNav &&
                ubx_.id() == ubx::kNavAopStatus) {
         decodificou = analisa_nav_aopstatus(p, tam, &aop_);
+    } else if (ubx_.classe() == ubx::kClasseNav && ubx_.id() == ubx::kNavSat) {
+        decodificou = analisa_nav_sat(p, tam, &sinal_);
     }
     // Só conta o que foi entendido. Um quadro de outra classe, ou curto
     // demais, não é resposta à pergunta que alguém fez — e quem espera a

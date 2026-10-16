@@ -162,7 +162,8 @@ o que ele via. Da **v0.2.13** em diante:
 | `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
 | `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
 | `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
-| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado` | por que ela demorou — no primeiro fix e a cada 5 min |
+| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado \| sinal: 9 vistos, 5 usados, 4 acima de 35, melhor 41 dBHz` | por que ela demorou — no primeiro fix e a cada 5 min |
+| `boot` | `arranque: console 0 \| objetos 1560 \| painel 12 \| cartao 1510 \| config 6 ms` | onde foram os segundos antes de o firmware se anunciar |
 | `gps` | `radio: MON-HW sem resposta \| ttff do modulo 38.2 s (ligado ha 44.9 s) \| aop ligado` | a mesma linha quando uma das três perguntas não voltou |
 | `diario` | `trecho fechado: veiculo parado` | fechou o arquivo; **a gravação continua** |
 | `diario` | `viagem retomada` / `viagem nova: a parada passou de 2 h` | o que a energização decidiu sobre a viagem anterior |
@@ -197,6 +198,27 @@ linha do log sai sob a condição que a torna informativa — taxa baixa **com f
 presente**, sustentada por mais de 3 s. Um receptor que voltou a 1 Hz por ter perdido a
 configuração não aparece em mais lugar nenhum: as barras de HDOP medem geometria, não
 cadência, e continuam cheias.
+
+⚠️ **A parte `sinal:` existe para decidir onde investir.** Em 16/10/2026 o
+primeiro fix saiu com `5 sat, hdop 5.8` — céu aberto dá 8 a 12 satélites e
+HDOP abaixo de 1,5. A tabela do NEO-M8 promete 26 s de *cold start* a
+−130 dBm, e antena patch dentro da caixa, na garagem, não está a −130 dBm.
+Isso importa porque **assistência não conserta sinal fraco**: AssistNow e RTC
+entregam a órbita, mas o receptor ainda precisa ouvir o satélite. `melhor`
+perto de 45 dBHz diz que a antena está bem; perto de 30, o limite é ela.
+
+⚠️ **`vistos` e `usados` são diferentes de propósito.** Ver oito e usar
+quatro aponta para geometria ou sinal no limiar, não para falta de satélite.
+O total vem do cabeçalho do `NAV-SAT` e vale mesmo quando o resumo sai
+parcial — o quadro passa de 300 bytes com o céu cheio e o leitor guarda 248,
+e aí a linha acrescenta `(resumo parcial)`.
+
+⚠️ **A linha `arranque:` mede o que ninguém via.** Até 16/10/2026 os
+primeiros 3,1 s de toda partida não tinham carimbo nenhum: o que se registra
+antes de o cartão estar recebendo vai só para o console, e no carro não há
+console. Por isso ela é UMA linha, com as medidas tomadas durante o arranque
+e publicada depois. O campo `console` é a espera pelo USB — **zero no
+firmware do carro desde a v0.2.17**, e era 1500.
 
 ⚠️ **A `vigia` amostra de cinco em cinco minutos.** Ela prova base e fix; a
 `zona` ali é um instante qualquer, e quase nunca cai num alerta. Quem responde

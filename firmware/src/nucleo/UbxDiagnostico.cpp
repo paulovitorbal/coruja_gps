@@ -29,6 +29,15 @@ constexpr std::size_t kFlags = 22;
 constexpr std::size_t kJamInd = 45;
 }  // namespace monhw
 
+namespace navsat {
+constexpr std::size_t kCabecalho = 8;
+constexpr std::size_t kNumSvs = 5;
+constexpr std::size_t kPorSatelite = 12;
+constexpr std::size_t kCno = 2;      ///< dentro do registro do satelite
+constexpr std::size_t kFlags = 8;
+constexpr std::uint32_t kBitUsado = 0x08;   ///< `svUsed`
+}  // namespace navsat
+
 namespace aopstatus {
 constexpr std::size_t kTamanho = 16;
 constexpr std::size_t kConfig = 4;
@@ -123,9 +132,45 @@ bool analisa_nav_aopstatus(const std::uint8_t* payload, std::size_t tamanho,
     return true;
 }
 
+bool analisa_nav_sat(const std::uint8_t* payload, std::size_t tamanho,
+                     EstadoSinal* destino) {
+    if (payload == nullptr || destino == nullptr ||
+        tamanho < navsat::kCabecalho) {
+        return false;
+    }
+    // ⚠️ **O total vem do CABEÇALHO, não da contagem dos registros.** Com o
+    // céu cheio o quadro passa de 300 bytes e o leitor guarda menos; contar
+    // o que sobrou diria "5 satélites" num instante em que o módulo via 24,
+    // que é a leitura oposta da verdadeira.
+    destino->vistos = payload[navsat::kNumSvs];
+
+    const std::size_t cabem =
+        (tamanho - navsat::kCabecalho) / navsat::kPorSatelite;
+    const std::size_t n =
+        cabem < destino->vistos ? cabem : destino->vistos;
+    destino->truncado = n < destino->vistos;
+
+    destino->melhor_cno = 0;
+    destino->bons = 0;
+    destino->usados = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::uint8_t* sat =
+            &payload[navsat::kCabecalho + i * navsat::kPorSatelite];
+        const std::uint8_t cno = sat[navsat::kCno];
+        if (cno > destino->melhor_cno) { destino->melhor_cno = cno; }
+        if (cno >= kCnoUtil) { ++destino->bons; }
+        if ((le_u32(&sat[navsat::kFlags]) & navsat::kBitUsado) != 0) {
+            ++destino->usados;
+        }
+    }
+    destino->respondeu = true;
+    return true;
+}
+
 std::size_t formata_diagnostico(const EstadoNavegacao& nav,
                                 const EstadoRadio& radio, const EstadoAop& aop,
-                                char* destino, std::size_t capacidade) {
+                                const EstadoSinal& sinal, char* destino,
+                                std::size_t capacidade) {
     if (destino == nullptr || capacidade < kTamDiagnostico) {
         return 0;
     }
@@ -175,8 +220,24 @@ std::size_t formata_diagnostico(const EstadoNavegacao& nav,
                       aop.calculando ? ", calculando" : "");
     }
 
-    const int n = std::snprintf(destino, capacidade, "radio: %s | %s | %s",
-                                rad, nav_txt, aop_txt);
+    char sin[72];
+    if (!sinal.respondeu) {
+        std::snprintf(sin, sizeof sin, "NAV-SAT sem resposta");
+    } else {
+        std::snprintf(sin, sizeof sin,
+                      "sinal: %u vistos, %u usados, %u acima de %u, melhor "
+                      "%u dBHz%s",
+                      static_cast<unsigned>(sinal.vistos),
+                      static_cast<unsigned>(sinal.usados),
+                      static_cast<unsigned>(sinal.bons),
+                      static_cast<unsigned>(kCnoUtil),
+                      static_cast<unsigned>(sinal.melhor_cno),
+                      sinal.truncado ? " (resumo parcial)" : "");
+    }
+
+    const int n = std::snprintf(destino, capacidade,
+                                "radio: %s | %s | %s | %s",
+                                rad, nav_txt, aop_txt, sin);
     if (n <= 0 || static_cast<std::size_t>(n) >= capacidade) {
         return 0;
     }

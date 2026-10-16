@@ -72,6 +72,7 @@ public:
     const EstadoNavegacao& navegacao() const { return navegacao_; }
     const EstadoRadio& radio() const { return radio_; }
     const EstadoAop& aop() const { return aop_; }
+    const EstadoSinal& sinal() const { return sinal_; }
 
     /// Quantas respostas de diagnóstico foram decodificadas desde o boot.
     /// Serve a quem perguntou para saber que a resposta chegou, sem precisar
@@ -104,6 +105,7 @@ private:
     EstadoNavegacao navegacao_;
     EstadoRadio     radio_;
     EstadoAop       aop_;
+    EstadoSinal     sinal_;
     std::uint32_t   diagnosticos_ = 0;
     Telemetria     telemetria_;
     char           linha_[kLinhaMaxima + 1] = {};

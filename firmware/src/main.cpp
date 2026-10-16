@@ -501,9 +501,17 @@ private:
 
 }  // namespace
 
+/// Milissegundos desde a energizacao. So para medir o arranque.
+static std::uint32_t agora_ms() {
+    return to_ms_since_boot(get_absolute_time());
+}
+
 int main() {
     stdio_init_all();
-    sleep_ms(1500);
+    // Ver `CORUJA_ESPERA_CONSOLE_MS` no CMakeLists: zero no firmware do
+    // carro, onde nao ha console para esperar.
+    if (CORUJA_ESPERA_CONSOLE_MS > 0) { sleep_ms(CORUJA_ESPERA_CONSOLE_MS); }
+    const std::uint32_t t_console = agora_ms();
 
     // O identificador desta execucao, sorteado ANTES do primeiro log: assim
     // nenhuma linha fica orfa. Vem do TRNG do RP2350, pelo `pico_rand` -- a
@@ -542,7 +550,9 @@ int main() {
     // parece aparelho morto.
     coruja::RetroiluminacaoPwm luz;
     coruja::PainelSt7789       painel;
+    const std::uint32_t t_objetos = agora_ms();
     painel.inicia();
+    const std::uint32_t t_painel = agora_ms();
     coruja::VisorSt7789 visor{painel};
 
     coruja::LedRgbAnodoComum led;
@@ -559,9 +569,11 @@ int main() {
 
     log.info("boot", "coruja gps");
     cartao.inicia(log);
+    const std::uint32_t t_cartao = agora_ms();
 
     coruja::Configuracao config;
     carrega_configuracao(cartao, &config, log);
+    const std::uint32_t t_config = agora_ms();
     log.define_nivel_minimo(config.nivel_log);
     log.grava_no_cartao(config.log_para_cartao);
 
@@ -571,6 +583,23 @@ int main() {
     // antiga ainda gravada. Vai logo depois de o destino do log ser definido,
     // para ser a primeira coisa que o cartão recebe.
     log.info("boot", coruja::kVersaoBuild);
+
+    // ⚠️ **Uma linha so, e DEPOIS de o cartao estar recebendo.** As medidas
+    // sao tomadas durante o arranque, mas tudo o que se registra antes de
+    // `grava_no_cartao` vai para o console e se perde no carro -- foi por
+    // isso que estes 3,1 s ficaram sem explicacao ate 16/10/2026.
+    {
+        char msg[128];
+        std::snprintf(msg, sizeof msg,
+                      "arranque: console %lu | objetos %lu | painel %lu | "
+                      "cartao %lu | config %lu ms",
+                      static_cast<unsigned long>(t_console),
+                      static_cast<unsigned long>(t_objetos - t_console),
+                      static_cast<unsigned long>(t_painel - t_objetos),
+                      static_cast<unsigned long>(t_cartao - t_painel),
+                      static_cast<unsigned long>(t_config - t_cartao));
+        log.info("boot", msg);
+    }
     brilho.define_presets(config.brilho_dia, config.brilho_noite);
     luz.define_duty(brilho.duty());
 
@@ -721,7 +750,8 @@ int main() {
     const auto registra_diagnostico = [&log, &gps](std::uint32_t t_ms) {
         char msg[coruja::kTamDiagnostico];
         if (coruja::formata_diagnostico(gps.navegacao(), gps.radio(),
-                                        gps.aop(), msg, sizeof msg) == 0) {
+                                        gps.aop(), gps.sinal(), msg,
+                                        sizeof msg) == 0) {
             log.error("gps", "a linha de diagnostico nao coube");
             return;
         }
@@ -814,7 +844,7 @@ int main() {
         // Ficar esperando para sempre deixaria o diagnostico sem nenhuma
         // linha -- que e o pior desfecho para algo que existe para explicar.
         if (esperando_diagnostico &&
-            (gps.respostas_diagnostico() >= respostas_antes + 3 ||
+            (gps.respostas_diagnostico() >= respostas_antes + 4 ||
              agora_ms - diagnostico_pedido_ms > 3000U)) {
             esperando_diagnostico = false;
             registra_diagnostico(agora_ms);

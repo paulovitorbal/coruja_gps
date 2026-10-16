@@ -155,14 +155,19 @@ std::vector<std::uint8_t> quadro_ubx(std::uint8_t classe, std::uint8_t id,
     return q;
 }
 
-TEST(LeitorGps, a_consulta_de_diagnostico_pede_as_tres_mensagens) {
+TEST(LeitorGps, a_consulta_de_diagnostico_pede_as_quatro_mensagens) {
+    // ⚠️ A quarta entrou em 16/10/2026: `primeiro fix em 6.0 s (5 sat, hdop
+    // 5.8)` levantou a suspeita de que o limite e SINAL, e nao orbita. Sem
+    // medir C/N0 nao da para decidir entre investir em antena ou em
+    // assistencia -- e assistencia nao conserta sinal fraco.
     Bancada b;
     b.leitor.pergunta_diagnostico();
     // Classe e id de cada consulta, na ordem em que saem.
     const std::vector<std::pair<std::uint8_t, std::uint8_t>> esperadas = {
         {ubx::kClasseNav, ubx::kNavStatus},
         {ubx::kClasseMon, ubx::kMonHw},
-        {ubx::kClasseNav, ubx::kNavAopStatus}};
+        {ubx::kClasseNav, ubx::kNavAopStatus},
+        {ubx::kClasseNav, ubx::kNavSat}};
     ASSERT_EQ(b.uart.escritos.size(), esperadas.size() * 8)
         << "consulta tem 8 bytes: cabecalho e checksum, sem payload";
     for (std::size_t i = 0; i < esperadas.size(); ++i) {
