@@ -26,6 +26,19 @@ constexpr std::uint32_t kEsperaEntreLeiturasMs = 20;
 /// Cada comando é tentado duas vezes antes de o passo falhar.
 constexpr unsigned kTentativasPorComando = 2;
 
+/// Voltas de espera da SONDAGEM de baud, contra `kEsperasPorAck` do comando.
+///
+/// ⚠️ **São poucas de propósito.** A janela longa existe para quadro
+/// perdido; no baud errado não há quadro perdido nenhum — o módulo está
+/// fisicamente falando outra velocidade, e esperar mais não o faz responder.
+/// A 9600 um `ACK` de `CFG-RATE` são ~10 bytes, uns 10 ms de linha; 240 ms
+/// dão vinte e tantas vezes de folga sobre isso.
+///
+/// Medido em 15 e 16/10/2026: a sondagem antiga — duas tentativas longas em
+/// cada baud — custava 1,74 s em toda partida morna, com o módulo fixando em
+/// 0,5 s do outro lado.
+constexpr unsigned kEsperasDaSondagem = 12;
+
 constexpr std::uint32_t kBaudFabrica = 9600;
 constexpr std::uint32_t kBaudDesejado = 115200;
 constexpr std::uint16_t kPeriodoNavegacaoMs = 250;   // 4 Hz, RF01.4
@@ -41,30 +54,12 @@ constexpr std::uint16_t kPeriodoNavegacaoMs = 250;   // 4 Hz, RF01.4
 /// o módulo que recusa, o que não responde, e a troca de baud no meio.
 class ConfiguradorGps {
 public:
-    /// `baud_inicial` é a velocidade em que a porta JÁ ESTÁ e em que o
-    /// módulo provavelmente fala — a lembrança de `BaudSalvo`. A sondagem
-    /// começa por ela e, se não houver resposta, cai na outra.
-    ///
-    /// ⚠️ Quem constrói é responsável por ter aberto a UART nessa mesma
-    /// velocidade. Prometer 115200 com a porta a 9600 faria o primeiro
-    /// comando sair ilegível e a sondagem concluir o contrário do que houve.
-    ConfiguradorGps(Uart& uart, Pausa& pausa,
-                    std::uint32_t baud_inicial = kBaudFabrica)
-        : uart_(uart), pausa_(pausa), baud_final_(baud_inicial),
-          baud_encontrado_(baud_inicial) {}
+    ConfiguradorGps(Uart& uart, Pausa& pausa) : uart_(uart), pausa_(pausa) {}
 
     ResultadoConfigGps executa(Logger& log);
 
     /// Baud em que a porta ficou. Interessa a quem for ler depois.
     std::uint32_t baud_final() const { return baud_final_; }
-
-    /// Baud em que o módulo RESPONDEU, antes de a porta ser trocada.
-    ///
-    /// É este, e não o `baud_final()`, que vale guardar para a próxima
-    /// energização: o final é sempre 115200 depois de um sucesso, e guardá-lo
-    /// faria toda partida tentar 115200 primeiro — inclusive aquelas em que a
-    /// BBR do receptor drenou e ele voltou aos 9600 de fábrica.
-    std::uint32_t baud_encontrado() const { return baud_encontrado_; }
 
 private:
     /// Desfecho de um comando. Silêncio e recusa **não** são a mesma coisa:
@@ -79,13 +74,23 @@ private:
     Passo comanda(const std::uint8_t* quadro, std::size_t tamanho,
                   std::uint8_t id, const char* nome, Logger& log,
                   bool obrigatorio = true);
-    bool espera_ack(std::uint8_t id, Logger& log, bool* recusou);
+    bool espera_ack(std::uint8_t id, Logger& log, bool* recusou,
+                    unsigned esperas = kEsperasPorAck);
+
+    /// Uma pergunta curta: escreve o quadro **uma vez** e espera pouco.
+    /// Responde se o módulo fala NESTE baud — nada mais.
+    Passo sonda(const std::uint8_t* quadro, std::size_t tamanho,
+                std::uint8_t id, Logger& log);
+
+    /// Procura o módulo e devolve `true` se o achou. Deixa a porta no baud
+    /// em que ele respondeu, ou em `kBaudFabrica` se ninguém respondeu.
+    bool acha_o_modulo(const std::uint8_t* quadro, std::size_t tamanho,
+                       Logger& log, bool* recusou);
 
     Uart&            uart_;
     Pausa&           pausa_;
     ubx::LeitorUbx   leitor_;
     std::uint32_t    baud_final_ = kBaudFabrica;
-    std::uint32_t    baud_encontrado_ = kBaudFabrica;
 };
 
 }  // namespace coruja

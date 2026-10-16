@@ -16,10 +16,11 @@ const char* descreve(ResultadoConfigGps r) {
     return "?";
 }
 
-bool ConfiguradorGps::espera_ack(std::uint8_t id, Logger& log, bool* recusou) {
+bool ConfiguradorGps::espera_ack(std::uint8_t id, Logger& log, bool* recusou,
+                                 unsigned esperas) {
     *recusou = false;
     std::uint8_t bloco[128];
-    for (unsigned volta = 0; volta < kEsperasPorAck; ++volta) {
+    for (unsigned volta = 0; volta < esperas; ++volta) {
         const std::size_t lidos = uart_.le(bloco, sizeof bloco);
         for (std::size_t i = 0; i < lidos; ++i) {
             const auto evento = leitor_.consome(bloco[i]);
@@ -75,6 +76,76 @@ ConfiguradorGps::Passo ConfiguradorGps::comanda(const std::uint8_t* quadro,
     return Passo::Silencio;
 }
 
+ConfiguradorGps::Passo ConfiguradorGps::sonda(const std::uint8_t* quadro,
+                                              std::size_t tamanho,
+                                              std::uint8_t id, Logger& log) {
+    uart_.escreve(quadro, tamanho);
+    bool recusou = false;
+    if (espera_ack(id, log, &recusou, kEsperasDaSondagem)) {
+        return Passo::Ok;
+    }
+    return recusou ? Passo::Nak : Passo::Silencio;
+}
+
+bool ConfiguradorGps::acha_o_modulo(const std::uint8_t* quadro,
+                                    std::size_t tamanho, Logger& log,
+                                    bool* recusou) {
+    *recusou = false;
+    // A ordem comeca pelo baud em que a porta JA esta. Na partida e o de
+    // fabrica; na reconfiguracao em voo (RF01.5) e o que ja funcionava, e
+    // repeti-lo poupa uma troca de velocidade por nada.
+    const std::uint32_t outro =
+        baud_final_ == kBaudFabrica ? kBaudDesejado : kBaudFabrica;
+    const std::uint32_t candidatos[] = {baud_final_, outro};
+
+    // --- primeiro, duas perguntas curtas ----------------------------------
+    //
+    // ⚠️ **Nao se insiste no baud errado.** Uma segunda tentativa so
+    // recupera quadro perdido, e no baud errado nao ha quadro perdido: o
+    // modulo esta falando outra velocidade e nao vai responder por mais que
+    // se espere. Medido em 15 e 16/10/2026, insistir custava 1,74 s em toda
+    // partida morna -- com o receptor fixando em 0,5 s do outro lado.
+    for (const std::uint32_t baud : candidatos) {
+        if (baud != baud_final_) {
+            char msg[128];
+            std::snprintf(msg, sizeof msg,
+                          "%lu nao respondeu de imediato; sondando %lu (o "
+                          "modulo pode ter lembrado a configuracao)",
+                          static_cast<unsigned long>(baud_final_),
+                          static_cast<unsigned long>(baud));
+            log.info("gps", msg);
+            uart_.define_baud(baud);
+            baud_final_ = baud;
+        }
+        const Passo r = sonda(quadro, tamanho, ubx::kCfgRate, log);
+        if (r == Passo::Nak) {
+            // Entendeu e recusou: esta no baud certo, e procurar no outro
+            // seria procurar no lugar errado.
+            *recusou = true;
+            return false;
+        }
+        if (r == Passo::Ok) { return true; }
+    }
+
+    // --- ninguem respondeu depressa: a pergunta mudou ---------------------
+    //
+    // Deixou de ser "qual velocidade" e passou a ser "ha alguem ai". Agora
+    // vale gastar a janela inteira antes de dizer que o receptor sumiu --
+    // foi abortar cedo demais que deixou o aparelho mudo em 08/10/2026.
+    log.warning("gps", "nenhum baud respondeu depressa; insistindo nos dois");
+    for (const std::uint32_t baud : candidatos) {
+        if (baud != baud_final_) {
+            uart_.define_baud(baud);
+            baud_final_ = baud;
+        }
+        const Passo r = comanda(quadro, tamanho, ubx::kCfgRate,
+                                "CFG-RATE 250 ms", log);
+        if (r == Passo::Nak) { *recusou = true; return false; }
+        if (r == Passo::Ok)  { return true; }
+    }
+    return false;
+}
+
 ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     std::uint8_t q[64];
     log.info("gps", "==== configurando o receptor (RF01.2) ====");
@@ -91,37 +162,16 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     // Sondar custa até 2 s, e só para quem não respondeu a 9600. O módulo
     // recém-saído da caixa responde na primeira e não paga nada.
     std::size_t n = ubx::monta_cfg_rate(kPeriodoNavegacaoMs, q, sizeof q);
-    // A ORDEM vem da lembrança: começa pelo baud em que o módulo respondeu da
-    // última vez. Numa partida morna isso poupa as duas recusas por silêncio
-    // que custaram 1,2 s na medida de 15/10/2026 — com o módulo tendo fixado
-    // em 0,4 s e quem dirigia esperando 5,9 s.
-    const std::uint32_t outro =
-        baud_final_ == kBaudFabrica ? kBaudDesejado : kBaudFabrica;
-    const std::uint32_t kBaudsASondar[] = {baud_final_, outro};
-    bool achou = false;
-    for (const std::uint32_t baud : kBaudsASondar) {
-        if (baud != baud_final_) {
-            char msg[128];
-            std::snprintf(msg, sizeof msg,
-                          "%lu nao respondeu; sondando %lu (o modulo pode ter "
-                          "lembrado a configuracao)",
-                          static_cast<unsigned long>(baud_final_),
-                          static_cast<unsigned long>(baud));
-            log.warning("gps", msg);
-            uart_.define_baud(baud);
-            baud_final_ = baud;
-        }
-        const Passo r = comanda(q, n, ubx::kCfgRate, "CFG-RATE 250 ms", log);
-        if (r == Passo::Nak) { return ResultadoConfigGps::Recusado; }
-        if (r == Passo::Ok)  { achou = true; baud_encontrado_ = baud; break; }
-    }
-    if (!achou) {
+    bool recusou_na_busca = false;
+    if (!acha_o_modulo(q, n, log, &recusou_na_busca)) {
+        if (recusou_na_busca) { return ResultadoConfigGps::Recusado; }
         // Deixar a porta em 115200 aqui condenaria quem lê depois a um fluxo
         // ilegível mesmo que o módulo estivesse a 9600 o tempo todo.
         uart_.define_baud(kBaudFabrica);
         baud_final_ = kBaudFabrica;
         return ResultadoConfigGps::SemResposta;
     }
+    log.info("gps", "CFG-RATE 250 ms: ACK");
 
     // --- 2. só a RMC na porta ---------------------------------------------
     //

@@ -264,20 +264,33 @@ regra foi escrita.
 
 ---
 
-## 5. Baud do receptor — `gps.est`
+## 5. 🔴 `gps.est` — existiu por um dia, e não funcionava
 
-Uma linha, `baud=115200`, com a velocidade em que o módulo respondeu da
-última vez. Existe para poupar os ~1,2 s que a sondagem custa em toda
-partida morna: o `CFG-CFG` grava 115200 na BBR do receptor e a bateria de
-reserva a mantém por horas, então no religamento ele já fala 115200 enquanto
-o aparelho começava pedindo a 9600 e levava duas recusas por silêncio.
+Entre 15 e 16/10/2026 o aparelho guardava aqui em que baud o módulo havia
+respondido, para começar a sondagem por ele e poupar os ~1,7 s que ela custa.
 
-**É lembrança, não configuração.** Apagar o arquivo custa tempo na próxima
-partida, nunca correção — e só os dois bauds conhecidos são aceitos na
-leitura, porque obedecer a um número estragado abriria a porta numa
-velocidade em que ninguém fala.
+**Quatro partidas de verdade mostraram que a premissa estava errada.** O
+padrão não é "igual à última vez":
 
-Não é log e não sobe para o servidor.
+| partida | baud do módulo |
+|---|---|
+| 1ª do dia (15/10) | 9600 |
+| logo em seguida | 115200 |
+| 1ª do dia (16/10) | 9600 |
+| logo em seguida | 115200 |
+
+É **"9600 depois de muitas horas desligado"** — a BBR do receptor drena de um
+dia para o outro e ele volta à configuração de fábrica; numa parada curta ela
+sobrevive e ele lembra os 115200. Lembrar a última resposta prevê o contrário
+em toda transição, e nessa amostra toda partida é uma transição: erraria 4 de
+4, enquanto começar sempre em 9600 acerta 2 de 4.
+
+O arquivo foi removido. O conserto não foi adivinhar melhor, e sim **perguntar
+barato**: uma tentativa curta em cada baud (`kEsperasDaSondagem`), e só depois,
+se nenhum responder, a insistência inteira. Ver `ConfiguradorGps`.
+
+Um cartão que rodou a v0.2.15 pode ter um `gps.est` parado nele. É inofensivo
+— nada mais o lê — e pode ser apagado à mão.
 
 ---
 

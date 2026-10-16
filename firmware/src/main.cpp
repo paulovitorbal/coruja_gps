@@ -41,7 +41,6 @@
 #include "display/RetroiluminacaoPwm.h"
 #include "display/VisorSt7789.h"
 #include "encoder/EncoderKy040.h"
-#include "gps/BaudSalvo.h"
 #include "gps/ConfiguradorGps.h"
 #include "gps/LeitorGps.h"
 #include "nucleo/UbxDiagnostico.h"
@@ -583,25 +582,7 @@ int main() {
     // quando o passo 1 não acha o módulo, a porta não é reconfigurada e o
     // aparelho fica lendo um fluxo ilegível — mudo, não lento. Descartar este
     // retorno era jogar fora o único aviso que existia.
-    // Em que velocidade o modulo respondeu da ultima vez. Sem lembranca,
-    // 9600 -- o de fabrica, e o comportamento de sempre.
-    std::uint32_t baud_lembrado = coruja::kBaudFabrica;
-    {
-        char buf[coruja::kTamBaudSalvo] = {};
-        std::size_t lidos = 0;
-        if (cartao.le_arquivo(coruja::kArquivoBaudGps, buf, sizeof buf, &lidos,
-                              log) == coruja::ErroCartao::Nenhum) {
-            coruja::analisa_baud(buf, lidos, &baud_lembrado);
-        }
-        // A porta tem de ESTAR na velocidade que o configurador vai supor;
-        // prometer 115200 com a porta a 9600 faria o primeiro comando sair
-        // ilegivel e a sondagem concluir o contrario do que houve.
-        if (baud_lembrado != coruja::kBaudFabrica) {
-            uart.define_baud(baud_lembrado);
-        }
-    }
-
-    coruja::ConfiguradorGps configurador(uart, pausa, baud_lembrado);
+    coruja::ConfiguradorGps configurador(uart, pausa);
     const coruja::ResultadoConfigGps desfecho = configurador.executa(log);
     if (desfecho != coruja::ResultadoConfigGps::Configurado) {
         char aviso[160];
@@ -611,19 +592,6 @@ int main() {
                       coruja::descreve(desfecho),
                       static_cast<unsigned long>(configurador.baud_final()));
         log.error("gps", aviso);
-    }
-
-    // Guarda ONDE ELE RESPONDEU, e so quando mudou: numa partida morna atras
-    // da outra o cartao nao e tocado. Falhar aqui nao e erro -- a lembranca
-    // poupa tempo, nunca corrige nada, e o proximo boot volta a sondar.
-    if (desfecho == coruja::ResultadoConfigGps::Configurado &&
-        configurador.baud_encontrado() != baud_lembrado) {
-        char buf[coruja::kTamBaudSalvo];
-        const auto n = coruja::formata_baud(configurador.baud_encontrado(),
-                                            buf, sizeof buf);
-        if (n > 0) {
-            cartao.grava_arquivo(coruja::kArquivoBaudGps, buf, n, log);
-        }
     }
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);

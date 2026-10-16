@@ -158,67 +158,91 @@ struct Bancada {
     SimuladorUart         uart;
     PausaFalsa        pausa;
     teste::LoggerMock log;
-    ResultadoConfigGps roda(std::uint32_t baud_inicial = kBaudFabrica) {
-        // A porta de verdade e aberta nessa velocidade por quem constroi; o
-        // simulador comeca em 9600, entao aqui ele acompanha.
-        if (baud_inicial != kBaudFabrica) { uart.define_baud(baud_inicial); }
-        ConfiguradorGps c(uart, pausa, baud_inicial);
+    ResultadoConfigGps roda() {
+        ConfiguradorGps c(uart, pausa);
         const auto r = c.executa(log);
         baud_final = c.baud_final();
-        baud_encontrado = c.baud_encontrado();
         return r;
     }
     std::uint32_t baud_final = 0;
-    std::uint32_t baud_encontrado = 0;
 };
 
-// ============================================ a lembranca do baud (15/10)
+// ================================================ a sondagem curta (16/10)
 //
-// ⚠️ A sondagem custa ~1,2 s em toda partida morna: o `CFG-CFG` grava 115200
-// na BBR, a bateria de reserva a mantem por horas, e no religamento o modulo
-// ja fala 115200 enquanto nos pedimos a 9600 e levamos duas recusas por
-// silencio. Medido: o modulo fixou em 0,4 s e quem dirigia esperou 5,9 s.
+// ⚠️ **Quatro partidas de verdade mataram a ideia anterior.** O aparelho
+// guardava em que baud o modulo tinha respondido e comecava por ele. Medido
+// em 15 e 16/10/2026, o padrao real foi outro:
+//
+//     1a partida do dia    9600     (a BBR do receptor drenou de um dia
+//     logo em seguida      115200    para o outro; numa parada curta ela
+//     1a partida do dia    9600      sobrevive e ele lembra os 115200)
+//     logo em seguida      115200
+//
+// Nao e "igual a ultima vez" -- e "9600 depois de muitas horas desligado".
+// A lembranca previa o CONTRARIO em toda transicao, e nessa amostra toda
+// partida e uma transicao: ela erraria 4 de 4, enquanto comecar sempre em
+// 9600 acerta 2 de 4. Era pior que nao ter nada.
+//
+// O conserto nao e adivinhar melhor, e **perguntar barato**: uma tentativa
+// curta por baud. Insistir no baud errado nao recupera nada -- o modulo esta
+// fisicamente falando outra velocidade --, e so depois de saber qual e que a
+// repeticao passa a fazer sentido.
 
-TEST(ConfiguradorGps, comecando_pelo_baud_lembrado_nao_sonda) {
+TEST(ConfiguradorGps, a_sondagem_certa_de_primeira_quase_nao_custa) {
     Bancada b;
-    b.uart.baud_exigido = kBaudDesejado;   // o modulo lembrou a configuracao
-    ASSERT_EQ(b.roda(kBaudDesejado), ResultadoConfigGps::Configurado);
-    // O primeiro comando ja sai na velocidade certa: nenhuma recusa por
-    // silencio, nenhum aviso de sondagem.
-    EXPECT_EQ(b.uart.baud_do_comando.front(), kBaudDesejado);
-    EXPECT_EQ(b.baud_encontrado, kBaudDesejado);
-}
-
-TEST(ConfiguradorGps, lembranca_errada_cai_na_outra_velocidade) {
-    // A BBR drenou e o modulo voltou aos 9600 de fabrica. A lembranca erra,
-    // e o preco e exatamente a sondagem que ela existe para evitar -- nunca
-    // um aparelho mudo.
-    Bancada b;
-    b.uart.baud_exigido = kBaudFabrica;   // so fala 9600, ate o CFG-PRT
-    ASSERT_EQ(b.roda(kBaudDesejado), ResultadoConfigGps::Configurado);
-    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
-    EXPECT_EQ(b.baud_final, kBaudDesejado);
-}
-
-TEST(ConfiguradorGps, sem_lembranca_o_comportamento_e_o_de_sempre) {
-    Bancada b;
-    b.uart.baud_exigido = kBaudFabrica;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    EXPECT_EQ(b.uart.baud_do_comando.front(), kBaudFabrica);
-    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1u)
+        << "mandou CFG-RATE mais de uma vez com o modulo respondendo";
 }
 
-TEST(ConfiguradorGps, o_que_se_guarda_e_onde_respondeu_e_nao_onde_terminou) {
-    // ⚠️ O `baud_final` e sempre 115200 depois de um sucesso. Guardar ELE
-    // faria toda partida tentar 115200 primeiro, inclusive as que comecam
-    // com a BBR drenada -- e aí a lembranca passaria a custar o tempo que
-    // deveria poupar.
+TEST(ConfiguradorGps, no_baud_errado_desiste_depressa_e_acha_no_outro) {
+    // O caso de toda partida morna: a BBR sobreviveu e o modulo fala 115200
+    // enquanto a porta abre em 9600.
     Bancada b;
-    b.uart.baud_exigido = kBaudFabrica;
+    b.uart.baud_exigido = kBaudDesejado;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
     EXPECT_EQ(b.baud_final, kBaudDesejado);
-    EXPECT_EQ(b.baud_encontrado, kBaudFabrica);
-    EXPECT_NE(b.baud_encontrado, b.baud_final);
+    // Duas perguntas curtas, nao duas longas vezes duas.
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2u);
+    EXPECT_LE(b.pausa.agora, 2U * kEsperasDaSondagem * kEsperaEntreLeiturasMs)
+        << "a sondagem gastou mais que duas janelas curtas";
+}
+
+TEST(ConfiguradorGps, a_janela_da_sondagem_e_bem_menor_que_a_do_comando) {
+    // ⚠️ O numero que importa: a 9600 um ACK de CFG-RATE sao ~10 bytes, uns
+    // 10 ms de linha. A janela do comando normal -- 50 x 20 ms -- existe
+    // para quadro perdido, que no baud errado nao e o que esta havendo.
+    EXPECT_LT(kEsperasDaSondagem, kEsperasPorAck / 3);
+    EXPECT_GE(kEsperasDaSondagem * kEsperaEntreLeiturasMs, 200u)
+        << "folga pequena demais sobre o tempo de linha de um ACK";
+}
+
+TEST(ConfiguradorGps, modulo_mudo_ainda_insiste_antes_de_desistir) {
+    // ⚠️ **A sondagem curta nao pode virar desistencia apressada.** Se
+    // nenhum dos dois bauds respondeu depressa, o problema deixou de ser
+    // "qual velocidade" e passou a ser "ha alguem ai" -- e aí vale gastar a
+    // janela inteira antes de dizer que o receptor sumiu.
+    Bancada b;
+    b.uart.muda.push_back(ubx::kCfgRate);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_GT(b.uart.quantos(ubx::kCfgRate), 2u)
+        << "desistiu so com as duas perguntas curtas";
+}
+
+TEST(ConfiguradorGps, porta_volta_ao_baud_de_fabrica_quando_ninguem_responde) {
+    Bancada b;
+    b.uart.muda.push_back(ubx::kCfgRate);
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_EQ(b.baud_final, kBaudFabrica);
+}
+
+TEST(ConfiguradorGps, nak_na_sondagem_recusa_sem_tentar_o_outro_baud) {
+    // NAK quer dizer que o modulo ENTENDEU e nao aceitou: ele esta no baud
+    // certo, e sondar o outro procuraria no lugar errado.
+    Bancada b;
+    b.uart.recusa.push_back(ubx::kCfgRate);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Recusado);
+    EXPECT_EQ(b.baud_final, kBaudFabrica);
 }
 
 // ================================================== sequência do RF01.2
@@ -497,15 +521,18 @@ TEST(ConfiguradorGps, NAK_nao_e_repetido) {
     EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1U);
 }
 
-TEST(ConfiguradorGps, silencio_e_repetido_uma_vez_EM_CADA_BAUD) {
-    // Duas tentativas por baud, dois bauds sondados: quatro CFG-RATE antes de
-    // declarar que nao ha ninguem do outro lado. A garantia original -- nao
-    // insistir indefinidamente -- continua valendo; o que mudou e que ela
-    // agora vale por baud.
+TEST(ConfiguradorGps, o_silencio_total_tem_numero_de_tentativas_FIXO) {
+    // Uma pergunta curta em cada baud, e so entao duas longas em cada um:
+    // seis CFG-RATE antes de declarar que nao ha ninguem do outro lado.
+    //
+    // A garantia original -- nao insistir indefinidamente -- continua
+    // valendo. O que mudou em 16/10/2026 e a ORDEM: as duas perguntas
+    // baratas vem primeiro, e quem fala em algum dos dois bauds nunca chega
+    // as caras.
     Bancada b;
     b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
     b.roda();
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), kTentativasPorComando * 2);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2U + kTentativasPorComando * 2);
 }
 
 TEST(ConfiguradorGps, recupera_na_segunda_tentativa) {

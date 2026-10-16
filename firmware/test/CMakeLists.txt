@@ -96,7 +96,6 @@ add_executable(testes
     apoio/fatfs/FatFsFalso.cpp
     ../src/armazenamento/CartaoSd.cpp
     armazenamento/CartaoSdTest.cpp
-    gps/BaudSalvoTest.cpp
     gps/ConfiguradorGpsTest.cpp
     gps/LeitorGpsTest.cpp
 )
