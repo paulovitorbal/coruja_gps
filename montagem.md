@@ -160,6 +160,18 @@ desce ao longo de semanas.
 diagrama de radiação. Não é fatal; é coisa a observar na primeira volta real,
 comparando o número de satélites com o de hoje.
 
+🆕 ⚠️ **Não cole o patch antes de decidir a antena externa.** Em 16/10/2026
+foram compradas uma antena **GPS-GL006** (GPS 1575,42 + GLONASS 1602,56 MHz,
+3–5 V, 28 dB, SMA macho, cabo 3 m, base magnética) e um rabicho
+**U.FL/MHF1 → SMA fêmea de painel**. O motivo é medido: o primeiro fix sai com
+`5 sat, hdop 5.8`, e céu aberto dá 8 a 12 satélites com HDOP abaixo de 1,5 —
+antena patch dentro da caixa não está nos −130 dBm que a tabela do NEO-M8
+supõe para os 26 s de *cold start*.
+
+Se a externa vencer na medida, o patch sai e a zona de exclusão deixa de ter
+função — mas a **passagem do rabicho pela parede** passa a ter. Decidir antes
+de colar evita descolar depois. Ver §4.3 e a linha `sinal:` do diário.
+
 ### 4.2 Manuseio do U.FL — continua valendo
 
 O conector aguenta cerca de **30 ciclos** de encaixe (datasheet Hirose). A fêmea
@@ -171,6 +183,103 @@ no módulo mede ~2 mm.
   Ferramenta de extração, se houver, ou unha sob a saia do conector.
 - Ao encaixar, **alinhar e pressionar reto**, com o estalo. Encaixe torto
   deforma a saia e mata o conector de uma vez.
+
+### 🆕 4.3 A bateria de backup do módulo é trocada na montagem
+
+**O problema é medido, não suposto.** O baud em que o módulo responde na
+partida é um termômetro da memória de backup (BBR): 9600 quer dizer que ela
+drenou e o receptor voltou à fábrica; 115200, que ela segurou. Minerando o
+diário de 20 partidas:
+
+| | |
+| :--- | ---: |
+| partidas com a BBR viva | **8** |
+| partidas com a BBR drenada | **12** |
+| TTFF do módulo com a BBR viva | **0,4 s** e **0,5 s** |
+| TTFF do módulo com a BBR drenada | **38,2 s** |
+
+E a aritmética explica por quê. O `I_BCKP` do NEO-M8N é **15 µA**
+(UBX-15031086 R14, p. 18). A célula da placa é uma **MS412FE**, 4,8 mm,
+medida a 4,6 mm no paquímetro:
+
+```
+capacidade        1,0 mAh  →  1,0 mAh ÷ 15 µA = 67 h cheia (~2,8 dias)
+carga padrão       10 µA   →  1,0 mAh ÷ 10 µA = 100 h para encher
+```
+
+Cheia ela sobreviveria à noite com folga. Mas o ciclo de uso não a enche:
+45 min de carro põem 0,0075 mAh, e 12 h desligado tiram 0,18 mAh — **déficit
+de 24 para 1**. Para empatar seriam ~14 h de carro por dia.
+
+🔴 **Trocar por outra igual não resolve.** Não é célula gasta; é célula que
+nessa aplicação nunca chega a carregar. A saída é **pilha primária**:
+
+| | autonomia a 15 µA | suporte |
+| :--- | ---: | :--- |
+| **CR2032** | ~1,7 ano | ~20 × 25 mm |
+| CR1220 | ~111 dias | ~15 × 12 mm |
+
+**Decisão do autor em 16/10/2026: CR2032**, instalada junto com a montagem da
+carrier board — uma sessão de bancada em vez de duas.
+
+#### A instrução para quem for soldar
+
+O autor não fará a solda: é trabalho fino ao lado de uma célula de lítio, numa
+placa sem reposição imediata. Vai para uma loja de manutenção de celulares,
+com esta instrução:
+
+> **Serviço:** substituir a bateria de backup recarregável do módulo GPS por
+> pilha primária.
+>
+> **Placa:** módulo GPS GY-GPS6MV2 (u-blox NEO-M8N).
+>
+> 1. Remover a célula recarregável soldada (MS412FE, 4,8 mm de diâmetro).
+> 2. Instalar um **suporte de pilha CR2032**, com fios até os pads onde a
+>    célula estava.
+> 3. **No fio positivo, instalar um diodo 1N4148 em série:**
+>    - **ânodo** (lado sem a faixa) no **+ da pilha**
+>    - **cátodo** (lado da faixa) no **pad + da placa**
+> 4. O fio negativo vai direto ao pad de GND.
+>
+> ⚠️ **O diodo é obrigatório e a orientação importa.** Ele impede que a placa
+> tente carregar a pilha, o que seria perigoso numa célula não recarregável.
+> Invertido, o backup simplesmente não funciona.
+>
+> **Conferência:** com a placa desligada, medir a tensão no pad + contra o
+> GND. Deve ficar entre **2,4 e 2,8 V**.
+
+**Por que o diodo em série, e não remover o caminho de carga.** As duas
+soluções funcionam, mas remover o resistor ou diodo que leva VCC até a célula
+exige descobrir qual componente é — trabalho de engenharia reversa que não se
+pede a um terceiro. O diodo em série funciona seja qual for o circuito.
+
+A queda do 1N4148 aqui é bem menor que os 0,7 V nominais, porque a corrente é
+de microampères; e o módulo aceita `V_BCKP` de **1,4 a 3,6 V**, então há folga
+larga de qualquer jeito. Silício comum, e não Schottky: aqui sobra tensão e o
+que incomoda é fuga reversa.
+
+#### Onde a pilha mora
+
+**Colada numa lateral da caixa, acessível removendo só a tampa.** 1,7 ano
+parece longe, mas chega — e não se desmonta o aparelho inteiro para trocar uma
+pilha de R$ 3.
+
+**Fios no menor comprimento possível**, para não embolar o interior. Dois
+cuidados de roteamento:
+
+- passar **longe do barramento do display**, que corre a 16 MHz. O `V_BCKP` é
+  DC com filtragem interna e o risco é baixo, mas desviar não custa nada;
+- ⚠️ **este par de fios vira a única ligação soldada permanente entre o módulo
+  GPS e o resto do aparelho.** A §4.1 e o `pcb.md` registram que a placa é
+  *carrier* justamente para que módulo com defeito saia puxando. Se couber um
+  conector de duas vias no meio do par, o GPS continua serviçável como o
+  resto; se não couber, fica registrado aqui que ele passou a não ser.
+
+#### Como se verifica que funcionou
+
+**Não precisa de linha de base.** Basta uma partida depois de uma noite
+parada: o diário mostra o baud, e 115200 quer dizer que a memória sobreviveu.
+É o mesmo termômetro das 20 partidas acima, e ele responde sozinho.
 
 ---
 
@@ -366,6 +475,7 @@ Numeração própria (**M-NN**), para não colidir com os **R-NN** de
 | **M-12** | 🆕 **Diâmetro do canhão roscado do encoder** | Única cota da caixa sem margem para menos. A porca não responde — ver §5. |
 | **M-13** | 🆕 Furo do LED, rasgo do cartão, abertura do USB | Estimativas no modelo. As duas últimas foram alargadas de propósito; a do LED não. |
 | **M-14** | 🆕 **Conector GX12-2: três cotas**, com o conector em mãos | Trava a impressão do corpo. Conectores comprados em 08/10/2026, previstos para sábado. Ver abaixo. |
+| **M-15** | 🆕 **Troca da bateria de backup do GPS** por CR2032 com diodo em série | Trava o arranque rápido: 12 de 20 partidas começam com a BBR drenada, e isso custa 38 s em vez de 0,5 s. Esperando as placas da JLCPCB para ir junto com a montagem. Ver §4.3. |
 | **R-13** | Corrente agregada e temperatura do LDO do display | Aberto em `revisao_tecnica.md`; a caixa fechada torna a medição mais relevante, não menos. |
 
 > ⚠️ **M-09, M-10, M-12, M-13 e M-14** são impressora e paquímetro, e saem rápido
