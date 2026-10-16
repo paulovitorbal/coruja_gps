@@ -117,9 +117,16 @@ cmake --build "$BUILD_PICO" -j8 > /tmp/libera-fw.log 2>&1 || {
 
 # --- 8. verifica a versão DENTRO do binário ----------------------------------
 etapa "8/9  conferindo a versao no binario"
-if ! strings "$UF2" | grep -qx "$TAG"; then
-    echo "     o binario tem:" >&2
-    strings "$UF2" | grep -E "^(v[0-9]|sem-git|[0-9a-f]{7})" | head -3 >&2
+# ⚠️ **Nao use `strings` aqui.** O `.uf2` embala 256 bytes de dado em blocos
+# de 512, com 32 de cabecalho na frente: uma string que cruza a fronteira do
+# bloco fica partida e o `strings` so ve o primeiro pedaco. Aconteceu com a
+# v0.2.16 em 16/10/2026 -- o ELF tinha `v0.2.16`, o `.uf2` mostrava `v0.2`, e
+# uma release correta foi barrada. Portao que reprova o certo acaba desligado,
+# que e pior que nao ter portao.
+#
+# O `versao_no_uf2.py` DESEMBALA os blocos antes de procurar. A conferencia
+# continua sendo no artefato que vai para o aparelho.
+if ! python3 "$DIR/scripts/versao_no_uf2.py" "$UF2" "$TAG"; then
     desfaz_tag; falhou "o .uf2 nao carrega '$TAG'."
 fi
 
