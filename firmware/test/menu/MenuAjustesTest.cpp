@@ -216,73 +216,48 @@ TEST(MenuAjustes, OBrilhoEditadoEODoPeriodoVigente) {
     EXPECT_EQ(c.menu().ajustes().brilho_dia, 100) << "mexeu no preset errado";
 }
 
-TEST(MenuAjustes, OVolumeNuncaDesceAbaixoDeCinquenta) {
-    // O buzzer nao silencia: e a razao de o aparelho existir.
+TEST(MenuAjustes, OLedAlternaEntreLigadoEDesligado) {
+    // ⚠️ **Entrou em 19/10/2026 no lugar do volume**, que saiu: o SFM-27 e
+    // um buzzer ATIVO, com oscilador proprio, e nunca houve volume a
+    // controlar no componente soldado. O LED, esse incomoda de verdade --
+    // a noite ele ilumina a cabine inteira.
     Cenario c;
     c.abre();
-    c.vai_ate(ItemMenu::Volume);
+    c.vai_ate(ItemMenu::Led);
     c.clica();
-    for (int i = 0; i < 20; ++i) { c.gira_esquerda(); }
-    EXPECT_EQ(c.menu().ajustes().volume_buzzer, kVolumeMinimo);
+    EXPECT_EQ(c.valor(ItemMenu::Led), "ligado") << "nasce ligado";
+    c.gira_esquerda();
+    EXPECT_EQ(c.valor(ItemMenu::Led), "desligado");
+    EXPECT_FALSE(c.menu().ajustes().led_ligado);
+    c.gira_direita();
+    EXPECT_EQ(c.valor(ItemMenu::Led), "ligado");
+    EXPECT_TRUE(c.menu().ajustes().led_ligado);
 }
 
-TEST(MenuAjustes, OVolumeAndaDeDezEmDez) {
+TEST(MenuAjustes, OLedNaoCirculaPorqueNaoHaPorOndeCircular) {
+    // Com dois valores, "bater na ponta" seria nao fazer nada -- e um giro
+    // sem efeito parece defeito. Cada giro leva direto ao valor do lado.
     Cenario c;
     c.abre();
-    c.vai_ate(ItemMenu::Volume);
+    c.vai_ate(ItemMenu::Led);
     c.clica();
     c.gira_esquerda();
-    EXPECT_EQ(c.menu().ajustes().volume_buzzer, 90);
+    c.gira_esquerda();
+    EXPECT_EQ(c.valor(ItemMenu::Led), "desligado") << "o segundo giro religou";
+    c.gira_direita();
+    c.gira_direita();
+    EXPECT_EQ(c.valor(ItemMenu::Led), "ligado");
 }
 
-/// Abre o menu ja no item Volume, com o volume inicial dado.
-class CenarioVolume {
-public:
-    explicit CenarioVolume(std::uint8_t inicial)
-        : menu_(com_volume(inicial)) {
-        menu_.avalia(EventoEncoder::GiroDireita, kParado, tempo());
-        while (menu_.item() != ItemMenu::Volume) {
-            menu_.avalia(EventoEncoder::GiroDireita, kParado, tempo());
-        }
-        menu_.avalia(EventoEncoder::Clique, kParado, tempo());
-    }
-
-    std::uint8_t sobe() { return move(EventoEncoder::GiroDireita); }
-    std::uint8_t desce() { return move(EventoEncoder::GiroEsquerda); }
-
-private:
-    static Configuracao com_volume(std::uint8_t v) {
-        Configuracao c;
-        c.volume_buzzer = v;
-        return c;
-    }
-    std::uint32_t tempo() { return agora_ += 100; }
-    std::uint8_t move(EventoEncoder e) {
-        menu_.avalia(e, kParado, tempo());
-        return menu_.ajustes().volume_buzzer;
-    }
-    MenuAjustes menu_;
-    std::uint32_t agora_ = 1000;
-};
-
-TEST(MenuAjustes, VolumeForaDaGradeMantemOResto) {
-    // Um arquivo editado a mao com 73 e valido: o leitor aceita qualquer
-    // inteiro de 50 a 100. O menu anda de 10 em 10 a partir de onde
-    // estiver, em vez de arredondar para a grade primeiro -- assim o
-    // primeiro giro produz a mudanca que se pediu, e nao meia mudanca.
-    CenarioVolume c{83};
-    EXPECT_EQ(c.sobe(), 93);
-    EXPECT_EQ(c.sobe(), 100) << "103 tem de virar 100";
-    EXPECT_EQ(c.desce(), 90) << "descer do teto cai na grade";
-}
-
-TEST(MenuAjustes, VolumeForaDaGradeDescendoAteOPiso) {
-    CenarioVolume c{83};
-    EXPECT_EQ(c.desce(), 73);
-    EXPECT_EQ(c.desce(), 63);
-    EXPECT_EQ(c.desce(), 53);
-    EXPECT_EQ(c.desce(), 50) << "43 tem de virar 50, nunca menos";
-    EXPECT_EQ(c.sobe(), 60) << "subir do piso cai na grade";
+TEST(MenuAjustes, MexerNoLedMarcaComoAlterado) {
+    // Sem isto o ajuste nao seria gravado, e sumiria no religamento. A
+    // gravacao sai no FECHAMENTO do menu, nao no clique que confirma.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::Led);
+    c.clica();
+    c.gira_esquerda();
+    EXPECT_EQ(c.anda(), AcaoMenu::Gravar);
 }
 
 TEST(MenuAjustes, ModoNoturnoPercorreAsTresPosicoesSemCircular) {

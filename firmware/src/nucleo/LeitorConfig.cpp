@@ -245,18 +245,24 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
             }
             continue;
         }
-        if (igual(chave, nc, "volume_buzzer")) {
-            unsigned v = 0;
-            // **Fora da faixa é recusado, não limitado.** Limitar em
-            // silêncio esconderia um erro de digitação: quem escreveu 10
-            // acharia que silenciou e não silenciou, e descobriria na
-            // estrada. Recusado, vale o padrão e o diagnóstico conta.
-            if (inteiro(valor, nv, &v) && v >= kVolumeMinimo &&
-                v <= kVolumeMaximo) {
-                r.config.volume_buzzer = static_cast<std::uint8_t>(v);
+        if (igual(chave, nc, "led")) {
+            bool valor_lido = false;
+            if (booleano(valor, nv, &valor_lido)) {
+                r.config.led_ligado = valor_lido;
             } else {
                 ++r.diagnostico.valores_invalidos;
             }
+            continue;
+        }
+
+        // ⚠️ **Aposentada em 2026-10-19, e lida mesmo assim.** O SFM-27 é um
+        // buzzer ativo: ele aceita ligado ou desligado, e não havia volume a
+        // controlar. A chave continua nos cartões que já existem, e contá-la
+        // como desconhecida faria o log acusar erro de digitação onde não
+        // há — treinando quem lê a ignorar o contador que existe justamente
+        // para pegar erro de digitação.
+        if (igual(chave, nc, "volume_buzzer")) {
+            ++r.diagnostico.chaves_aposentadas;
             continue;
         }
 
@@ -299,6 +305,18 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
                           static_cast<unsigned>(r.diagnostico.redes_incompletas),
                           static_cast<unsigned>(r.diagnostico.valores_invalidos));
             logger->warning(kOrigem, msg);
+        }
+        // Linha PROPRIA, e em `info`: chave aposentada nao e erro de quem
+        // editou o arquivo -- e uma decisao nossa alcancando um cartao
+        // antigo. Misturada com as recusas acima, pareceria defeito; calada,
+        // deixaria a linha morta no cartao sem ninguem saber que pode sair.
+        if (r.diagnostico.chaves_aposentadas > 0) {
+            std::snprintf(msg, sizeof msg,
+                          "%u ajuste(s) aposentado(s) no arquivo: lidos e "
+                          "ignorados, pode apagar a linha",
+                          static_cast<unsigned>(
+                              r.diagnostico.chaves_aposentadas));
+            logger->info(kOrigem, msg);
         }
     }
     return r;

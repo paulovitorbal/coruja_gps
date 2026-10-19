@@ -724,6 +724,55 @@ apenas à mistura do rosa (R+B).
 Mesma regra do RF03.7: **2 km/h na descida**. O sub-estado sobe imediatamente ao cruzar
 o limite da via e só retorna a "conforme" 2 km/h abaixo dele.
 
+##### 🔴 O LED pode ser desligado, e é um interruptor só
+
+*Acrescentado em 2026-10-19, sobre relato de uso.*
+
+À noite o LED de 10 mm difuso ilumina a cabine inteira: ele incomoda mais do
+que informa, e a tela já diz tudo o que ele diz. O menu do encoder passou a
+ter **`led`: ligado / desligado**, gravado no `coruja.cfg` como `led=true` ou
+`led=false`.
+
+* **Nasce ligado.** Quem nunca mexeu no menu tem o aparelho de sempre.
+* **Desligado, nenhum uso dele acende** — nem o alerta, nem o padrão do OTA,
+  nem o da remessa, nem o teste de alertas. "Desligar o LED" quer dizer isso,
+  e qualquer exceção seria uma surpresa no escuro.
+* **O buzzer e a tela não mudam.** O que se desliga é o indicador luminoso,
+  não o alerta: o som continua, e a faixa de zona continua colorida.
+* **Vale na mesma volta do laço**, como o brilho — não no religamento
+  seguinte.
+
+O interruptor é um **decorador** sobre a porta do LED, e não uma bandeira no
+alerta. O LED tem quatro donos, cada um chamando `define_cor` por conta
+própria; uma bandeira no alerta deixaria os outros três acendendo um LED que
+o usuário desligou, e ninguém notaria até acontecer no carro.
+
+> ⚠️ **Isto reduz a capacidade de sinalização a zero por escolha do
+> motorista.** Com o LED desligado, os nove estados da nota abaixo chegam
+> apenas pela tela e pelo buzzer. É aceitável porque nenhum deles é exclusivo
+> do LED — mas é o motivo de o ajuste nascer ligado.
+
+##### 🔴 O volume do buzzer saiu do menu
+
+*Removido em 2026-10-19.*
+
+O `volume_buzzer` existia do arquivo de configuração até a tela e **nunca
+chegou a lugar nenhum**: nenhuma linha do firmware o consumia, nem antes nem
+depois de religar.
+
+Não havia o que consertar na fiação. O **SFM-27 é um buzzer ativo**, com
+oscilador próprio: ele aceita alimentação ligada ou desligada, e não há
+volume a controlar no componente soldado — o que o firmware governa é a
+cadência, nunca a amplitude.
+
+A chave continua sendo **lida e ignorada** nos cartões que já existem, e
+contada à parte das desconhecidas: o contador de chaves desconhecidas existe
+para pegar erro de digitação, e deixá-lo subir por uma chave que nós mesmos
+aposentamos treinaria quem lê o log a ignorá-lo.
+
+> Se um dia o volume importar, ele exige **outro componente** — buzzer
+> passivo com PWM de áudio —, não outra linha de código.
+
 ##### Nota de capacidade da paleta
 
 O LED RGB acumula agora **nove estados** distintos (segura, conforme, margem, perigo,

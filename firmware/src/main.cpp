@@ -45,6 +45,7 @@
 #include "gps/LeitorGps.h"
 #include "nucleo/UbxDiagnostico.h"
 #include "gps/UartPico.h"
+#include "led/LedChaveado.h"
 #include "led/LedRgbAnodoComum.h"
 #include "log/CarimboExecucao.h"
 #include "log/IdExecucao.h"
@@ -555,7 +556,13 @@ int main() {
     const std::uint32_t t_painel = agora_ms();
     coruja::VisorSt7789 visor{painel};
 
-    coruja::LedRgbAnodoComum led;
+    coruja::LedRgbAnodoComum led_cru;
+    // ⚠️ **Todo mundo daqui para baixo ve o LED CHAVEADO**, e nao o cru: o
+    // alerta, o padrao do OTA, o da remessa e o teste de alertas. Um
+    // interruptor que valesse so para o alerta deixaria os outros tres
+    // acendendo um LED que o usuario desligou -- e ninguem notaria ate
+    // acontecer no carro, de noite.
+    coruja::LedChaveado led{led_cru};
     coruja::BuzzerGpio       buzzer;
     coruja::EncoderKy040     encoder;
     coruja::Brilho           brilho;
@@ -668,7 +675,8 @@ int main() {
                                  preparo);
     acoes.define_base(base);
 
-    coruja::Aplicacao app(gps, encoder, piloto, brilho, luz, cartao, acoes, log,
+    coruja::Aplicacao app(gps, encoder, piloto, brilho, luz, led, cartao,
+                          acoes, log,
                           config, g_trabalho_cfg, sizeof g_trabalho_cfg,
                           &visor);
     app.define_versao(coruja::kVersaoBuild);

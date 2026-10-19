@@ -146,7 +146,7 @@ TEST(TelaMenu, todo_item_desenha_o_valor_com_fonte_que_o_suporta) {
     // do valor exista na fonte escolhida para desenha-lo. Pega o defeito em
     // qualquer item futuro, sem que ninguem precise lembrar desta regra.
     for (const ItemMenu item : {ItemMenu::Brilho, ItemMenu::ModoNoturno,
-                                ItemMenu::Volume, ItemMenu::Viagem}) {
+                                ItemMenu::Led, ItemMenu::Viagem}) {
         Bancada b;
         b.avanca_ate(item);
         if (b.menu().item() != item) { continue; }  // item fora do menu atual

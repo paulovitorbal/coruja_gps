@@ -93,12 +93,13 @@ void MenuAjustes::edita(int passo) {
             cfg_.modo_noturno = novo;
             break;
         }
-        case ItemMenu::Volume: {
-            const std::uint8_t novo =
-                soma_limitada(cfg_.volume_buzzer, passo * kPassoVolume,
-                              kVolumeMinimo, kVolumeMaximo);
-            alterado_ = alterado_ || novo != cfg_.volume_buzzer;
-            cfg_.volume_buzzer = novo;
+        case ItemMenu::Led: {
+            // Duas posicoes: qualquer giro alterna. Nao circula porque nao
+            // ha por onde circular -- com dois valores, "bater na ponta"
+            // seria nao fazer nada, e um giro sem efeito parece defeito.
+            const bool novo = passo > 0;
+            alterado_ = alterado_ || novo != cfg_.led_ligado;
+            cfg_.led_ligado = novo;
             break;
         }
         default:
@@ -184,7 +185,7 @@ const char* MenuAjustes::rotulo(ItemMenu i) const {
             return periodo_ == PeriodoDoDia::Noite ? "brilho (noite)"
                                                    : "brilho (dia)";
         case ItemMenu::ModoNoturno:   return "modo noturno";
-        case ItemMenu::Volume:        return "volume";
+        case ItemMenu::Led:           return "led";
         case ItemMenu::AtualizarBase: return "atualizar base";
         case ItemMenu::EnviarDados:   return "enviar dados";
         case ItemMenu::TestarAlertas: return "testar alertas";
@@ -205,8 +206,9 @@ void MenuAjustes::valor(ItemMenu i, char* destino,
         case ItemMenu::ModoNoturno:
             copia_texto(destino, capacidade, descreve(cfg_.modo_noturno));
             break;
-        case ItemMenu::Volume:
-            std::snprintf(destino, capacidade, "%u%%", cfg_.volume_buzzer);
+        case ItemMenu::Led:
+            copia_texto(destino, capacidade,
+                        cfg_.led_ligado ? "ligado" : "desligado");
             break;
         case ItemMenu::Viagem:
             // "iniciar" ou "parar": a segunda linha diz o que o clique vai

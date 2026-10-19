@@ -117,7 +117,17 @@ brilho_noite=20
 # noite = forca tela escura
 modo_noturno=auto
 
-# Volume do buzzer, de 50 a 100. NUNCA abaixo de 50: janela aberta
-# pede 100, ar-condicionado pede 50, e silenciar transformaria o
-# aparelho em enfeite.
-volume_buzzer=100
+# O LED RGB acende? true ou false.
+#
+# Existe por relato de uso de 19/10/2026: a noite o LED de 10 mm difuso
+# ilumina a cabine inteira e incomoda mais do que informa. Desligado, nenhum
+# uso dele acende -- nem o alerta, nem o padrao do OTA, nem o teste de
+# alertas. A tela continua mostrando tudo, e o buzzer continua tocando.
+#
+# Tambem da para mexer no menu do encoder, parado.
+led=true
+
+# O `volume_buzzer` saiu em 19/10/2026 e esta linha nao existe mais. O SFM-27
+# e um buzzer ATIVO, com oscilador proprio: aceita ligado ou desligado, e
+# nunca houve volume a controlar. Se ela ainda estiver no seu cartao, pode
+# apagar -- o aparelho a le e ignora.

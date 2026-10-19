@@ -15,12 +15,16 @@ constexpr std::uint32_t kTimeoutMenuMs = 20000;
 
 /// Passo do volume no menu. A faixa util e 50 a 100 (RF: nunca silencia),
 /// e seis posicoes bastam -- janela aberta em 100, ar-condicionado em 50.
-constexpr std::uint8_t kPassoVolume = 10;
 
 enum class ItemMenu : std::uint8_t {
     Brilho,         ///< edita o preset do periodo vigente
     ModoNoturno,
-    Volume,
+    /// Liga e desliga o LED RGB.
+    ///
+    /// Entrou em 2026-10-19 no lugar do `Volume`, que saiu: o SFM-27 e um
+    /// buzzer ATIVO, com oscilador proprio, e nao havia volume a controlar
+    /// no componente soldado -- o ajuste nunca chegou a lugar nenhum.
+    Led,
     AtualizarBase,
     EnviarDados,    ///< manda log, viagens e infracoes ao servidor
     TestarAlertas,

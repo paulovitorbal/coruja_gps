@@ -50,11 +50,16 @@ private:
     bool estourou_ = false;
 };
 
-enum class Chave { Nome, BrilhoDia, BrilhoNoite, ModoNoturno, VolumeBuzzer,
+enum class Chave { Nome, BrilhoDia, BrilhoNoite, ModoNoturno, Led,
                    Nenhuma };
 
+// ⚠️ `volume_buzzer` saiu daqui em 2026-10-19 e **não** foi substituída no
+// lugar: a linha que já existir num cartão fica como está, porque a gravação
+// é cirúrgica e só toca nas chaves que reconhece. Um cartão antigo carrega
+// uma linha morta, que é melhor que uma linha reescrita com valor que
+// ninguém consome.
 constexpr const char* kNomes[] = {"nome", "brilho_dia", "brilho_noite",
-                                  "modo_noturno", "volume_buzzer"};
+                                  "modo_noturno", "led"};
 constexpr std::size_t kQuantas = 5;
 
 Chave reconhece(const char* chave, std::size_t n) {
@@ -72,7 +77,12 @@ void valor_de(Saida& s, Chave c, const Configuracao& cfg) {
         case Chave::BrilhoDia:    s.numero(cfg.brilho_dia); break;
         case Chave::BrilhoNoite:  s.numero(cfg.brilho_noite); break;
         case Chave::ModoNoturno:  s.escreve(descreve(cfg.modo_noturno)); break;
-        case Chave::VolumeBuzzer: s.numero(cfg.volume_buzzer); break;
+        // ⚠️ `true`/`false`, e nao `sim`/`nao`: e o que o `booleano()` do
+        // leitor aceita, e e a mesma grafia do `log_para_cartao`. Gravar uma
+        // palavra que a leitura recusa produz um ajuste que o aparelho
+        // esquece no religamento -- escrito no cartao, e perdido.
+        case Chave::Led:          s.escreve(cfg.led_ligado ? "true" : "false");
+                                  break;
         case Chave::Nenhuma:      break;
     }
 }

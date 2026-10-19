@@ -9,6 +9,7 @@
 
 #include "apoio/EncoderMock.h"
 #include "display/Retroiluminacao.h"
+#include "led/LedChaveado.h"
 #include "apoio/LoggerMock.h"
 #include "nucleo/LeitorConfig.h"
 
@@ -157,8 +158,11 @@ struct Bancada {
     LeitorGps     gps{uart};
     EncoderMock   encoder;
     LedMudo       led;
+    /// ⚠️ O piloto recebe o LED **chaveado**, como no `main`. Dar-lhe o cru
+    /// faria a bancada testar uma fiacao que o aparelho nao tem.
+    LedChaveado   led_chaveado{led};
     BuzzerMudo    buzzer;
-    PilotoAlerta  piloto{gps, led, buzzer};
+    PilotoAlerta  piloto{gps, led_chaveado, buzzer};
     Brilho        brilho;
     LuzEspia      luz;
     CartaoFalso   cartao;
@@ -175,9 +179,9 @@ struct Bancada {
     VisorEspiao visor;
 
     Aplicacao monta() {
-        return Aplicacao{gps,     encoder,  piloto,  brilho,
-                         luz,     cartao,   acoes,   log,
-                         inicial, trabalho, sizeof(trabalho), &visor};
+        return Aplicacao{gps,          encoder, piloto, brilho,  luz,
+                         led_chaveado, cartao,  acoes,  log,     inicial,
+                         trabalho,     sizeof(trabalho), &visor};
     }
 
     /// Roda o laco, com ou sem sentenca de GPS.
@@ -405,7 +409,7 @@ TEST(Aplicacao, NenhumDetenteSePerdeNumaVolta) {
     b.encoder.enfileira(EventoEncoder::GiroDireita);
     b.encoder.enfileira(EventoEncoder::GiroDireita);
     app.passo(4050);
-    EXPECT_EQ(app.menu().item(), ItemMenu::Volume) << "detente perdido";
+    EXPECT_EQ(app.menu().item(), ItemMenu::Led) << "detente perdido";
 }
 
 // --- sem GPS ---
@@ -520,9 +524,9 @@ TEST(Aplicacao, funciona_sem_visor) {
     // As bancadas e os testes de logica montam a Aplicacao sem painel. Um
     // ponteiro nulo nao pode ser caso de excecao -- tem de ser suportado.
     Bancada b;
-    Aplicacao app{b.gps,     b.encoder,  b.piloto,  b.brilho,
-                  b.luz,     b.cartao,   b.acoes,   b.log,
-                  b.inicial, b.trabalho, sizeof(b.trabalho)};
+    Aplicacao app{b.gps,          b.encoder, b.piloto, b.brilho, b.luz,
+                  b.led_chaveado, b.cartao,  b.acoes,  b.log,    b.inicial,
+                  b.trabalho,     sizeof(b.trabalho)};
     b.roda(app, 0, 2000, 60.0F);
     SUCCEED();
 }
@@ -904,6 +908,63 @@ TEST(Aplicacao, o_brilho_do_cartao_vale_desde_a_primeira_volta) {
     b.roda(app, 0, 200, 0.0F);
     EXPECT_EQ(b.luz.ultimo(), b.brilho.duty());
     EXPECT_FALSE(b.luz.duties.empty());
+}
+
+
+// ================================================= o interruptor do LED
+//
+// 🔴 **Relato de 19/10/2026:** a noite o LED de 10 mm difuso ilumina a cabine
+// e incomoda mais do que informa. O menu passou a ligar e desligar, no lugar
+// do volume do buzzer -- que nunca controlou nada, porque o SFM-27 e ativo.
+
+TEST(Aplicacao, o_led_desligado_na_configuracao_nao_acende) {
+    Bancada b;
+    b.inicial.led_ligado = false;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 60.0F);
+    EXPECT_FALSE(b.led_chaveado.ligado());
+    EXPECT_EQ(b.led.atual, cores::kApagado);
+}
+
+TEST(Aplicacao, o_led_nasce_ligado_para_quem_nao_mexeu) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 60.0F);
+    EXPECT_TRUE(b.led_chaveado.ligado());
+}
+
+TEST(Aplicacao, desligar_o_led_no_menu_vale_na_mesma_volta) {
+    // ⚠️ O mesmo erro do brilho estaria aqui se o interruptor so fosse lido
+    // no arranque: o item mudaria de "ligado" para "desligado" e o LED
+    // continuaria aceso ate alguem religar o carro.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 0.0F);
+    ASSERT_TRUE(b.led_chaveado.ligado());
+
+    // Abre o menu, anda ate o LED e alterna.
+    //
+    // ⚠️ O laco e LIMITADO e o relogio ANDA a cada volta. A primeira versao
+    // deste teste repetia a mesma janela de tempo, o menu nunca saia do
+    // lugar, e o teste pendurou em vez de reprovar -- que e o pior desfecho
+    // possivel para um teste.
+    std::uint32_t t = 1050;
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre
+    b.roda(app, t, t + 150, 0.0F);
+    t += 200;
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::Led; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        b.roda(app, t, t + 150, 0.0F);
+        t += 200;
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::Led) << "nao cheguei ao item";
+
+    b.encoder.enfileira(EventoEncoder::Clique);        // entra na edicao
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);  // desliga
+    b.roda(app, t, t + 250, 0.0F);
+
+    EXPECT_FALSE(b.led_chaveado.ligado());
+    EXPECT_EQ(b.led.atual, cores::kApagado);
 }
 
 }  // namespace

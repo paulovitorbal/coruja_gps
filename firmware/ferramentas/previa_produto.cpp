@@ -150,8 +150,9 @@ int main(int argc, char** argv) {
     private:
         std::uint16_t duty_ = 0;
     } luz;
-    Aplicacao app(leitor, encoder, piloto, brilho, luz, cartao, acoes, log,
-                  config, trabalho, sizeof trabalho, &visor);
+    LedChaveado led_chaveado{led};
+    Aplicacao app(leitor, encoder, piloto, brilho, luz, led_chaveado, cartao,
+                  acoes, log, config, trabalho, sizeof trabalho, &visor);
     app.define_versao("previa-host");
     app.define_base_carregada(cabecalho, base.size());
     if (viagem_automatica) {

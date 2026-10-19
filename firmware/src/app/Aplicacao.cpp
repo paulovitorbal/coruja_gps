@@ -21,12 +21,12 @@ constexpr std::uint32_t kSustentacaoAvisoTaxaMs = 3000;
 }
 
 Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
-                     Brilho& brilho, Retroiluminacao& luz,
+                     Brilho& brilho, Retroiluminacao& luz, LedChaveado& led,
                      Armazenamento& cartao, AcoesAplicacao& acoes, Logger& log,
                      const Configuracao& inicial, char* trabalho,
                      std::size_t capacidade, Visor* visor)
     : gps_(gps), encoder_(encoder), piloto_(piloto), brilho_(brilho),
-      luz_(luz),
+      luz_(luz), led_(led),
       cartao_(cartao), acoes_(acoes), log_(log), diario_(cartao, log),
       menu_(inicial),
       visor_(visor), trabalho_(trabalho), capacidade_(capacidade) {
@@ -52,6 +52,9 @@ void Aplicacao::aplica_ajustes() {
     // ciclo e o que faz a tela seguir o giro antes de gravar.
     brilho_.define_presets(c.brilho_dia, c.brilho_noite);
     piloto_.define_modo_noturno(c.modo_noturno);
+    // O interruptor do LED segue a configuracao a cada volta, como o resto.
+    // `liga()` e idempotente: so toca no hardware quando o valor muda.
+    led_.liga(c.led_ligado);
 }
 
 void Aplicacao::executa(AcaoMenu acao) {

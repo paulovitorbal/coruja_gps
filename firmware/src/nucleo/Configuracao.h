@@ -21,8 +21,11 @@ constexpr std::size_t kMaxNome = 23;
 /// digitar, e nada aqui ganha com mais.
 constexpr std::size_t kMaxToken = 63;
 
-constexpr std::uint8_t kVolumeMinimo = 50;
-constexpr std::uint8_t kVolumeMaximo = 100;
+// O volume do buzzer saiu em 2026-10-19. O SFM-27 e um buzzer ATIVO, com
+// oscilador proprio: ele aceita ligado ou desligado, e nao ha volume a
+// controlar no componente que esta soldado. O ajuste existiu do arquivo ao
+// menu sem nunca chegar a lugar nenhum -- nenhuma linha do firmware o
+// consumia, nem antes nem depois de religar.
 
 /// Como o modo noturno decide.
 ///
@@ -142,10 +145,17 @@ struct Configuracao {
 
     ModoNoturno modo_noturno = ModoNoturno::Automatico;
 
-    /// Volume do buzzer, de 50 a 100. **Nunca abaixo de 50**: janela aberta
-    /// pede 100, ar-condicionado pede 50, e silenciar transformaria o
-    /// aparelho em enfeite.
-    std::uint8_t volume_buzzer = kVolumeMaximo;
+    /// O LED RGB acende?
+    ///
+    /// **Ligado por padrão**: quem nunca mexeu no menu tem o aparelho de
+    /// sempre. Existe por relato de uso de 2026-10-19 — à noite o LED de
+    /// 10 mm difuso ilumina a cabine inteira e incomoda mais do que informa.
+    ///
+    /// ⚠️ Desligar o LED apaga **todos** os usos dele, não só o alerta: o
+    /// padrão do OTA, o da remessa e o teste de alertas passam pelo mesmo
+    /// interruptor. É o que "desligar o LED" quer dizer, e qualquer exceção
+    /// seria uma surpresa no escuro.
+    bool led_ligado = true;
 
     bool tem_rede() const { return n_redes > 0; }
     bool tem_urls() const {

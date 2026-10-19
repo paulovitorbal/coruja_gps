@@ -77,13 +77,13 @@ constexpr const char* kCfgOriginal =
     "wifi_senha_1=segredo\n"
     "url_base=https://ex/r.bin\n"
     "brilho_dia=100\n"
-    "volume_buzzer=100\n";
+    "led=true\n";
 
 Configuracao ajustada() {
     Configuracao c;
     std::snprintf(c.nome, sizeof(c.nome), "%s", "fusca");
     c.brilho_dia = 40;
-    c.volume_buzzer = 50;
+    c.led_ligado = false;
     return c;
 }
 
@@ -129,7 +129,7 @@ TEST(GravadorConfig, OQueVaiParaOCartaoEOArquivoInteiro) {
 
     const auto r = le_config(t.data(), t.size());
     EXPECT_EQ(r.config.brilho_dia, 40);
-    EXPECT_EQ(r.config.volume_buzzer, 50);
+    EXPECT_FALSE(r.config.led_ligado);
     EXPECT_STREQ(r.config.nome, "fusca");
     ASSERT_EQ(r.config.n_redes, 1U);
     EXPECT_STREQ(r.config.redes[0].senha, "segredo");

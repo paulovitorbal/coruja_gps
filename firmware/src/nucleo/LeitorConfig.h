@@ -18,6 +18,12 @@ struct DiagnosticoConfig {
     std::size_t indices_fora       = 0;  ///< `wifi_ssid_9` com teto de 5 redes
     std::size_t redes_incompletas  = 0;  ///< senha sem SSID correspondente
     std::size_t valores_invalidos  = 0;  ///< chave conhecida, valor não
+    /// Chave que o firmware **já teve** e aposentou. Lida e ignorada.
+    ///
+    /// ⚠️ Separada de `chaves_desconhecidas` de propósito: aquele contador
+    /// existe para pegar erro de digitação, e deixá-lo subir por uma chave
+    /// que nós mesmos aposentamos treinaria quem lê o log a ignorá-lo.
+    std::size_t chaves_aposentadas = 0;
 
     bool limpo() const {
         return linhas_sem_igual == 0 && chaves_desconhecidas == 0 &&

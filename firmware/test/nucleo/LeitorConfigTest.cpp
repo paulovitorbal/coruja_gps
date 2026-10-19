@@ -376,7 +376,7 @@ TEST(LeitorConfig, AjustesAusentesFicamNoPadrao) {
     EXPECT_EQ(r.config.brilho_dia, 100);
     EXPECT_EQ(r.config.brilho_noite, 20);
     EXPECT_EQ(r.config.modo_noturno, ModoNoturno::Automatico);
-    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+    EXPECT_TRUE(r.config.led_ligado);
     EXPECT_TRUE(r.diagnostico.limpo());
 }
 
@@ -386,12 +386,12 @@ TEST(LeitorConfig, LeOsAjustes) {
         "brilho_dia=75\n"
         "brilho_noite=15\n"
         "modo_noturno=noite\n"
-        "volume_buzzer=50\n");
+        "led=false\n");
     EXPECT_STREQ(r.config.nome, "fusca");
     EXPECT_EQ(r.config.brilho_dia, 75);
     EXPECT_EQ(r.config.brilho_noite, 15);
     EXPECT_EQ(r.config.modo_noturno, ModoNoturno::SempreNoite);
-    EXPECT_EQ(r.config.volume_buzzer, 50);
+    EXPECT_FALSE(r.config.led_ligado);
     EXPECT_TRUE(r.diagnostico.limpo());
 }
 
@@ -410,36 +410,70 @@ TEST(LeitorConfig, ModoNoturnoDesconhecidoERecusado) {
     EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
 }
 
-TEST(LeitorConfig, VolumeAbaixoDoMinimoERecusadoNaoLimitado) {
-    // O buzzer nunca silencia. Limitar 10 para 50 em silencio faria quem
-    // digitou 10 acreditar que silenciou; recusar deixa o erro visivel.
-    const auto r = le("volume_buzzer=10\n");
-    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
+TEST(LeitorConfig, LedNasceLigado) {
+    // Quem nunca mexeu no menu tem o aparelho de sempre.
+    EXPECT_TRUE(le("nome=x\n").config.led_ligado);
+}
+
+TEST(LeitorConfig, LedAceitaAsQuatroGrafias) {
+    EXPECT_FALSE(le("led=false\n").config.led_ligado);
+    EXPECT_FALSE(le("led=0\n").config.led_ligado);
+    EXPECT_TRUE(le("led=true\n").config.led_ligado);
+    EXPECT_TRUE(le("led=1\n").config.led_ligado);
+    EXPECT_TRUE(le("led=false\n").diagnostico.limpo());
+}
+
+TEST(LeitorConfig, LedNaoBooleanoERecusado) {
+    const auto r = le("led=desligado\n");
+    EXPECT_TRUE(r.config.led_ligado) << "recusado vale o padrao, que e ligado";
     EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
 }
 
-TEST(LeitorConfig, VolumeZeroNaoSilencia) {
-    const auto r = le("volume_buzzer=0\n");
-    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
-    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+TEST(LeitorConfig, VolumeBuzzerEApenasAPOSENTADA) {
+    // ⚠️ **Nao e chave desconhecida, e isso importa.** O contador de
+    // desconhecidas existe para pegar erro de digitacao; deixa-lo subir por
+    // uma chave que NOS aposentamos treinaria quem le o log a ignora-lo --
+    // e aí um `brilhodia=` de verdade passaria batido.
+    //
+    // O ajuste saiu em 19/10/2026: o SFM-27 e um buzzer ativo, com oscilador
+    // proprio, e nunca houve volume a controlar. A linha segue nos cartoes
+    // que ja existem.
+    const auto r = le("volume_buzzer=50\n");
+    EXPECT_EQ(r.diagnostico.chaves_aposentadas, 1U);
+    EXPECT_EQ(r.diagnostico.chaves_desconhecidas, 0U);
+    EXPECT_EQ(r.diagnostico.valores_invalidos, 0U);
 }
 
-TEST(LeitorConfig, VolumeAcimaDoMaximoERecusado) {
-    const auto r = le("volume_buzzer=120\n");
-    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
-    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+TEST(LeitorConfig, OLogDizQueAChaveAposentadaPodeSair) {
+    // Calado, o cartao ficaria com uma linha morta para sempre e ninguem
+    // saberia que pode apaga-la. Em `info` e em linha PROPRIA: chave
+    // aposentada nao e erro de quem editou o arquivo, e misturada com as
+    // recusas pareceria defeito.
+    teste::LoggerMock log;
+    le("volume_buzzer=100\n", &log);
+    bool achou = false;
+    for (const auto& e : log.entradas()) {
+        if (e.mensagem.find("aposentado") != std::string::npos) {
+            achou = true;
+            EXPECT_EQ(e.nivel, Nivel::Info);
+        }
+    }
+    EXPECT_TRUE(achou) << "nada no log disse que a linha pode sair";
 }
 
-TEST(LeitorConfig, VolumeAceitaAsPontasDaFaixa) {
-    EXPECT_EQ(le("volume_buzzer=50\n").config.volume_buzzer, kVolumeMinimo);
-    EXPECT_EQ(le("volume_buzzer=100\n").config.volume_buzzer, kVolumeMaximo);
-    EXPECT_TRUE(le("volume_buzzer=50\n").diagnostico.limpo());
+TEST(LeitorConfig, SemChaveAposentadaOLogFicaQuieto) {
+    teste::LoggerMock log;
+    le("brilho_dia=100\n", &log);
+    for (const auto& e : log.entradas()) {
+        EXPECT_EQ(e.mensagem.find("aposentado"), std::string::npos);
+    }
 }
 
-TEST(LeitorConfig, VolumeNaoNumericoERecusado) {
-    const auto r = le("volume_buzzer=alto\n");
-    EXPECT_EQ(r.config.volume_buzzer, kVolumeMaximo);
-    EXPECT_EQ(r.diagnostico.valores_invalidos, 1U);
+TEST(LeitorConfig, ChaveDeVerdadeDesconhecidaContinuaContando) {
+    // A aposentadoria e nominal, e nao uma anistia geral.
+    const auto r = le("brilhodia=80\n");
+    EXPECT_EQ(r.diagnostico.chaves_desconhecidas, 1U);
+    EXPECT_EQ(r.diagnostico.chaves_aposentadas, 0U);
 }
 
 TEST(LeitorConfig, BrilhoForaDoPassoDeCincoERecusado) {

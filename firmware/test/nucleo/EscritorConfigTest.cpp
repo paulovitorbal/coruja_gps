@@ -26,7 +26,7 @@ Configuracao ajustada() {
     c.brilho_dia = 75;
     c.brilho_noite = 15;
     c.modo_noturno = ModoNoturno::SempreNoite;
-    c.volume_buzzer = 50;
+    c.led_ligado = false;
     return c;
 }
 
@@ -59,22 +59,22 @@ TEST(EscritorConfig, PreservaEspacosEmVoltaDoIgual) {
     // A indentacao e os espacos sao de quem editou o arquivo.
     const std::string origem =
         "nome=x\n   brilho_dia  =  100  \nbrilho_noite=20\n"
-        "modo_noturno=auto\nvolume_buzzer=100\n";
+        "modo_noturno=auto\nled=true\n";
     const std::string saida = reescreve(origem, ajustada());
     EXPECT_EQ(saida,
               "nome=fusca\n   brilho_dia  =  75\nbrilho_noite=15\n"
-              "modo_noturno=noite\nvolume_buzzer=50\n")
+              "modo_noturno=noite\nled=false\n")
         << "os espacos em volta do '=' sao de quem editou o arquivo";
 }
 
 TEST(EscritorConfig, PreservaFimDeLinhaDoWindows) {
     const std::string origem =
         "nome=x\r\nbrilho_dia=100\r\nbrilho_noite=20\r\n"
-        "modo_noturno=auto\r\nvolume_buzzer=100\r\n";
+        "modo_noturno=auto\r\nled=true\r\n";
     const std::string saida = reescreve(origem, ajustada());
     EXPECT_EQ(saida,
               "nome=fusca\r\nbrilho_dia=75\r\nbrilho_noite=15\r\n"
-              "modo_noturno=noite\r\nvolume_buzzer=50\r\n")
+              "modo_noturno=noite\r\nled=false\r\n")
         << "finais de linha ficaram misturados";
 }
 
@@ -83,7 +83,7 @@ TEST(EscritorConfig, GravarOMesmoValorNaoMudaNadaNoArquivo) {
     // nem gastar um ciclo de escrita por nada.
     const std::string origem =
         "nome=fusca\nbrilho_dia=75\nbrilho_noite=15\n"
-        "modo_noturno=noite\nvolume_buzzer=50\n";
+        "modo_noturno=noite\nled=false\n";
     EXPECT_EQ(reescreve(origem, ajustada()), origem);
 }
 
@@ -99,14 +99,14 @@ TEST(EscritorConfig, ReescreveTodasAsOcorrenciasDaChaveRepetida) {
     // O leitor honra a ultima. Deixar a primeira para tras faria o
     // arquivo mostrar dois valores para o mesmo ajuste.
     const std::string origem =
-        "volume_buzzer=100\nnome=x\nbrilho_dia=100\nbrilho_noite=20\n"
-        "modo_noturno=auto\nvolume_buzzer=100\n";
+        "led=true\nnome=x\nbrilho_dia=100\nbrilho_noite=20\n"
+        "modo_noturno=auto\nled=true\n";
     const std::string saida = reescreve(origem, ajustada());
-    EXPECT_EQ(saida.find("volume_buzzer=100"), std::string::npos)
+    EXPECT_EQ(saida.find("led=true"), std::string::npos)
         << "sobrou uma ocorrencia com o valor velho";
     EXPECT_EQ(saida,
-              "volume_buzzer=50\nnome=fusca\nbrilho_dia=75\nbrilho_noite=15\n"
-              "modo_noturno=noite\nvolume_buzzer=50\n");
+              "led=false\nnome=fusca\nbrilho_dia=75\nbrilho_noite=15\n"
+              "modo_noturno=noite\nled=false\n");
 }
 
 TEST(EscritorConfig, AcrescentaAsChavesAusentes) {
@@ -116,7 +116,7 @@ TEST(EscritorConfig, AcrescentaAsChavesAusentes) {
         << "o que ja estava la saiu do lugar";
     for (const char* esperado : {"nome=fusca", "brilho_dia=75",
                                  "brilho_noite=15", "modo_noturno=noite",
-                                 "volume_buzzer=50"}) {
+                                 "led=false"}) {
         EXPECT_NE(saida.find(esperado), std::string::npos) << esperado;
     }
 }
@@ -131,7 +131,7 @@ TEST(EscritorConfig, ArquivoVazioSaiSoComOsAjustes) {
     const std::string saida = reescreve("", ajustada());
     const auto r = le_config(saida.data(), saida.size());
     EXPECT_STREQ(r.config.nome, "fusca");
-    EXPECT_EQ(r.config.volume_buzzer, 50);
+    EXPECT_FALSE(r.config.led_ligado);
     EXPECT_TRUE(r.diagnostico.limpo());
 }
 
@@ -154,7 +154,7 @@ TEST(EscritorConfig, OQueFoiEscritoEOQueOLeitorLe) {
     EXPECT_EQ(r.config.brilho_dia, 75);
     EXPECT_EQ(r.config.brilho_noite, 15);
     EXPECT_EQ(r.config.modo_noturno, ModoNoturno::SempreNoite);
-    EXPECT_EQ(r.config.volume_buzzer, 50);
+    EXPECT_FALSE(r.config.led_ligado);
     // E o que nao era nosso continua inteiro.
     ASSERT_EQ(r.config.n_redes, 1U);
     EXPECT_STREQ(r.config.redes[0].ssid, "casa");
