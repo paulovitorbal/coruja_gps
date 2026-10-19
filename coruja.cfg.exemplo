@@ -127,6 +127,21 @@ modo_noturno=auto
 # Tambem da para mexer no menu do encoder, parado.
 led=true
 
+# Intensidade do LED por periodo, em passos de 5, de 5 a 100.
+#
+# O PISO E 5, e nao zero: zero e o que o `led` acima faz, e dois ajustes
+# capazes de apagar o LED disputariam o mesmo resultado.
+#
+# A escala e LINEAR, ao contrario da do brilho da tela. O motivo sao as cores
+# calibradas: um matiz composto e uma RAZAO entre canais de 8 bits -- o ambar
+# e {255, 50, 0} --, e uma curva perceptual levaria o canal secundario a
+# valores de um digito, onde a quantizacao destroi a razao e o ambar vira
+# vermelho alaranjado.
+#
+# 20 de noite e palpite de partida, a acertar na estrada.
+led_dia=100
+led_noite=20
+
 # O `volume_buzzer` saiu em 19/10/2026 e esta linha nao existe mais. O SFM-27
 # e um buzzer ATIVO, com oscilador proprio: aceita ligado ou desligado, e
 # nunca houve volume a controlar. Se ela ainda estiver no seu cartao, pode

@@ -9,7 +9,7 @@
 
 #include "apoio/EncoderMock.h"
 #include "display/Retroiluminacao.h"
-#include "led/LedChaveado.h"
+#include "led/LedRegulado.h"
 #include "apoio/LoggerMock.h"
 #include "nucleo/LeitorConfig.h"
 
@@ -160,9 +160,9 @@ struct Bancada {
     LedMudo       led;
     /// ⚠️ O piloto recebe o LED **chaveado**, como no `main`. Dar-lhe o cru
     /// faria a bancada testar uma fiacao que o aparelho nao tem.
-    LedChaveado   led_chaveado{led};
+    LedRegulado   led_regulado{led};
     BuzzerMudo    buzzer;
-    PilotoAlerta  piloto{gps, led_chaveado, buzzer};
+    PilotoAlerta  piloto{gps, led_regulado, buzzer};
     Brilho        brilho;
     LuzEspia      luz;
     CartaoFalso   cartao;
@@ -180,7 +180,7 @@ struct Bancada {
 
     Aplicacao monta() {
         return Aplicacao{gps,          encoder, piloto, brilho,  luz,
-                         led_chaveado, cartao,  acoes,  log,     inicial,
+                         led_regulado, cartao,  acoes,  log,     inicial,
                          trabalho,     sizeof(trabalho), &visor};
     }
 
@@ -387,12 +387,20 @@ TEST(Aplicacao, AtualizarBaseChegaAQuemSabeFazer) {
     Bancada b;
     auto app = b.monta();
     b.roda(app, 0, 4000, 0.0F);
-    b.encoder.enfileira(EventoEncoder::GiroDireita);
-    for (int i = 0; i < 3; ++i) {
-        b.encoder.enfileira(EventoEncoder::GiroDireita);
-    }
-    b.encoder.enfileira(EventoEncoder::Clique);
+    // ⚠️ Anda ate o ITEM, e nao um numero fixo de giros: contar giros
+    // transforma "inseri um item no menu" em teste reprovado longe dali.
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre
     app.passo(4050);
+    std::uint32_t t = 4100;
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::AtualizarBase;
+         ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(t);
+        t += 50;
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::AtualizarBase);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(t);
     EXPECT_EQ(b.acoes.bases, 1U);
     EXPECT_EQ(b.acoes.testes, 0U);
 }
@@ -525,7 +533,7 @@ TEST(Aplicacao, funciona_sem_visor) {
     // ponteiro nulo nao pode ser caso de excecao -- tem de ser suportado.
     Bancada b;
     Aplicacao app{b.gps,          b.encoder, b.piloto, b.brilho, b.luz,
-                  b.led_chaveado, b.cartao,  b.acoes,  b.log,    b.inicial,
+                  b.led_regulado, b.cartao,  b.acoes,  b.log,    b.inicial,
                   b.trabalho,     sizeof(b.trabalho)};
     b.roda(app, 0, 2000, 60.0F);
     SUCCEED();
@@ -922,7 +930,7 @@ TEST(Aplicacao, o_led_desligado_na_configuracao_nao_acende) {
     b.inicial.led_ligado = false;
     auto app = b.monta();
     b.roda(app, 0, 1000, 60.0F);
-    EXPECT_FALSE(b.led_chaveado.ligado());
+    EXPECT_FALSE(b.led_regulado.ligado());
     EXPECT_EQ(b.led.atual, cores::kApagado);
 }
 
@@ -930,7 +938,7 @@ TEST(Aplicacao, o_led_nasce_ligado_para_quem_nao_mexeu) {
     Bancada b;
     auto app = b.monta();
     b.roda(app, 0, 1000, 60.0F);
-    EXPECT_TRUE(b.led_chaveado.ligado());
+    EXPECT_TRUE(b.led_regulado.ligado());
 }
 
 TEST(Aplicacao, desligar_o_led_no_menu_vale_na_mesma_volta) {
@@ -940,7 +948,7 @@ TEST(Aplicacao, desligar_o_led_no_menu_vale_na_mesma_volta) {
     Bancada b;
     auto app = b.monta();
     b.roda(app, 0, 1000, 0.0F);
-    ASSERT_TRUE(b.led_chaveado.ligado());
+    ASSERT_TRUE(b.led_regulado.ligado());
 
     // Abre o menu, anda ate o LED e alterna.
     //
@@ -963,8 +971,51 @@ TEST(Aplicacao, desligar_o_led_no_menu_vale_na_mesma_volta) {
     b.encoder.enfileira(EventoEncoder::GiroEsquerda);  // desliga
     b.roda(app, t, t + 250, 0.0F);
 
-    EXPECT_FALSE(b.led_chaveado.ligado());
+    EXPECT_FALSE(b.led_regulado.ligado());
     EXPECT_EQ(b.led.atual, cores::kApagado);
+}
+
+
+TEST(Aplicacao, a_noite_o_led_usa_o_preset_fraco) {
+    // 🔴 O pedido que criou a intensidade: o LED incomoda A NOITE, e
+    // desligar de vez tiraria tambem o de dia.
+    Bancada dia;
+    dia.inicial.led_dia = 100;
+    dia.inicial.led_noite = 10;
+    auto app_dia = dia.monta();
+    dia.roda(app_dia, 0, 2000, 0.0F, true, /*hora_utc=*/12);
+
+    Bancada noite;
+    noite.inicial.led_dia = 100;
+    noite.inicial.led_noite = 10;
+    auto app_noite = noite.monta();
+    noite.roda(app_noite, 0, 2000, 0.0F, true, /*hora_utc=*/3);
+
+    EXPECT_EQ(noite.led_regulado.percentual(), 10);
+    EXPECT_EQ(dia.led_regulado.percentual(), 100);
+}
+
+TEST(Aplicacao, mexer_no_brilho_do_led_vale_na_mesma_volta) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 0.0F);
+    ASSERT_EQ(b.led_regulado.percentual(), 100);
+
+    std::uint32_t t = 1050;
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre
+    b.roda(app, t, t + 150, 0.0F);
+    t += 200;
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::BrilhoLed; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        b.roda(app, t, t + 150, 0.0F);
+        t += 200;
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::BrilhoLed);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    b.roda(app, t, t + 250, 0.0F);
+
+    EXPECT_EQ(b.led_regulado.percentual(), 95);
 }
 
 }  // namespace

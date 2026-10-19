@@ -21,7 +21,7 @@ constexpr std::uint32_t kSustentacaoAvisoTaxaMs = 3000;
 }
 
 Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
-                     Brilho& brilho, Retroiluminacao& luz, LedChaveado& led,
+                     Brilho& brilho, Retroiluminacao& luz, LedRegulado& led,
                      Armazenamento& cartao, AcoesAplicacao& acoes, Logger& log,
                      const Configuracao& inicial, char* trabalho,
                      std::size_t capacidade, Visor* visor)
@@ -55,6 +55,7 @@ void Aplicacao::aplica_ajustes() {
     // O interruptor do LED segue a configuracao a cada volta, como o resto.
     // `liga()` e idempotente: so toca no hardware quando o valor muda.
     led_.liga(c.led_ligado);
+    led_.define_presets(c.led_dia, c.led_noite);
 }
 
 void Aplicacao::executa(AcaoMenu acao) {
@@ -239,6 +240,10 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
     menu_.define_periodo(piloto_.periodo());
     menu_.define_estado_viagem(diario_.estado_viagem());
     brilho_.define_periodo(piloto_.periodo());
+    // ⚠️ Ao lado do brilho da tela, e nao em outro lugar: as duas coisas
+    // respondem ao mesmo anoitecer, e separa-las seria deixar o LED claro
+    // numa tela escura.
+    led_.define_periodo(piloto_.periodo());
 
     // Drena a fila do encoder. Um detente perdido por volta seria um
     // giro que nao aparece na tela, e o laco corre mais rapido que o

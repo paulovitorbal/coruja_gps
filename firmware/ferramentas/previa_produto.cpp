@@ -150,8 +150,8 @@ int main(int argc, char** argv) {
     private:
         std::uint16_t duty_ = 0;
     } luz;
-    LedChaveado led_chaveado{led};
-    Aplicacao app(leitor, encoder, piloto, brilho, luz, led_chaveado, cartao,
+    LedRegulado led_regulado{led};
+    Aplicacao app(leitor, encoder, piloto, brilho, luz, led_regulado, cartao,
                   acoes, log, config, trabalho, sizeof trabalho, &visor);
     app.define_versao("previa-host");
     app.define_base_carregada(cabecalho, base.size());

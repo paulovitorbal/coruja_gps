@@ -260,6 +260,42 @@ TEST(MenuAjustes, MexerNoLedMarcaComoAlterado) {
     EXPECT_EQ(c.anda(), AcaoMenu::Gravar);
 }
 
+TEST(MenuAjustes, OBrilhoDoLedAndaDeCincoEmCinco) {
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::BrilhoLed);
+    c.clica();
+    EXPECT_EQ(c.valor(ItemMenu::BrilhoLed), "100%");
+    c.gira_esquerda();
+    EXPECT_EQ(c.valor(ItemMenu::BrilhoLed), "95%");
+}
+
+TEST(MenuAjustes, OBrilhoDoLedNaoDesceAbaixoDeCinco) {
+    // ⚠️ Zero e o que o item `led` faz. Dois ajustes capazes de apagar o LED
+    // disputariam o mesmo resultado, e quem zerasse aqui acharia que
+    // desligou por um caminho que nao e o de desligar.
+    Cenario c;
+    c.abre();
+    c.vai_ate(ItemMenu::BrilhoLed);
+    c.clica();
+    for (int i = 0; i < 30; ++i) { c.gira_esquerda(); }
+    EXPECT_EQ(c.valor(ItemMenu::BrilhoLed), "5%");
+    EXPECT_EQ(c.menu().ajustes().led_dia, 5);
+}
+
+TEST(MenuAjustes, OBrilhoDoLedEditaOPresetDoPeriodoVIGENTE) {
+    // Mesma regra do brilho da tela: acerta-se uma vez de dia e uma vez de
+    // noite, e a transicao seguinte ja vem no valor certo.
+    Cenario c;
+    c.menu().define_periodo(PeriodoDoDia::Noite);
+    c.abre();
+    c.vai_ate(ItemMenu::BrilhoLed);
+    c.clica();
+    c.gira_esquerda();
+    EXPECT_EQ(c.menu().ajustes().led_noite, 15);
+    EXPECT_EQ(c.menu().ajustes().led_dia, 100) << "mexeu no preset errado";
+}
+
 TEST(MenuAjustes, ModoNoturnoPercorreAsTresPosicoesSemCircular) {
     Cenario c;
     c.abre();

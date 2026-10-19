@@ -74,7 +74,7 @@ add_executable(testes
     placa/TermometroTest.cpp
     app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
-    led/LedChaveadoTest.cpp
+    led/LedReguladoTest.cpp
     app/CicloCoresTest.cpp
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp

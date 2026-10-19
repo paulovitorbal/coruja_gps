@@ -59,22 +59,24 @@ TEST(EscritorConfig, PreservaEspacosEmVoltaDoIgual) {
     // A indentacao e os espacos sao de quem editou o arquivo.
     const std::string origem =
         "nome=x\n   brilho_dia  =  100  \nbrilho_noite=20\n"
-        "modo_noturno=auto\nled=true\n";
+        "modo_noturno=auto\nled=true\nled_dia=100\nled_noite=20\n";
     const std::string saida = reescreve(origem, ajustada());
     EXPECT_EQ(saida,
               "nome=fusca\n   brilho_dia  =  75\nbrilho_noite=15\n"
-              "modo_noturno=noite\nled=false\n")
+              "modo_noturno=noite\nled=false\nled_dia=100\nled_noite=20\n")
         << "os espacos em volta do '=' sao de quem editou o arquivo";
 }
 
 TEST(EscritorConfig, PreservaFimDeLinhaDoWindows) {
     const std::string origem =
         "nome=x\r\nbrilho_dia=100\r\nbrilho_noite=20\r\n"
-        "modo_noturno=auto\r\nled=true\r\n";
+        "modo_noturno=auto\r\nled=true\r\nled_dia=100\r\n"
+        "led_noite=20\r\n";
     const std::string saida = reescreve(origem, ajustada());
     EXPECT_EQ(saida,
               "nome=fusca\r\nbrilho_dia=75\r\nbrilho_noite=15\r\n"
-              "modo_noturno=noite\r\nled=false\r\n")
+              "modo_noturno=noite\r\nled=false\r\nled_dia=100\r\n"
+              "led_noite=20\r\n")
         << "finais de linha ficaram misturados";
 }
 
@@ -83,7 +85,7 @@ TEST(EscritorConfig, GravarOMesmoValorNaoMudaNadaNoArquivo) {
     // nem gastar um ciclo de escrita por nada.
     const std::string origem =
         "nome=fusca\nbrilho_dia=75\nbrilho_noite=15\n"
-        "modo_noturno=noite\nled=false\n";
+        "modo_noturno=noite\nled=false\nled_dia=100\nled_noite=20\n";
     EXPECT_EQ(reescreve(origem, ajustada()), origem);
 }
 
@@ -100,13 +102,13 @@ TEST(EscritorConfig, ReescreveTodasAsOcorrenciasDaChaveRepetida) {
     // arquivo mostrar dois valores para o mesmo ajuste.
     const std::string origem =
         "led=true\nnome=x\nbrilho_dia=100\nbrilho_noite=20\n"
-        "modo_noturno=auto\nled=true\n";
+        "modo_noturno=auto\nled=true\nled_dia=100\nled_noite=20\n";
     const std::string saida = reescreve(origem, ajustada());
     EXPECT_EQ(saida.find("led=true"), std::string::npos)
         << "sobrou uma ocorrencia com o valor velho";
     EXPECT_EQ(saida,
               "led=false\nnome=fusca\nbrilho_dia=75\nbrilho_noite=15\n"
-              "modo_noturno=noite\nled=false\n");
+              "modo_noturno=noite\nled=false\nled_dia=100\nled_noite=20\n");
 }
 
 TEST(EscritorConfig, AcrescentaAsChavesAusentes) {

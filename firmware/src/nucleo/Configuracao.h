@@ -157,6 +157,16 @@ struct Configuracao {
     /// seria uma surpresa no escuro.
     bool led_ligado = true;
 
+    /// Intensidade do LED por período, em passos de 5, de 5 a 100.
+    ///
+    /// **O piso é 5, e não zero**: zero é o que o `led_ligado` faz, e dois
+    /// ajustes que apagam o LED disputariam o mesmo resultado.
+    ///
+    /// 20 de noite é o palpite de partida, a acertar na estrada — a mesma
+    /// escolha que o `brilho_noite` fez, e pelo mesmo motivo.
+    std::uint8_t led_dia = 100;
+    std::uint8_t led_noite = 20;
+
     bool tem_rede() const { return n_redes > 0; }
     bool tem_urls() const {
         return url_versao[0] != '\0' && url_base[0] != '\0';

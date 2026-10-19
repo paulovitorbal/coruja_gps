@@ -25,6 +25,12 @@ enum class ItemMenu : std::uint8_t {
     /// buzzer ATIVO, com oscilador proprio, e nao havia volume a controlar
     /// no componente soldado -- o ajuste nunca chegou a lugar nenhum.
     Led,
+    /// Intensidade do LED, do preset do periodo vigente.
+    ///
+    /// Separado do `Led` porque responde a outra pergunta: aquele diz SE
+    /// acende, este diz QUANTO. O relato que os criou foi o mesmo -- o LED
+    /// incomoda a noite --, mas desligar de vez tira tambem o de dia.
+    BrilhoLed,
     AtualizarBase,
     EnviarDados,    ///< manda log, viagens e infracoes ao servidor
     TestarAlertas,
@@ -32,7 +38,7 @@ enum class ItemMenu : std::uint8_t {
     Informacao,
     Sair,
 };
-constexpr std::size_t kItensMenu = 9;
+constexpr std::size_t kItensMenu = 10;
 
 enum class EstadoMenu : std::uint8_t {
     Fechado,
@@ -94,6 +100,10 @@ public:
     /// fechamento do menu, e este caminho nao tem fechamento -- quem chama
     /// decide quando gravar.
     void registra_brilho_externo(std::uint8_t pct);
+
+    /// O preset de intensidade do LED do periodo vigente.
+    std::uint8_t& led_vigente();
+    std::uint8_t  led_vigente() const;
 
     EstadoMenu estado() const { return estado_; }
     ItemMenu item() const { return item_; }

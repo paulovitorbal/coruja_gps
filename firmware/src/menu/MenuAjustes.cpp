@@ -39,6 +39,14 @@ std::uint8_t MenuAjustes::brilho_vigente() const {
                                            : cfg_.brilho_dia;
 }
 
+std::uint8_t& MenuAjustes::led_vigente() {
+    return periodo_ == PeriodoDoDia::Noite ? cfg_.led_noite : cfg_.led_dia;
+}
+
+std::uint8_t MenuAjustes::led_vigente() const {
+    return periodo_ == PeriodoDoDia::Noite ? cfg_.led_noite : cfg_.led_dia;
+}
+
 void MenuAjustes::registra_brilho_externo(std::uint8_t pct) {
     // **Nao marca `alterado_`, de proposito.** O `alterado_` governa a
     // gravacao no FECHAMENTO do menu, e este caminho nao tem fechamento:
@@ -91,6 +99,15 @@ void MenuAjustes::edita(int passo) {
             const auto novo = static_cast<ModoNoturno>(m);
             alterado_ = alterado_ || novo != cfg_.modo_noturno;
             cfg_.modo_noturno = novo;
+            break;
+        }
+        case ItemMenu::BrilhoLed: {
+            // Piso em 5, e nao em zero: zero e o que o item `led` faz, e dois
+            // ajustes capazes de apagar o LED disputariam o mesmo resultado.
+            std::uint8_t& l = led_vigente();
+            const std::uint8_t novo = soma_limitada(l, passo * 5, 5, 100);
+            alterado_ = alterado_ || novo != l;
+            l = novo;
             break;
         }
         case ItemMenu::Led: {
@@ -186,6 +203,7 @@ const char* MenuAjustes::rotulo(ItemMenu i) const {
                                                    : "brilho (dia)";
         case ItemMenu::ModoNoturno:   return "modo noturno";
         case ItemMenu::Led:           return "led";
+        case ItemMenu::BrilhoLed:     return "brilho led";
         case ItemMenu::AtualizarBase: return "atualizar base";
         case ItemMenu::EnviarDados:   return "enviar dados";
         case ItemMenu::TestarAlertas: return "testar alertas";
@@ -209,6 +227,10 @@ void MenuAjustes::valor(ItemMenu i, char* destino,
         case ItemMenu::Led:
             copia_texto(destino, capacidade,
                         cfg_.led_ligado ? "ligado" : "desligado");
+            break;
+        case ItemMenu::BrilhoLed:
+            std::snprintf(destino, capacidade, "%u%%",
+                          static_cast<unsigned>(led_vigente()));
             break;
         case ItemMenu::Viagem:
             // "iniciar" ou "parar": a segunda linha diz o que o clique vai

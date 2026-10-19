@@ -51,7 +51,7 @@ private:
 };
 
 enum class Chave { Nome, BrilhoDia, BrilhoNoite, ModoNoturno, Led,
-                   Nenhuma };
+                   LedDia, LedNoite, Nenhuma };
 
 // ⚠️ `volume_buzzer` saiu daqui em 2026-10-19 e **não** foi substituída no
 // lugar: a linha que já existir num cartão fica como está, porque a gravação
@@ -59,8 +59,9 @@ enum class Chave { Nome, BrilhoDia, BrilhoNoite, ModoNoturno, Led,
 // uma linha morta, que é melhor que uma linha reescrita com valor que
 // ninguém consome.
 constexpr const char* kNomes[] = {"nome", "brilho_dia", "brilho_noite",
-                                  "modo_noturno", "led"};
-constexpr std::size_t kQuantas = 5;
+                                  "modo_noturno", "led", "led_dia",
+                                  "led_noite"};
+constexpr std::size_t kQuantas = 7;
 
 Chave reconhece(const char* chave, std::size_t n) {
     for (std::size_t i = 0; i < kQuantas; ++i) {
@@ -83,6 +84,8 @@ void valor_de(Saida& s, Chave c, const Configuracao& cfg) {
         // esquece no religamento -- escrito no cartao, e perdido.
         case Chave::Led:          s.escreve(cfg.led_ligado ? "true" : "false");
                                   break;
+        case Chave::LedDia:       s.numero(cfg.led_dia); break;
+        case Chave::LedNoite:     s.numero(cfg.led_noite); break;
         case Chave::Nenhuma:      break;
     }
 }

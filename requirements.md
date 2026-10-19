@@ -742,6 +742,25 @@ ter **`led`: ligado / desligado**, gravado no `coruja.cfg` como `led=true` ou
 * **Vale na mesma volta do laço**, como o brilho — não no religamento
   seguinte.
 
+Além do interruptor, a **intensidade** tem preset por período — `led_dia` e
+`led_noite`, em passos de 5, de **5 a 100** —, editável no menu pelo item
+`brilho led`, que mexe no preset do período vigente como o item de brilho da
+tela faz. O piso é 5 e não zero: zero é o que o interruptor faz, e dois
+ajustes capazes de apagar o LED disputariam o mesmo resultado.
+
+> 🔴 **A escala da intensidade é LINEAR, ao contrário da do brilho da tela,
+> e isso é decisão.** Um matiz composto do RF03.4 é uma razão entre canais de
+> 8 bits — o âmbar é `{255, 50, 0}`, razão 0,196. Uma curva perceptual
+> `(pct/100)^2,2` levaria o canal secundário a valores de um dígito, onde a
+> quantização destrói a razão: a 20% da curva o âmbar sairia `{7, 1, 0}`,
+> razão 0,143, e o que se veria é vermelho alaranjado. A calibração do R-05
+> existe justamente para esses matizes não mentirem.
+>
+> Com escala linear e piso de 5%, o pior caso é `{13, 3, 0}` — razão 0,23 —
+> e o âmbar continua âmbar. O custo é um controle que parece grosso perto do
+> topo, aceitável para um ajuste que na prática tem duas posições: claro de
+> dia, fraco de noite. **Há teste medindo a razão em toda a faixa.**
+
 O interruptor é um **decorador** sobre a porta do LED, e não uma bandeira no
 alerta. O LED tem quatro donos, cada um chamando `define_cor` por conta
 própria; uma bandeira no alerta deixaria os outros três acendendo um LED que

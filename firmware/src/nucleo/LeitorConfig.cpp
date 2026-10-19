@@ -75,6 +75,24 @@ bool le_brilho(const char* ini, std::size_t n, std::uint8_t* destino) {
     return true;
 }
 
+/// Intensidade do LED: mesmos passos de 5 do brilho da tela, **mas com piso
+/// em 5 e não em zero**.
+///
+/// Zero é o que o `led` faz. Aceitá-lo aqui daria dois ajustes capazes de
+/// apagar o LED, disputando o mesmo resultado — e quem escrevesse `led_dia=0`
+/// acharia que desligou por um caminho que não é o de desligar.
+///
+/// O literal `5` fica aqui, como o `100` do `le_brilho` logo acima: o leitor
+/// de configuração valida com os seus próprios números, e não puxa o módulo
+/// do LED para dentro do núcleo só para citar uma constante.
+bool le_intensidade_led(const char* ini, std::size_t n,
+                        std::uint8_t* destino) {
+    std::uint8_t v = 0;
+    if (!le_brilho(ini, n, &v) || v < 5) { return false; }
+    *destino = v;
+    return true;
+}
+
 /// Copia se couber. Devolve falso quando não cabe — e aí nada é copiado, de
 /// propósito: meio valor é pior que valor nenhum.
 bool copia(char* destino, std::size_t capacidade, const char* ini,
@@ -241,6 +259,18 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
             } else if (igual(valor, nv, "noite")) {
                 r.config.modo_noturno = ModoNoturno::SempreNoite;
             } else {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "led_dia")) {
+            if (!le_intensidade_led(valor, nv, &r.config.led_dia)) {
+                ++r.diagnostico.valores_invalidos;
+            }
+            continue;
+        }
+        if (igual(chave, nc, "led_noite")) {
+            if (!le_intensidade_led(valor, nv, &r.config.led_noite)) {
                 ++r.diagnostico.valores_invalidos;
             }
             continue;

@@ -6,7 +6,7 @@
 #include "armazenamento/Armazenamento.h"
 #include "display/Brilho.h"
 #include "display/Retroiluminacao.h"
-#include "led/LedChaveado.h"
+#include "led/LedRegulado.h"
 #include "display/TelaMenu.h"
 #include "display/TelaPrincipal.h"
 #include "encoder/Encoder.h"
@@ -70,7 +70,7 @@ public:
     /// pela qual o defeito passou — alguém monta a aplicação sem ela, nada
     /// acusa, e o ajuste volta a só valer no religamento.
     Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
-              Brilho& brilho, Retroiluminacao& luz, LedChaveado& led,
+              Brilho& brilho, Retroiluminacao& luz, LedRegulado& led,
               Armazenamento& cartao, AcoesAplicacao& acoes, Logger& log,
               const Configuracao& inicial, char* trabalho,
               std::size_t capacidade, Visor* visor = nullptr);
@@ -158,7 +158,7 @@ private:
     /// O interruptor do LED RGB. **O decorador, e não o LED cru**: assim o
     /// alerta, o padrão do OTA, o da remessa e o teste de alertas passam
     /// todos pelo mesmo interruptor, sem que nenhum deles saiba dele.
-    LedChaveado&   led_;
+    LedRegulado&   led_;
 
     /// O último duty que FOI AO PAINEL.
     ///

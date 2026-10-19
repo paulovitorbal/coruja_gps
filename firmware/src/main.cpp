@@ -45,7 +45,7 @@
 #include "gps/LeitorGps.h"
 #include "nucleo/UbxDiagnostico.h"
 #include "gps/UartPico.h"
-#include "led/LedChaveado.h"
+#include "led/LedRegulado.h"
 #include "led/LedRgbAnodoComum.h"
 #include "log/CarimboExecucao.h"
 #include "log/IdExecucao.h"
@@ -562,7 +562,7 @@ int main() {
     // interruptor que valesse so para o alerta deixaria os outros tres
     // acendendo um LED que o usuario desligou -- e ninguem notaria ate
     // acontecer no carro, de noite.
-    coruja::LedChaveado led{led_cru};
+    coruja::LedRegulado led{led_cru};
     coruja::BuzzerGpio       buzzer;
     coruja::EncoderKy040     encoder;
     coruja::Brilho           brilho;
