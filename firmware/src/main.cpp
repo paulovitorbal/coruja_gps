@@ -668,7 +668,7 @@ int main() {
                                  preparo);
     acoes.define_base(base);
 
-    coruja::Aplicacao app(gps, encoder, piloto, brilho, cartao, acoes, log,
+    coruja::Aplicacao app(gps, encoder, piloto, brilho, luz, cartao, acoes, log,
                           config, g_trabalho_cfg, sizeof g_trabalho_cfg,
                           &visor);
     app.define_versao(coruja::kVersaoBuild);

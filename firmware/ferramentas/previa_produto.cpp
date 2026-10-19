@@ -41,6 +41,7 @@
 #include "app/Aplicacao.h"
 #include "app/PilotoAlerta.h"
 #include "display/Brilho.h"
+#include "display/Retroiluminacao.h"
 #include "log/LoggerConsole.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/VerificadorDownload.h"
@@ -140,8 +141,17 @@ int main(int argc, char** argv) {
     std::snprintf(config.nome, sizeof config.nome, "previa");
     piloto.define_base(base.data(), base.size());
 
-    Aplicacao app(leitor, encoder, piloto, brilho, cartao, acoes, log, config,
-                  trabalho, sizeof trabalho, &visor);
+    // O host nao tem backlight. O duty vai para o vazio, e e so isso que
+    // falta aqui -- a previa desenha a tela, nao a acende.
+    class LuzDoHost : public Retroiluminacao {
+    public:
+        void define_duty(std::uint16_t d) override { duty_ = d; }
+        std::uint16_t duty() const override { return duty_; }
+    private:
+        std::uint16_t duty_ = 0;
+    } luz;
+    Aplicacao app(leitor, encoder, piloto, brilho, luz, cartao, acoes, log,
+                  config, trabalho, sizeof trabalho, &visor);
     app.define_versao("previa-host");
     app.define_base_carregada(cabecalho, base.size());
     if (viagem_automatica) {

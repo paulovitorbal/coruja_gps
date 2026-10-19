@@ -768,6 +768,34 @@ permitindo escurecer o visor para condução noturna.
   remedição obrigaria a reescrever o arquivo de configuração, o menu e a tela; contido
   na tabela da curva, não obriga nada.
 
+#### 🔴 O ajuste tem de chegar ao PAINEL, e não só ao número
+
+*Acrescentado em 2026-10-19, sobre relato de uso.*
+
+Girar o encoder mudava o percentual na faixa superior, trocava o preset do
+período e gravava o valor no `coruja.cfg` — **e a tela não escurecia**. O
+brilho novo só valia depois de desligar e religar o aparelho.
+
+O duty ia a todos os destinos menos ao PWM do backlight, que era escrito uma
+única vez, no arranque. O mesmo defeito atingia a virada para a noite, que
+ninguém tinha notado: o preset trocava e a luz ficava.
+
+**O que o requisito exige:** o duty vigente é aplicado ao painel **na mesma
+volta do laço** em que muda, venha a mudança do giro, do menu, da virada de
+período ou da configuração recém-lida. A aplicação acontece num ponto só, ao
+fim da volta, comparando com o último duty escrito — assim um caminho novo
+que mexa no brilho não precisa lembrar de aplicar nada, e o registrador do
+PWM não é reescrito centenas de vezes por segundo sem motivo.
+
+A porta de retroiluminação passou a ser **obrigatória** na montagem da
+aplicação, e não um ponteiro opcional: foi por ser opcional que o esquecimento
+não acusou nada.
+
+> ⚠️ **A suíte não pegava porque conferia o elo errado.** Havia teste de que o
+> giro chega ao `Brilho` — e chegava. Faltava o de que o `Brilho` chega ao
+> painel. Um dublê que registra os duties escritos cobre os dois sentidos: que
+> o valor certo saiu, e que ele não sai repetido.
+
 #### ✅ Debounce: máquina de estados em software, filtro RC como contingência
 
 *Revisado em 2026-09-19, sobre medição na placa. Ver **R-36**.*

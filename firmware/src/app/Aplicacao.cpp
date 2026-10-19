@@ -21,11 +21,12 @@ constexpr std::uint32_t kSustentacaoAvisoTaxaMs = 3000;
 }
 
 Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
-                     Brilho& brilho, Armazenamento& cartao,
-                     AcoesAplicacao& acoes, Logger& log,
+                     Brilho& brilho, Retroiluminacao& luz,
+                     Armazenamento& cartao, AcoesAplicacao& acoes, Logger& log,
                      const Configuracao& inicial, char* trabalho,
                      std::size_t capacidade, Visor* visor)
     : gps_(gps), encoder_(encoder), piloto_(piloto), brilho_(brilho),
+      luz_(luz),
       cartao_(cartao), acoes_(acoes), log_(log), diario_(cartao, log),
       menu_(inicial),
       visor_(visor), trabalho_(trabalho), capacidade_(capacidade) {
@@ -33,6 +34,16 @@ Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
     // evento: um aparelho que so obedece ao arquivo depois que alguem mexe
     // no encoder nao lembra de nada.
     aplica_ajustes();
+}
+
+void Aplicacao::aplica_brilho() {
+    // So escreve quando MUDA. O laco corre centenas de vezes por segundo, e
+    // reescrever o registrador do PWM a cada volta seria trabalho por nada
+    // num valor que muda quando alguem gira o encoder.
+    const std::uint16_t duty = brilho_.duty();
+    if (duty == duty_aplicado_) { return; }
+    duty_aplicado_ = duty;
+    luz_.define_duty(duty);
 }
 
 void Aplicacao::aplica_ajustes() {
@@ -294,6 +305,19 @@ void Aplicacao::passo(std::uint32_t agora_ms) {
         gravacao_pendente_ = false;
         executa(AcaoMenu::Gravar);
     }
+
+    // 🔴 **A luz tambem segue o que esta volta decidiu**, e nao o que o
+    // arranque tinha decidido. Ate 19/10/2026 esta linha nao existia: girar
+    // o encoder mudava o `Brilho`, a barra da faixa superior e o arquivo no
+    // cartao, e o PWM do backlight so era escrito uma vez, no `main`. A tela
+    // so esmaecia no religamento seguinte.
+    //
+    // Fica AQUI, uma vez por volta, e nao junto de cada `aumenta()`: assim
+    // todo caminho que mexa no brilho -- o giro, o menu, a virada para a
+    // noite, a configuracao recem-lida do cartao -- passa por ela sem
+    // precisar lembrar de chamar nada. Foi esquecer uma chamada dessas que
+    // criou o defeito.
+    aplica_brilho();
 
     // Desenha por ultimo: a tela mostra o que esta volta decidiu, e nao o
     // que a anterior tinha decidido.

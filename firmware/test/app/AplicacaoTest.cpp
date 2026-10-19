@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "apoio/EncoderMock.h"
+#include "display/Retroiluminacao.h"
 #include "apoio/LoggerMock.h"
 #include "nucleo/LeitorConfig.h"
 
@@ -136,6 +137,21 @@ public:
     unsigned envios = 0;
 };
 
+/// Guarda o que chegou ao PWM do backlight, e quantas vezes.
+///
+/// ⚠️ A contagem importa tanto quanto o valor: reescrever o registrador do
+/// PWM a cada volta do laco -- centenas de vezes por segundo -- seria
+/// trabalho por nada num valor que muda quando alguem gira o encoder.
+class LuzEspia : public Retroiluminacao {
+public:
+    std::vector<std::uint16_t> duties;
+    void define_duty(std::uint16_t duty) override { duties.push_back(duty); }
+    std::uint16_t duty() const override {
+        return duties.empty() ? 0 : duties.back();
+    }
+    std::uint16_t ultimo() const { return duty(); }
+};
+
 struct Bancada {
     SimuladorUart uart;
     LeitorGps     gps{uart};
@@ -144,6 +160,7 @@ struct Bancada {
     BuzzerMudo    buzzer;
     PilotoAlerta  piloto{gps, led, buzzer};
     Brilho        brilho;
+    LuzEspia      luz;
     CartaoFalso   cartao;
     AcoesEspias   acoes;
     LoggerMock    log;
@@ -158,9 +175,9 @@ struct Bancada {
     VisorEspiao visor;
 
     Aplicacao monta() {
-        return Aplicacao{gps,    encoder, piloto,  brilho,   cartao,
-                         acoes,  log,     inicial, trabalho, sizeof(trabalho),
-                         &visor};
+        return Aplicacao{gps,     encoder,  piloto,  brilho,
+                         luz,     cartao,   acoes,   log,
+                         inicial, trabalho, sizeof(trabalho), &visor};
     }
 
     /// Roda o laco, com ou sem sentenca de GPS.
@@ -503,9 +520,9 @@ TEST(Aplicacao, funciona_sem_visor) {
     // As bancadas e os testes de logica montam a Aplicacao sem painel. Um
     // ponteiro nulo nao pode ser caso de excecao -- tem de ser suportado.
     Bancada b;
-    Aplicacao app{b.gps,   b.encoder, b.piloto,  b.brilho,   b.cartao,
-                  b.acoes, b.log,     b.inicial, b.trabalho,
-                  sizeof(b.trabalho)};
+    Aplicacao app{b.gps,     b.encoder,  b.piloto,  b.brilho,
+                  b.luz,     b.cartao,   b.acoes,   b.log,
+                  b.inicial, b.trabalho, sizeof(b.trabalho)};
     b.roda(app, 0, 2000, 60.0F);
     SUCCEED();
 }
@@ -808,6 +825,85 @@ TEST(Aplicacao, sair_e_reentrar_na_informacao_reamostra_a_taxa) {
     app.passo(5400);
 
     SUCCEED() << "reentrou sem travar; a reamostragem e observada no de cima";
+}
+
+
+// ====================================================== o brilho na TELA
+//
+// 🔴 **Relato de 19/10/2026: girar o encoder mudava o numero e nao a luz.**
+// A tela so esmaecia depois de desligar e religar. O ajuste chegava ao
+// `Brilho`, ia para a barra da faixa superior e era gravado no cartao --
+// tudo menos o PWM do backlight, que so era escrito uma vez, no arranque.
+//
+// A suite nao pegava porque conferia que "o ajuste chega ao brilho", e
+// chegava mesmo. O que faltava era conferir que ele chega ao PAINEL.
+
+TEST(Aplicacao, girar_aplica_o_brilho_na_mesma_volta) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 60.0F);
+    const std::uint16_t antes = b.luz.ultimo();
+
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    b.roda(app, 1050, 1200, 60.0F);
+
+    EXPECT_NE(b.luz.ultimo(), antes)
+        << "o giro mudou o numero e nao a luz: so o religamento aplicaria";
+    EXPECT_EQ(b.luz.ultimo(), b.brilho.duty());
+}
+
+TEST(Aplicacao, varios_detentes_chegam_todos_ao_painel) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 1000, 60.0F);
+    for (int i = 0; i < 4; ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroEsquerda);
+    }
+    b.roda(app, 1050, 1500, 60.0F);
+    EXPECT_EQ(b.luz.ultimo(), b.brilho.duty());
+}
+
+TEST(Aplicacao, o_painel_nao_e_reescrito_quando_nada_muda) {
+    // ⚠️ Escrever o registrador do PWM a cada volta -- centenas de vezes por
+    // segundo -- seria trabalho por nada num valor que muda quando alguem
+    // gira o encoder. E esconderia, de quem lesse o log de SPI, qual
+    // escrita foi a que importou.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 2000, 60.0F);
+    const std::size_t escritas = b.luz.duties.size();
+    b.roda(app, 2050, 4000, 60.0F);
+    EXPECT_EQ(b.luz.duties.size(), escritas);
+}
+
+TEST(Aplicacao, a_virada_para_a_noite_aplica_o_preset_de_noite) {
+    // O mesmo defeito por outro caminho, e este ninguem tinha notado: o
+    // `define_periodo` troca o preset vigente, e sem aplicar o duty a noite
+    // chegava sem a tela escurecer.
+    // Dois aparelhos, um em cada hora: o relogio do RMC nao anda para tras
+    // dentro de uma mesma execucao, e 12h seguido de 3h seria isso.
+    Bancada dia;
+    auto app_dia = dia.monta();
+    dia.roda(app_dia, 0, 2000, 0.0F, true, /*hora_utc=*/12);
+
+    Bancada noite;
+    auto app_noite = noite.monta();
+    noite.roda(app_noite, 0, 2000, 0.0F, true, /*hora_utc=*/3);
+
+    ASSERT_EQ(noite.brilho.periodo(), PeriodoDoDia::Noite);
+    ASSERT_NE(noite.brilho.pct_noite(), noite.brilho.pct_dia())
+        << "os presets sao iguais; o teste nao distingue nada";
+    EXPECT_NE(noite.luz.ultimo(), dia.luz.ultimo())
+        << "a noite trocou o preset e nao a luz";
+    EXPECT_EQ(noite.luz.ultimo(), noite.brilho.duty());
+}
+
+TEST(Aplicacao, o_brilho_do_cartao_vale_desde_a_primeira_volta) {
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 200, 0.0F);
+    EXPECT_EQ(b.luz.ultimo(), b.brilho.duty());
+    EXPECT_FALSE(b.luz.duties.empty());
 }
 
 }  // namespace

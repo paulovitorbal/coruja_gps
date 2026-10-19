@@ -5,6 +5,7 @@
 #include "app/PilotoAlerta.h"
 #include "armazenamento/Armazenamento.h"
 #include "display/Brilho.h"
+#include "display/Retroiluminacao.h"
 #include "display/TelaMenu.h"
 #include "display/TelaPrincipal.h"
 #include "encoder/Encoder.h"
@@ -62,10 +63,15 @@ public:
 /// cartao; so nao chega ao alto-falante.
 class Aplicacao {
 public:
+    /// ⚠️ `luz` é **obrigatória**, e não um ponteiro opcional como o
+    /// `visor`. Ela entrou em 19/10/2026 para consertar o brilho que mudava
+    /// o número e não a tela; deixá-la opcional reabriria exatamente a porta
+    /// pela qual o defeito passou — alguém monta a aplicação sem ela, nada
+    /// acusa, e o ajuste volta a só valer no religamento.
     Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
-              Brilho& brilho, Armazenamento& cartao, AcoesAplicacao& acoes,
-              Logger& log, const Configuracao& inicial, char* trabalho,
-              std::size_t capacidade, Visor* visor = nullptr);
+              Brilho& brilho, Retroiluminacao& luz, Armazenamento& cartao,
+              AcoesAplicacao& acoes, Logger& log, const Configuracao& inicial,
+              char* trabalho, std::size_t capacidade, Visor* visor = nullptr);
 
     /// Uma volta do laco.
     void passo(std::uint32_t agora_ms);
@@ -123,6 +129,8 @@ public:
 
 private:
     void aplica_ajustes();
+    /// Leva o duty ao painel, e so quando ele muda.
+    void aplica_brilho();
     void executa(AcaoMenu acao);
     void desenha(std::uint32_t agora_ms);
     /// Registra no log quando a cadência de fixes cai — e quando volta.
@@ -144,6 +152,15 @@ private:
     Encoder&       encoder_;
     PilotoAlerta&  piloto_;
     Brilho&        brilho_;
+    Retroiluminacao& luz_;
+
+    /// O último duty que FOI AO PAINEL.
+    ///
+    /// Começa em zero de propósito: zero não é um duty que `Brilho::duty()`
+    /// possa devolver — ele promete nunca zerar —, então a primeira volta
+    /// sempre aplica, sem precisar de uma bandeira separada de "ainda não
+    /// apliquei".
+    std::uint16_t  duty_aplicado_ = 0;
     Armazenamento& cartao_;
     AcoesAplicacao& acoes_;
     Logger&        log_;
