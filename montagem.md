@@ -172,6 +172,47 @@ Se a externa vencer na medida, o patch sai e a zona de exclusão deixa de ter
 função — mas a **passagem do rabicho pela parede** passa a ter. Decidir antes
 de colar evita descolar depois. Ver §4.3 e a linha `sinal:` do diário.
 
+#### 🔴 O rabicho comprado era MHF4, e não encaixa
+
+*Medido em 2026-10-21, com o rabicho na mão.*
+
+**Compra errada, não entrega errada.** O que se pediu foi um rabicho **IPEX
+MHF4**; o que a placa aceita é **U.FL/MHF1**. As duas famílias são quase
+idênticas em foto de anúncio, e o nome "IPEX" sozinho não distingue — ele
+nomeia a família inteira. Três medidas de paquímetro resolvem, e ficam
+registradas porque é o erro que se repete na próxima compra:
+
+| peça | onde medir | MHF1 (certo) | MHF4 (o que veio) |
+|---|---|---|---|
+| fêmea no módulo GPS | cilindro metálico | **1,9 mm** ✅ | ~1,3 mm |
+| plugue da antena patch original | capa externa circular | **3,0 mm** ✅ | — |
+| plugue do rabicho comprado | capa externa circular | — | **2,0 mm** ❌ |
+
+⚠️ **A medida tem de ser no mesmo ponto das duas peças.** A primeira leitura
+deu "2 mm no rabicho, 3 mm na antena" e parecia conclusiva, mas podia ser capa
+externa de um contra miolo do outro — o plugue do U.FL **abraça** a fêmea por
+fora, então as peças que se encaixam medem diferente por construção. Foi a
+leitura da **capa externa nos dois plugues** que fechou o diagnóstico.
+
+🔴 **Não force.** A capa do MHF4 tem furo de ~1,5 mm e não passa pelo cilindro
+de 1,9 mm da fêmea. Insistir deforma a fêmea do módulo — e aí nem o rabicho
+certo nem a antena original voltam a travar. Lembrando os 30 ciclos da §4.2:
+cada tentativa frustrada gasta ciclo de um conector que se quer intacto.
+
+**Na recompra:** exigir *MHF1* ou *IPEX 1ª geração* escrito no anúncio — "IPEX"
+sozinho é a família, não a geração, e foi o que deixou o pedido ambíguo. Em
+caso de dúvida, a referência é a medida da fêmea da placa: **1,9 mm**.
+
+E **evitar o adaptador MHF4→U.FL**: ele existe, mas põe uma conexão a mais no
+caminho de RF que é justamente o que a antena externa vem melhorar.
+
+O cabo MHF4 fica **guardado para projeto futuro** — é o conector das placas
+Wi-Fi M.2, e não há o que devolver.
+
+**Isto não trava o experimento.** A linha de base tem de ser medida *antes* da
+instalação de qualquer jeito — ver §4.3 —, então a espera do rabicho certo é
+exatamente o tempo de juntar partidas com a antena de hoje.
+
 ### 4.2 Manuseio do U.FL — continua valendo
 
 O conector aguenta cerca de **30 ciclos** de encaixe (datasheet Hirose). A fêmea
