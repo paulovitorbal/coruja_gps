@@ -146,6 +146,26 @@ bool ConfiguradorGps::acha_o_modulo(const std::uint8_t* quadro,
     return false;
 }
 
+ResultadoConfigGps ConfiguradorGps::executa_com_tentativas(
+        Logger& log, unsigned tentativas) {
+    ResultadoConfigGps r = ResultadoConfigGps::SemResposta;
+    for (unsigned i = 1; i <= tentativas; ++i) {
+        r = executa(log);
+        if (r == ResultadoConfigGps::Configurado ||
+            r == ResultadoConfigGps::Recusado) {
+            return r;
+        }
+        if (i < tentativas) {
+            char msg[128];
+            std::snprintf(msg, sizeof msg,
+                          "configuracao incompleta (%s); tentando de novo "
+                          "(%u de %u)", descreve(r), i + 1, tentativas);
+            log.warning("gps", msg);
+        }
+    }
+    return r;
+}
+
 ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     std::uint8_t q[64];
     log.info("gps", "==== configurando o receptor (RF01.2) ====");
@@ -161,7 +181,13 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
     //
     // Sondar custa até 2 s, e só para quem não respondeu a 9600. O módulo
     // recém-saído da caixa responde na primeira e não paga nada.
-    std::size_t n = ubx::monta_cfg_rate(kPeriodoNavegacaoMs, q, sizeof q);
+    // ⚠️ **A sonda pede 1 Hz, não 4.** Ver `kPeriodoFabricaMs`: a esta
+    // altura o módulo ainda pode estar a 9600 com as sete sentenças de
+    // fábrica, e subir a taxa aqui satura a linha em que os próximos ACKs
+    // precisam trafegar. A taxa de verdade é pedida no passo 4, já a 115200
+    // e já com só duas sentenças ligadas.
+    std::size_t n = ubx::monta_cfg_rate(
+        static_cast<std::uint16_t>(kPeriodoFabricaMs), q, sizeof q);
     bool recusou_na_busca = false;
     if (!acha_o_modulo(q, n, log, &recusou_na_busca)) {
         if (recusou_na_busca) { return ResultadoConfigGps::Recusado; }
@@ -171,7 +197,7 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
         baud_final_ = kBaudFabrica;
         return ResultadoConfigGps::SemResposta;
     }
-    log.info("gps", "CFG-RATE 250 ms: ACK");
+    log.info("gps", "CFG-RATE 1 Hz: ACK — o modulo esta nesta porta");
 
     // --- 2. só a RMC na porta ---------------------------------------------
     //
@@ -242,7 +268,38 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
                         "adiante e quem confirma que a porta nova responde");
     }
 
-    // --- 3b. previsão autônoma de órbita -----------------------------------
+    // --- 3b. a taxa de verdade, agora que a linha aguenta -----------------
+    //
+    // 🔴 **Este passo estava no começo da sequência até 2026-10-26.** Pedir
+    // 4 Hz com o módulo ainda a 9600 e com as sete sentenças de fábrica
+    // ligadas pede ~1 960 B/s de um enlace que entrega 960: a linha satura e
+    // o ACK do comando seguinte se perde. O diário de 24/10 tem o desfecho —
+    // a sequência abortou no `CFG-MSG GGA`, a porta ficou em 9600, e o
+    // aparelho rodou 487 s a 1,3 Hz sem que nada o corrigisse.
+    //
+    // Aqui a conta é outra: RMC + GGA a 4 Hz são ~640 B/s contra 11 520 B/s.
+    n = ubx::monta_cfg_rate(kPeriodoNavegacaoMs, q, sizeof q);
+    if (comanda(q, n, ubx::kCfgRate, "CFG-RATE 250 ms", log) != Passo::Ok) {
+        return ResultadoConfigGps::SemResposta;
+    }
+
+    // --- 3c. modelo dinâmico ----------------------------------------------
+    //
+    // `Automotive`. O padrão de fábrica é `Portable`, que supõe menos
+    // aceleração do que um carro faz — e o filtro de navegação resiste a
+    // aceitar a mudança de velocidade, com atraso justamente em arrancada e
+    // frenagem.
+    //
+    // **Opcional**, como a TXT e o AOP: um módulo que o recuse não pode
+    // custar a RMC e o baud.
+    n = ubx::monta_cfg_nav5_automotivo(q, sizeof q);
+    if (comanda(q, n, ubx::kCfgNav5, "CFG-NAV5 automotivo", log,
+                /*obrigatorio=*/false) != Passo::Ok) {
+        log.warning("gps", "sem modelo automotivo; a velocidade na tela vai "
+                           "demorar mais a acompanhar o carro");
+    }
+
+    // --- 3d. previsão autônoma de órbita -----------------------------------
     //
     // Existe por causa de 14/10/2026: o primeiro fix levou **2 min 48 s** com
     // o carro parado um minuto numa garagem descoberta — seis vezes o cold

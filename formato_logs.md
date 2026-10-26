@@ -159,7 +159,7 @@ o que ele via. Da **v0.2.13** em diante:
 |---|---|---|
 | `boot` | `v0.2.13` | qual firmware escreveu este log |
 | `base` | `piloto recebeu N pontos` | a base chegou a quem alerta — sai como **ERRO** se `N` for zero |
-| `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat)` | a cada 5 min, o estado de quem decide o alerta |
+| `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat) \| serial perdeu B B \| pior volta M ms` | a cada 5 min, o estado de quem decide o alerta — e, desde 26/10/2026, a saúde do laço |
 | `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
 | `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
 | `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado \| sinal: 9 vistos, 5 usados, 4 acima de 35, melhor 41 dBHz` | por que ela demorou — no primeiro fix e a cada 5 min |
@@ -167,7 +167,8 @@ o que ele via. Da **v0.2.13** em diante:
 | `gps` | `radio: MON-HW sem resposta \| ttff do modulo 38.2 s (ligado ha 44.9 s) \| aop ligado` | a mesma linha quando uma das três perguntas não voltou |
 | `diario` | `trecho fechado: veiculo parado` | fechou o arquivo; **a gravação continua** |
 | `diario` | `viagem retomada` / `viagem nova: a parada passou de 2 h` | o que a energização decidiu sobre a viagem anterior |
-| `gps` | `taxa de fixes em 2.0 Hz com posicao presente (falha)` | **WARN** — a cadência caiu com o receptor entregando posição |
+| `gps` | `taxa de fixes em 2.0 Hz com posicao presente (degradado)` | **WARN** — a cadência caiu com o receptor entregando posição |
+| `gps` | `taxa de fixes em 1.3 Hz com posicao presente (falha)` | **WARN** — a mesma queda **piorando**; sai uma segunda vez quando escala |
 | `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima |
 | `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
 | `gps` | `reconfiguracao em voo: configurado; a porta ficou em 115200` | como ela terminou (ERRO se não foi `configurado`) |
@@ -219,6 +220,19 @@ antes de o cartão estar recebendo vai só para o console, e no carro não há
 console. Por isso ela é UMA linha, com as medidas tomadas durante o arranque
 e publicada depois. O campo `console` é a espera pelo USB — **zero no
 firmware do carro desde a v0.2.17**, e era 1500.
+
+🔴 **`serial perdeu` e `pior volta` medem o que custou a viagem de
+24/10/2026.** Os dois são por **janela de cinco minutos**, não desde o boot:
+um pico no arranque não pode mascarar o resto do trajeto.
+
+- **`serial perdeu N B`** — bytes que o anel de recepção recusou por estar
+  cheio. **Zero é o estado saudável.** Diferente de zero diz, em bytes, o
+  tamanho do atraso do laço em relação à serial: a 115200 cada 11,5 bytes é
+  1 ms de linha perdida. Antes de 26/10 não havia anel nenhum, e esses bytes
+  sumiam sem deixar conta.
+- **`pior volta N ms`** — a volta mais demorada do laço na janela. O
+  redesenho completo da faixa do número custava ~53 ms e ninguém via; o teto
+  saudável é a dezena de milissegundos.
 
 ⚠️ **A `vigia` amostra de cinco em cinco minutos.** Ela prova base e fix; a
 `zona` ali é um instante qualquer, e quase nunca cai num alerta. Quem responde

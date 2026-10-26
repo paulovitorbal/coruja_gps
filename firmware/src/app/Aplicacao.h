@@ -194,6 +194,11 @@ private:
     /// O aviso de taxa já foi registrado nesta queda. Uma linha por evento,
     /// não uma por volta do laço.
     bool           taxa_avisada_ = false;
+    /// O pior estado já relatado NESTE episódio de queda.
+    ///
+    /// Sem ele o aviso sairia uma vez só, aos 3 s, quando a `Falha` ainda
+    /// não existe — ela precisa de 5 s. Ver `anota_taxa`.
+    EstadoTaxa     pior_estado_ = EstadoTaxa::Nominal;
     /// Desde quando a taxa está baixa COM fix, para exigir sustentação.
     std::uint32_t  caindo_desde_ms_ = 0;
     bool           caindo_ = false;

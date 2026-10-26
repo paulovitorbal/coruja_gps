@@ -41,6 +41,7 @@ add_executable(testes
     nucleo/FaixaHdopTest.cpp
     nucleo/ZonamentoTest.cpp
     nucleo/DetectorInfracaoTest.cpp
+    nucleo/AnelBytesTest.cpp
     nucleo/AcumuladorViagemTest.cpp
     nucleo/FormatoLogTest.cpp
     nucleo/RetomadaViagemTest.cpp

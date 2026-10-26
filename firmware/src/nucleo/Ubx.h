@@ -55,6 +55,7 @@ constexpr std::uint8_t kNmeaRmc = 0x04;
 constexpr std::uint8_t kNmeaVtg = 0x05;
 constexpr std::uint8_t kNmeaTxt = 0x41;
 
+constexpr std::uint8_t kCfgNav5  = 0x24;
 constexpr std::uint8_t kCfgNavx5 = 0x23;
 
 /// Classes de diagnóstico, só de leitura — ver `UbxDiagnostico.h` para o
@@ -131,6 +132,21 @@ std::size_t monta_consulta(std::uint8_t classe, std::uint8_t id,
 /// e os outros 38 bytes vão zerados: sem essa seleção, este comando
 /// reescreveria mínimo de satélites, limiar de C/N0 e rollover de semana com
 /// zero — um efeito colateral que ninguém pediu.
+/// `CFG-NAV5` com o modelo dinâmico **Automotivo**.
+///
+/// 🔴 **Nunca foi enviado até 2026-10-26**, e o receptor rodava no padrão de
+/// fábrica, `Portable`. Os modelos diferem no quanto de aceleração o filtro
+/// de navegação considera plausível; `Portable` supõe menos do que um carro
+/// faz, e o filtro resiste a aceitar a mudança de velocidade — atraso que
+/// aparece exatamente em arrancada e frenagem, que é onde se olha para o
+/// velocímetro.
+///
+/// O `mask1` marca **só** o bit do modelo dinâmico. Sem isso os 36 bytes
+/// restantes do payload, zerados, reescreveriam máscara de fixes, limiar de
+/// elevação, limites de PDOP e tempo estático — ajustes que ninguém pediu.
+std::size_t monta_cfg_nav5_automotivo(std::uint8_t* destino,
+                                      std::size_t capacidade);
+
 std::size_t monta_cfg_navx5_aop(bool liga, std::uint8_t* destino,
                                 std::size_t capacidade);
 

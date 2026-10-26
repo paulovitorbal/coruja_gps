@@ -232,6 +232,35 @@ TEST(Aplicacao, OTunelNaoVirouAvisoDeTaxaNoLog) {
     EXPECT_FALSE(b.log.contem(Nivel::Warning, "taxa de fixes"));
 }
 
+TEST(Aplicacao, AQuedaParaFALHA_tambem_e_registrada) {
+    // 🔴 **O defeito que o sabado de 24/10/2026 revelou.** O aviso saia uma
+    // vez por episodio, aos 3 s -- e a `Falha` so existe aos 5 s. Resultado:
+    // o diario NUNCA dizia "falha" no caso grave. Sao 254 linhas de
+    // "degradado" no historico contra 15 de "falha", com o receptor tendo
+    // passado 487 s a 1,3 Hz numa delas.
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    // 1,25 Hz: bem abaixo dos 3,0 Hz que separam degradado de falha.
+    roda_em(&b, &app, 4050, 20000, 800);
+    EXPECT_TRUE(b.log.contem(Nivel::Warning, "(falha)"))
+        << "a queda grave foi relatada so como 'degradado'";
+}
+
+TEST(Aplicacao, a_falha_nao_e_relatada_duas_vezes_no_mesmo_episodio) {
+    // Escalar uma vez e informacao; repetir a cada volta do laco e ruido, e
+    // ruido treina quem le a ignorar o log.
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    roda_em(&b, &app, 4050, 30000, 800);
+    int quantas = 0;
+    for (const auto& e : b.log.entradas()) {
+        if (e.mensagem.find("(falha)") != std::string::npos) { ++quantas; }
+    }
+    EXPECT_EQ(quantas, 1);
+}
+
 TEST(Aplicacao, ATaxaQueVoltaAoNormalTambemEhRegistrada) {
     Bancada b;
     auto app = b.monta();

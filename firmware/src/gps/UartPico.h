@@ -1,5 +1,6 @@
 #pragma once
 #include "gps/Uart.h"
+#include "nucleo/AnelBytes.h"
 
 namespace coruja {
 
@@ -19,8 +20,20 @@ public:
 
     std::uint32_t baud() const { return baud_; }
 
+    /// Bytes descartados por anel cheio. **Zero é o estado saudável.**
+    ///
+    /// Diferente de zero significa que o laço ficou longe demais da serial —
+    /// e diz, em bytes, o tamanho do atraso. Vai à linha `vigia`.
+    std::uint32_t perdidos() const { return anel_.perdidos(); }
+    void zera_perdidos() { anel_.zera_perdidos(); }
+
 private:
+    /// Chamado pela interrupção de recepção. Estático porque o vetor de
+    /// interrupção não carrega contexto; só existe uma UART de GPS.
+    static void atende_rx();
+
     std::uint32_t baud_ = 0;
+    AnelBytes     anel_;
 };
 
 }  // namespace coruja

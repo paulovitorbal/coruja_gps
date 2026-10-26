@@ -816,6 +816,50 @@ periférica. Novos estados devem preferir a tela, não mais cores.
 
 ---
 
+#### 🔴 A ordem da sequência é o requisito, e custou uma viagem
+
+*Acrescentado em 2026-10-26, sobre o diário de 24/10.*
+
+O `CFG-RATE` servia de sonda de baud e vinha **primeiro**. Com o módulo
+ainda a 9600 e as sete sentenças de fábrica ligadas, pedir 4 Hz pede
+**~1 960 B/s de um enlace que entrega 960** — o dobro do que cabe. A linha
+satura, o ACK do `CFG-MSG` seguinte se perde na enxurrada, e a sequência
+aborta no segundo comando.
+
+O desfecho está medido: naquele sábado a porta ficou em 9600, as sete
+sentenças continuaram ligadas, e o aparelho rodou **487 segundos a 1,3 Hz**
+com a tela atualizando uma vez por segundo. Oito dos 93 boots do histórico
+terminam assim — **um em doze**.
+
+**A ordem passa a ser:**
+
+1. sondar o baud com `CFG-RATE` a **1 Hz** — que é o de fábrica, e não muda
+   carga nenhuma;
+2. silenciar as sentenças (`CFG-MSG`), ainda a 9600, agora com folga;
+3. subir a porta a 115200 (`CFG-PRT`);
+4. **só então** pedir os 250 ms do RF01.4 — já com RMC + GGA apenas, que a
+   115200 são ~640 B/s contra 11 520;
+5. modelo dinâmico, previsão de órbita, persistir.
+
+> ⚠️ **E a sequência repete quando aborta.** No arranque, duas tentativas: o
+> aparelho ainda não está dirigindo, e bloquear ali vale muito menos que
+> rodar a viagem inteira meio configurado. A reconfiguração em voo (RF01.5)
+> **não** repete — lá o bloqueio tira a tela e o encoder de quem está ao
+> volante.
+
+#### 🔴 Modelo dinâmico: `Automotive`, e nunca tinha sido pedido
+
+O `CFG-NAV5` não existia no firmware até 2026-10-26: o receptor rodava no
+padrão de fábrica, `Portable`, que supõe menos aceleração do que um carro
+faz. O filtro de navegação resiste a aceitar a mudança de velocidade, e o
+atraso aparece exatamente em arrancada e frenagem — onde se olha para o
+velocímetro.
+
+O `mask1` marca **só** o bit do modelo. Sem isso os 36 bytes zerados do
+payload reescreveriam máscara de fixes, limiar de elevação, limites de PDOP
+e tempo estático. O passo é **opcional**, como a TXT e o AOP: um ganho de
+resposta não pode custar a RMC e o baud.
+
 ### [RF04] Ajuste de Luminosidade Dinâmico
 
 O sistema deve ler o encoder rotativo KY-040 para ajustar o ciclo de trabalho
@@ -863,6 +907,35 @@ não acusou nada.
 > giro chega ao `Brilho` — e chegava. Faltava o de que o `Brilho` chega ao
 > painel. Um dublê que registra os duties escritos cobre os dois sentidos: que
 > o valor certo saiu, e que ele não sai repetido.
+
+#### 🔴 O desenho não pode cegar a serial
+
+*Acrescentado em 2026-10-26, sobre a análise de desempenho.*
+
+O SPI do painel é **bloqueante**. Limpar a faixa do número inteira custa
+320 × 166 = **53 120 pixels**, que a 16 MHz com 16 bits por pixel são
+**~53 ms**. O FIFO de hardware do UART tem 32 bytes e transborda em
+**2,8 ms** a 115200 — dezenove vezes menos.
+
+Acelerando, o inteiro de km/h muda ~7 vezes por segundo: **37% do tempo com
+a serial sem ninguém drenando**. É o que punha a taxa medida em 3,7 Hz em
+vez de 4,0, com quedas a 2,7 Hz — sempre "com posição presente", isto é, o
+receptor entregando e o firmware jogando fora.
+
+**Duas exigências saem daí:**
+
+1. **A recepção é por interrupção, com anel de 1 KiB** (~89 ms de linha).
+   O tempo do laço deixa de importar. Anel cheio **descarta o byte novo e
+   conta** — sobrescrever o antigo corromperia a sentença que o laço está
+   no meio de ler, trocando perda visível por lixo que passa pelo parser.
+2. **Trocar um dígito redesenha um dígito.** A fonte é monoespaçada, então
+   com o comprimento igual cada dígito ocupa sempre a mesma célula: 56 × 94
+   px, ~5,3 ms, dez vezes menos. Mudança de largura, de cor ou do limite
+   volta ao redesenho da faixa, que reposiciona o conjunto.
+
+> A conta dos dois números está na linha `vigia`: `serial perdeu N B` e
+> `pior volta N ms`, por janela de cinco minutos. **Zero e dezena de
+> milissegundos** são o estado saudável.
 
 #### ✅ Debounce: máquina de estados em software, filtro RC como contingência
 

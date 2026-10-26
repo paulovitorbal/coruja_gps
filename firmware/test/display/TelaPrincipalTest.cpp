@@ -457,14 +457,84 @@ TEST(TelaPrincipal, sem_mudanca_nao_redesenha_nada) {
     EXPECT_EQ(v.apresentacoes, 0U);
 }
 
-TEST(TelaPrincipal, mudar_so_a_velocidade_redesenha_so_o_numero) {
+// ============================ o redesenho por digito (26/10/2026)
+//
+// 🔴 Limpar a area do numero inteira custa 320 x 166 = 53 120 pixels, que a
+// 16 MHz com 16 bits por pixel sao ~53 ms de SPI BLOQUEANTE. O FIFO do UART
+// do GPS tem 32 bytes e transborda em 2,8 ms: cada troca de digito jogava
+// fora uma rajada de sentencas. Acelerando, o numero muda ~7 vezes por
+// segundo -- 37% do tempo com a serial sem ninguem drenando.
+
+TEST(TelaPrincipal, mudar_so_a_velocidade_redesenha_so_o_digito_que_mudou) {
     VisorEspiao v;
     TelaPrincipal tela;
     tela.desenha(dirigindo(75.0F), 0, v);
     v.limpa();
     EXPECT_EQ(tela.desenha(dirigindo(76.0F), 250, v), 1);
     ASSERT_NE(v.numero(), nullptr);
-    EXPECT_EQ(v.numero()->s, "76");
+    EXPECT_EQ(v.numero()->s, "6") << "redesenhou o numero inteiro";
+}
+
+TEST(TelaPrincipal, o_digito_que_nao_mudou_nao_e_tocado) {
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(75.0F), 0, v);
+    v.limpa();
+    tela.desenha(dirigindo(76.0F), 250, v);
+    int desenhos = 0;
+    for (const auto& t : v.textos) {
+        if (t.f == Fonte::Numero) { ++desenhos; }
+    }
+    EXPECT_EQ(desenhos, 1) << "desenhou mais de um glifo";
+}
+
+TEST(TelaPrincipal, a_limpeza_cobre_so_a_celula_do_digito) {
+    // ⚠️ **A asserção que mede o ganho.** 56 px de largura em vez de 320:
+    // ~5,3 ms de SPI em vez de ~53 ms.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(75.0F), 0, v);
+    v.limpa();
+    tela.desenha(dirigindo(76.0F), 250, v);
+    ASSERT_FALSE(v.retangulos.empty());
+    for (const auto& r : v.retangulos) {
+        EXPECT_LT(r.l, tela::kLargura)
+            << "limpou a faixa inteira para trocar um digito";
+    }
+}
+
+TEST(TelaPrincipal, mudar_de_largura_volta_ao_redesenho_completo) {
+    // De 99 para 100 o conjunto se desloca: a centralizacao muda, e redesenhar
+    // por celula deixaria restos do numero anterior na tela.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(99.0F), 0, v);
+    v.limpa();
+    tela.desenha(dirigindo(100.0F), 250, v);
+    ASSERT_NE(v.numero(), nullptr);
+    EXPECT_EQ(v.numero()->s, "100");
+    bool limpou_a_faixa = false;
+    for (const auto& r : v.retangulos) {
+        if (r.l == tela::kLargura) { limpou_a_faixa = true; }
+    }
+    EXPECT_TRUE(limpou_a_faixa) << "nao limpou o resto do numero anterior";
+}
+
+TEST(TelaPrincipal, trocar_a_cor_volta_ao_redesenho_completo) {
+    // Perder o fix troca a cor do numero. Repintar so os digitos diferentes
+    // deixaria os iguais na cor velha.
+    VisorEspiao v;
+    TelaPrincipal tela;
+    tela.desenha(dirigindo(75.0F), 0, v);
+    v.limpa();
+    EstadoTela e = dirigindo(75.0F);
+    e.tem_fix = false;
+    tela.desenha(e, 250, v);
+    bool limpou_a_faixa = false;
+    for (const auto& r : v.retangulos) {
+        if (r.l == tela::kLargura) { limpou_a_faixa = true; }
+    }
+    EXPECT_TRUE(limpou_a_faixa);
 }
 
 TEST(TelaPrincipal, invalida_forca_o_redesenho_completo) {

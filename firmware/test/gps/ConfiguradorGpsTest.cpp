@@ -189,10 +189,13 @@ struct Bancada {
 // repeticao passa a fazer sentido.
 
 TEST(ConfiguradorGps, a_sondagem_certa_de_primeira_quase_nao_custa) {
+    // DOIS CFG-RATE agora, e de proposito: o primeiro e a sonda, a 1 Hz; o
+    // segundo pede os 4 Hz depois que o baud ja subiu. Ver
+    // `o_4_hz_so_e_pedido_depois_do_baud`.
     Bancada b;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1u)
-        << "mandou CFG-RATE mais de uma vez com o modulo respondendo";
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2u)
+        << "sondou mais de uma vez com o modulo respondendo";
 }
 
 TEST(ConfiguradorGps, no_baud_errado_desiste_depressa_e_acha_no_outro) {
@@ -202,8 +205,8 @@ TEST(ConfiguradorGps, no_baud_errado_desiste_depressa_e_acha_no_outro) {
     b.uart.baud_exigido = kBaudDesejado;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
     EXPECT_EQ(b.baud_final, kBaudDesejado);
-    // Duas perguntas curtas, nao duas longas vezes duas.
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2u);
+    // Duas perguntas curtas na sondagem, mais o CFG-RATE final dos 4 Hz.
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 3u);
     EXPECT_LE(b.pausa.agora, 2U * kEsperasDaSondagem * kEsperaEntreLeiturasMs)
         << "a sondagem gastou mais que duas janelas curtas";
 }
@@ -311,14 +314,17 @@ TEST(ConfiguradorGps, o_AOP_e_pedido_ANTES_de_persistir) {
 TEST(ConfiguradorGps, pede_250_ms_que_sao_os_4_hz_do_rf01_4) {
     Bancada b;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    // O ULTIMO CFG-RATE e o que vale: o primeiro e a sonda, a 1 Hz.
+    unsigned ultimo = 0;
+    bool achou = false;
     for (const auto& c : b.uart.comandos) {
         if (c.id != ubx::kCfgRate) { continue; }
         ASSERT_GE(c.payload.size(), 2U);
-        const unsigned ms = c.payload[0] | (c.payload[1] << 8);
-        EXPECT_EQ(ms, 250U);
-        return;
+        ultimo = c.payload[0] | (c.payload[1] << 8);
+        achou = true;
     }
-    FAIL() << "nao mandou CFG-RATE";
+    ASSERT_TRUE(achou) << "nao mandou CFG-RATE";
+    EXPECT_EQ(ultimo, 250U);
 }
 
 TEST(ConfiguradorGps, liga_a_RMC_e_a_GGA_e_desliga_as_outras_cinco) {
@@ -432,11 +438,86 @@ TEST(ConfiguradorGps, desistir_devolve_a_porta_ao_baud_de_fabrica) {
 }
 
 TEST(ConfiguradorGps, o_sondar_nao_atropela_o_CFG_RATE_do_modulo_normal) {
-    // Modulo de fabrica responde de primeira: nenhuma sondagem extra, e o
-    // CFG-RATE sai uma vez so.
+    // Modulo de fabrica responde de primeira: nenhuma sondagem EXTRA. Sobram
+    // os dois de projeto -- a sonda a 1 Hz e os 4 Hz do fim.
     Bancada b;
     EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 1U);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2U);
+}
+
+// ============================ a ordem que a viagem de 24/10/2026 cobrou
+//
+// 🔴 Com o modulo ainda a 9600 e as sete sentencas de fabrica ligadas, pedir
+// 4 Hz pede ~1 960 B/s de um enlace que entrega 960. A linha satura, o ACK do
+// CFG-MSG seguinte se perde, a sequencia aborta -- e o aparelho roda assim a
+// viagem inteira. Foram 487 s a 1,3 Hz naquele sabado.
+
+TEST(ConfiguradorGps, a_sonda_pede_1_hz_e_nao_4) {
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    for (const auto& c : b.uart.comandos) {
+        if (c.id != ubx::kCfgRate) { continue; }
+        ASSERT_GE(c.payload.size(), 2U);
+        const unsigned ms = c.payload[0] | (c.payload[1] << 8);
+        EXPECT_EQ(ms, 1000U) << "a sonda subiu a taxa antes de aliviar a linha";
+        return;
+    }
+    FAIL() << "nao mandou CFG-RATE";
+}
+
+TEST(ConfiguradorGps, o_4_hz_so_e_pedido_depois_do_baud) {
+    // ⚠️ A ordem e o conserto inteiro. Se os 4 Hz sairem antes do CFG-PRT,
+    // eles saem no enlace de 9600 -- que e exatamente a saturacao de 24/10.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    int i_prt = -1, i_4hz = -1;
+    for (std::size_t i = 0; i < b.uart.comandos.size(); ++i) {
+        const auto& c = b.uart.comandos[i];
+        if (c.id == ubx::kCfgPrt) { i_prt = static_cast<int>(i); }
+        if (c.id == ubx::kCfgRate && c.payload.size() >= 2 &&
+            (c.payload[0] | (c.payload[1] << 8)) == 250) {
+            i_4hz = static_cast<int>(i);
+        }
+    }
+    ASSERT_GE(i_prt, 0);
+    ASSERT_GE(i_4hz, 0);
+    EXPECT_GT(i_4hz, i_prt) << "pediu 4 Hz antes de subir o baud";
+}
+
+TEST(ConfiguradorGps, as_sentencas_sao_silenciadas_antes_dos_4_hz) {
+    // O outro lado da mesma conta: a 9600 as sete de fabrica nao cabem nem
+    // a 1 Hz, quanto mais a 4.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    int i_gsv = -1, i_4hz = -1;
+    for (std::size_t i = 0; i < b.uart.comandos.size(); ++i) {
+        const auto& c = b.uart.comandos[i];
+        if (c.id == ubx::kCfgMsg && c.payload.size() >= 2 &&
+            c.payload[1] == ubx::kNmeaGsv) {
+            i_gsv = static_cast<int>(i);
+        }
+        if (c.id == ubx::kCfgRate && c.payload.size() >= 2 &&
+            (c.payload[0] | (c.payload[1] << 8)) == 250) {
+            i_4hz = static_cast<int>(i);
+        }
+    }
+    ASSERT_GE(i_gsv, 0) << "nao desligou a GSV";
+    ASSERT_GE(i_4hz, 0);
+    EXPECT_GT(i_4hz, i_gsv) << "subiu a taxa com a GSV ainda ligada";
+}
+
+TEST(ConfiguradorGps, pede_o_modelo_automotivo) {
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(b.uart.mandou(ubx::kCfgNav5));
+}
+
+TEST(ConfiguradorGps, modelo_automotivo_recusado_nao_derruba_a_sequencia) {
+    // Opcional, como a TXT e o AOP: um ganho de resposta nao pode custar a
+    // RMC e o baud.
+    Bancada b;
+    b.uart.recusa.push_back(ubx::kCfgNav5);
+    EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
 }
 
 // ================================================== passos opcionais
@@ -539,7 +620,8 @@ TEST(ConfiguradorGps, recupera_na_segunda_tentativa) {
     Bancada b;
     b.uart.engole = 1;   // a primeira resposta some
     EXPECT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2U);
+    // A sonda repetida, mais o CFG-RATE dos 4 Hz no fim.
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 3U);
 }
 
 TEST(ConfiguradorGps, falha_so_ao_persistir_e_dito_com_esse_nome) {
@@ -585,6 +667,54 @@ TEST(ConfiguradorGps, descricoes_cobrem_todos_os_desfechos) {
                          ResultadoConfigGps::NaoPersistiu}) {
         EXPECT_STRNE(descreve(r), "?");
     }
+}
+
+
+// ====================================== repetir quando a sequencia aborta
+//
+// 🔴 Em 24/10/2026 a sequencia abortou no segundo comando e o aparelho
+// seguiu em frente: a viagem inteira correu com o receptor meio
+// configurado, 487 s a 1,3 Hz. Desistir na primeira era aceitar isso calado.
+
+TEST(ConfiguradorGps, silencio_na_primeira_tenta_de_novo) {
+    Bancada b;
+    b.uart.muda.push_back(ubx::kCfgMsg);   // some com os ACK de CFG-MSG
+    ConfiguradorGps c{b.uart, b.pausa};
+    ASSERT_NE(c.executa_com_tentativas(b.log), ResultadoConfigGps::Configurado);
+    EXPECT_GE(b.uart.quantos(ubx::kCfgMsg), 2U)
+        << "desistiu na primeira tentativa";
+}
+
+TEST(ConfiguradorGps, uma_recusa_NAO_e_repetida) {
+    // ⚠️ Recusa e resposta: o modulo entendeu e nao aceitou. Insistir so
+    // atrasaria o diagnostico -- mesmo raciocinio do `comanda`.
+    Bancada b;
+    b.uart.recusa.push_back(ubx::kCfgRate);
+    ConfiguradorGps c{b.uart, b.pausa};
+    EXPECT_EQ(c.executa_com_tentativas(b.log), ResultadoConfigGps::Recusado);
+    EXPECT_LE(b.uart.quantos(ubx::kCfgRate), 1U) << "repetiu um NAK";
+}
+
+TEST(ConfiguradorGps, dando_certo_na_primeira_nao_repete_nada) {
+    Bancada b;
+    ConfiguradorGps c{b.uart, b.pausa};
+    ASSERT_EQ(c.executa_com_tentativas(b.log), ResultadoConfigGps::Configurado);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgCfg), 1U);
+}
+
+TEST(ConfiguradorGps, a_repeticao_aparece_no_log) {
+    // Sem a linha, "por que o boot demorou" vira adivinhacao.
+    Bancada b;
+    b.uart.muda.push_back(ubx::kCfgMsg);
+    ConfiguradorGps c{b.uart, b.pausa};
+    c.executa_com_tentativas(b.log);
+    bool achou = false;
+    for (const auto& e : b.log.entradas()) {
+        if (e.mensagem.find("tentando de novo") != std::string::npos) {
+            achou = true;
+        }
+    }
+    EXPECT_TRUE(achou);
 }
 
 }  // namespace

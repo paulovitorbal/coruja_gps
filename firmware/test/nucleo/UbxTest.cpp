@@ -345,4 +345,46 @@ TEST(UbxLeitor, descricoes_cobrem_todos_os_eventos) {
     }
 }
 
+
+// ======================================= CFG-NAV5, o modelo dinamico
+//
+// 🔴 Nunca foi enviado ate 26/10/2026: o receptor rodava no padrao de
+// fabrica, `Portable`, que supoe menos aceleracao do que um carro faz. O
+// filtro resiste a aceitar a mudanca de velocidade, e o atraso aparece em
+// arrancada e frenagem -- onde se olha para o velocimetro.
+
+TEST(Ubx, cfg_nav5_pede_o_modelo_automotivo) {
+    std::uint8_t q[64];
+    const auto n = monta_cfg_nav5_automotivo(q, sizeof q);
+    ASSERT_EQ(n, 8u + 36u);
+    EXPECT_EQ(q[2], kClasseCfg);
+    EXPECT_EQ(q[3], kCfgNav5);
+    EXPECT_EQ(q[4], 36);                 // tamanho, little-endian
+    EXPECT_EQ(q[5], 0);
+    EXPECT_EQ(q[6 + 2], 4) << "dynModel tem de ser 4 (Automotive)";
+}
+
+TEST(Ubx, cfg_nav5_marca_SO_o_bit_do_modelo_dinamico) {
+    // ⚠️ Sem a mascara, os 36 bytes zerados reescreveriam mascara de fixes,
+    // limiar de elevacao, limites de PDOP e tempo estatico -- ajustes que
+    // ninguem pediu e que nenhum log explicaria depois.
+    std::uint8_t q[64];
+    monta_cfg_nav5_automotivo(q, sizeof q);
+    EXPECT_EQ(q[6], 0x01) << "mask bit 0 = dynModel";
+    EXPECT_EQ(q[7], 0x00);
+}
+
+TEST(Ubx, cfg_nav5_nao_toca_no_resto_do_payload) {
+    std::uint8_t q[64];
+    monta_cfg_nav5_automotivo(q, sizeof q);
+    for (std::size_t i = 3; i < 36; ++i) {
+        EXPECT_EQ(q[6 + i], 0) << "byte " << i << " do payload";
+    }
+}
+
+TEST(Ubx, cfg_nav5_recusa_destino_pequeno) {
+    std::uint8_t q[8];
+    EXPECT_EQ(monta_cfg_nav5_automotivo(q, sizeof q), 0u);
+}
+
 }  // namespace

@@ -274,7 +274,50 @@ int TelaPrincipal::desenha(const EstadoTela& estado, std::uint32_t agora_ms,
         ++regioes;
     }
 
-    if (tudo || std::strcmp(agora.numero, anterior_.numero) != 0 ||
+    // 🔴 **O caminho rápido, e a razão dele.** Limpar a área inteira custa
+    // 320 × 166 = 53 120 pixels, que a 16 MHz com 16 bits por pixel são
+    // ~53 ms de SPI **bloqueante**. O FIFO do UART do GPS tem 32 bytes e
+    // transborda em 2,8 ms a 115200: cada troca de dígito jogava fora uma
+    // rajada inteira de sentenças. Acelerando, o número muda ~7 vezes por
+    // segundo — 37% do tempo com a serial sem ninguém drenando, e é isso que
+    // põe a taxa medida em 3,7 Hz em vez de 4,0.
+    //
+    // A fonte é monoespaçada (JetBrains Mono, todo dígito com 56 px), então
+    // quando o COMPRIMENTO não muda cada dígito ocupa sempre a mesma célula.
+    // De 99 para 98 só a última muda: 56 × 94 = 5 264 px, ~5,3 ms. Dez vezes
+    // menos.
+    //
+    // Fora disso — mudou de largura, mudou o limite, mudou a cor, ou é
+    // redesenho total — vale o caminho antigo, que reposiciona o conjunto.
+    const bool mesmo_tamanho =
+        std::strlen(agora.numero) == std::strlen(anterior_.numero);
+    const bool so_digitos_mudaram =
+        !tudo && mesmo_tamanho &&
+        std::strcmp(agora.numero, anterior_.numero) != 0 &&
+        std::strcmp(agora.limite, anterior_.limite) == 0 &&
+        agora.numero_cor == anterior_.numero_cor;
+
+    if (so_digitos_mudaram) {
+        const int lv = largura_da_fonte(Fonte::Numero, agora.numero);
+        const int ll = largura_da_fonte(Fonte::NumeroPequeno, agora.limite);
+        const int x0 = (tela::kLargura - lv - ll) / 2;
+        const int yv = tela::kYAreaNumero +
+                       (tela::kAreaNumero -
+                        altura_da_fonte(Fonte::Numero)) / 2;
+        const int alt = altura_da_fonte(Fonte::Numero);
+        int x = x0;
+        for (std::size_t k = 0; agora.numero[k] != '\0'; ++k) {
+            const char c[2] = {agora.numero[k], '\0'};
+            const int larg = largura_da_fonte(Fonte::Numero, c);
+            if (agora.numero[k] != anterior_.numero[k]) {
+                visor.retangulo(x, yv, larg, alt, paleta::kFundo);
+                visor.texto(x, yv, c, Fonte::Numero, agora.numero_cor,
+                            Alinhamento::Esquerda);
+            }
+            x += larg;
+        }
+        ++regioes;
+    } else if (tudo || std::strcmp(agora.numero, anterior_.numero) != 0 ||
         std::strcmp(agora.limite, anterior_.limite) != 0 ||
         agora.numero_cor != anterior_.numero_cor) {
         visor.retangulo(0, tela::kYAreaNumero, tela::kLargura,

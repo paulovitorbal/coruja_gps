@@ -619,7 +619,14 @@ int main() {
     // aparelho fica lendo um fluxo ilegível — mudo, não lento. Descartar este
     // retorno era jogar fora o único aviso que existia.
     coruja::ConfiguradorGps configurador(uart, pausa);
-    const coruja::ResultadoConfigGps desfecho = configurador.executa(log);
+    // ⚠️ **Com repetição, e só aqui.** No arranque o aparelho ainda não está
+    // dirigindo, então bloquear vale a pena: foi desistir na primeira que
+    // deixou a viagem de 24/10/2026 inteira com o receptor meio configurado.
+    // A reconfiguração em voo adiante NÃO repete — lá o bloqueio tira a tela
+    // e o encoder de quem está ao volante, e o monitor volta a pedir sozinho
+    // no ciclo seguinte.
+    const coruja::ResultadoConfigGps desfecho =
+        configurador.executa_com_tentativas(log);
     if (desfecho != coruja::ResultadoConfigGps::Configurado) {
         char aviso[160];
         std::snprintf(aviso, sizeof aviso,
@@ -714,8 +721,24 @@ int main() {
     //
     // Uma linha a cada cinco minutos responde as três perguntas e custa doze
     // linhas por hora de viagem.
-    const auto registra_vigilia = [&log, &piloto, &gps](std::uint32_t t_ms) {
-        char msg[96];
+    // 🔴 **Instrumentação da serial e do laço (26/10/2026).**
+    //
+    // A análise de desempenho não conseguiu dizer quanto dos 4 s de atraso
+    // vinha de cada suspeito, porque nenhum deles era medido. Estes dois
+    // números fecham a conta na próxima viagem:
+    //
+    // - `perdidos` — bytes que o anel recusou por estar cheio. **Zero é o
+    //   estado saudável.** Diferente de zero diz, em bytes, o tamanho do
+    //   atraso do laço em relação à serial.
+    // - `pior volta` — a volta mais demorada do laço na janela. É o número
+    //   que o redesenho de 53 ms produzia e ninguém via.
+    //
+    // Ambos por JANELA de cinco minutos, não desde o boot: um pico de uma
+    // vez no arranque não pode ficar mascarando o resto da viagem.
+    std::uint32_t pior_volta_ms = 0;
+    const auto registra_vigilia = [&log, &piloto, &gps, &uart,
+                                   &pior_volta_ms](std::uint32_t t_ms) {
+        char msg[160];
         char hdop[24] = "sem medida";
         if (gps.tem_qualidade(t_ms)) {
             std::snprintf(hdop, sizeof hdop, "%.1f (%u sat)",
@@ -723,11 +746,16 @@ int main() {
                           static_cast<unsigned>(gps.qualidade().satelites));
         }
         std::snprintf(msg, sizeof msg,
-                      "base %u pts | fix %s | zona %u | hdop %s",
+                      "base %u pts | fix %s | zona %u | hdop %s | "
+                      "serial perdeu %lu B | pior volta %lu ms",
                       static_cast<unsigned>(piloto.pontos_da_base()),
                       gps.tem_fix(t_ms) ? "sim" : "NAO",
-                      static_cast<unsigned>(piloto.veredito().zona), hdop);
+                      static_cast<unsigned>(piloto.veredito().zona), hdop,
+                      static_cast<unsigned long>(uart.perdidos()),
+                      static_cast<unsigned long>(pior_volta_ms));
         log.info("vigia", msg);
+        uart.zera_perdidos();
+        pior_volta_ms = 0;
     };
 
     // ===================== instrumentacao de partida (TTFF), 14/10/2026
@@ -790,7 +818,17 @@ int main() {
     std::uint32_t proxima_temperatura_ms =
         pausa.agora_ms() + kIntervaloTemperaturaMs;
 
+    std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
+        // Medido no TOPO da volta seguinte: assim a conta inclui tudo o que
+        // a volta fez, inclusive o desenho, que é justamente o suspeito.
+        {
+            const std::uint32_t agora = pausa.agora_ms();
+            const std::uint32_t gasto = agora - volta_comecou_ms;
+            if (gasto > pior_volta_ms) { pior_volta_ms = gasto; }
+            volta_comecou_ms = agora;
+        }
+
         app.passo(pausa.agora_ms());
 
         // RF01.5: taxa em falha com o receptor **calado**. Reenviar a

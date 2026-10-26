@@ -157,6 +157,7 @@ void Aplicacao::anota_taxa(std::uint32_t agora_ms, bool tem_fix) {
                                    estado == EstadoTaxa::Falha);
     if (!baixa) {
         caindo_ = false;
+        pior_estado_ = EstadoTaxa::Nominal;
         if (!taxa_avisada_) { return; }
         taxa_avisada_ = false;
         // Sem fix o aviso apenas deixa de valer, e dizer "normalizou" seria
@@ -179,11 +180,23 @@ void Aplicacao::anota_taxa(std::uint32_t agora_ms, bool tem_fix) {
         caindo_ = true;
         caindo_desde_ms_ = agora_ms;
     }
-    if (taxa_avisada_ ||
-        (agora_ms - caindo_desde_ms_) < kSustentacaoAvisoTaxaMs) {
+    // 🔴 **Avisa de novo quando PIORA**, e não só na primeira vez.
+    //
+    // Até 2026-10-26 esta linha saía uma vez por episódio, aos 3 s — e a
+    // `Falha` só existe aos 5 s (`kSustentacaoFalhaMs`). O resultado é que o
+    // diário NUNCA dizia "falha" no caso grave: em 24/10 o receptor passou
+    // 487 s a 1,3 Hz e as 254 linhas do histórico dizem todas "degradado",
+    // contra 15 de "falha". Não era o monitor que não escalava; era o aviso
+    // que não voltava a olhar.
+    const bool piorou = taxa_avisada_ && estado == EstadoTaxa::Falha &&
+                        pior_estado_ != EstadoTaxa::Falha;
+    if (!piorou &&
+        (taxa_avisada_ ||
+         (agora_ms - caindo_desde_ms_) < kSustentacaoAvisoTaxaMs)) {
         return;
     }
     taxa_avisada_ = true;
+    pior_estado_ = estado;
     char msg[96];
     std::snprintf(msg, sizeof msg,
                   "taxa de fixes em %.1f Hz com posicao presente (%s)",

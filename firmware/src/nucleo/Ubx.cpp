@@ -114,6 +114,14 @@ std::size_t monta_consulta(std::uint8_t classe, std::uint8_t id,
     return monta(classe, id, nullptr, 0, destino, capacidade);
 }
 
+std::size_t monta_cfg_nav5_automotivo(std::uint8_t* destino,
+                                      std::size_t capacidade) {
+    std::uint8_t p[36] = {};
+    poe_u16(&p[0], 0x0001);   // mask, bit 0: aplique SÓ o dynModel
+    p[2] = 4;                 // dynModel 4 = Automotive
+    return monta(kClasseCfg, kCfgNav5, p, sizeof p, destino, capacidade);
+}
+
 std::size_t monta_cfg_navx5_aop(bool liga, std::uint8_t* destino,
                                 std::size_t capacidade) {
     std::uint8_t p[40] = {};

@@ -39,6 +39,19 @@ constexpr unsigned kTentativasPorComando = 2;
 /// 0,5 s do outro lado.
 constexpr unsigned kEsperasDaSondagem = 12;
 
+/// O período de navegação de FÁBRICA, em ms. É com ele que se sonda.
+///
+/// 🔴 **A sonda não pode pedir 4 Hz.** Até 2026-10-26 ela pedia, e o efeito
+/// está medido no diário de 24/10: com o módulo ainda a 9600 e com as sete
+/// sentenças de fábrica ligadas, subir para 4 Hz pede **~1 960 B/s de um
+/// enlace que entrega 960**. A linha satura, o ACK do `CFG-MSG` seguinte se
+/// perde na enxurrada, a sequência aborta — e o aparelho roda a viagem
+/// inteira assim. Foram 487 s a 1,3 Hz naquele sábado.
+///
+/// Pedir 1 Hz é pedir o que já está lá: o ACK confirma o baud sem mexer em
+/// carga nenhuma.
+constexpr std::uint32_t kPeriodoFabricaMs = 1000;
+
 constexpr std::uint32_t kBaudFabrica = 9600;
 constexpr std::uint32_t kBaudDesejado = 115200;
 constexpr std::uint16_t kPeriodoNavegacaoMs = 250;   // 4 Hz, RF01.4
@@ -57,6 +70,21 @@ public:
     ConfiguradorGps(Uart& uart, Pausa& pausa) : uart_(uart), pausa_(pausa) {}
 
     ResultadoConfigGps executa(Logger& log);
+
+    /// Roda a sequência de novo quando ela aborta. Devolve o último desfecho.
+    ///
+    /// 🔴 **Existe por causa de 24/10/2026.** A sequência abortou no segundo
+    /// comando, o aparelho seguiu em frente, e a viagem inteira correu com o
+    /// receptor meio configurado — 487 s a 1,3 Hz, com as sete sentenças de
+    /// fábrica saturando um enlace de 9600. Desistir na primeira era aceitar
+    /// isso em silêncio.
+    ///
+    /// **Não repete um NAK.** Recusa é resposta: o módulo entendeu e não
+    /// aceitou, e insistir só atrasaria o diagnóstico. Repete silêncio e
+    /// falha de persistência, que são os desfechos em que a repetição tem
+    /// chance — e a sonda de baud, barata, roda de novo junto.
+    ResultadoConfigGps executa_com_tentativas(Logger& log,
+                                              unsigned tentativas = 2);
 
     /// Baud em que a porta ficou. Interessa a quem for ler depois.
     std::uint32_t baud_final() const { return baud_final_; }
