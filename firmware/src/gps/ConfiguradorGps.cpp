@@ -138,8 +138,13 @@ bool ConfiguradorGps::acha_o_modulo(const std::uint8_t* quadro,
             uart_.define_baud(baud);
             baud_final_ = baud;
         }
+        // ⚠️ O rótulo diz **1 Hz**, que é o que a sonda manda de verdade.
+        // Até 26/10/2026 dizia "250 ms", e o diário daquele dia tem quatro
+        // linhas seguidas em que a sonda se anuncia como 4 Hz logo acima da
+        // linha que diz 1 Hz — quem lesse concluiria que a ordem antiga
+        // continuava, que é justamente o defeito recém-consertado.
         const Passo r = comanda(quadro, tamanho, ubx::kCfgRate,
-                                "CFG-RATE 250 ms", log);
+                                "CFG-RATE 1 Hz (sonda)", log);
         if (r == Passo::Nak) { *recusou = true; return false; }
         if (r == Passo::Ok)  { return true; }
     }
@@ -197,7 +202,14 @@ ResultadoConfigGps ConfiguradorGps::executa(Logger& log) {
         baud_final_ = kBaudFabrica;
         return ResultadoConfigGps::SemResposta;
     }
-    log.info("gps", "CFG-RATE 1 Hz: ACK — o modulo esta nesta porta");
+    {
+        // Não repete o ACK — `comanda` já o registrou. O que falta é **em
+        // que porta** o módulo apareceu, que é o desfecho da sondagem.
+        char msg[64];
+        std::snprintf(msg, sizeof msg, "modulo encontrado em %lu",
+                      static_cast<unsigned long>(baud_final_));
+        log.info("gps", msg);
+    }
 
     // --- 2. só a RMC na porta ---------------------------------------------
     //

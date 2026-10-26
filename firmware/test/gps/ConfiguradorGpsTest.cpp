@@ -717,4 +717,57 @@ TEST(ConfiguradorGps, a_repeticao_aparece_no_log) {
     EXPECT_TRUE(achou);
 }
 
+
+TEST(ConfiguradorGps, a_sonda_se_anuncia_como_1_hz_no_log) {
+    // 🔴 **Achado no diario de 26/10/2026.** O rotulo dizia "CFG-RATE 250 ms"
+    // enquanto a sonda mandava 1 Hz, e as linhas saiam assim:
+    //
+    //     CFG-RATE 250 ms: sem resposta (tentativa 1 de 2)
+    //     CFG-RATE 250 ms: ACK
+    //     CFG-RATE 1 Hz: ACK -- o modulo esta nesta porta
+    //
+    // Quem lesse concluiria que a ordem antiga -- 4 Hz primeiro -- continuava
+    // valendo, que e exatamente o defeito recem-consertado. Log que mente
+    // sobre a propria sequencia e pior que log nenhum.
+    // ⚠️ A asserção filtrava pelas mensagens que JA diziam "sonda" -- e a
+    // mutacao mostrou que, trocando o rotulo de volta, a mensagem deixava de
+    // casar com o filtro e o teste passava sem checar nada. O que vale e a
+    // ORDEM: nenhuma linha pode falar em 250 ms antes do CFG-PRT.
+    // `engole = 2` come as duas respostas da fase RAPIDA, e com isso a fase
+    // INSISTENTE roda -- que e onde o rotulo errado morava. Foi o que a
+    // mutacao cobrou: com `baud_exigido` a sondagem acertava de primeira e a
+    // linha mutada nem era executada.
+    Bancada b;
+    b.uart.engole = 2;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    ASSERT_TRUE(b.log.contem(Nivel::Warning, "insistindo nos dois"))
+        << "a fase insistente nao rodou; o teste nao exercita o rotulo";
+    bool passou_do_prt = false;
+    for (const auto& e : b.log.entradas()) {
+        if (e.mensagem.find("CFG-PRT") != std::string::npos) {
+            passou_do_prt = true;
+        }
+        if (passou_do_prt) { continue; }
+        EXPECT_EQ(e.mensagem.find("250 ms"), std::string::npos)
+            << "anunciou 4 Hz antes de subir o baud: " << e.mensagem;
+    }
+    EXPECT_TRUE(passou_do_prt) << "o CFG-PRT nem apareceu no log";
+}
+
+TEST(ConfiguradorGps, o_log_diz_em_que_porta_o_modulo_apareceu) {
+    // O desfecho da sondagem e a informacao que falta; o ACK em si o
+    // `comanda` ja registrou, e repeti-lo era ruido.
+    Bancada b;
+    b.uart.baud_exigido = kBaudDesejado;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    bool achou = false;
+    for (const auto& e : b.log.entradas()) {
+        if (e.mensagem.find("modulo encontrado em 115200") !=
+            std::string::npos) {
+            achou = true;
+        }
+    }
+    EXPECT_TRUE(achou);
+}
+
 }  // namespace
