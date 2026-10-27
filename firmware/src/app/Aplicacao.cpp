@@ -18,6 +18,20 @@ constexpr const char* kOrigemGps = "gps";
 /// ainda se parece com degradacao, porque o ultimo fix continua recente
 /// enquanto a janela ja caiu.
 constexpr std::uint32_t kSustentacaoAvisoTaxaMs = 3000;
+
+/// Quanto a taxa precisa ficar nominal para o episódio ser dado por encerrado.
+///
+/// 🔴 **Mais longo que a sustentação da queda, de propósito.** Até
+/// 27/10/2026 a volta não exigia sustentação nenhuma: bastava uma janela
+/// nominal para sair "normalizada", e a próxima queda abria episódio novo.
+/// Com a taxa oscilando em volta do limiar isso produziu 463 linhas no
+/// histórico de 108 partidas — `degradado`/`normalizada` alternando a cada
+/// poucos segundos, duas escritas de cartão por balanço, sem dizer nada que
+/// a primeira linha já não tivesse dito.
+///
+/// Afirmar que normalizou é afirmação tão forte quanto afirmar que caiu, e
+/// pede ao menos a mesma evidência.
+constexpr std::uint32_t kSustentacaoNormalizacaoMs = 10000;
 }
 
 Aplicacao::Aplicacao(LeitorGps& gps, Encoder& encoder, PilotoAlerta& piloto,
@@ -157,19 +171,43 @@ void Aplicacao::anota_taxa(std::uint32_t agora_ms, bool tem_fix) {
                                    estado == EstadoTaxa::Falha);
     if (!baixa) {
         caindo_ = false;
-        pior_estado_ = EstadoTaxa::Nominal;
-        if (!taxa_avisada_) { return; }
-        taxa_avisada_ = false;
+        if (!taxa_avisada_) {
+            pior_estado_ = EstadoTaxa::Nominal;
+            return;
+        }
         // Sem fix o aviso apenas deixa de valer, e dizer "normalizou" seria
         // falso: a taxa continua em zero, agora por falta de céu.
-        if (estado == EstadoTaxa::Nominal) {
-            char fim[96];
-            std::snprintf(fim, sizeof fim, "taxa de fixes normalizada: %.1f Hz",
-                          static_cast<double>(gps_.monitor().taxa_hz()));
-            log_.info(kOrigemGps, fim);
+        if (estado != EstadoTaxa::Nominal) {
+            // Não é recuperação: é o túnel. Fecha o episódio calado, e o
+            // relógio da volta recomeça se ela vier.
+            normalizando_ = false;
+            taxa_avisada_ = false;
+            pior_estado_ = EstadoTaxa::Nominal;
+            return;
         }
+        // ⚠️ **A volta precisa DURAR**, como a queda. Ver
+        // `kSustentacaoNormalizacaoMs`: sem isto um balanço em volta do
+        // limiar fechava e reabria o episódio a cada poucos segundos.
+        if (!normalizando_) {
+            normalizando_ = true;
+            normalizando_desde_ms_ = agora_ms;
+            return;
+        }
+        if ((agora_ms - normalizando_desde_ms_) < kSustentacaoNormalizacaoMs) {
+            return;
+        }
+        normalizando_ = false;
+        taxa_avisada_ = false;
+        pior_estado_ = EstadoTaxa::Nominal;
+        char fim[96];
+        std::snprintf(fim, sizeof fim, "taxa de fixes normalizada: %.1f Hz",
+                      static_cast<double>(gps_.monitor().taxa_hz()));
+        log_.info(kOrigemGps, fim);
         return;
     }
+    // Voltou a cair antes de a recuperação se firmar: o episódio nunca
+    // fechou, e nenhuma linha nova é devida a menos que ele tenha PIORADO.
+    normalizando_ = false;
 
     // ⚠️ **A condição precisa DURAR**, e não é detalhe: na entrada de um
     // túnel o último fix ainda é recente por 1 s (`kFixVelhoMs`) enquanto a

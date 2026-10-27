@@ -1010,7 +1010,7 @@ poderia haver: a origem dos dados é de quem monta o aparelho.
 | `token_aparelho` | identifica a unidade no servidor, em **todas** as requisições |
 | `servidor_ntp` | de onde vem a hora que julga o prazo do certificado. Vazio: `pool.ntp.br` |
 | `log_to_sd` | grava o log em `coruja.log` no cartão. `true`/`false` ou `1`/`0`. **Padrão: desligado** |
-| `log_level` | `debug`, `info`, `warning` (ou `warn`), `error`. **Padrão: `info`** |
+| `log_level` | `debug`, `info`, `warning` (ou `warn`), `error`. **Padrão: `info`** — e `info` é o nível do carro, ver abaixo |
 
 `url_envio` e `token_aparelho` são **opcionais e desligadas por padrão**: o
 aparelho não manda nada para lugar nenhum enquanto alguém não disser para onde,
@@ -1026,6 +1026,14 @@ escrita de cartão consome ciclos finitos — liga-se para caçar um defeito e
 desliga-se depois. Valor não reconhecido **mantém o padrão** e é contabilizado
 no diagnóstico do leitor; um `log_level` digitado errado não impede o aparelho
 de operar.
+
+🔴 **`info` no carro, `debug` na bancada.** Desde 27/10/2026 os dois níveis
+têm papéis distintos e não são "mais ou menos do mesmo": em `INFO` **um evento
+é uma linha, com o desfecho**; o passo a passo fica em `DEBUG`. A divisão veio
+de medir o arquivo — no histórico de 108 partidas, a configuração do GPS
+ocupava 2 552 das 4 517 linhas recitando um `ACK` por comando, e a linha
+`vigia`, única que fala da viagem, era 3%. Rodar o carro em `debug` devolve o
+recital e anula a economia; ver `formato_logs.md`.
 
 **Escolha da rede:** varrer, e conectar na primeira da lista **em ordem do arquivo** que
 estiver visível. A ordem é a prioridade — não o sinal mais forte. Explícita, previsível,

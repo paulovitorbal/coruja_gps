@@ -303,9 +303,12 @@ int ao_verificar(void* ctx, mbedtls_x509_crt* crt, int profundidade,
     }
 
     if (*bandeiras == 0) {
+        // DEBUG: a cadeia inteira sai certificado a certificado, e so o
+        // RECUSADO responde alguma pergunta. Eram 45 linhas no historico de
+        // 108 partidas, todas dizendo que a verificacao verificou.
         std::snprintf(g_msg_cert, sizeof g_msg_cert, "cert %d ok: %s",
                       profundidade, g_nome_cert);
-        p->log->info(kOrigem, g_msg_cert);
+        p->log->debug(kOrigem, g_msg_cert);
         return 0;
     }
 
@@ -432,7 +435,9 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
                   static_cast<unsigned>(url.porta),
                   static_cast<int>(tamanho_sem_consulta(url.caminho)),
                   url.caminho);
-    log.info(kOrigem, msg);
+    // DEBUG: a linha de status logo abaixo ja identifica a requisicao, e o
+    // caminho repetido sao duas linhas por pedido HTTP.
+    log.debug(kOrigem, msg);
 
     ip_addr_t endereco = {};
     if (!resolve(url.host, &endereco, tempo_limite_ms, log)) {

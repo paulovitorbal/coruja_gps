@@ -70,11 +70,16 @@ void ao_receber_base(void* contexto, const std::uint8_t* bytes,
     }
 }
 
+/// O que chegou no download, em uma linha -- e o despejo inteiro em DEBUG.
+///
+/// 🔴 **Eram catorze linhas por atualizacao** (27/10/2026), com moldura de
+/// tracinhos, repetindo campo a campo um cabecalho que so interessa quando
+/// algo DIVERGE. O diario e lido por rede; a bancada e que precisa da tabela.
 void imprime_cabecalho(const VerificadorDownload& v, Logger& log) {
     char msg[110];
     const CabecalhoBase& c = v.cabecalho();
 
-    log.info("base", "---- cabecalho do radares.bin recebido ----");
+    log.debug("base", "---- cabecalho do radares.bin recebido ----");
 
     char magic[5] = {};
     std::memcpy(magic, &c.magic, 4);
@@ -86,42 +91,58 @@ void imprime_cabecalho(const VerificadorDownload& v, Logger& log) {
     std::snprintf(msg, sizeof msg, "  magic        : '%s' (0x%08lX)%s", magic,
                   static_cast<unsigned long>(c.magic),
                   c.magic == kMagic ? "" : "  <- ESPERADO 'RDR1'");
-    log.info("base", msg);
+    log.debug("base", msg);
 
     std::snprintf(msg, sizeof msg, "  versao       : %u%s",
                   static_cast<unsigned>(c.versao),
                   c.versao == kVersao ? "" : "  <- INCOMPATIVEL");
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg,
                   "  exp_escala   : %u  (coordenadas x10^%u)",
                   static_cast<unsigned>(c.exp_escala),
                   static_cast<unsigned>(c.exp_escala));
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg, "  tam_registro : %u B",
                   static_cast<unsigned>(c.tam_registro));
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg, "  n_pontos     : %lu  (declarados)",
                   static_cast<unsigned long>(c.n_pontos));
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg, "  crc32        : 0x%08lX  (do cabecalho)",
                   static_cast<unsigned long>(c.crc));
-    log.info("base", msg);
+    log.debug("base", msg);
 
-    log.info("base", "---- e o que de fato chegou ----");
+    log.debug("base", "---- e o que de fato chegou ----");
     std::snprintf(msg, sizeof msg, "  bytes        : %lu  (%lu de dados)",
                   static_cast<unsigned long>(v.bytes_recebidos()),
                   static_cast<unsigned long>(v.bytes_de_dados()));
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg, "  pontos       : %lu%s",
                   static_cast<unsigned long>(v.pontos_recebidos()),
                   v.pontos_recebidos() == c.n_pontos ? "  (confere)"
                                                      : "  <- DIVERGE");
-    log.info("base", msg);
+    log.debug("base", msg);
     std::snprintf(msg, sizeof msg, "  crc32        : 0x%08lX%s",
                   static_cast<unsigned long>(v.crc_calculado()),
                   v.crc_calculado() == c.crc ? "  (confere)" : "  <- DIVERGE");
-    log.info("base", msg);
-    log.info("base", "------------------------------------------");
+    log.debug("base", msg);
+    log.debug("base", "------------------------------------------");
+
+    // A linha do campo: os numeros que chegaram e se eles batem com o que o
+    // cabecalho prometeu. Divergencia aqui e a unica coisa que o despejo
+    // acima diria de novo.
+    const bool confere = v.pontos_recebidos() == c.n_pontos &&
+                         v.crc_calculado() == c.crc && c.magic == kMagic &&
+                         c.versao == kVersao;
+    std::snprintf(msg, sizeof msg,
+                  "recebido: %lu pontos, %lu B, crc 0x%08lX - %s",
+                  static_cast<unsigned long>(v.pontos_recebidos()),
+                  static_cast<unsigned long>(v.bytes_recebidos()),
+                  static_cast<unsigned long>(v.crc_calculado()),
+                  confere ? "confere com o cabecalho"
+                          : "DIVERGE do cabecalho (detalhe em debug)");
+    if (confere) { log.info("base", msg); }
+    else         { log.error("base", msg); }
 }
 
 }  // namespace
@@ -201,7 +222,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     // gancho passou a existir, e o segredo saiu da URL -- onde entrava no log
     // de acesso do servidor e de qualquer proxy no caminho.
 
-    log.info("ota", "==== atualizacao solicitada ====");
+    log.debug("ota", "==== atualizacao solicitada ====");
 
     // A versão local vem do CARTÃO. Guardá-la só em RAM fazia o primeiro
     // clique depois de cada boot rebaixar 214 KB sem necessidade.
@@ -213,7 +234,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         apara_branco(versao_local_, &lidos);
     } else if (leitura_versao == ErroCartao::ArquivoAusente) {
         // Normal na primeira atualização. Não é erro, e não deve soar como um.
-        log.info("ota", "sem versao registrada no cartao: primeira atualizacao");
+        log.debug("ota", "sem versao registrada no cartao: primeira atualizacao");
     } else {
         std::snprintf(msg, sizeof msg, "versao local ilegivel (%s): vai rebaixar",
                       descreve(leitura_versao));
@@ -256,7 +277,8 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         std::snprintf(msg, sizeof msg, "resultado: %s", descreve(r));
         log.info("ota", msg);
         rede.desconecta(log);
-        log.info("ota", "==== fim da atualizacao ====");
+        // A moldura some: a linha `resultado:` acima e quem fecha o evento.
+        log.debug("ota", "==== fim da atualizacao ====");
         return r;
     };
 
@@ -281,10 +303,11 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         return encerra(ResultadoOta::FalhaAoConsultar);
     }
 
-    std::snprintf(msg, sizeof msg, "versao no servidor: '%s'", versao_remota_);
-    log.info("ota", msg);
-    std::snprintf(msg, sizeof msg, "versao local      : '%s'",
-                  versao_local_[0] != '\0' ? versao_local_ : "(nenhuma)");
+    // Uma linha para a comparacao inteira: duas metades de uma pergunta so
+    // eram duas linhas por consulta, e a resposta esta na diferenca.
+    std::snprintf(msg, sizeof msg, "versao: local '%s' x servidor '%s'",
+                  versao_local_[0] != '\0' ? versao_local_ : "(nenhuma)",
+                  versao_remota_);
     log.info("ota", msg);
 
     if (std::strcmp(versao_local_, versao_remota_) == 0) {
@@ -292,7 +315,7 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     }
 
     // ---- 2. baixar, gravando e verificando ao mesmo tempo ----------------
-    log.info("ota", "versao diferente: baixando a base");
+    log.debug("ota", "versao diferente: baixando a base");
 
     ResultadoOta ultimo_erro = ResultadoOta::FalhaAoBaixar;
     for (unsigned tentativa = 1; tentativa <= kTentativas; ++tentativa) {

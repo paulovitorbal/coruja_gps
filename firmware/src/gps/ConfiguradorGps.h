@@ -79,6 +79,32 @@ public:
 
     ResultadoConfigGps executa(Logger& log);
 
+    /// O que a partida tem a dizer, numa linha so.
+    ///
+    /// 🔴 **Existe porque o recital custava 66% do diario.** No historico de
+    /// 108 partidas, `gps:` ocupava 2 552 das 4 517 linhas e 116 KB dos 321 --
+    /// quase tudo "CFG-ALGUMA COISA: ACK", identico em toda partida, dizendo
+    /// que o passo que devia funcionar funcionou. A `vigia`, unica linha que
+    /// fala da viagem, era 3%. O passo a passo continua em DEBUG, para a
+    /// bancada; o campo recebe este resumo.
+    struct Resumo {
+        /// Em que baud o modulo apareceu. Diz se a BBR sobreviveu, e e o que
+        /// explica a sondagem ter custado 2 s ou 60 ms.
+        std::uint32_t baud_encontrado = 0;
+        bool          achou = false;
+        /// A sondagem precisou da fase insistente?
+        bool          insistiu = false;
+        /// Passos opcionais que o modulo recusou. Este NEO-M8N recusa a TXT
+        /// em toda partida; contar e melhor que avisar, porque aviso que
+        /// sempre acontece nao avisa nada.
+        unsigned      opcionais_recusados = 0;
+        /// Nome do ultimo passo tentado. Em falha, e onde a sequencia parou.
+        const char*   passo = "";
+        /// Quanto a sequencia inteira levou, em ms.
+        std::uint32_t gasto_ms = 0;
+    };
+    const Resumo& resumo() const { return resumo_; }
+
     /// Roda a sequência de novo quando ela aborta. Devolve o último desfecho.
     ///
     /// 🔴 **Existe por causa de 24/10/2026.** A sequência abortou no segundo
@@ -123,10 +149,19 @@ private:
     bool acha_o_modulo(const std::uint8_t* quadro, std::size_t tamanho,
                        Logger& log, bool* recusou);
 
+    /// A sequência em si. Separada de `executa` para que o **resumo saia por
+    /// um caminho só**: são oito pontos de saída, e cobrar de cada um que
+    /// lembrasse de registrar é como o recital começou.
+    ResultadoConfigGps aplica(Logger& log);
+
+    /// Escreve a linha única do desfecho, no nível que o desfecho merece.
+    void registra_resumo(ResultadoConfigGps r, Logger& log);
+
     Uart&            uart_;
     Pausa&           pausa_;
     ubx::LeitorUbx   leitor_;
     std::uint32_t    baud_final_ = kBaudFabrica;
+    Resumo           resumo_;
 };
 
 }  // namespace coruja

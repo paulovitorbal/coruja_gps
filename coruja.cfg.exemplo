@@ -24,7 +24,13 @@ log_to_sd=false
 
 # log_level: abaixo deste nível as mensagens são descartadas, no
 # console e no cartão. debug, info, warning (ou warn), error.
-# 'debug' inclui a varredura de Wi-Fi inteira e cada partição sondada.
+#
+# NO CARRO, 'info'. Em 'info' um evento é UMA linha, com o desfecho:
+# a configuração do GPS inteira sai resumida, o Wi-Fi sai como "em qual
+# rede tentei e o que deu". 'debug' devolve o passo a passo — cada ACK
+# da configuração, cada rede do vizinho, cada certificado da cadeia,
+# cada arquivo aberto no cartão — e triplica o arquivo que sobe pela
+# rede. É nível de bancada.
 log_level=info
 
 # Devolve a versão disponível: uma linha de texto qualquer, comparada

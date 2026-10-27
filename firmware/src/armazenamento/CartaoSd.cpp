@@ -70,7 +70,7 @@ void CartaoSd::inicia(Logger& log) {
         return;
     }
     iniciado_ = true;
-    log.info("sd", "driver do cartao iniciado");
+    log.debug("sd", "driver do cartao iniciado");
 }
 
 ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
@@ -113,7 +113,10 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
             std::snprintf(msg, sizeof msg, "volume %d (%s) nao montou: %s",
                           volume, volume == 0 ? "automatico" : "particao forcada",
                           FRESULT_str(montagem));
-            log.info("sd", msg);
+            // DEBUG: num cartao de uma particao so, o volume 1 NUNCA monta --
+            // e a linha saia em toda leitura de arquivo, dizendo que o
+            // normal aconteceu.
+            log.debug("sd", msg);
             continue;
         }
         ++montadas;
@@ -134,7 +137,9 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         const FSIZE_t tamanho = f_size(&g_arquivo);
         std::snprintf(msg, sizeof msg, "'%s' achado no volume %d, %lu bytes",
                       nome, volume, static_cast<unsigned long>(tamanho));
-        log.info("sd", msg);
+        // DEBUG: abrir um arquivo que existe nao e noticia. Eram 203 linhas
+        // no historico de 108 partidas, uma por `open`.
+        log.debug("sd", msg);
 
         if (tamanho >= capacidade) {
             f_close(&g_arquivo);
@@ -183,7 +188,9 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
     std::snprintf(msg, sizeof msg,
                   "'%s' nao esta em nenhuma das %d particoes FAT montadas",
                   nome, montadas);
-    log.info("sd", msg);
+    // Quem sabe se o arquivo era obrigatorio e quem chamou, e e la que a
+    // severidade pertence -- aqui a ausencia e so um fato de bancada.
+    log.debug("sd", msg);
     return ErroCartao::ArquivoAusente;
 }
 
@@ -215,7 +222,8 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
     const FSIZE_t tamanho = f_size(&g_arquivo);
     std::snprintf(msg, sizeof msg, "lendo '%s' em fluxo: %lu bytes", nome,
                   static_cast<unsigned long>(tamanho));
-    log.info("sd", msg);
+    // O tamanho do `radares.bin` ja sai na linha da base, logo abaixo.
+    log.debug("sd", msg);
 
     ErroCartao saida = ErroCartao::Nenhum;
     std::size_t total = 0;

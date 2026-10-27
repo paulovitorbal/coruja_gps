@@ -268,8 +268,55 @@ TEST(Aplicacao, ATaxaQueVoltaAoNormalTambemEhRegistrada) {
     roda_em(&b, &app, 4050, 10000, 500);
     ASSERT_TRUE(b.log.contem(Nivel::Warning, "taxa de fixes"));
 
-    roda_em(&b, &app, 10050, 16000, 250);
+    // ⚠️ A janela precisa cobrir `kSustentacaoNormalizacaoMs`: a volta ao
+    // normal passou a exigir sustentacao em 27/10/2026, como a queda ja
+    // exigia. Ver `OscilarEmVoltaDoLimiarNaoEncheOLog`.
+    roda_em(&b, &app, 10050, 26000, 250);
     EXPECT_TRUE(b.log.contem(Nivel::Info, "normalizada"));
+}
+
+// 🔴 **463 linhas no historico de 108 partidas** (27/10/2026), quase todas
+// de uma viagem so: `degradado` / `normalizada` / `degradado` / `normalizada`,
+// a cada poucos segundos, com a taxa oscilando em volta do limiar. O par
+// custava duas linhas e duas escritas de cartao, e nao dizia nada que a
+// primeira linha ja nao tivesse dito.
+//
+// A queda ja exigia sustentacao (`kSustentacaoAvisoTaxaMs`). A VOLTA nao
+// exigia nenhuma -- e afirmar que normalizou e uma afirmacao tao forte
+// quanto afirmar que caiu.
+
+TEST(Aplicacao, OscilarEmVoltaDoLimiarNaoEncheOLog) {
+    Bancada b;
+    auto app = b.monta();
+    roda_em(&b, &app, 0, 4000, 250);
+    roda_em(&b, &app, 4050, 12000, 500);      // cai, e o aviso sai
+    ASSERT_TRUE(b.log.contem(Nivel::Warning, "taxa de fixes"));
+
+    // Pula entre 4 Hz e 2 Hz em janelas de 4 s: nunca fica nominal tempo
+    // bastante para a volta ser crivel.
+    std::uint32_t t = 12050;
+    for (int i = 0; i < 8; ++i) {
+        roda_em(&b, &app, t, t + 4000, (i % 2 == 0) ? 250 : 500);
+        t += 4050;
+    }
+
+    unsigned degradados = 0, normalizadas = 0;
+    for (const auto& e : b.log.entradas()) {
+        if (e.mensagem.find("(degradado)") != std::string::npos) {
+            ++degradados;
+        }
+        if (e.mensagem.find("normalizada") != std::string::npos) {
+            ++normalizadas;
+        }
+    }
+    // ⚠️ Uma por SEVERIDADE, nao uma por episodio: a escalada para `falha`
+    // continua saindo, e tem de sair -- foi ela que faltou em 24/10, quando
+    // 487 s a 1,3 Hz produziram 254 linhas dizendo "degradado". O que nao
+    // pode repetir e a MESMA noticia.
+    EXPECT_EQ(degradados, 1U)
+        << "o mesmo episodio voltou a avisar a cada balanco";
+    EXPECT_EQ(normalizadas, 0U)
+        << "declarou normalizada uma taxa que nao parou de cair";
 }
 
 TEST(Aplicacao, OSinalPerdidoNaoFingeQueATaxaNormalizou) {

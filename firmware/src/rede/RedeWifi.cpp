@@ -26,6 +26,14 @@ struct Coleta {
     /// `kMaxRedes` significa "nenhuma".
     std::size_t         escolhida = kMaxRedes;
     std::size_t         vistas = 0;
+    /// Sinal e canal **da escolhida**, para a linha única do desfecho.
+    ///
+    /// 🔴 **A varredura despejava uma linha por rede** (27/10/2026): 284
+    /// linhas e 17 KB no histórico de 108 partidas, listando o Wi-Fi dos
+    /// vizinhos num arquivo que sobe pela rede. O que a remessa precisa
+    /// responder é "em qual tentou e deu certo?" — e isso é uma linha.
+    int                 rssi_escolhida = 0;
+    unsigned            canal_escolhida = 0;
 };
 
 int ao_ver_rede(void* env, const cyw43_ev_scan_result_t* r) {
@@ -47,6 +55,8 @@ int ao_ver_rede(void* env, const cyw43_ev_scan_result_t* r) {
         if (std::strcmp(coleta->cfg->redes[i].ssid, ssid) == 0) {
             if (i < coleta->escolhida) {
                 coleta->escolhida = i;
+                coleta->rssi_escolhida = static_cast<int>(r->rssi);
+                coleta->canal_escolhida = static_cast<unsigned>(r->channel);
             }
             char msg[96];
             std::snprintf(msg, sizeof msg,
@@ -54,7 +64,7 @@ int ao_ver_rede(void* env, const cyw43_ev_scan_result_t* r) {
                           ssid, static_cast<unsigned>(r->channel),
                           static_cast<int>(r->rssi),
                           static_cast<unsigned>(i + 1));
-            coleta->log->info("wifi", msg);
+            coleta->log->debug("wifi", msg);
             return 0;
         }
     }
@@ -85,7 +95,7 @@ ErroWifi RedeWifi::inicia(Logger& log) {
     }
     cyw43_arch_enable_sta_mode();
     iniciado_ = true;
-    log.info("wifi", "chip CYW43 iniciado, modo estacao");
+    log.debug("wifi", "chip CYW43 iniciado, modo estacao");
     return ErroWifi::Nenhum;
 }
 
@@ -104,7 +114,7 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
     coleta.cfg = &cfg;
     coleta.log = &log;
 
-    log.info("wifi", "varrendo redes...");
+    log.debug("wifi", "varrendo redes...");
     cyw43_wifi_scan_options_t opcoes = {};
     if (cyw43_wifi_scan(&cyw43_state, &opcoes, &coleta, ao_ver_rede) != 0) {
         return ErroWifi::VarreduraFalhou;
@@ -124,20 +134,32 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         sleep_ms(1);
     }
 
-    char msg[96];
+    char msg[128];
     std::snprintf(msg, sizeof msg, "varredura concluida: %u redes visiveis",
                   static_cast<unsigned>(coleta.vistas));
-    log.info("wifi", msg);
+    log.debug("wifi", msg);
 
     if (coleta.escolhida >= cfg.n_redes) {
+        // Uma linha, com os dois números que separam "a rede caiu" de "o
+        // rádio não enxerga nada": quantas estavam configuradas e quantas
+        // apareceram. Os SSID dos vizinhos não entram — eles não respondem
+        // pergunta nenhuma e são de terceiros.
+        std::snprintf(msg, sizeof msg,
+                      "nenhuma das %u redes da lista entre as %u visiveis",
+                      static_cast<unsigned>(cfg.n_redes),
+                      static_cast<unsigned>(coleta.vistas));
+        log.error("wifi", msg);
         return ErroWifi::NenhumaRedeVisivel;
     }
 
+    // A partir daqui o prefixo da linha é sempre o mesmo: QUAL rede. O que
+    // muda é o desfecho, depois do travessão.
     const Rede& rede = cfg.redes[coleta.escolhida];
-    std::snprintf(msg, sizeof msg, "conectando em '%s' (prioridade %u de %u)",
+    char alvo[80];
+    std::snprintf(alvo, sizeof alvo, "'%s' (prio %u de %u, canal %u, %d dBm)",
                   rede.ssid, static_cast<unsigned>(coleta.escolhida + 1),
-                  static_cast<unsigned>(cfg.n_redes));
-    log.info("wifi", msg);
+                  static_cast<unsigned>(cfg.n_redes), coleta.canal_escolhida,
+                  coleta.rssi_escolhida);
 
     const std::uint32_t autenticacao =
         rede.aberta() ? CYW43_AUTH_OPEN : CYW43_AUTH_WPA2_AES_PSK;
@@ -146,14 +168,15 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         kTempoLimiteAssociacaoMs);
     if (resultado != 0) {
         // Nunca a senha, nem em falha: um log de bancada vira captura de tela.
-        std::snprintf(msg, sizeof msg, "associacao falhou (codigo %d)", resultado);
+        std::snprintf(msg, sizeof msg, "%s - associacao falhou (codigo %d)",
+                      alvo, resultado);
         log.error("wifi", msg);
         return ErroWifi::FalhaDeAssociacao;
     }
 
     associado_ = true;
     const std::uint32_t ip = cyw43_state.netif[CYW43_ITF_STA].ip_addr.addr;
-    std::snprintf(msg, sizeof msg, "conectado. IP %u.%u.%u.%u",
+    std::snprintf(msg, sizeof msg, "%s - conectado, IP %u.%u.%u.%u", alvo,
                   static_cast<unsigned>(ip & 0xFFU),
                   static_cast<unsigned>((ip >> 8) & 0xFFU),
                   static_cast<unsigned>((ip >> 16) & 0xFFU),
@@ -168,7 +191,7 @@ void RedeWifi::desconecta(Logger& log) {
     }
     cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
     associado_ = false;
-    log.info("wifi", "desconectado (chip segue ligado para a proxima vez)");
+    log.debug("wifi", "desconectado (chip segue ligado para a proxima vez)");
 }
 
 }  // namespace coruja

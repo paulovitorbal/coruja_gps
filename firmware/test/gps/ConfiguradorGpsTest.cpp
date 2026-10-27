@@ -497,7 +497,7 @@ TEST(ConfiguradorGps, a_sonda_insiste_uma_vez_quando_o_quadro_se_perde) {
     b.uart.engole_apos_trocar_baud = 1;    // e o primeiro quadro apos a troca some
 
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    EXPECT_FALSE(b.log.contem(Nivel::Warning, "insistindo nos dois"))
+    EXPECT_FALSE(b.log.contem(Nivel::Debug, "insistindo nos dois"))
         << "caiu na fase longa por um quadro perdido na troca de baud";
 }
 
@@ -817,7 +817,7 @@ TEST(ConfiguradorGps, a_sonda_se_anuncia_como_1_hz_no_log) {
     Bancada b;
     b.uart.engole = kSondagensPorBaud * 2;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    ASSERT_TRUE(b.log.contem(Nivel::Warning, "insistindo nos dois"))
+    ASSERT_TRUE(b.log.contem(Nivel::Debug, "insistindo nos dois"))
         << "a fase insistente nao rodou; o teste nao exercita o rotulo";
     bool passou_do_prt = false;
     for (const auto& e : b.log.entradas()) {
@@ -831,20 +831,118 @@ TEST(ConfiguradorGps, a_sonda_se_anuncia_como_1_hz_no_log) {
     EXPECT_TRUE(passou_do_prt) << "o CFG-PRT nem apareceu no log";
 }
 
-TEST(ConfiguradorGps, o_log_diz_em_que_porta_o_modulo_apareceu) {
-    // O desfecho da sondagem e a informacao que falta; o ACK em si o
-    // `comanda` ja registrou, e repeti-lo era ruido.
+
+// ==================== o diario parou de recitar (27/10/2026)
+//
+// 🔴 **66% do diario eram ACKs de configuracao.** No historico de 108
+// partidas, `gps:` ocupava 2 552 das 4 517 linhas e 116 KB dos 321 -- quase
+// tudo "CFG-ALGUMA COISA: ACK", identico em toda partida, dizendo apenas que
+// o passo que devia funcionar funcionou. A linha `vigia`, que e a unica que
+// fala da VIAGEM, era 3%.
+//
+// Cada linha dessas e uma escrita de cartao em potencial e um pedaco do
+// arquivo que sobe pela rede. O recital continua existindo em DEBUG, para a
+// bancada; o campo recebe uma linha com o desfecho.
+
+TEST(ConfiguradorGps, a_sequencia_feliz_cabe_em_uma_linha_de_INFO) {
     Bancada b;
-    b.uart.baud_exigido = kBaudDesejado;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
-    bool achou = false;
+    unsigned informativas = 0;
     for (const auto& e : b.log.entradas()) {
-        if (e.mensagem.find("modulo encontrado em 115200") !=
-            std::string::npos) {
-            achou = true;
-        }
+        if (e.nivel == Nivel::Info && e.origem == "gps") { ++informativas; }
     }
-    EXPECT_TRUE(achou);
+    EXPECT_EQ(informativas, 1U)
+        << "a partida feliz voltou a narrar passo a passo no nivel do campo";
+}
+
+TEST(ConfiguradorGps, o_resumo_diz_baud_taxa_e_sentencas) {
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    // Os tres fatos que o diagnostico de 24/10/2026 precisou e nao tinha
+    // numa linha so: em que velocidade a porta ficou, em que taxa o receptor
+    // ficou, e quais sentencas sobraram ligadas.
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "115200"));
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "4 Hz"));
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "RMC"));
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "GGA"));
+}
+
+TEST(ConfiguradorGps, o_resumo_diz_em_que_baud_o_modulo_apareceu) {
+    // A sondagem e o passo mais caro da partida, e ate aqui so dava para
+    // saber o desfecho dela contando linhas de WARN.
+    Bancada morna;
+    morna.uart.baud_exigido = kBaudDesejado;   // lembrou a configuracao
+    ASSERT_EQ(morna.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(morna.log.contem(Nivel::Info, "achado a 115200"));
+
+    Bancada fria;                              // BBR drenada, volta a 9600
+    ASSERT_EQ(fria.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(fria.log.contem(Nivel::Info, "achado a 9600"));
+}
+
+TEST(ConfiguradorGps, o_resumo_denuncia_a_fase_insistente) {
+    // ⚠️ O marcador existe porque a fase insistente custa ~2 s e, sem ele, a
+    // unica pista no nivel do campo era o `gasto_ms` — que nao diz ONDE o
+    // tempo foi. A mutacao cobrou este teste: apagar o marcador nao quebrava
+    // nada.
+    Bancada b;
+    b.uart.engole = kSondagensPorBaud * 2;   // toda a fase rapida se perde
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "insistindo"))
+        << "o resumo nao disse que a sondagem caiu na fase cara";
+
+    Bancada rapida;                          // responde de primeira
+    ASSERT_EQ(rapida.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_FALSE(rapida.log.contem(Nivel::Info, "insistindo"))
+        << "o resumo acusou fase insistente numa partida que nao teve";
+}
+
+TEST(ConfiguradorGps, o_recital_de_ACKs_continua_em_DEBUG_para_a_bancada) {
+    // Cortar nao e apagar: o passo a passo continua, um nivel abaixo. Foi
+    // ele que isolou a saturacao de 24/10, e perde-lo trocaria um problema
+    // de volume por um de cegueira.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(b.log.contem(Nivel::Debug, "CFG-MSG GGA on: ACK"));
+    EXPECT_TRUE(b.log.contem(Nivel::Debug, "CFG-CFG persistir: ACK"));
+}
+
+TEST(ConfiguradorGps, a_falha_diz_em_que_passo_parou) {
+    // O resumo tem de servir tambem quando nada deu certo -- e e ai que ele
+    // mais serve. Em 24/10 a sequencia abortou no `CFG-MSG GGA` e descobrir
+    // isso exigiu ler 20 linhas.
+    Bancada b;
+    b.uart.muda = {ubx::kCfgMsg};
+    ASSERT_NE(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_TRUE(b.log.contem(Nivel::Error, "CFG-MSG GGA on"))
+        << "o resumo da falha nao nomeia o passo em que parou";
+}
+
+TEST(ConfiguradorGps, o_opcional_recusado_entra_no_resumo_e_nao_vira_aviso) {
+    // Este NEO-M8N recusa desligar a TXT em TODA partida: 98 WARN no
+    // historico de 108. Aviso que sempre acontece nao avisa nada -- e, pior,
+    // WARN forca descarga do buffer do diario, entao o ruido tambem custava
+    // escrita de cartao.
+    Bancada b;
+    b.uart.recusa_nmea = {ubx::kNmeaTxt};
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    // ⚠️ Filtrar por "opcional" nao bastava: esse e o texto da linha
+    // "o passo acima e opcional; seguindo", e a MUTACAO mostrou que o NAK em
+    // si -- "CFG-MSG TXT off: NAK" -- podia voltar a WARN sem o teste notar.
+    // Quem nomeia a sentenca recusada e o unico filtro que pega as duas.
+    EXPECT_FALSE(b.log.contem(Nivel::Warning, "TXT"))
+        << "a recusa esperada da TXT voltou a virar aviso";
+    EXPECT_FALSE(b.log.contem(Nivel::Warning, "opcional"))
+        << "a nota do passo opcional voltou a virar aviso";
+    EXPECT_TRUE(b.log.contem(Nivel::Info, "TXT"))
+        << "a recusa sumiu do resumo: buraco silencioso";
+}
+
+TEST(ConfiguradorGps, o_resumo_sai_mesmo_quando_o_modulo_nao_responde) {
+    Bancada b;
+    b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_TRUE(b.log.contem(Nivel::Error, "nao respondeu"));
 }
 
 }  // namespace

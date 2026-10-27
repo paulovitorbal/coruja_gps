@@ -157,19 +157,22 @@ o que ele via. Da **v0.2.13** em diante:
 
 | origem | linha | o que responde |
 |---|---|---|
-| `boot` | `v0.2.13` | qual firmware escreveu este log |
-| `base` | `piloto recebeu N pontos` | a base chegou a quem alerta — sai como **ERRO** se `N` for zero |
-| `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat) \| serial perdeu B B \| pior volta M ms` | a cada 5 min, o estado de quem decide o alerta — e, desde 26/10/2026, a saúde do laço |
-| `temp` | `47.3` | pastilha do RP2350, a cada 5 min |
+| `boot` | `v0.2.21 \| arranque: console 0 \| objetos 1560 \| painel 12 \| cartao 1510 \| config 6 ms` | qual firmware escreveu este log, e onde foram os segundos antes de ele se anunciar |
+| `gps` | `receptor configurado em 2483 ms: 115200, 4 Hz, RMC+GGA \| achado a 115200 \| 1 opcional(is) recusado(s): TXT` | **o desfecho inteiro da configuração, numa linha** |
+| `gps` | `receptor NAO configurado em 4123 ms: o modulo nao respondeu; parou em 'CFG-MSG GGA on'` | **ERRO** — a mesma linha quando a sequência abortou, nomeando o passo |
+| `base` | `18367 pontos de 'radares.bin', base de 24/10/2026` | que base está carregada — **ERRO** se nenhuma carregar |
+| `vigia` | `base N pts \| fix sim/NAO \| zona Z \| hdop H (S sat) \| temp 26.6 \| serial perdeu B B \| pior volta M ms` | a cada 5 min, o estado de quem decide o alerta, a saúde do laço e a pastilha |
+| `wifi` | `'troque-me' (prio 1 de 2, canal 6, -62 dBm) - conectado, IP 192.168.1.37` | em qual rede tentou e o que aconteceu — **ERRO** se a associação falhar |
+| `wifi` | `nenhuma das 2 redes da lista entre as 11 visiveis` | **ERRO** — nenhuma rede conhecida apareceu |
+| `mem` | `pico: lwip 9128/15776 B \| heap 1036 B em 5108 pedidos \| pilha 17148/24576 B` | o que foi reservado deu conta — **ERRO** se a pilha foi ao fundo |
 | `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
 | `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado \| sinal: 9 vistos, 5 usados, 4 acima de 35, melhor 41 dBHz` | por que ela demorou — no primeiro fix e a cada 5 min |
-| `boot` | `arranque: console 0 \| objetos 1560 \| painel 12 \| cartao 1510 \| config 6 ms` | onde foram os segundos antes de o firmware se anunciar |
 | `gps` | `radio: MON-HW sem resposta \| ttff do modulo 38.2 s (ligado ha 44.9 s) \| aop ligado` | a mesma linha quando uma das três perguntas não voltou |
 | `diario` | `trecho fechado: veiculo parado` | fechou o arquivo; **a gravação continua** |
 | `diario` | `viagem retomada` / `viagem nova: a parada passou de 2 h` | o que a energização decidiu sobre a viagem anterior |
 | `gps` | `taxa de fixes em 2.0 Hz com posicao presente (degradado)` | **WARN** — a cadência caiu com o receptor entregando posição |
 | `gps` | `taxa de fixes em 1.3 Hz com posicao presente (falha)` | **WARN** — a mesma queda **piorando**; sai uma segunda vez quando escala |
-| `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima |
+| `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima, e **só depois de 10 s nominais** |
 | `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
 | `gps` | `reconfiguracao em voo: configurado; a porta ficou em 115200` | como ela terminou (ERRO se não foi `configurado`) |
 
@@ -237,6 +240,46 @@ um pico no arranque não pode mascarar o resto do trajeto.
 ⚠️ **A `vigia` amostra de cinco em cinco minutos.** Ela prova base e fix; a
 `zona` ali é um instante qualquer, e quase nunca cai num alerta. Quem responde
 "o aparelho viu o radar?" é o log de **viagem**, que tem uma linha a cada 6 s.
+
+🔴 **E ela DESCARREGA o buffer, desde 27/10/2026.** O diário acumula 4 KiB em
+RAM e só grava quando o buffer enche, quando sai um `WARN`/`ERRO` ou quando
+alguém pede. `vigia` é `INFO`: cortar a ignição jogava fora tudo o que
+estivesse acumulado. Das 15 partidas da v0.2.21 no diário de 26/10, oito eram
+viagens de 5 a 15 minutos e **uma única linha `vigia` sobreviveu** — a de uma
+sessão em que um OTA falhou e forçou a descarga. As outras morreram na chave,
+junto com os dois números que a instrumentação existia para medir. Uma
+gravação a cada cinco minutos, contra a que o registro de viagem já faz a cada
+seis segundos.
+
+## Dois níveis, dois usos
+
+🔴 **`INFO` é o diário de campo; `DEBUG` é a bancada.** A divisão foi feita em
+27/10/2026, quando a medição mostrou o que o arquivo de fato continha: no
+histórico de 108 partidas, `gps:` ocupava **2 552 das 4 517 linhas e 116 KB
+dos 321**, quase tudo `CFG-ALGUMA COISA: ACK` — idêntico em toda partida,
+dizendo que o passo que devia funcionar funcionou. A `vigia`, única linha que
+fala da viagem, era 3%.
+
+Cada linha dessas é uma escrita de cartão em potencial e um pedaço do arquivo
+que sobe pela rede. A regra passou a ser: **em `INFO`, um evento é uma
+linha, com o desfecho.** O passo a passo continua existindo, um nível abaixo.
+
+O que desceu para `DEBUG`: o recital de `ACK` da configuração do GPS e suas
+molduras, a recusa esperada da `TXT`, a varredura de Wi-Fi rede a rede, a
+cadeia de certificados TLS, a abertura de cada arquivo no cartão, a montagem
+de volumes, o despejo campo a campo do cabeçalho da base e as três linhas de
+`mem`. O que ficou em `INFO` é o que muda de valor entre uma partida e outra.
+
+⚠️ **No carro, `log_level=info`.** Com `log_level=debug` o cartão recebe tudo
+de novo, e a divisão não produz economia nenhuma — ela é uma escolha de quem
+lê, não do firmware.
+
+⚠️ **`WARN` e `ERRO` descarregam o buffer na hora.** Isso é proposital — num
+travamento o que se quer ler é a última linha —, mas tem um custo que só
+apareceu quando foi medido: um aviso que acontece em **toda** partida força
+uma escrita em toda partida, e não avisa nada. Foi o caso do `CFG-MSG TXT
+off: NAK`, que este NEO-M8N recusa sempre: 98 `WARN` em 108 partidas. Agora
+ele é `DEBUG` e aparece como contagem no resumo da configuração.
 
 ### `remessa.log`
 

@@ -136,7 +136,9 @@ BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
                                                 &carregador, &lidos, log);
         if (leitura != coruja::ErroCartao::Nenhum) {
             std::snprintf(msg, sizeof msg, "'%s': %s", nome, descreve(leitura));
-            log.info("base", msg);
+            // Tentar o vigente e cair na reserva e o projeto funcionando. Se
+            // AMBOS falharem, o ERRO de `NENHUMA base` fecha o assunto.
+            log.debug("base", msg);
             continue;
         }
         if (carregador.conclui() != coruja::ErroBase::Nenhum) {
@@ -299,33 +301,36 @@ public:
         void anota_consumo() {
             std::size_t usado = 0;
             std::size_t total = 0;
-            char msg[96];
+            char msg[160];
+            // 🔴 **Eram tres linhas para um instantaneo so** (27/10/2026),
+            // sempre juntas, sempre depois de rede. Uma linha diz o mesmo.
+            char lwip[48] = "n/d";
             if (coruja::ClienteTls::pico_do_heap(&usado, &total)) {
-                std::snprintf(msg, sizeof msg,
-                              "pico do heap do lwip: %u B de %u",
+                std::snprintf(lwip, sizeof lwip, "%u/%u B",
                               static_cast<unsigned>(usado),
                               static_cast<unsigned>(total));
-                dono_.log_.info("mem", msg);
             }
+            char heap[48] = "n/d";
             if (coruja::pico_do_heap_do_sistema(&usado, &total)) {
-                std::snprintf(msg, sizeof msg,
-                              "heap do sistema: %u B em uso, %u pedidos",
+                std::snprintf(heap, sizeof heap, "%u B em %u pedidos",
                               static_cast<unsigned>(usado),
                               static_cast<unsigned>(total));
-                dono_.log_.info("mem", msg);
             }
-
             if (coruja::pico_da_pilha(&usado, &total)) {
-                std::snprintf(msg, sizeof msg, "pico da pilha: %u B de %u",
-                              static_cast<unsigned>(usado),
+                std::snprintf(msg, sizeof msg,
+                              "pico: lwip %s | heap %s | pilha %u/%u B",
+                              lwip, heap, static_cast<unsigned>(usado),
                               static_cast<unsigned>(total));
                 dono_.log_.info("mem", msg);
             } else {
                 // Sem tinta sobrando: a pilha foi usada ate o fundo, e o
                 // pico real e DESCONHECIDO -- pode ter passado. Dizer um
                 // numero aqui esconderia exatamente o transbordo.
-                dono_.log_.error("mem",
-                    "a pilha foi usada ate o fundo: AUMENTE PICO_STACK_SIZE");
+                std::snprintf(msg, sizeof msg,
+                              "pico: lwip %s | heap %s | A PILHA FOI USADA "
+                              "ATE O FUNDO: AUMENTE PICO_STACK_SIZE",
+                              lwip, heap);
+                dono_.log_.error("mem", msg);
             }
         }
 
@@ -575,7 +580,10 @@ int main() {
     coruja::ClienteSntp      ntp;
     coruja::RelogioAon       relogio;
 
-    log.info("boot", "coruja gps");
+    // ⚠️ Esta sai no CONSOLE e so nele: a gravacao no cartao ainda nao foi
+    // ligada (depende da configuracao, lida logo abaixo). Quem a lia no
+    // diario lia a linha `boot: vN.N.N`, que vem a seguir e diz mais.
+    log.debug("boot", "coruja gps");
     cartao.inicia(log);
     const std::uint32_t t_cartao = agora_ms();
 
@@ -585,13 +593,14 @@ int main() {
     log.define_nivel_minimo(config.nivel_log);
     log.grava_no_cartao(config.log_para_cartao);
 
-    // **Qual firmware escreveu este log.** Sem esta linha, um log recolhido
-    // do cartão não diz de que binário veio, e em 09/10/2026 isso impediu de
-    // decidir se um registro estranho era defeito do código ou de uma versão
-    // antiga ainda gravada. Vai logo depois de o destino do log ser definido,
-    // para ser a primeira coisa que o cartão recebe.
-    log.info("boot", coruja::kVersaoBuild);
-
+    // A PRIMEIRA linha que o cartao recebe, e ela carrega duas coisas.
+    //
+    // **Qual firmware escreveu este log.** Sem isso, um log recolhido do
+    // cartao nao diz de que binario veio, e em 09/10/2026 isso impediu de
+    // decidir se um registro estranho era defeito do codigo ou de uma versao
+    // antiga ainda gravada. Era linha propria ate 27/10/2026; agora e o
+    // prefixo desta, que sai no mesmo instante e pelo mesmo motivo.
+    //
     // ⚠️ **Uma linha so, e DEPOIS de o cartao estar recebendo.** As medidas
     // sao tomadas durante o arranque, mas tudo o que se registra antes de
     // `grava_no_cartao` vai para o console e se perde no carro -- foi por
@@ -599,8 +608,9 @@ int main() {
     {
         char msg[128];
         std::snprintf(msg, sizeof msg,
-                      "arranque: console %lu | objetos %lu | painel %lu | "
-                      "cartao %lu | config %lu ms",
+                      "%s | arranque: console %lu | objetos %lu | painel %lu "
+                      "| cartao %lu | config %lu ms",
+                      coruja::kVersaoBuild,
                       static_cast<unsigned long>(t_console),
                       static_cast<unsigned long>(t_objetos - t_console),
                       static_cast<unsigned long>(t_painel - t_objetos),
@@ -652,7 +662,11 @@ int main() {
         if (base.pontos == 0) {
             log.error("base", "piloto recebeu ZERO pontos: nao havera alerta");
         } else {
-            log.info("base", msg);
+            // DEBUG: o numero e o MESMO da linha de cima em todo log ja
+            // examinado, e duas linhas para um numero so eram 105 no
+            // historico. A divergencia -- que e o que vale registrar -- tem
+            // caminho proprio: zero pontos sobe a ERRO ali em cima.
+            log.debug("base", msg);
         }
     }
 

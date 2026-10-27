@@ -202,6 +202,11 @@ private:
     /// Desde quando a taxa está baixa COM fix, para exigir sustentação.
     std::uint32_t  caindo_desde_ms_ = 0;
     bool           caindo_ = false;
+    /// Idem para a VOLTA ao normal, que até 27/10/2026 não exigia nenhuma —
+    /// e por isso o par degradado/normalizada se repetia a cada balanço em
+    /// torno do limiar. Ver `kSustentacaoNormalizacaoMs`.
+    std::uint32_t  normalizando_desde_ms_ = 0;
+    bool           normalizando_ = false;
     char*          trabalho_;
     std::size_t    capacidade_;
     ResultadoGravacao ultima_gravacao_ = ResultadoGravacao::Gravado;
