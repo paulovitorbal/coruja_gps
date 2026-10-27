@@ -32,6 +32,23 @@ public:
     /// Quantas respostas engolir antes de começar a responder (testa
     /// retentativa).
     unsigned engole = 0;
+    /// Quantos quadros engolir **logo depois de cada troca de baud**.
+    ///
+    /// Modela o que o diário de 26/10/2026 mostra em 13 de 15 partidas: com
+    /// o módulo a 115200, a sonda curta naquele baud fica sem resposta por
+    /// 221 ms, e dois segundos depois o MESMO quadro no MESMO baud é
+    /// respondido em 29 ms. O quadro anterior, mandado a 9600 para um módulo
+    /// que escuta a 115200, chega como ruído — e ruído pode abrir um quadro
+    /// UBX fantasma que engole o quadro bom seguinte.
+    ///
+    /// Diferente de `engole`, que conta desde o primeiro comando: este conta
+    /// a partir da troca, e por isso não muda de valor conforme o
+    /// configurador sonde uma ou duas vezes por baud.
+    ///
+    /// É um ORÇAMENTO para a execução inteira, não por troca: o `CFG-PRT`
+    /// também troca o baud, e rearmar ali faria o teste medir dois fenômenos
+    /// de uma vez — a sondagem e a retentativa do comando seguinte.
+    unsigned engole_apos_trocar_baud = 0;
     /// O módulo só responde quando a porta está neste baud. Zero = qualquer.
     std::uint32_t baud_exigido = 0;
     /// Texto NMEA injetado junto das respostas, como na linha de verdade.
@@ -79,6 +96,7 @@ public:
     void define_baud(std::uint32_t baud) override {
         bauds.push_back(baud);
         comandos_ate_trocar_baud = static_cast<int>(comandos.size());
+        logo_apos_troca_ = true;
     }
 
     bool mandou(std::uint8_t id) const {
@@ -108,6 +126,13 @@ private:
     void responde(const Comando& c) {
         if (engole > 0) { --engole; return; }
         if (baud_exigido != 0 && bauds.back() != baud_exigido) { return; }
+        if (logo_apos_troca_) {
+            logo_apos_troca_ = false;
+            if (engole_apos_trocar_baud > 0) {
+                --engole_apos_trocar_baud;
+                return;
+            }
+        }
         for (const auto id : muda) { if (id == c.id) { return; } }
         bool nak = false;
         for (const auto id : recusa) { if (id == c.id) { nak = true; } }
@@ -144,6 +169,7 @@ private:
     }
 
     std::vector<std::uint8_t> pendente_;
+    bool logo_apos_troca_ = false;
 };
 
 class PausaFalsa : public Pausa {
@@ -205,10 +231,14 @@ TEST(ConfiguradorGps, no_baud_errado_desiste_depressa_e_acha_no_outro) {
     b.uart.baud_exigido = kBaudDesejado;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
     EXPECT_EQ(b.baud_final, kBaudDesejado);
-    // Duas perguntas curtas na sondagem, mais o CFG-RATE final dos 4 Hz.
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 3u);
-    EXPECT_LE(b.pausa.agora, 2U * kEsperasDaSondagem * kEsperaEntreLeiturasMs)
-        << "a sondagem gastou mais que duas janelas curtas";
+    // Duas perguntas no baud de fabrica (`kSondagensPorBaud`), uma no outro
+    // -- que responde de primeira --, mais o CFG-RATE final dos 4 Hz.
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), kSondagensPorBaud + 2U);
+    // O tempo nao muda: so o baud ERRADO gasta janela, e a repeticao nele
+    // nao custa mais que a janela que ja se gastava la.
+    EXPECT_LE(b.pausa.agora,
+              kSondagensPorBaud * kEsperasDaSondagem * kEsperaEntreLeiturasMs)
+        << "a sondagem gastou mais que as janelas curtas do baud errado";
 }
 
 TEST(ConfiguradorGps, a_janela_da_sondagem_e_bem_menor_que_a_do_comando) {
@@ -445,6 +475,50 @@ TEST(ConfiguradorGps, o_sondar_nao_atropela_o_CFG_RATE_do_modulo_normal) {
     EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2U);
 }
 
+// ================== o quadro perdido na troca de baud (27/10/2026)
+//
+// 🔴 **13 das 15 partidas da v0.2.21 pagaram 2,2 s de sondagem por um quadro
+// so.** O diario de 26/10 mostra o padrao identico em todas elas: o modulo
+// esta a 115200 -- a configuracao persistiu de verdade --, a sonda curta
+// naquele baud fica 221 ms sem resposta, a fase insistente roda os dois bauds
+// e o MESMO quadro, no MESMO baud, e respondido em 29 ms.
+//
+// Que o modulo ja estava acordado as duas partidas restantes provam: nelas a
+// BBR tinha drenado, o modulo respondeu a 9600 em 60 ms, e 60 ms e bem antes
+// dos 221 que a sonda desperdica. O que falha nao e o tempo -- e o quadro.
+//
+// O conserto e perguntar duas vezes antes de desistir do baud. Quando o
+// modulo responde de primeira nao custa nada (ver
+// `o_sondar_nao_atropela_o_CFG_RATE_do_modulo_normal`).
+
+TEST(ConfiguradorGps, a_sonda_insiste_uma_vez_quando_o_quadro_se_perde) {
+    Bancada b;
+    b.uart.baud_exigido = kBaudDesejado;   // o modulo lembrou os 115200
+    b.uart.engole_apos_trocar_baud = 1;    // e o primeiro quadro apos a troca some
+
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    EXPECT_FALSE(b.log.contem(Nivel::Warning, "insistindo nos dois"))
+        << "caiu na fase longa por um quadro perdido na troca de baud";
+}
+
+TEST(ConfiguradorGps, o_quadro_perdido_custa_uma_janela_curta_e_nao_mais) {
+    // O preco do conserto, medido como DIFERENCA contra a mesma partida sem
+    // perda: exatamente a janela curta da pergunta repetida. Absoluto aqui
+    // nao diria nada -- o numero inclui a sequencia inteira.
+    Bancada limpa;
+    limpa.uart.baud_exigido = kBaudDesejado;
+    ASSERT_EQ(limpa.roda(), ResultadoConfigGps::Configurado);
+
+    Bancada b;
+    b.uart.baud_exigido = kBaudDesejado;
+    b.uart.engole_apos_trocar_baud = 1;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+
+    EXPECT_LE(b.pausa.agora - limpa.pausa.agora,
+              kEsperasDaSondagem * kEsperaEntreLeiturasMs)
+        << "o quadro perdido custou mais que a janela da pergunta repetida";
+}
+
 // ============================ a ordem que a viagem de 24/10/2026 cobrou
 //
 // 🔴 Com o modulo ainda a 9600 e as sete sentencas de fabrica ligadas, pedir
@@ -603,8 +677,9 @@ TEST(ConfiguradorGps, NAK_nao_e_repetido) {
 }
 
 TEST(ConfiguradorGps, o_silencio_total_tem_numero_de_tentativas_FIXO) {
-    // Uma pergunta curta em cada baud, e so entao duas longas em cada um:
-    // seis CFG-RATE antes de declarar que nao ha ninguem do outro lado.
+    // `kSondagensPorBaud` perguntas curtas em cada baud, e so entao
+    // `kTentativasPorComando` longas em cada um, antes de declarar que nao ha
+    // ninguem do outro lado.
     //
     // A garantia original -- nao insistir indefinidamente -- continua
     // valendo. O que mudou em 16/10/2026 e a ORDEM: as duas perguntas
@@ -613,7 +688,8 @@ TEST(ConfiguradorGps, o_silencio_total_tem_numero_de_tentativas_FIXO) {
     Bancada b;
     b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
     b.roda();
-    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate), 2U + kTentativasPorComando * 2);
+    EXPECT_EQ(b.uart.quantos(ubx::kCfgRate),
+              kSondagensPorBaud * 2 + kTentativasPorComando * 2);
 }
 
 TEST(ConfiguradorGps, recupera_na_segunda_tentativa) {
@@ -733,12 +809,13 @@ TEST(ConfiguradorGps, a_sonda_se_anuncia_como_1_hz_no_log) {
     // mutacao mostrou que, trocando o rotulo de volta, a mensagem deixava de
     // casar com o filtro e o teste passava sem checar nada. O que vale e a
     // ORDEM: nenhuma linha pode falar em 250 ms antes do CFG-PRT.
-    // `engole = 2` come as duas respostas da fase RAPIDA, e com isso a fase
-    // INSISTENTE roda -- que e onde o rotulo errado morava. Foi o que a
-    // mutacao cobrou: com `baud_exigido` a sondagem acertava de primeira e a
-    // linha mutada nem era executada.
+    // O `engole` come a fase RAPIDA inteira, e com isso a fase INSISTENTE
+    // roda -- que e onde o rotulo errado morava. Foi o que a mutacao cobrou:
+    // com `baud_exigido` a sondagem acertava de primeira e a linha mutada nem
+    // era executada. Em funcao de `kSondagensPorBaud` para nao voltar a
+    // passar vazio se a sondagem ganhar outra tentativa.
     Bancada b;
-    b.uart.engole = 2;
+    b.uart.engole = kSondagensPorBaud * 2;
     ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
     ASSERT_TRUE(b.log.contem(Nivel::Warning, "insistindo nos dois"))
         << "a fase insistente nao rodou; o teste nao exercita o rotulo";

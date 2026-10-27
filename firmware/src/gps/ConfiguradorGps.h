@@ -39,6 +39,14 @@ constexpr unsigned kTentativasPorComando = 2;
 /// 0,5 s do outro lado.
 constexpr unsigned kEsperasDaSondagem = 12;
 
+/// Quantas vezes a sondagem pergunta em CADA baud antes de passar ao
+/// seguinte.
+///
+/// Dois, por medida de campo: ver o comentario em `ConfiguradorGps::sonda`.
+/// A segunda pergunta so acontece quando a primeira ficou sem resposta, entao
+/// o modulo que responde de primeira nao paga nada por ela.
+constexpr unsigned kSondagensPorBaud = 2;
+
 /// O período de navegação de FÁBRICA, em ms. É com ele que se sonda.
 ///
 /// 🔴 **A sonda não pode pedir 4 Hz.** Até 2026-10-26 ela pedia, e o efeito

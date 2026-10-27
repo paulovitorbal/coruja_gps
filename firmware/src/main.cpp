@@ -55,6 +55,7 @@
 #include "nucleo/CarimboDeLog.h"
 #include "nucleo/CarregadorFluxo.h"
 #include "nucleo/LeitorConfig.h"
+#include "nucleo/LinhaVigia.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
@@ -689,7 +690,7 @@ int main() {
     app.define_versao(coruja::kVersaoBuild);
     app.define_base_carregada(base.cabecalho, base.pontos);
 
-    // Temperatura da pastilha, no boot e a cada cinco minutos.
+    // Temperatura da pastilha: um CAMPO da `vigia`, nao uma linha propria.
     //
     // Existe por um caso de campo: em 08/10/2026 o aparelho passou ~20 min sem
     // fix depois de o carro parar e voltar a andar, e a temperatura e uma das
@@ -700,17 +701,10 @@ int main() {
     // ⚠️ Mede a PASTILHA do RP2350, nao o ar nem o modulo GPS. Serve para a
     // tendencia, nao para o valor absoluto. Ver `Termometro.h`.
     //
-    // So o numero. A origem ja diz `temp`, a unidade e sempre Celsius, e que a
-    // primeira linha e do boot se ve pela posicao -- repetir isso em cada
-    // linha e ruido num arquivo que sobe pela rede.
-    const auto registra_temperatura = [&log]() {
-        float c = 0.0F;
-        if (!coruja::temperatura_do_chip(&c)) { return; }
-        char msg[16];
-        std::snprintf(msg, sizeof msg, "%.1f", static_cast<double>(c));
-        log.info("temp", msg);
-    };
-    registra_temperatura();
+    // Ate 27/10/2026 era uma linha so com o numero, a cada cinco minutos --
+    // na mesma cadencia da `vigia`, logo ao lado dela. Duas linhas para um
+    // instante so: 196 linhas no historico de 108 partidas, e cada uma
+    // custando uma escrita de cartao. Agora viaja junto.
 
     // **O log não dizia uma palavra durante a viagem.** Até 09/10/2026 ele
     // cobria só o boot: nenhuma das cinco viagens gravadas no cartão aparecia
@@ -735,25 +729,40 @@ int main() {
     //
     // Ambos por JANELA de cinco minutos, não desde o boot: um pico de uma
     // vez no arranque não pode ficar mascarando o resto da viagem.
+    //
+    // 🔴 **E ela DESCARREGA o buffer (27/10/2026).** O diario acumula 4 KiB
+    // em RAM e so grava quando o buffer enche, quando sai um WARN/ERRO ou
+    // quando alguem pede -- e `vigia` e INFO. Cortar a ignicao jogava fora
+    // tudo o que estava acumulado: das 15 partidas da v0.2.21, oito eram
+    // viagens de 5 a 15 min e **uma unica linha `vigia` sobreviveu**, por
+    // acidente, numa sessao em que um OTA falhou e forcou a descarga. As
+    // outras morreram na chave. Uma gravacao a cada cinco minutos, contra a
+    // que o registro de viagem ja faz a cada seis segundos.
     std::uint32_t pior_volta_ms = 0;
     const auto registra_vigilia = [&log, &piloto, &gps, &uart,
                                    &pior_volta_ms](std::uint32_t t_ms) {
-        char msg[160];
-        char hdop[24] = "sem medida";
-        if (gps.tem_qualidade(t_ms)) {
-            std::snprintf(hdop, sizeof hdop, "%.1f (%u sat)",
-                          static_cast<double>(gps.qualidade().hdop),
-                          static_cast<unsigned>(gps.qualidade().satelites));
+        coruja::EstadoVigia estado;
+        estado.pontos_base = static_cast<std::uint32_t>(piloto.pontos_da_base());
+        estado.tem_fix = gps.tem_fix(t_ms);
+        estado.zona = static_cast<std::uint8_t>(piloto.veredito().zona);
+        estado.tem_qualidade = gps.tem_qualidade(t_ms);
+        if (estado.tem_qualidade) {
+            estado.hdop = gps.qualidade().hdop;
+            estado.satelites = gps.qualidade().satelites;
         }
-        std::snprintf(msg, sizeof msg,
-                      "base %u pts | fix %s | zona %u | hdop %s | "
-                      "serial perdeu %lu B | pior volta %lu ms",
-                      static_cast<unsigned>(piloto.pontos_da_base()),
-                      gps.tem_fix(t_ms) ? "sim" : "NAO",
-                      static_cast<unsigned>(piloto.veredito().zona), hdop,
-                      static_cast<unsigned long>(uart.perdidos()),
-                      static_cast<unsigned long>(pior_volta_ms));
-        log.info("vigia", msg);
+        float c = 0.0F;
+        estado.tem_temperatura = coruja::temperatura_do_chip(&c);
+        estado.temperatura_c = c;
+        estado.serial_perdidos = uart.perdidos();
+        estado.pior_volta_ms = pior_volta_ms;
+
+        char msg[coruja::kTamLinhaVigia];
+        if (coruja::formata_vigia(estado, msg, sizeof msg) > 0) {
+            log.info("vigia", msg);
+        } else {
+            log.error("vigia", "a linha de vigia nao coube");
+        }
+        log.descarrega();
         uart.zera_perdidos();
         pior_volta_ms = 0;
     };
@@ -814,9 +823,8 @@ int main() {
     // Cinco minutos. Longo o bastante para nao inchar o log de uma viagem de
     // uma hora (doze linhas) e curto o bastante para pegar a subida de um
     // carro parado ao sol, que leva dezenas de minutos.
-    constexpr std::uint32_t kIntervaloTemperaturaMs = 5U * 60U * 1000U;
-    std::uint32_t proxima_temperatura_ms =
-        pausa.agora_ms() + kIntervaloTemperaturaMs;
+    constexpr std::uint32_t kIntervaloVigiaMs = 5U * 60U * 1000U;
+    std::uint32_t proxima_vigilia_ms = pausa.agora_ms() + kIntervaloVigiaMs;
 
     std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
@@ -896,13 +904,12 @@ int main() {
             registra_diagnostico(agora_ms);
         }
 
-        if (agora_ms - proxima_temperatura_ms < (1U << 31)) {
-            registra_temperatura();
+        if (agora_ms - proxima_vigilia_ms < (1U << 31)) {
             registra_vigilia(agora_ms);
             // Junto da vigilia, e pelo mesmo motivo dela: o ruido de agora
             // nao se mede depois da viagem.
             pede_diagnostico(agora_ms);
-            proxima_temperatura_ms = agora_ms + kIntervaloTemperaturaMs;
+            proxima_vigilia_ms = agora_ms + kIntervaloVigiaMs;
         }
 
         // Depois de um OTA, a tela dele ficou por cima: as telas só

@@ -79,12 +79,33 @@ ConfiguradorGps::Passo ConfiguradorGps::comanda(const std::uint8_t* quadro,
 ConfiguradorGps::Passo ConfiguradorGps::sonda(const std::uint8_t* quadro,
                                               std::size_t tamanho,
                                               std::uint8_t id, Logger& log) {
-    uart_.escreve(quadro, tamanho);
-    bool recusou = false;
-    if (espera_ack(id, log, &recusou, kEsperasDaSondagem)) {
-        return Passo::Ok;
+    // ⚠️ **Duas perguntas por baud, e a segunda nao e zelo.**
+    //
+    // Em 13 das 15 partidas da v0.2.21 (diario de 26/10/2026) o modulo estava
+    // a 115200 -- a configuracao persiste de verdade --, a sonda naquele baud
+    // ficava 221 ms sem resposta, e dois segundos depois a fase insistente
+    // mandava o MESMO quadro no MESMO baud e era respondida em 29 ms. Nao e
+    // modulo dormindo: nas duas partidas em que a BBR tinha drenado ele
+    // respondeu a 9600 em 60 ms, bem dentro da janela.
+    //
+    // O que se perde e o QUADRO, nao o tempo. O quadro anterior saiu a 9600
+    // para um modulo que escuta a 115200: chega como ruido, e ruido pode
+    // abrir um quadro UBX fantasma que engole o primeiro quadro bom seguinte.
+    //
+    // Perguntar de novo custa **zero** quando o modulo responde de primeira
+    // -- que e o caso do modulo recem-saido da caixa -- e devolve 2,2 s de
+    // arranque quando nao responde.
+    for (unsigned tentativa = 1; tentativa <= kSondagensPorBaud; ++tentativa) {
+        uart_.escreve(quadro, tamanho);
+        bool recusou = false;
+        if (espera_ack(id, log, &recusou, kEsperasDaSondagem)) {
+            return Passo::Ok;
+        }
+        // NAK nao melhora repetindo, e diz mais que um ACK: o modulo
+        // entendeu, logo esta NESTE baud. Repetir so atrasaria a resposta.
+        if (recusou) { return Passo::Nak; }
     }
-    return recusou ? Passo::Nak : Passo::Silencio;
+    return Passo::Silencio;
 }
 
 bool ConfiguradorGps::acha_o_modulo(const std::uint8_t* quadro,

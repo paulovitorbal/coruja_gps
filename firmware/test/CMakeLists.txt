@@ -47,6 +47,7 @@ add_executable(testes
     nucleo/RetomadaViagemTest.cpp
     nucleo/MonitorTaxaTest.cpp
     nucleo/UbxDiagnosticoTest.cpp
+    nucleo/LinhaVigiaTest.cpp
     nucleo/UbxTest.cpp
     nucleo/PeriodoDoDiaTest.cpp
     buzzer/CadenciaBuzzerTest.cpp
