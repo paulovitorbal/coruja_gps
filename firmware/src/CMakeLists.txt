@@ -32,6 +32,7 @@ add_library(coruja_nucleo STATIC
     nucleo/VerificadorDownload.cpp
     nucleo/CarregadorFluxo.cpp
     nucleo/Zonamento.cpp
+    nucleo/VelocidadeCruzeiro.cpp
     nucleo/DetectorInfracao.cpp
     nucleo/AcumuladorViagem.cpp
     nucleo/FormatoLog.cpp

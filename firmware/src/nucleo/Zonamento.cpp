@@ -36,22 +36,15 @@ bool rumo_utilizavel(const Telemetria& t) {
     return t.rumo_valido && t.velocidade_kmh >= kVelocidadeMinimaRumoKmh;
 }
 
-/// O mais próximo de uma categoria do RF03.4.
-struct Candidato {
-    bool        tem = false;
-    std::size_t indice = 0;
-    float       distancia = 0.0F;
-
-    void considera(std::size_t i, float d) {
-        if (!tem || d < distancia) {
-            tem = true;
-            indice = i;
-            distancia = d;
-        }
-    }
-};
-
 }  // namespace
+
+void MaquinaZona::Candidato::considera(std::size_t i, float d) {
+    if (!tem || d < distancia) {
+        tem = true;
+        indice = i;
+        distancia = d;
+    }
+}
 
 const char* descreve(Zona zona) {
     switch (zona) {
@@ -117,6 +110,70 @@ bool sentido_compativel(const RumoFiltro& rumo, const Ponto& p) {
     return diferenca <= kToleranciaRumoGraus;
 }
 
+bool decompoe_lateral(const RumoFiltro& rumo, const Telemetria& t,
+                      const Ponto& p, float cos_lat, float* ao_longo_m,
+                      float* lateral_m) {
+    if (!rumo.utilizavel) { return false; }
+
+    const float norte = (p.lat - t.lat) * geo::kMetrosPorGrauLat;
+    const float leste = (p.lon - t.lon) * geo::kMetrosPorGrauLat * cos_lat;
+
+    // Versor de avanço é (sen θ, cos θ) porque o rumo é medido do NORTE no
+    // sentido horário — não do leste no anti-horário, como a trigonometria
+    // de escola. Trocar os dois espelharia o mapa na diagonal.
+    const float rad = rumo.graus / kGrausPorRadiano;
+    const float sen = std::sin(rad);
+    const float co  = std::cos(rad);
+
+    if (ao_longo_m != nullptr) { *ao_longo_m = leste * sen + norte * co; }
+    if (lateral_m != nullptr)  { *lateral_m  = leste * co - norte * sen; }
+    return true;
+}
+
+bool ponto_na_minha_via(const RumoFiltro& rumo, const Telemetria& t,
+                        const Ponto& p, float cos_lat, bool proa_estavel) {
+    if (!proa_estavel) { return true; }
+
+    float ao_longo = 0.0F;
+    float lateral = 0.0F;
+    if (!decompoe_lateral(rumo, t, p, cos_lat, &ao_longo, &lateral)) {
+        return true;
+    }
+
+    // Para trás quem responde é `ponto_a_frente`. Aqui o que importa é que a
+    // folga do limiar é proporcional à distância À FRENTE, e distância
+    // negativa a encolheria — um ponto às costas ganharia um veto severo que
+    // ninguém pediu.
+    if (ao_longo <= 0.0F) { return true; }
+
+    const float limiar = kDesvioLateralM + ao_longo * kFolgaLateralPorMetro;
+    const float desvio = (lateral < 0.0F) ? -lateral : lateral;
+    return desvio <= limiar;
+}
+
+void ProaRecente::anota(float graus) {
+    proas_[proxima_] = graus;
+    proxima_ = (proxima_ + 1) % kAmostrasDeProa;
+    if (quantas_ < kAmostrasDeProa) { ++quantas_; }
+}
+
+void ProaRecente::esquece() {
+    quantas_ = 0;
+    proxima_ = 0;
+}
+
+bool ProaRecente::estavel() const {
+    // Janela incompleta é ausência de informação, não ausência de giro.
+    if (quantas_ < kAmostrasDeProa) { return false; }
+
+    // Com o anel cheio, `proxima_` é justamente a posição mais antiga: é a
+    // que será sobrescrita a seguir.
+    const std::size_t ultima =
+        (proxima_ + kAmostrasDeProa - 1) % kAmostrasDeProa;
+    return geo::diferenca_rumo(proas_[proxima_], proas_[ultima]) <=
+           kGiroMaximoGraus;
+}
+
 bool MaquinaZona::e_perigo(float velocidade_kmh, std::uint8_t limite) const {
     // Sem limite não há infração a detectar: `velocidade_infracao` devolve
     // zero, e comparar contra zero poria todo semáforo em Perigo.
@@ -134,6 +191,8 @@ void MaquinaZona::reinicia() {
     indice_alvo_ = 0;
     houve_fix_ = false;
     tem_rumo_lembrado_ = false;
+    proa_.esquece();
+    cruzeiro_.esquece();
 }
 
 /// Qual rumo os filtros usam, e a manutenção da memória.
@@ -163,14 +222,22 @@ RumoFiltro MaquinaZona::rumo_para_filtro(const Telemetria& t, float cos_lat) {
         rumo_lembrado_ = t.rumo_graus;
         lat_rumo_ = t.lat;
         lon_rumo_ = t.lon;
+        // Só leitura de verdade entra na janela do giro. O rumo LEMBRADO
+        // repetiria o mesmo valor a cada volta e faria qualquer parada
+        // parecer uma reta perfeita.
+        proa_.anota(t.rumo_graus);
         return {true, t.rumo_graus};
     }
-    if (!tem_rumo_lembrado_) { return {}; }
+    if (!tem_rumo_lembrado_) {
+        proa_.esquece();
+        return {};
+    }
 
     const float andou =
         geo::distancia_m(lat_rumo_, lon_rumo_, t.lat, t.lon, cos_lat);
     if (andou > kRaioRumoCongeladoM) {
         tem_rumo_lembrado_ = false;
+        proa_.esquece();
         return {};
     }
     return {true, rumo_lembrado_};
@@ -195,10 +262,94 @@ Veredito MaquinaZona::sem_fix(std::uint32_t agora_ms) {
     return v;
 }
 
+MaquinaZona::Disputa MaquinaZona::varre(const Telemetria& t,
+                                        const Ponto* base, std::size_t n,
+                                        float cos_lat, const RumoFiltro& rumo,
+                                        bool proa_estavel,
+                                        std::uint8_t limite_minimo) const {
+    Disputa d;
+
+    // O teto do que o cruzeiro explica. Zero com cruzeiro inválido, e aí
+    // `limite_da_via` fica zero e o desempate não acontece.
+    const float teto = cruzeiro_.valida()
+                           ? cruzeiro_.kmh() * kFolgaDoLimite
+                           : 0.0F;
+
+    // A varredura usa o MAIOR raio de saída, e não o do ponto: a janela de
+    // busca precisa alcançar o alvo retido pela histerese mais folgada que
+    // existe, senão um ponto de via rápida some da busca antes de ser
+    // avaliado. O raio de cada ponto é aplicado lá dentro.
+    const float margem_lat = kRaioSaidaM / geo::kMetrosPorGrauLat;
+    const float margem_lon = kRaioSaidaM / (geo::kMetrosPorGrauLat * cos_lat);
+    const float lat_maxima = t.lat + margem_lat;
+
+    for (std::size_t i = primeiro_com_lat_ge(base, n, t.lat - margem_lat);
+         i < n && base[i].lat <= lat_maxima; ++i) {
+        const Ponto& p = base[i];
+
+        // Corte por longitude antes da distância: comparação de floats contra
+        // um limiar calculado uma vez por fix, sem trigonometria por ponto.
+        const float dlon = p.lon - t.lon;
+        if (dlon > margem_lon || dlon < -margem_lon) { continue; }
+
+        const float dist = geo::distancia_m(t.lat, t.lon, p.lat, p.lon, cos_lat);
+
+        // Histerese de distância (RF03.2): entra no raio do ponto, e só o
+        // alvo já vigente continua valendo até o raio de saída dele.
+        const bool e_o_alvo = tem_alvo_ && i == indice_alvo_;
+        const float raio =
+            e_o_alvo ? raio_de_saida(p.limite) : raio_de_alerta(p.limite);
+        if (dist > raio) { continue; }
+
+        if (!sentido_compativel(rumo, p)) { continue; }
+        if (!ponto_a_frente(rumo, t, p, cos_lat)) { continue; }
+        if (!ponto_na_minha_via(rumo, t, p, cos_lat, proa_estavel)) {
+            continue;
+        }
+
+        // O corte do desempate (RF03.11), e ele **poupa o semáforo**: limite
+        // zero não descreve via nenhuma, e suprimi-lo esconderia câmera de
+        // avanço de sinal por causa de uma disputa que não é dele.
+        if (limite_minimo != kSemLimite && p.limite != kSemLimite &&
+            p.limite < limite_minimo) {
+            continue;
+        }
+
+        if (p.limite != kSemLimite) {
+            if (static_cast<float>(p.limite) <= teto &&
+                p.limite > d.limite_da_via) {
+                d.limite_da_via = p.limite;
+            }
+            if (d.menor_limite == kSemLimite || p.limite < d.menor_limite) {
+                d.menor_limite = p.limite;
+            }
+        }
+
+        // `e_perigo` vem primeiro de propósito: a guarda de `kSemLimite`
+        // dentro dele é o **único** ponto que impede um semáforo de virar
+        // Perigo. Testar `limite == 0` aqui antes duplicaria a regra e
+        // deixaria a guarda como código morto, que ninguém percebe quebrar.
+        d.mais_proximo.considera(i, dist);
+        if (d.n_candidatos < 255) { ++d.n_candidatos; }
+
+        if (e_perigo(t.velocidade_kmh, p.limite)) {
+            d.perigo.considera(i, dist);
+        } else if (p.limite == kSemLimite) {
+            d.semaforo.considera(i, dist);
+        } else if (t.velocidade_kmh > static_cast<float>(p.limite)) {
+            d.margem.considera(i, dist);
+        } else {
+            d.conforme.considera(i, dist);
+        }
+    }
+    return d;
+}
+
 Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
                              std::size_t n, std::uint32_t agora_ms) {
     ultimo_fix_ms_ = agora_ms;
     houve_fix_ = true;
+    cruzeiro_.anota(t.velocidade_kmh, agora_ms);
 
     // Base trocada sob os pés: o índice sozinho não identifica o alvo, porque
     // uma recarga pode pôr outro ponto na mesma posição do array. Coordenadas
@@ -214,59 +365,40 @@ Veredito MaquinaZona::avalia(const Telemetria& t, const Ponto* base,
 
     const RumoFiltro rumo = rumo_para_filtro(t, cos_lat);
 
-    // A varredura usa o raio de **saída**, não o de entrada: o alvo retido
-    // pela histerese vive entre 300 e 340 m, e some da busca se a janela for
-    // estreita demais.
-    const float margem_lat = kRaioSaidaM / geo::kMetrosPorGrauLat;
-    const float margem_lon = kRaioSaidaM / (geo::kMetrosPorGrauLat * cos_lat);
-    const float lat_maxima = t.lat + margem_lat;
+    // Lido DEPOIS de `rumo_para_filtro`, que é quem alimenta a janela: a
+    // amostra de agora tem de contar para o giro de agora.
+    const bool proa_estavel = proa_.estavel();
 
-    std::uint8_t n_candidatos = 0;
-    Candidato perigo;
-    Candidato margem;
-    Candidato semaforo;
-    Candidato conforme;
-    // Atravessa as categorias: e a resposta a "de qual radar eu passei
-    // perto", que nao e a mesma pergunta que "qual e o mais grave".
-    Candidato mais_proximo;
+    Disputa d = varre(t, base, n, cos_lat, rumo, proa_estavel, kSemLimite);
 
-    for (std::size_t i = primeiro_com_lat_ge(base, n, t.lat - margem_lat);
-         i < n && base[i].lat <= lat_maxima; ++i) {
-        const Ponto& p = base[i];
-
-        // Corte por longitude antes da distância: comparação de floats contra
-        // um limiar calculado uma vez por fix, sem trigonometria por ponto.
-        const float dlon = p.lon - t.lon;
-        if (dlon > margem_lon || dlon < -margem_lon) { continue; }
-
-        const float d = geo::distancia_m(t.lat, t.lon, p.lat, p.lon, cos_lat);
-
-        // Histerese de distância (RF03.2): entra a 300 m, e só o alvo já
-        // vigente continua valendo até 340 m.
-        const bool e_o_alvo = tem_alvo_ && i == indice_alvo_;
-        const float raio = e_o_alvo ? kRaioSaidaM : kRaioAlertaM;
-        if (d > raio) { continue; }
-
-        if (!sentido_compativel(rumo, p)) { continue; }
-        if (!ponto_a_frente(rumo, t, p, cos_lat)) { continue; }
-
-        // `e_perigo` vem primeiro de propósito: a guarda de `kSemLimite`
-        // dentro dele é o **único** ponto que impede um semáforo de virar
-        // Perigo. Testar `limite == 0` aqui antes duplicaria a regra e
-        // deixaria a guarda como código morto, que ninguém percebe quebrar.
-        mais_proximo.considera(i, d);
-        if (n_candidatos < 255) { ++n_candidatos; }
-
-        if (e_perigo(t.velocidade_kmh, p.limite)) {
-            perigo.considera(i, d);
-        } else if (p.limite == kSemLimite) {
-            semaforo.considera(i, d);
-        } else if (t.velocidade_kmh > static_cast<float>(p.limite)) {
-            margem.considera(i, d);
-        } else {
-            conforme.considera(i, d);
-        }
+    // ---------------------------------------------- desempate por cruzeiro
+    //
+    // 🔴 **O caso que a geometria não resolve.** Medido em 28/10/2026, numa
+    // via rápida com marginal: o radar de 60 da lateral fica a 6,6 m contra
+    // 3,4 m do radar de 80 da pista principal: separação da ordem do ruído do
+    // GPS, e o filtro de pista (RF02.4) não a encontra. A evidência que
+    // sobra é a velocidade sustentada — quem vem há minutos a 78 km/h está na
+    // via de 80.
+    //
+    // **Só desempata disputa.** Com um candidato só, ou com todos do mesmo
+    // limite, nada acontece: `menor_limite` não fica abaixo de
+    // `limite_da_via` e a segunda varredura nem roda. É isso que impede o
+    // desempate de calar um radar solitário, que seria trocar um incômodo por
+    // uma multa.
+    const std::uint8_t candidatos_em_disputa = d.n_candidatos;
+    if (d.limite_da_via != kSemLimite && d.menor_limite != kSemLimite &&
+        d.menor_limite < d.limite_da_via) {
+        d = varre(t, base, n, cos_lat, rumo, proa_estavel, d.limite_da_via);
     }
+
+    const Candidato& perigo = d.perigo;
+    const Candidato& margem = d.margem;
+    const Candidato& semaforo = d.semaforo;
+    const Candidato& conforme = d.conforme;
+    const Candidato& mais_proximo = d.mais_proximo;
+    // A contagem da PRIMEIRA varredura: o log tem de dizer que houve disputa,
+    // e não o tamanho do que sobrou depois de arbitrá-la.
+    const std::uint8_t n_candidatos = candidatos_em_disputa;
 
     // Precedência do RF03.4: vence a categoria mais grave, não o ponto mais
     // próximo. Dois radares na janela com limites diferentes produzem

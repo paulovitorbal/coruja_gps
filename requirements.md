@@ -322,16 +322,57 @@ campo `DirType` da base (ver RF06):
 
 ---
 
+#### [RF02.4] Filtro de pista — afastamento lateral
+
+Um ponto só disputa o alerta se estiver **na via do veículo**, e não na de ao lado.
+O critério é o afastamento lateral entre o ponto e a reta que o veículo percorre:
+
+```
+lateral_max = 15 m + 0,07 × distância_à_frente
+```
+
+> 🔴 **O requisito nasceu de um alarme que não parava.** Numa via rápida com
+> marginal, a lateral corre ao lado da principal com limite menor; o radar dela
+> cai na mesma janela e vence por gravidade (RF03.4). A 78 km/h na pista de 80, o radar de 60 da
+> marginal põe o aparelho em Perigo com buzzer — `V_infra(60) = 66` — enquanto o
+> radar da própria pista deixaria folga até 86.
+
+**Os números vieram de medida.** Em 28/10/2026, sobre viagens reais e contra a
+trilha percorrida (ponto-a-segmento, não ponto-a-amostra: a viagem grava a cada
+6 s, que a 78 km/h são 130 m entre pontos, e isso sozinho joga dezenas de metros em
+cima do número): entre 314 radares a até 120 m de alguma trilha há um vale entre
+~10 e ~15 m — 98 pontos abaixo de 10 m, 14 entre 10 e 15, e 78 entre 15 e 25.
+
+A folga de 0,07 por metro é a tangente de 4°. Existe porque **o aparelho decide
+antes de passar pelo ponto**: sem a trilha, só resta projetar pela proa de agora, e
+a 150 m um grau de erro de proa já são 2,6 m de lateral. Perto o veto é afiado;
+longe, quase não existe.
+
+O filtro **abre** — não descarta nada — quando:
+
+* o rumo não é utilizável (as mesmas condições do RF02.3);
+* a proa girou mais de **8°** nas últimas 12 leituras boas (curva: a projeção não
+  vale nada ali);
+* o ponto está atrás, que é assunto do RF03.1.
+
+**Limitação conhecida, e medida.** Dos três alarmes falsos registrados, o limiar
+mata dois — o radar de 60 a 27,3 m da trilha e o de 40 a 72,8 m. Não mata o
+terceiro: numa delas, o 60 intruso fica a 6,6 m da trilha contra 3,4 m do 80 que
+é do motorista, e nenhum limiar separa isso. Aquele caso é do RF03.11.
+
 ### [RF03] Alertas Contextuais (Zonamento)
 
 O sistema deve alternar entre **4 zonas** de operação, com base no ponto alvo válido:
 
 | Zona | Condição |
 | :--- | :--- |
-| **1. Zona Segura** | Nenhum ponto válido a ≤ 300 m |
-| **2. Zona de Aproximação** | `limite > 0` **e** distância ≤ 300 m **e** `velocidade ≤ V_infra` — com dois sub-estados (RF03.9) |
-| **3. Zona de Perigo** | `limite > 0` **e** distância ≤ 300 m **e** `velocidade > V_infra` |
-| **4. Zona de Semáforo** | `limite == 0` **e** distância ≤ 300 m |
+| **1. Zona Segura** | Nenhum ponto válido dentro do raio |
+| **2. Zona de Aproximação** | `limite > 0` **e** dentro do raio **e** `velocidade ≤ V_infra` — com dois sub-estados (RF03.9) |
+| **3. Zona de Perigo** | `limite > 0` **e** dentro do raio **e** `velocidade > V_infra` |
+| **4. Zona de Semáforo** | `limite == 0` **e** dentro do raio |
+
+O **raio depende do limite do ponto** (RF03.2): 300 m para `limite ≥ 100 km/h`,
+150 m para os demais.
 
 Onde **`V_infra`** é o limiar de infração definido no RF03.6 — **não** o limite da via.
 A fronteira entre Aproximação e Perigo é o ponto em que a multa passa a existir, não o
@@ -346,12 +387,22 @@ estiver **à frente**:
 
 * Comparar o azimute veículo→ponto com o rumo do veículo (diferença circular ≤ 90°), ou
 * Exigir distância **decrescente** entre amostras consecutivas.
-#### [RF03.2] Histerese
+#### [RF03.2] Raio de alerta e histerese
 
-A troca de zona deve ter histerese para evitar disparos repetidos na fronteira:
+O raio é **por ponto**, escolhido pelo limite dele:
 
-* Entrada em zona de alerta: distância ≤ **300 m**.
-* Saída para Zona Segura: distância > **340 m** ou ponto já ultrapassado.
+| Limite do ponto | Entra em alerta | Sai para Zona Segura |
+| :--- | ---: | ---: |
+| ≥ 100 km/h | **300 m** | **340 m** |
+| < 100 km/h (inclusive `limite == 0`) | **150 m** | **190 m** |
+
+> 🔴 **Os 300 m são orçamento de via rápida, e numa marginal viram ruído.** Medido
+> em 28/10/2026, numa via rápida com marginal: numa amostra o radar da pista
+> principal estava a 7,7 m e o da lateral a 171,9 m — ambos na janela, e o da marginal, de limite menor, venceu
+> por gravidade (RF03.4). A 80 km/h, 150 m ainda são 6,7 s de aviso; a 60, 9,0 s.
+> A janela longa fica para quem corre de verdade: a 120 km/h, 150 m seriam 4,5 s.
+
+Ou ponto já ultrapassado, em qualquer dos dois casos.
 
 Sem histerese, a zona alternaria em laço com a distância oscilando em torno do limiar.
 
@@ -813,6 +864,54 @@ periférica. Novos estados devem preferir a tela, não mais cores.
 > não há razão para manter especificação de mecanismo que não tem entrada de dados.
 >
 > O número RF03.10 fica **retirado**, não reservado.
+
+#### [RF03.11] Desempate por velocidade de cruzeiro
+
+Quando a janela tem **candidatos de limites diferentes**, o ponto cujo limite o
+cruzeiro não explica é descartado antes da precedência do RF03.4.
+
+* **Cruzeiro** = média exponencial da velocidade, constante de tempo **12 s**, válida
+  só após **20 s** de movimento contínuo acima de **30 km/h**. Morre ao parar, e morre
+  se o sinal sumir por mais de **10 s** — o mesmo prazo do descarte de alvo do §4.1,
+  porque é a mesma pergunta: "a continuidade ainda vale?".
+* **Limite da via** = o maior limite, entre os candidatos, que satisfaz
+  `limite ≤ cruzeiro × 1,10`.
+* Candidatos com `0 < limite < limite_da_via` são descartados.
+
+> 🔴 **Existe por um caso que o RF02.4 não resolve.** Medido em 28/10/2026, numa
+> via rápida com marginal: o radar de 60 da lateral fica a 6,6 m da trilha
+> percorrida contra 3,4 m do radar de 80 da pista principal. A separação é da ordem do ruído do GPS, e nenhum limiar
+> lateral a encontra. A evidência que sobra é a velocidade sustentada: quem vem há
+> meio minuto a 78 km/h está na via de 80, não na marginal de 60.
+
+**Três travas, e cada uma tem teste próprio:**
+
+1. **Só desempata disputa.** Com um candidato só — ou com todos do mesmo limite — nada
+   acontece. Um radar de 60 sozinho alerta mesmo com o cruzeiro em 78 km/h, que é
+   justamente quando o motorista está prestes a ser multado. Sem esta trava o
+   mecanismo vira mordaça.
+2. **Semáforo nunca é descartado.** `limite == 0` não descreve via nenhuma, e cortá-lo
+   esconderia câmera de avanço de sinal por causa de uma disputa de velocidade que não
+   é dele.
+3. **Sem cruzeiro válido, nada muda.** Partida a frio, trânsito parado ou sinal
+   intermitente devolvem o comportamento anterior.
+
+**O risco aceito**, registrado por decisão de 08/10/2026: num ponto onde um limite
+baixo e um alto coexistem, o motorista que correr na via de limite BAIXO terá o
+alerta suprimido. É o preço de não ter o buzzer tocando a viagem inteira na via
+rápida, e a decisão é de quem usa o aparelho — que segue responsável pela condução.
+
+O tamanho do risco é a constante de tempo do cruzeiro, que é de **12 s**: uma
+arrancada de 4 s move a média 25% do caminho e não promove limite nenhum; uma de
+8 s move 40% e promove. Pisar fundo por oito segundos ao lado de um radar de
+limite maior cala o da via de limite menor.
+
+> ⚠️ **Medido e não confirmado em campo.** Nos três episódios de 27 e 28/10 o
+> desempate **não chega a disparar**: o raio encurtado do RF03.2 e o filtro do
+> RF02.4 já resolvem dois, e no terceiro os dois radares estão a 165 m um do
+> outro ao longo da via — nunca cabem juntos na janela de 150 m. O mecanismo
+> está implementado e testado, mas ainda sem um caso real que o exercite.
+
 
 ---
 

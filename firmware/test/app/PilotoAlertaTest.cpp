@@ -160,7 +160,7 @@ TEST(PilotoAlerta, base_vazia_nao_e_confundida_com_via_livre_no_LED) {
 
 TEST(PilotoAlerta, perder_o_fix_no_meio_apaga_o_alerta) {
     Bancada b;
-    b.com_radar(150.0F, 60);
+    b.com_radar(140.0F, 60);
     b.dirige(90.0F, 0, 3000);
     ASSERT_EQ(b.piloto.veredito().zona, Zona::Perigo);
     // Um tunel: para de chegar sentenca.
@@ -183,7 +183,7 @@ TEST(PilotoAlerta, via_livre_fica_verde_e_silenciosa) {
 
 TEST(PilotoAlerta, aproximacao_conforme_fica_amarela_e_silenciosa) {
     Bancada b;
-    b.com_radar(200.0F, 60);
+    b.com_radar(120.0F, 60);
     b.dirige(55.0F, 0, 2000);
     EXPECT_EQ(b.piloto.veredito().zona, Zona::AproximacaoConforme);
     EXPECT_EQ(b.led.atual, cores::kAmarelo);
@@ -192,7 +192,7 @@ TEST(PilotoAlerta, aproximacao_conforme_fica_amarela_e_silenciosa) {
 
 TEST(PilotoAlerta, margem_pisca_rosa_e_continua_silenciosa) {
     Bancada b;
-    b.com_radar(200.0F, 60);
+    b.com_radar(120.0F, 60);
     b.dirige(63.0F, 0, 2000);
     ASSERT_EQ(b.piloto.veredito().zona, Zona::AproximacaoMargem);
     EXPECT_EQ(b.buzzer.ms_ligado, 0U) << "margem nao soa (RF03.9)";
@@ -210,7 +210,7 @@ TEST(PilotoAlerta, margem_pisca_rosa_e_continua_silenciosa) {
 
 TEST(PilotoAlerta, perigo_pisca_vermelho_e_soa) {
     Bancada b;
-    b.com_radar(200.0F, 60);
+    b.com_radar(120.0F, 60);
     b.dirige(90.0F, 0, 3000);
     ASSERT_EQ(b.piloto.veredito().zona, Zona::Perigo);
     EXPECT_GT(b.buzzer.ms_ligado, 0U);
@@ -225,7 +225,7 @@ TEST(PilotoAlerta, perigo_pisca_vermelho_e_soa) {
 
 TEST(PilotoAlerta, semaforo_alterna_amarelo_e_vermelho_sem_apagar) {
     Bancada b;
-    b.com_radar(200.0F, kSemLimite);
+    b.com_radar(120.0F, kSemLimite);
     b.dirige(60.0F, 0, 2000);
     ASSERT_EQ(b.piloto.veredito().zona, Zona::Semaforo);
     bool amarelo = false, vermelho = false, apagado = false;
@@ -248,7 +248,7 @@ TEST(PilotoAlerta, o_buzzer_nao_fica_presso_ligado) {
     // A regressao que o CadenciaBuzzer previne: o laco chama define_faixa a
     // cada volta, e se isso reiniciasse a fase o bipe nunca terminaria.
     Bancada b;
-    b.com_radar(250.0F, 60);
+    b.com_radar(140.0F, 60);
     unsigned desligado = 0;
     for (std::uint32_t t = 0; t <= 4000; t += 50) {
         if (t % 250 == 0) { b.uart.emite_rmc(kLat0, kLon0, 90.0F, 0.0F); }
@@ -260,7 +260,7 @@ TEST(PilotoAlerta, o_buzzer_nao_fica_presso_ligado) {
 
 TEST(PilotoAlerta, trocar_a_base_esquece_o_alvo) {
     Bancada b;
-    b.com_radar(200.0F, 60);
+    b.com_radar(120.0F, 60);
     b.dirige(90.0F, 0, 3000);
     ASSERT_TRUE(b.piloto.veredito().tem_alvo);
 
@@ -278,11 +278,11 @@ TEST(PilotoAlerta, a_base_nova_nao_herda_a_severidade_da_antiga) {
     // zero, 65 nao passa de 66 e e Margem. Uma base nova nao pode chegar
     // ja em Perigo por causa da anterior.
     Bancada b;
-    b.com_radar(150.0F, 60);
+    b.com_radar(140.0F, 60);
     b.dirige(90.0F, 0, 3000);
     ASSERT_EQ(b.piloto.veredito().zona, Zona::Perigo);
 
-    std::vector<Ponto> outra{radar(250.0F, 60)};
+    std::vector<Ponto> outra{radar(140.0F, 60)};
     b.piloto.define_base(outra.data(), outra.size());
     b.dirige(65.0F, 3000, 4500);
     EXPECT_EQ(b.piloto.veredito().zona, Zona::AproximacaoMargem)

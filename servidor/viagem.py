@@ -470,6 +470,19 @@ class RadarNoMapa:
     lon: float
     limite: int
 
+    #: Rumo de captura, em graus do norte, e a semântica dele.
+    #:
+    #: O mapa não usa nenhum dos dois — quem usa é o `pista.py`, para contar
+    #: separado as passagens de cada sentido. Sem isso, a mesma via dirigida
+    #: nos dois sentidos misturaria o radar da ida com o da volta, e a
+    #: mediana de afastamento sairia pela metade.
+    #:
+    #: Valores padrão porque os campos chegaram depois: toda construção antiga
+    #: continua válida, e o que não informa sentido se comporta como
+    #: omnidirecional, que é o caso que nunca descarta.
+    rumo: int = 0
+    sentido: int = 0
+
 
 def le_radares(caminho: Path) -> list[RadarNoMapa]:
     """Os pontos do `radares.bin`. Lista vazia se o arquivo não serve.
@@ -494,9 +507,10 @@ def le_radares(caminho: Path) -> list[RadarNoMapa]:
         deslocamento = inicio + i * tam
         if deslocamento + tam > len(bruto):
             break          # arquivo truncado: vale o que chegou inteiro
-        lat, lon, limite, _rumo, _tipo, _sentido = _REGISTRO_BASE.unpack_from(
+        lat, lon, limite, rumo_q, _tipo, sentido = _REGISTRO_BASE.unpack_from(
             bruto, deslocamento)
-        saida.append(RadarNoMapa(lat / _ESCALA, lon / _ESCALA, limite))
+        saida.append(RadarNoMapa(lat / _ESCALA, lon / _ESCALA, limite,
+                                 rumo_q * 2, sentido))
     return saida
 
 

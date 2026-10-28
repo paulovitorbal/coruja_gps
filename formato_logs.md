@@ -65,7 +65,7 @@ utc;lat;lon;v_media;dist_km;radar_m;radar_kmh;perto_m;perto_kmh;rumo;zona;n_rada
 | `perto_kmh` | v3 | limite desse radar |
 | `rumo` | v3 | rumo do veículo em graus do norte, da mesma leitura de `lat`/`lon` |
 | `zona` | v3 | a mais grave da fatia (ver tabela abaixo) |
-| `n_radares` | v3 | quantos passaram por todos os filtros, no pior instante |
+| `n_radares` | v3 | quantos disputaram, no pior instante — contagem de **antes** do desempate do RF03.11, para um instante arbitrado não ficar igual a um radar sozinho |
 
 **Campo vazio ≠ zero.** Vazio é "não havia" ou "não se sabe"; zero é valor
 medido. Importa em três lugares:
@@ -95,6 +95,12 @@ a pista lateral corre a poucos metros da principal com limite menor, e o radar
 dela ganha sempre de quem está a 80 na principal. **A divergência entre as
 duas colunas é o diagnóstico**; com uma só, o problema fica invisível.
 
+Foi assim que os três episódios de 27 e 28/10/2026 foram achados, e são eles
+que o RF02.4 (filtro de pista) e o RF03.11 (desempate por cruzeiro) atacam.
+**As colunas continuam valendo depois do conserto**: é por elas que se vê se
+os filtros estão escolhendo o radar certo — divergência que some é filtro
+funcionando, divergência que persiste é caso novo.
+
 ---
 
 ## 2. Infrações — `infracoes.log`
@@ -112,7 +118,7 @@ utc;lat;lon;rumo;v_radar;v_max;v_infra;limite;radar_lat;radar_lon;dist_min
 | `lat`, `lon` | posição do veículo |
 | `rumo` | rumo do veículo, graus |
 | `v_radar` | velocidade no instante da menor distância |
-| `v_max` | maior velocidade durante a aproximação |
+| `v_max` | maior velocidade durante a aproximação — isto é, dentro do raio de alerta do ponto: 150 m abaixo de 100 km/h, 300 m acima (RF03.2). Encurtou em 28/10/2026, junto com o raio |
 | `v_infra` | limiar de multa do radar (limite + 6 até 100 km/h; +5% acima) |
 | `limite` | limite do radar |
 | `radar_lat`, `radar_lon` | posição do radar |

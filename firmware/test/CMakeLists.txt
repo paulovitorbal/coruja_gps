@@ -40,6 +40,7 @@ add_executable(testes
     nucleo/NmeaGgaTest.cpp
     nucleo/FaixaHdopTest.cpp
     nucleo/ZonamentoTest.cpp
+    nucleo/VelocidadeCruzeiroTest.cpp
     nucleo/DetectorInfracaoTest.cpp
     nucleo/AnelBytesTest.cpp
     nucleo/AcumuladorViagemTest.cpp

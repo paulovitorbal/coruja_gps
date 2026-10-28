@@ -489,6 +489,41 @@ docker compose up -d
 Ela sobe **separada desta API** e não é necessária para nada que o aparelho
 faça. ~440 MiB de memória, medidos.
 
+## Medir a pista de cada radar — `pista.py`
+
+O aparelho decide em tempo real com a proa do instante, e isso tem limite: a
+perpendicular de longe é projeção, não medida (RF02.4). O servidor tem o
+histórico inteiro e pode medir a coisa certa — a distância de cada radar até a
+**linha** que o carro percorreu.
+
+```sh
+python3 pista.py recebidos/<id> dados/radares.bin --minimo 3
+```
+
+Sai uma linha por radar com 3+ passagens, da maior mediana para a menor:
+
+```
+limite passagens  mediana    menor    maior  coordenada
+    60         6    87.8m     0.5m    97.6m  -00.00000,-00.00000
+    70        13    10.3m     0.3m    23.9m  -00.00000,-00.00000
+```
+
+**Duas armadilhas que o módulo existe para não cair.** A viagem grava a cada
+6 s, que a 78 km/h são 130 m entre amostras: a menor distância até uma
+AMOSTRA superestima o afastamento em dezenas de metros, mais que a própria
+separação entre as pistas. A conta é ponto-a-**segmento**. E o **sentido conta
+separado**: a mesma via dirigida nos dois sentidos põe o radar da ida a 3 m e
+o da volta a 40 m, e misturar os dois faz toda mediana convergir para o meio
+da pista.
+
+> 🔴 **A mediana sozinha NÃO serve para suprimir radar.** Medido em 28/10/2026
+> sobre 36 viagens: dos 21 radares com mediana dentro do raio útil, só **4**
+> estão sempre na outra pista. **Sete são bimodais** — mediana de 21 a 89 m,
+> mas distância mínima de 0,5 a 2,6 m, ou seja, o carro já passou por cima
+> deles. Uma lista de supressão por mediana calaria sete radares que o
+> motorista de fato cruza. O que a estatística serve é de **prior**, para
+> apertar o limiar lateral do RF02.4 — nunca para vetar sozinha.
+
 ## Decisões que valem conhecer
 
 **Duas rotas fixas, não um servidor de arquivos.** Herdar de
