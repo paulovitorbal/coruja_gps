@@ -72,6 +72,13 @@ constexpr const char* kServidorNtpPadrao = "pool.ntp.br";
 /// conhecimento de causa pelo autor em 2026-10-06: o custo de esperar o fix
 /// falhar a cada uso é certo e cotidiano; o ataque exige alguém dentro da
 /// rede de onde o carro estaciona.
+///
+/// **Desde 02/11/2026 essa ordem quase nunca decide nada.** O
+/// `tenta_pelo_gps()` roda no laço principal e acerta o relógio no primeiro
+/// fix do trajeto, então na volta para a garagem o relógio já está bom e o
+/// `sincroniza()` devolve `JaAjustado`. O NTP passou a ser o que cobre a
+/// ligação que começa e termina sem fix — energizar na garagem e remeter.
+/// Na prática o ataque acima ficou restrito a esse caso.
 class SincronizadorHora {
 public:
     SincronizadorHora(RelogioPersistente& relogio, FonteNtp& ntp)
@@ -81,6 +88,22 @@ public:
     /// conhecida — pode estar sem data, e aí é simplesmente ignorada.
     OrigemHora sincroniza(const char* servidor, const Telemetria& gps,
                           Logger& log);
+
+    /// Acerta o relógio pela telemetria, **sem rede nenhuma**.
+    ///
+    /// Mora no laço principal e roda a cada volta: não espera por nada, não
+    /// consulta ninguém, e devolve `JaAjustado` assim que o relógio da
+    /// ligação estiver bom. Fora do `sincroniza()` porque ali o GPS é a
+    /// alternativa ao NTP; aqui ele é a única fonte que existe — no trajeto
+    /// não há Wi-Fi.
+    ///
+    /// ⚠️ **Acertar aqui faz o `sincroniza()` seguinte devolver
+    /// `JaAjustado`**, e o NTP não é consultado naquela ligação. É
+    /// deliberado: quem chegou primeiro fica com o relógio, e chegando do
+    /// trajeto quem chegou primeiro foi o GPS — que não passa pelo Wi-Fi e
+    /// por isso é imune ao ataque descrito acima. O `esquece()` continua
+    /// sendo a saída quando o certificado é recusado por data.
+    OrigemHora tenta_pelo_gps(const Telemetria& gps, Logger& log);
 
     /// A hora de parede agora, em segundos desde 1970. Zero se ninguém
     /// conseguiu acertar — e aí o TLS vai recusar tudo por data, que é o

@@ -889,6 +889,22 @@ int main() {
         // `agora >= proxima` direto pararia de registrar depois dela.
         const std::uint32_t agora_ms = pausa.agora_ms();
 
+        // O relogio pelo GPS, assim que houver fix com data.
+        //
+        // Ate 02/11/2026 o relogio so era acertado em `apos_conectar`, no
+        // preparo do TLS -- ou seja, so quando havia atualizacao de base ou
+        // remessa. Um trajeto sem Wi-Fi saia com o diario INTEIRO carimbado
+        // em milissegundos desde o boot: 446 linhas com data contra 4 972 sem,
+        // no historico real. A hora estava ali o tempo todo (o arquivo de
+        // viagem ja a usava); faltava alguem aplica-la.
+        //
+        // Barato de chamar a cada volta: devolve `JaAjustado` na primeira
+        // comparacao depois que o relogio esta bom.
+        if (sincronizador.tenta_pelo_gps(gps.telemetria(), log)
+                == coruja::OrigemHora::Gps) {
+            coruja::define_hora_utc(sincronizador.hora_utc());
+        }
+
         // O primeiro fix da ligacao, com a hora do NOSSO relogio: ela conta
         // desde o boot do Pico e inclui a configuracao do receptor, entao
         // divergir muito do `ttff` do modulo aponta o atraso para o nosso

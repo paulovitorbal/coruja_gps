@@ -147,6 +147,16 @@ estruturado. A forma da linha mudou duas vezes:
   nem por expressão regular: o `+` as separa. O RP2350 não tem bateria no
   relógio, então o começo de toda ligação é genuinamente sem hora — inventar
   1970 ali seria pior que admitir.
+
+  🔴 **Até a v0.2.22 quase todo o arquivo saía na segunda forma.** O relógio
+  só era acertado no preparo da sessão TLS, isto é, só quando havia
+  atualização de base ou remessa; um trajeto sem Wi-Fi saía inteiro em
+  milissegundos. Medido no histórico real em 02/11/2026: **446 linhas com
+  data contra 4 972 sem**, e o relógio acertado 5 vezes por NTP e 1 por GPS
+  em toda a série. Desde então o fix acerta o relógio assim que traz data
+  válida, e o diário de um trajeto normal passa a ter carimbo ISO. Quem
+  acertar primeiro na ligação fica com ele: chegando do trajeto, o
+  `sincroniza()` da remessa devolve `JaAjustado` e não consulta o NTP.
 - **`IDEXEC`** são 8 caracteres sorteados no boot, do alfabeto
   `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` (sem `0`, `1`, `I`, `O`, `l`, que são
   onde a leitura erra). Agrupa as linhas de uma mesma ligação num arquivo que

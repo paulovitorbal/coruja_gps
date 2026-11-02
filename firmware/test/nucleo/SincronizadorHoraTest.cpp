@@ -212,4 +212,122 @@ TEST(SincronizadorHora, toda_origem_tem_nome_proprio) {
     }
 }
 
+// ====================================== o relogio do GPS durante o trajeto
+//
+// Medido em 02/11/2026 no diario real: 446 linhas com data contra 4 972
+// carimbadas em milissegundos desde o boot. O relogio so era acertado em
+// `apos_conectar`, no preparo do TLS -- um trajeto sem Wi-Fi saia inteiro sem
+// data, embora a telemetria trouxesse UTC valido segundos depois do fix e o
+// arquivo de VIAGEM ja o usasse.
+
+TEST(SincronizadorHora, o_fix_acerta_o_relogio_sem_tocar_na_rede) {
+    Bancada b;
+    auto s = b.cria();
+
+    EXPECT_EQ(s.tenta_pelo_gps(gps_com_data(), b.log), OrigemHora::Gps);
+    EXPECT_EQ(b.relogio.valor, kHoraGps);
+    EXPECT_TRUE(b.ntp.consultados.empty()) << "nao pode haver rede no trajeto";
+}
+
+TEST(SincronizadorHora, sem_data_valida_o_relogio_fica_como_estava) {
+    Bancada b;
+    auto s = b.cria();
+    Telemetria sem_data;                  // o que chega antes do primeiro fix
+
+    EXPECT_EQ(s.tenta_pelo_gps(sem_data, b.log), OrigemHora::Nenhuma);
+    EXPECT_EQ(b.relogio.ajustes, 0);
+}
+
+TEST(SincronizadorHora, data_plausivel_com_a_bandeira_baixa_nao_entra) {
+    // A armadilha que o teste de `Telemetria{}` nao pega: a RMC pode trazer
+    // uma data perfeitamente plausivel com o status em `V`, que e a data
+    // VELHA, de antes de o receptor perder o fix. Plausivel nao e sinonimo de
+    // valida, e so a bandeira sabe a diferenca.
+    Bancada b;
+    auto s = b.cria();
+    Telemetria velha = gps_com_data();
+    velha.data_valida = false;
+
+    EXPECT_EQ(s.tenta_pelo_gps(velha, b.log), OrigemHora::Nenhuma);
+    EXPECT_EQ(b.relogio.ajustes, 0);
+}
+
+TEST(SincronizadorHora, data_implausivel_do_gps_nao_entra) {
+    Bancada b;
+    auto s = b.cria();
+
+    EXPECT_EQ(s.tenta_pelo_gps(gps_com_data(1999), b.log), OrigemHora::Nenhuma);
+    EXPECT_EQ(b.relogio.ajustes, 0);
+}
+
+TEST(SincronizadorHora, receptor_com_data_torta_nao_inunda_o_diario) {
+    // O `aceita()` recusa a data implausivel e AVISA -- o que esta certo
+    // quando a chamada e uma por sessao de rede. Aqui a chamada e 4 vezes por
+    // segundo: deixar o aviso sair dali encheria o cartao de linhas iguais
+    // enquanto o receptor mandasse lixo, que e justamente quando se precisa
+    // ler o diario.
+    Bancada b;
+    auto s = b.cria();
+
+    for (int i = 0; i < 200; ++i) {
+        s.tenta_pelo_gps(gps_com_data(1999), b.log);
+    }
+    EXPECT_TRUE(b.log.entradas().empty())
+        << "a guarda de plausibilidade deixou o aviso vazar para o laco";
+}
+
+TEST(SincronizadorHora, chamado_a_cada_volta_acerta_uma_vez_so) {
+    // Mora no laco principal: roda a cada volta, 4 vezes por segundo. Repetir
+    // a escrita seria gravacao no POWMAN por nada, e linha de log por nada.
+    Bancada b;
+    auto s = b.cria();
+
+    s.tenta_pelo_gps(gps_com_data(), b.log);
+    for (int i = 0; i < 50; ++i) {
+        EXPECT_EQ(s.tenta_pelo_gps(gps_com_data(2026, 10, 6, 14, 30, 1), b.log),
+                  OrigemHora::JaAjustado);
+    }
+    EXPECT_EQ(b.relogio.ajustes, 1);
+}
+
+TEST(SincronizadorHora, depois_do_trajeto_a_sessao_de_rede_nao_consulta_ntp) {
+    // ESTA e a consequencia da mudanca, e ela e deliberada: quem acertou
+    // primeiro fica com o relogio na ligacao. Chegando do trajeto, o relogio
+    // ja veio do GPS -- que nao passa pelo Wi-Fi e por isso e imune ao NTP
+    // sem autenticacao de que o cabecalho da classe fala.
+    Bancada b;
+    b.ntp.devolve = kHoraNtp;
+    auto s = b.cria();
+
+    ASSERT_EQ(s.tenta_pelo_gps(gps_com_data(), b.log), OrigemHora::Gps);
+    EXPECT_EQ(s.sincroniza(nullptr, Telemetria{}, b.log), OrigemHora::JaAjustado);
+    EXPECT_TRUE(b.ntp.consultados.empty());
+    EXPECT_EQ(b.relogio.valor, kHoraGps);
+}
+
+TEST(SincronizadorHora, sem_fix_no_trajeto_o_ntp_continua_valendo) {
+    // Energizar na garagem e remeter sem nunca ter fix: o caminho de antes
+    // tem de seguir intacto.
+    Bancada b;
+    b.ntp.devolve = kHoraNtp;
+    auto s = b.cria();
+
+    ASSERT_EQ(s.tenta_pelo_gps(Telemetria{}, b.log), OrigemHora::Nenhuma);
+    EXPECT_EQ(s.sincroniza(nullptr, Telemetria{}, b.log), OrigemHora::Ntp);
+    EXPECT_EQ(b.relogio.valor, kHoraNtp);
+}
+
+TEST(SincronizadorHora, esquece_reabre_o_acerto_pelo_gps) {
+    // A saida de emergencia do certificado recusado por data continua valendo
+    // para o relogio que veio do GPS.
+    Bancada b;
+    auto s = b.cria();
+    s.tenta_pelo_gps(gps_com_data(), b.log);
+    s.esquece();
+
+    EXPECT_EQ(s.tenta_pelo_gps(gps_com_data(2026, 10, 6, 15, 0, 0), b.log),
+              OrigemHora::Gps);
+    EXPECT_EQ(b.relogio.ajustes, 2);
+}
+
 }  // namespace

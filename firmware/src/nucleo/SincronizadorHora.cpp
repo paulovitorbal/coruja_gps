@@ -45,6 +45,25 @@ bool SincronizadorHora::aceita(std::int64_t segundos, OrigemHora origem,
     return true;
 }
 
+OrigemHora SincronizadorHora::tenta_pelo_gps(const Telemetria& gps,
+                                             Logger& log) {
+    if (ja_sincronizado_ && de_segundos(relogio_.agora_utc()).plausivel()) {
+        return OrigemHora::JaAjustado;
+    }
+    if (!gps.data_valida) {
+        return OrigemHora::Nenhuma;
+    }
+    const TempoUtc t{gps.ano, gps.mes, gps.dia,
+                     gps.hora, gps.minuto, gps.segundo};
+    // A plausibilidade e conferida AQUI, e nao so dentro do `aceita`: este
+    // caminho roda a cada volta do laco, e deixar o `aceita` recusar encheria
+    // o diario de avisos iguais enquanto o receptor mandasse data torta.
+    if (!t.plausivel() || !aceita(segundos_de(t), OrigemHora::Gps, log)) {
+        return OrigemHora::Nenhuma;
+    }
+    return OrigemHora::Gps;
+}
+
 OrigemHora SincronizadorHora::sincroniza(const char* servidor,
                                          const Telemetria& gps, Logger& log) {
     // Ja acertado NESTA ligacao: nao se mexe. Reconsultar a cada OTA gastaria
