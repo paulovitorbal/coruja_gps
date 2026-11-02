@@ -8,6 +8,7 @@
 
 #include "apoio/LoggerMock.h"
 #include "armazenamento/Armazenamento.h"
+#include "nucleo/UbxDiagnostico.h"
 
 namespace {
 
@@ -249,6 +250,53 @@ TEST(LoggerCartao, a_linha_traz_nivel_origem_e_mensagem) {
     EXPECT_NE(b.cartao.arquivo.find("rede"), std::string::npos);
     EXPECT_NE(b.cartao.arquivo.find("sem enlace"), std::string::npos);
     EXPECT_EQ(b.cartao.arquivo.back(), '\n');
+}
+
+// --- a linha comprida demais ---------------------------------------------
+//
+// Achado no diário de bordo real: 44 linhas do `gps: radio:` saíram cortadas
+// em exatamente 191 caracteres e SEM o `\n`, de modo que a linha seguinte
+// vinha grudada na mesma linha física. O `snprintf` trunca pelo fim, e o fim
+// era justamente o terminador de registro -- então o que se perdia não era um
+// pedaço da mensagem, era a fronteira entre duas delas, e qualquer leitor de
+// log passava a ver um registro inventado no lugar de dois verdadeiros.
+
+TEST(LoggerCartao, mensagem_que_estoura_o_buffer_ainda_termina_em_nova_linha) {
+    Bancada b;
+    const std::string gigante(400, 'x');
+    b.log.error("gps", gigante.c_str());
+    EXPECT_EQ(b.cartao.arquivo.back(), '\n');
+}
+
+TEST(LoggerCartao, duas_mensagens_cortadas_nao_viram_uma_linha_so) {
+    // É esta a consequência que importa: sem o terminador, duas linhas
+    // cortadas chegam ao arquivo como uma só.
+    Bancada b;
+    const std::string gigante(400, 'x');
+    b.log.error("gps", gigante.c_str());
+    b.log.error("gps", gigante.c_str());
+    EXPECT_EQ(b.linhas_no_arquivo(), 2U);
+}
+
+TEST(LoggerCartao, a_maior_mensagem_do_projeto_cabe_inteira) {
+    // Prende `kTamLinha` ao motivo dele existir: a linha de diagnóstico do
+    // rádio, que o `UbxDiagnostico` monta em até `kTamDiagnostico` bytes.
+    // Encolher um sem o outro volta a cortar justamente a linha que se grava
+    // para diagnosticar.
+    Bancada b;
+    const std::string maior(kTamDiagnostico - 1, 'x');
+    b.log.error("gps", maior.c_str());
+    EXPECT_NE(b.cartao.arquivo.find(maior), std::string::npos)
+        << "a maior mensagem do projeto saiu cortada";
+}
+
+TEST(LoggerCartao, o_corte_preserva_o_comeco_da_mensagem) {
+    // Cortar pelo fim é a escolha certa; o teste existe para que ninguém
+    // "conserte" o estouro truncando pela frente e jogando fora o carimbo.
+    Bancada b;
+    const std::string gigante = "comeco reconhecivel " + std::string(400, 'x');
+    b.log.error("gps", gigante.c_str());
+    EXPECT_NE(b.cartao.arquivo.find("comeco reconhecivel"), std::string::npos);
 }
 
 

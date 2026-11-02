@@ -53,6 +53,7 @@ private:
     void grava_infracao(const RegistroInfracao& r);
     void trata_viagem(const Veredito& v, const Telemetria& t, bool tem_fix,
                       std::uint32_t agora_ms);
+    bool escreve_cabecalho_viagem();
     void tenta_retomar(const Telemetria& t);
     void salva_estado(bool ativa, const PontoViagem& p);
     void limpa_estado();
@@ -68,6 +69,16 @@ private:
     /// energização: o cabeçalho só vai no arquivo novo, e reler o cartão a
     /// cada infração para descobrir isso seria leitura por nada.
     bool sondou_infracoes_ = false;
+
+    /// Verdadeiro quando a escrita do cabeçalho não entrou e o arquivo de
+    /// viagem está sem assinatura.
+    ///
+    /// Avisar não bastava: o servidor recusa a viagem INTEIRA quando a
+    /// primeira linha não é assinatura conhecida, e foi o que aconteceu com
+    /// um arquivo real do cartão — quatro pontos gravados, viagem
+    /// descartada. A
+    /// bandeira faz a próxima gravação repor a assinatura.
+    bool falta_cabecalho_ = false;
 
     /// A retomada é tentada uma vez só por energização.
     ///

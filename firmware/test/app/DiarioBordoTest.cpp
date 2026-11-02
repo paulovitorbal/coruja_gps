@@ -43,6 +43,10 @@ public:
     ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
                                   std::size_t tamanho, Logger&) override {
         if (falha_escrita) { return ErroCartao::FalhaDeEscrita; }
+        // Falha passageira: o cartao recusa as N primeiras e volta a si. E
+        // assim que a falha de verdade apareceu -- uma escrita perdida logo
+        // apos a leitura em fluxo da base, com o resto da viagem gravando.
+        if (falhar_proximas > 0) { --falhar_proximas; return ErroCartao::FalhaDeEscrita; }
         arquivos[nome] += std::string(conteudo, tamanho);
         return ErroCartao::Nenhum;
     }
@@ -55,6 +59,8 @@ public:
     ErroCartao promove(const char*, const char*, const char*, Logger&) override {
         return ErroCartao::Nenhum;
     }
+
+    int falhar_proximas = 0;
 
     bool tem(const std::string& nome) const {
         return arquivos.find(nome) != arquivos.end();
@@ -146,6 +152,49 @@ TEST(DiarioBordo, alternar_inicia_e_o_primeiro_fix_cria_o_arquivo) {
     EXPECT_EQ(d.estado_viagem(), EstadoViagem::Gravando);
     ASSERT_TRUE(c.tem("20261004_173042.log"));
     EXPECT_EQ(c.arquivos["20261004_173042.log"], kCabecalhoViagem);
+}
+
+// --- o cabecalho que nao entrou -------------------------------------------
+//
+// Achado no cartao real: um arquivo de viagem chegou ao servidor com quatro
+// pontos e NENHUM cabecalho, e o servidor recusou a viagem inteira -- a
+// primeira linha nao era assinatura conhecida. O `Abre` descartava o retorno
+// da escrita, sozinho entre todas as gravacoes do arquivo, e anunciava o nome
+// no diario como se tivesse dado certo.
+
+TEST(DiarioBordo, cabecalho_de_viagem_que_falha_vira_erro_no_log) {
+    CartaoFalso c; LoggerMock l;
+    DiarioBordo d(c, l);
+    d.alterna_viagem();
+    c.falhar_proximas = 1;            // so o cabecalho
+    d.passo(Veredito{}, em(17, 30, 0, 72.0F), true, 0);
+    EXPECT_TRUE(l.contem(Nivel::Error, "cabecalho"))
+        << "a falha do cabecalho passou calada";
+}
+
+TEST(DiarioBordo, cabecalho_perdido_e_reposto_antes_do_ponto_seguinte) {
+    // Avisar nao basta: sem cabecalho o servidor joga a viagem fora. A
+    // proxima gravacao repoe a assinatura, e o arquivo volta a ser legivel.
+    CartaoFalso c; LoggerMock l;
+    DiarioBordo d(c, l);
+    d.alterna_viagem();
+    c.falhar_proximas = 1;
+    d.passo(Veredito{}, em(17, 30, 0, 72.0F), true, 0);
+    d.passo(Veredito{}, em(17, 31, 0, 72.0F), true, 60000);
+
+    ASSERT_TRUE(c.tem("20261004_173000.log"));
+    EXPECT_EQ(c.arquivos["20261004_173000.log"].rfind(kCabecalhoViagem, 0), 0u)
+        << "o arquivo nao comeca pela assinatura; o servidor recusaria";
+}
+
+TEST(DiarioBordo, cabecalho_que_entrou_nao_se_repete) {
+    // A reposicao nao pode virar cabecalho a cada ponto.
+    CartaoFalso c; LoggerMock l;
+    DiarioBordo d(c, l);
+    d.alterna_viagem();
+    d.passo(Veredito{}, em(17, 30, 0, 72.0F), true, 0);
+    d.passo(Veredito{}, em(17, 31, 0, 72.0F), true, 60000);
+    EXPECT_EQ(c.linhas("20261004_173000.log"), 3u) << "2 de cabecalho + 1 ponto";
 }
 
 TEST(DiarioBordo, cada_minuto_grava_um_ponto_e_salva_o_estado) {

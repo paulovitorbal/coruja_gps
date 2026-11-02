@@ -77,6 +77,17 @@ private:
     /// linhas numa execução real. 4 KiB cobrem ~68 linhas, com folga de quatro
     /// vezes. Com 1 KiB o log perdia o trecho inteiro.
     static constexpr std::size_t kTamBuffer = 4096;
+
+    /// Teto de uma linha montada, com carimbo, identificador de execução,
+    /// nível e origem.
+    ///
+    /// Dimensionado pela **maior mensagem que o projeto gera**, que é o
+    /// `gps: radio:` do `UbxDiagnostico` (`kTamDiagnostico`, 288). Com os 192
+    /// de antes essa linha saía cortada aos 191 caracteres, e o que se perdia
+    /// no corte era a contagem de satélites -- o campo pelo qual a linha
+    /// existe. Medido no diário real: 44 linhas cortadas em 5 623.
+    static constexpr std::size_t kTamLinha = 352;
+
     char        buffer_[kTamBuffer] = {};
     std::size_t usados_ = 0;
     /// Linhas descartadas por buffer cheio. Vão para o arquivo como aviso

@@ -36,8 +36,8 @@ struct EstadoVigia {
     std::uint32_t pior_volta_ms = 0;
 };
 
-/// Quanto espaço a linha pede. O `Logger` corta em 192 contando carimbo,
-/// identificador de execução e origem; 160 cabem com folga nos dois.
+/// Quanto espaço a linha pede. O `Logger` corta em `kTamLinha` contando
+/// carimbo, identificador de execução e origem; 160 cabem com folga nos dois.
 constexpr std::size_t kTamLinhaVigia = 160;
 
 /// Escreve a linha em `destino` e devolve quantos caracteres usou.

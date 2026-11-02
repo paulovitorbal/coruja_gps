@@ -120,6 +120,18 @@ static RadarDaAmostra radar_de(const Veredito& v) {
     return r;
 }
 
+/// Escreve a assinatura no arquivo da viagem. Devolve **true se faltou** —
+/// o valor vai direto para `falta_cabecalho_`.
+bool DiarioBordo::escreve_cabecalho_viagem() {
+    if (cartao_.acrescenta_arquivo(viagem_.nome_arquivo(), kCabecalhoViagem,
+                                   std::strlen(kCabecalhoViagem),
+                                   log_) == ErroCartao::Nenhum) {
+        return false;
+    }
+    log_.error(kOrigem, "falha ao gravar cabecalho de viagem");
+    return true;
+}
+
 void DiarioBordo::trata_viagem(const Veredito& v, const Telemetria& t,
                                bool tem_fix, std::uint32_t agora_ms) {
     if (!tentou_retomar_ && tem_fix && t.data_valida && !viagem_.ativa()) {
@@ -128,11 +140,16 @@ void DiarioBordo::trata_viagem(const Veredito& v, const Telemetria& t,
 
     switch (viagem_.alimenta(t, radar_de(v), tem_fix, agora_ms)) {
         case EventoViagem::Abre:
-            cartao_.acrescenta_arquivo(viagem_.nome_arquivo(), kCabecalhoViagem,
-                                       std::strlen(kCabecalhoViagem), log_);
+            // O retorno importa: sem cabeçalho o servidor recusa a viagem
+            // inteira, e esta era a única gravação do arquivo que o
+            // descartava.
+            falta_cabecalho_ = escreve_cabecalho_viagem();
             log_.info(kOrigem, viagem_.nome_arquivo());
             break;
         case EventoViagem::Grava: {
+            if (falta_cabecalho_) {
+                falta_cabecalho_ = escreve_cabecalho_viagem();
+            }
             const auto& p = viagem_.ultimo_ponto();
             const auto n = formata_ponto_viagem(p, trabalho_, sizeof trabalho_);
             if (n == 0) {

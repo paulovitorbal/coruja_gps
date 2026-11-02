@@ -96,11 +96,9 @@ void LoggerCartao::registra(Nivel nivel, const char* origem,
         return;
     }
 
-    // 192, e nao os 160 de antes: o carimbo acrescentou 21 caracteres a toda
-    // linha, e manter o buffer cortaria a MENSAGEM para caber o horario --
-    // trocando conteudo por metadado exatamente nas linhas mais longas, que
-    // sao as de diagnostico.
-    char linha[192];
+    // O teto vive no cabeçalho porque é ele quem casa com a maior mensagem
+    // que o projeto gera; ver `kTamLinha`.
+    char linha[kTamLinha];
     // O carimbo vem PRIMEIRO, e nao depois do identificador: ferramenta de
     // log espera o instante no comeco da linha, e e assim que ela o acha sem
     // configuracao. O identificador de execucao vem em seguida porque ele
@@ -112,9 +110,17 @@ void LoggerCartao::registra(Nivel nivel, const char* origem,
     if (n <= 0) {
         return;
     }
-    const std::size_t tam = static_cast<std::size_t>(n) < sizeof linha
-                                ? static_cast<std::size_t>(n)
-                                : sizeof linha - 1;
+    const bool coube = static_cast<std::size_t>(n) < sizeof linha;
+    const std::size_t tam =
+        coube ? static_cast<std::size_t>(n) : sizeof linha - 1;
+    if (!coube) {
+        // `snprintf` trunca pelo FIM, e o fim desta linha é o '\n'. Sem ele a
+        // linha seguinte chega grudada e o arquivo passa a mostrar um registro
+        // inventado no lugar de dois verdadeiros -- qualquer leitor de log
+        // casa o carimbo do primeiro com a mensagem do segundo. Perder o resto
+        // da mensagem é aceitável; perder a fronteira entre registros não é.
+        linha[tam - 1] = '\n';
+    }
 
     if (usados_ + tam > kTamBuffer) {
         descarrega();
