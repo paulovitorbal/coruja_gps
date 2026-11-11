@@ -7,10 +7,11 @@ Regra 8 do coding_rules.md. Produz dois arquivos:
   coruja.cfg.exemplo  -> versionado, sem nenhum segredo
 
 CONTÉM APENAS O QUE VARIA POR INSTALAÇÃO: as redes Wi-Fi e as duas URLs.
-Brilho, fuso, tolerâncias de velocidade, raio de alerta e calibração do LED
+Fuso, tolerâncias de velocidade, raio de alerta e calibração das cores do LED
 ficam no código, por decisão do autor em 2026-09-20 — se mudar o valor muda o
 comportamento de segurança, é especificação e não configuração. Ver
-docs/adr/0002.
+docs/adr/0002. Brilho da tela, intensidade do LED, nome e modo noturno são
+gosto, e o aparelho também os escreve pelo menu.
 
 A senha é pedida sem eco e o .cfg é gravado com permissão 600. Ainda assim:
 o cartão é removível e legível por qualquer um, então use uma rede de
@@ -37,6 +38,18 @@ MAX_REDES = 5
 MAX_SSID = 32
 MAX_SENHA = 63
 MAX_URL = 160
+MAX_NOME = 23
+
+# Brilho da tela e intensidade do LED: mesmos passos de 5 e mesmo teto, pisos
+# diferentes. Espelham `le_brilho` e `le_intensidade_led` do LeitorConfig.cpp,
+# e as constantes de Brilho.h e LedRegulado.h.
+#
+# O PISO DO LED É 5, e não zero: zero é o que a chave `led` faz, e dois
+# ajustes capazes de apagar o LED disputariam o mesmo resultado.
+PASSO_AJUSTE = 5
+BRILHO_MIN = 0
+BRILHO_MAX = 100
+LED_MIN = 5
 
 
 class Rede(NamedTuple):
@@ -56,7 +69,9 @@ class Ajustes(NamedTuple):
     brilho_dia: int = 100
     brilho_noite: int = 20
     modo_noturno: str = "auto"
-    volume_buzzer: int = 100
+    led: str = "true"
+    led_dia: int = 100
+    led_noite: int = 20
 
 
 def valida_rede(ssid: str, senha: str) -> str | None:
@@ -67,6 +82,32 @@ def valida_rede(ssid: str, senha: str) -> str | None:
         return f"senha tem {len(senha)} caracteres; o máximo é {MAX_SENHA}"
     if senha and len(senha) < 8:
         return "senha de WPA2 precisa de pelo menos 8 caracteres"
+    return None
+
+
+def valida_ajustes(a: Ajustes) -> str | None:
+    """Devolve a mensagem de erro, ou None se estiver válido.
+
+    ⚠️ **O firmware recusa o valor fora da faixa; ele não arredonda.** A
+    chave é descartada, o padrão do `struct` continua valendo, e o cartão
+    fica com uma linha que parece boa e não faz nada — ver `le_brilho` e
+    `le_intensidade_led` no `LeitorConfig.cpp`. Esse sintoma não lembra a
+    causa, e é só isto aqui que o impede de sair daqui.
+    """
+    if not a.nome:
+        return "o nome não pode ser vazio: ele identifica a unidade"
+    if len(a.nome) > MAX_NOME:
+        return f"nome tem {len(a.nome)} caracteres; o máximo é {MAX_NOME}"
+    for rotulo, valor, piso in (("brilho_dia", a.brilho_dia, BRILHO_MIN),
+                                ("brilho_noite", a.brilho_noite, BRILHO_MIN),
+                                ("led_dia", a.led_dia, LED_MIN),
+                                ("led_noite", a.led_noite, LED_MIN)):
+        if not piso <= valor <= BRILHO_MAX:
+            return (f"{rotulo} é {valor}; o firmware aceita de {piso} a "
+                    f"{BRILHO_MAX}")
+        if valor % PASSO_AJUSTE:
+            return (f"{rotulo} é {valor}; o firmware aceita só múltiplos de "
+                    f"{PASSO_AJUSTE}")
     return None
 
 
@@ -203,7 +244,13 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
         "",
         "# log_level: abaixo deste nível as mensagens são descartadas, no",
         "# console e no cartão. debug, info, warning (ou warn), error.",
-        "# 'debug' inclui a varredura de Wi-Fi inteira e cada partição sondada.",
+        "#",
+        "# NO CARRO, 'info'. Em 'info' um evento é UMA linha, com o desfecho:",
+        '# a configuração do GPS inteira sai resumida, o Wi-Fi sai como "em qual',
+        '# rede tentei e o que deu". \'debug\' devolve o passo a passo — cada ACK',
+        "# da configuração, cada rede do vizinho, cada certificado da cadeia,",
+        "# cada arquivo aberto no cartão — e triplica o arquivo que sobe pela",
+        "# rede. É nível de bancada.",
         "log_level=info",
         "",
         "# Devolve a versão disponível: uma linha de texto qualquer, comparada",
@@ -298,10 +345,35 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
         "# noite = forca tela escura",
         f"modo_noturno={ajustes.modo_noturno}",
         "",
-        "# Volume do buzzer, de 50 a 100. NUNCA abaixo de 50: janela aberta",
-        "# pede 100, ar-condicionado pede 50, e silenciar transformaria o",
-        "# aparelho em enfeite.",
-        f"volume_buzzer={ajustes.volume_buzzer}",
+        "# O LED RGB acende? true ou false.",
+        "#",
+        "# Existe por relato de uso de 19/10/2026: a noite o LED de 10 mm difuso",
+        "# ilumina a cabine inteira e incomoda mais do que informa. Desligado, nenhum",
+        "# uso dele acende -- nem o alerta, nem o padrao do OTA, nem o teste de",
+        "# alertas. A tela continua mostrando tudo, e o buzzer continua tocando.",
+        "#",
+        "# Tambem da para mexer no menu do encoder, parado.",
+        f"led={ajustes.led}",
+        "",
+        "# Intensidade do LED por periodo, em passos de 5, de 5 a 100.",
+        "#",
+        "# O PISO E 5, e nao zero: zero e o que o `led` acima faz, e dois ajustes",
+        "# capazes de apagar o LED disputariam o mesmo resultado.",
+        "#",
+        "# A escala e LINEAR, ao contrario da do brilho da tela. O motivo sao as cores",
+        "# calibradas: um matiz composto e uma RAZAO entre canais de 8 bits -- o ambar",
+        "# e {255, 50, 0} --, e uma curva perceptual levaria o canal secundario a",
+        "# valores de um digito, onde a quantizacao destroi a razao e o ambar vira",
+        "# vermelho alaranjado.",
+        "#",
+        "# 20 de noite e palpite de partida, a acertar na estrada.",
+        f"led_dia={ajustes.led_dia}",
+        f"led_noite={ajustes.led_noite}",
+        "",
+        "# O `volume_buzzer` saiu em 19/10/2026 e esta linha nao existe mais. O SFM-27",
+        "# e um buzzer ATIVO, com oscilador proprio: aceita ligado ou desligado, e",
+        "# nunca houve volume a controlar. Se ela ainda estiver no seu cartao, pode",
+        "# apagar -- o aparelho a le e ignora.",
         "",
     ]
     return "\n".join(linhas)
@@ -332,8 +404,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="0 a 100, em passos de 5; 0 nao apaga")
     p.add_argument("--modo-noturno", choices=("auto", "dia", "noite"),
                    default=padrao.modo_noturno)
-    p.add_argument("--volume-buzzer", type=int, default=padrao.volume_buzzer,
-                   help="50 a 100; nunca abaixo de 50")
+    p.add_argument("--led", choices=("true", "false"), default=padrao.led,
+                   help="o LED RGB acende")
+    p.add_argument("--led-dia", type=int, default=padrao.led_dia,
+                   help=f"{LED_MIN} a {BRILHO_MAX}, em passos de "
+                        f"{PASSO_AJUSTE}")
+    p.add_argument("--led-noite", type=int, default=padrao.led_noite,
+                   help=f"{LED_MIN} a {BRILHO_MAX}, em passos de "
+                        f"{PASSO_AJUSTE}")
     p.add_argument("--permitir-http", action="store_true",
                    help="aceita URL em http:// — SÓ para teste em rede local; "
                         "exige confirmação e grava aviso no arquivo")
@@ -341,7 +419,16 @@ def main(argv: list[str] | None = None) -> int:
     ajustes = Ajustes(nome=args.nome, brilho_dia=args.brilho_dia,
                       brilho_noite=args.brilho_noite,
                       modo_noturno=args.modo_noturno,
-                      volume_buzzer=args.volume_buzzer)
+                      led=args.led, led_dia=args.led_dia,
+                      led_noite=args.led_noite)
+
+    # Antes de qualquer pergunta: recusar depois faria quem está rodando
+    # digitar a rede e a senha inteiras para só então ouvir que o `--led-dia`
+    # estava errado.
+    erro_ajustes = valida_ajustes(ajustes)
+    if erro_ajustes:
+        print(f"erro: {erro_ajustes}", file=sys.stderr)
+        return 1
 
     if args.permitir_http and not args.so_exemplo:
         # Confirmação explícita: um sinalizador sozinho é fácil demais de

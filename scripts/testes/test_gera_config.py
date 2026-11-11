@@ -131,10 +131,12 @@ class GeraConfig(unittest.TestCase):
 
         self.assertEqual(str(padrao.brilho_dia), campo("brilho_dia"))
         self.assertEqual(str(padrao.brilho_noite), campo("brilho_noite"))
-        # volume_buzzer nasce no maximo, pela constante.
-        self.assertEqual("kVolumeMaximo", campo("volume_buzzer"))
-        m = re.search(r"constexpr std::uint8_t kVolumeMaximo = (\d+);", h)
-        self.assertEqual(padrao.volume_buzzer, int(m.group(1)))
+        # A chave do arquivo e `led`; o campo do struct e `led_ligado`. Os
+        # dois nomes diferem de proposito -- o arquivo e para quem edita a
+        # mao -- e e justamente por isso que o par precisa de teste.
+        self.assertEqual(padrao.led, campo("led_ligado", r"bool"))
+        self.assertEqual(str(padrao.led_dia), campo("led_dia"))
+        self.assertEqual(str(padrao.led_noite), campo("led_noite"))
         self.assertIn("ModoNoturno::Automatico",
                       campo("modo_noturno", r"ModoNoturno"))
         self.assertEqual("auto", padrao.modo_noturno)
@@ -150,9 +152,11 @@ class GeraConfig(unittest.TestCase):
                             ajustes=g.Ajustes(nome="fusca", brilho_dia=75,
                                               brilho_noite=15,
                                               modo_noturno="noite",
-                                              volume_buzzer=50))
+                                              led="false", led_dia=50,
+                                              led_noite=5))
         for linha in ("nome=fusca", "brilho_dia=75", "brilho_noite=15",
-                      "modo_noturno=noite", "volume_buzzer=50"):
+                      "modo_noturno=noite", "led=false", "led_dia=50",
+                      "led_noite=5"):
             self.assertIn(linha, corpo)
 
     def test_os_ajustes_vem_depois_das_urls(self):
@@ -179,6 +183,98 @@ class GeraConfig(unittest.TestCase):
             self.assertEqual(0, g.main(["--so-exemplo"]))
         finally:
             alvo.write_text(antes, encoding="utf-8")
+
+    def test_o_volume_do_buzzer_nao_volta(self):
+        """Saiu do firmware em 19/10/2026; o gerador escreveu por mais 23 dias.
+
+        O parser **ainda le** a chave, de proposito, para nao reclamar dos
+        cartoes que ja existem -- e e isso que torna a volta dela invisivel:
+        um cartao com `volume_buzzer` carrega limpo e nada acusa. Por isso o
+        teste olha a LINHA, e nao a palavra: a nota de despedida cita o nome
+        dela no texto, e tem de continuar citando.
+        """
+        corpo = g.corpo_cfg([], "", "", com_segredo=False)
+        ativas = [l for l in corpo.splitlines()
+                  if l.strip() and not l.lstrip().startswith("#")]
+        self.assertEqual([], [l for l in ativas
+                              if l.startswith("volume_buzzer")])
+        self.assertIn("volume_buzzer", corpo)
+
+    def test_os_limites_dos_ajustes_batem_com_o_firmware(self):
+        """Mesma amarra do test_limites_batem_com_o_cabecalho_cpp.
+
+        Estes tres moram em arquivos diferentes do `Configuracao.h`, e um
+        numero repetido a mao aqui divergiria pela mesma razao que o
+        `volume_buzzer` divergiu.
+        """
+        def const(caminho, nome, tipo):
+            texto = (RAIZ / caminho).read_text(encoding="utf-8")
+            m = re.search(rf"constexpr {tipo} {nome} = (\d+);", texto)
+            self.assertIsNotNone(m, f"{nome} sumiu de {caminho}")
+            return int(m.group(1))
+
+        self.assertEqual(
+            g.MAX_NOME,
+            const("firmware/src/nucleo/Configuracao.h", "kMaxNome",
+                  r"std::size_t"))
+        self.assertEqual(
+            g.LED_MIN,
+            const("firmware/src/led/LedRegulado.h", "kIntensidadeLedMinPct",
+                  r"std::uint8_t"))
+        self.assertEqual(
+            g.BRILHO_MIN,
+            const("firmware/src/display/Brilho.h", "kBrilhoMinimoPct",
+                  r"std::uint8_t"))
+        # 21 passos cobrindo 0..100 so fecham com passo 5.
+        passos = const("firmware/src/display/Brilho.h", "kPassosBrilho",
+                       r"std::size_t")
+        self.assertEqual(g.PASSO_AJUSTE, g.BRILHO_MAX // (passos - 1))
+
+    def test_os_ajustes_padrao_passam_na_validacao(self):
+        self.assertIsNone(g.valida_ajustes(g.Ajustes()))
+
+    def test_brilho_zero_e_aceito(self):
+        # Zero nao apaga a tela: e o mais escuro que o painel mostra.
+        self.assertIsNone(g.valida_ajustes(g.Ajustes(brilho_noite=0)))
+
+    def test_brilho_fora_do_passo_de_cinco_e_recusado(self):
+        # O firmware RECUSA, nao arredonda: a chave e descartada e o padrao
+        # fica valendo, com o cartao parecendo certo.
+        erro = g.valida_ajustes(g.Ajustes(brilho_dia=73))
+        self.assertTrue(erro)
+        self.assertIn("brilho_dia", erro)
+        self.assertIn("5", erro)
+
+    def test_brilho_acima_do_teto_e_recusado(self):
+        self.assertIsNotNone(g.valida_ajustes(g.Ajustes(brilho_dia=105)))
+
+    def test_led_no_piso_e_aceito(self):
+        self.assertIsNone(g.valida_ajustes(g.Ajustes(led_noite=g.LED_MIN)))
+
+    def test_led_abaixo_do_piso_e_recusado(self):
+        # Apagar o LED e trabalho da chave `led`. Dois ajustes capazes de
+        # apagar disputariam o mesmo resultado.
+        erro = g.valida_ajustes(g.Ajustes(led_noite=0))
+        self.assertTrue(erro)
+        self.assertIn("led_noite", erro)
+
+    def test_nome_no_limite_passa(self):
+        self.assertIsNone(g.valida_ajustes(g.Ajustes(nome="z" * g.MAX_NOME)))
+
+    def test_nome_longo_demais_e_recusado(self):
+        # O parser recusa o valor longo em vez de truncar, e o aparelho fica
+        # sem nome na tela -- sintoma que nao lembra a causa.
+        erro = g.valida_ajustes(g.Ajustes(nome="z" * (g.MAX_NOME + 1)))
+        self.assertTrue(erro)
+        self.assertIn("nome", erro)
+
+    def test_nome_vazio_e_recusado(self):
+        self.assertIsNotNone(g.valida_ajustes(g.Ajustes(nome="")))
+
+    def test_main_recusa_ajuste_invalido_antes_de_perguntar(self):
+        # Se a validacao viesse depois, este teste travaria no input() --
+        # e quem rodasse digitaria a rede inteira para so entao ser recusado.
+        self.assertEqual(1, g.main(["--led-dia", "3"]))
 
     def test_o_exemplo_versionado_esta_em_dia(self):
         # O parser em C++ lê este arquivo. Se o gerador mudar de formato e o
@@ -239,7 +335,7 @@ class CabeNoAparelho(unittest.TestCase):
                         "enxugar mal compensa se nao corta de verdade")
         for chave in ("wifi_ssid_1=casa", "wifi_senha_1=12345678",
                       "url_versao=https://x/v", "url_base=https://x/b",
-                      "nome=", "brilho_dia=", "volume_buzzer="):
+                      "nome=", "brilho_dia=", "led=", "led_dia="):
             self.assertIn(chave, magro)
 
     def test_enxugar_nao_deixa_linha_em_branco(self):
