@@ -17,6 +17,7 @@ anterior, e o antigo fica marcado como superado em vez de ser editado.
 | [0009](0009-doze-volts-dentro-do-gabinete.md) | 12 V entra no gabinete, e o buzzer é alimentado nele | 2026-09-21 | aceita |
 | [0010](0010-sem-card-detect.md) | Sem card detect: cartão ausente e ilegível são o mesmo caso | 2026-09-22 | aceita |
 | [0011](0011-medir-antes-de-mitigar.md) | Montar com o que está em mãos; mitigações térmicas contingentes à medição | 2026-10-01 | aceita |
+| [0012](0012-ota-de-firmware-por-particoes-ab.md) | Firmware atualizado pela rede em partições A/B, com reversão pelo bootrom | 2026-11-16 | proposta |
 
 ## Decisões anteriores a este diretório
 
