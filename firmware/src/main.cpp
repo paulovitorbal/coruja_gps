@@ -689,7 +689,7 @@ int main() {
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
-    coruja::RemessaDados   remessa(cartao, rede, http, &ponte_remessa,
+    coruja::RemessaDados   remessa(cartao, rede, http, pausa, &ponte_remessa,
                                    &preparo);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
                                  piloto, led, buzzer, pausa, encoder, log,

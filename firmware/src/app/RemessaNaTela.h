@@ -26,13 +26,20 @@ public:
         : ponte_(visor, led, relogio) {}
 
     void fase(FaseRemessa fase, const char* nome, unsigned indice,
-              unsigned total) override;
+              unsigned total, unsigned tentativa) override;
     void progresso(std::size_t enviados, std::size_t total) override;
 
     /// Falhou, e agora se sabe por quê. Mesmo papel do `OtaNaTela::falhou`.
     void falhou(const char* motivo);
 
     void mantem() override { ponte_.mantem(); }
+
+    /// O estado que a tela desenha. Existe para o teste, como o
+    /// `OtaNaTela::estado()` — e por um motivo concreto: a `TelaOta` só
+    /// redesenha quando o instantâneo MUDA, então um repasse que perdeu a
+    /// tentativa pelo caminho não aparece no visor. Não aparecer é
+    /// exatamente o defeito, e pelo visor ele é invisível.
+    const EstadoOta& estado() const { return ponte_.estado(); }
 
 private:
     OtaNaTela ponte_;

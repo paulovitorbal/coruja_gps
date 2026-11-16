@@ -23,14 +23,17 @@ FaseOta fase_equivalente(FaseRemessa f) {
 }
 
 void RemessaNaTela::fase(FaseRemessa f, const char* nome, unsigned indice,
-                         unsigned total) {
+                         unsigned total, unsigned tentativa) {
     if (nome != nullptr && nome[0] != '\0' && total > 0) {
         std::snprintf(rotulo_, sizeof rotulo_, "%u/%u %s", indice, total, nome);
     } else {
         std::snprintf(rotulo_, sizeof rotulo_, "%s", descreve(f));
     }
     ponte_.define_rotulo(rotulo_);
-    ponte_.fase(fase_equivalente(f), 1);
+    // A tentativa vai ADIANTE, e nao fixa em 1 como estava: a `TelaOta` ja
+    // sabe mostra-la, e sem ela a segunda passada pelo mesmo arquivo fica
+    // igual a primeira na tela -- um envio que retenta parece um travado.
+    ponte_.fase(fase_equivalente(f), tentativa);
 }
 
 void RemessaNaTela::progresso(std::size_t enviados, std::size_t total) {

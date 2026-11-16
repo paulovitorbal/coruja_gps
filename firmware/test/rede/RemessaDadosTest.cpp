@@ -22,6 +22,31 @@ std::uint32_t crc_de(const std::string& s) {
     return crc32(reinterpret_cast<const std::uint8_t*>(s.data()), s.size());
 }
 
+// ======================================================= dublê de relógio
+
+/// A espera e o relógio, como no `AtualizadorOtaTest`.
+///
+/// O relógio ANDA com a espera: sem isso, um teste do teto da remessa veria
+/// o relógio parado apesar de segundos de pausa.
+class PausaFalsa : public Pausa {
+public:
+    std::vector<std::uint32_t> esperas;
+    /// **Não começa em zero**, e isso é o teste, não o cenário.
+    ///
+    /// No aparelho o menu abre depois de minutos ou horas ligado, e o
+    /// `to_ms_since_boot` já está longe da origem. Com o relógio falso
+    /// partindo de zero, trocar `inicio_ms_ = pausa_.agora_ms()` por
+    /// `inicio_ms_ = 0` dá no mesmo — e todos os testes do teto passavam
+    /// com o instante de partida jogado fora. Uma campanha de mutação
+    /// mostrou isso. Vinte minutos de aparelho ligado.
+    std::uint32_t agora = 1'234'567;
+    void espera_ms(std::uint32_t ms) override {
+        esperas.push_back(ms);
+        agora += ms;
+    }
+    std::uint32_t agora_ms() override { return agora; }
+};
+
 // =========================================================== dublê de cartão
 
 /// Um cartão em memória. Guarda o conteúdo, serve a leitura em pedaços e
@@ -121,9 +146,14 @@ public:
     int conectou = 0;
     int desconectou = 0;
     std::vector<std::string>* diario = nullptr;
+    /// Quanto o relógio anda ao associar. A varredura e a associação de
+    /// verdade são dezenas de segundos, e elas contam contra o teto.
+    std::uint32_t custo_ms = 0;
+    PausaFalsa* relogio = nullptr;
 
     ErroWifi conecta(const Configuracao&, Logger&) override {
         ++conectou;
+        if (relogio != nullptr) { relogio->agora += custo_ms; }
         if (diario != nullptr) { diario->push_back("conecta"); }
         return erro;
     }
@@ -145,12 +175,32 @@ public:
     bool corrompe = false;
     /// Responde o CRC de outro conteúdo, sem corromper o guardado.
     bool mente_no_crc = false;
+    /// Quantas chamadas ainda falham antes de o servidor voltar a funcionar.
+    /// É assim que se exercita a retentativa sem um servidor de verdade.
+    unsigned falhas_de_envio_restantes = 0;
+    unsigned falhas_de_consulta_restantes = 0;
+    /// Quanto o relógio anda a cada pedido. Zero é o enlace instantâneo que
+    /// quase todos os testes querem.
+    std::uint32_t custo_ms = 0;
+    PausaFalsa* relogio = nullptr;
+    int envios = 0;
+    int consultas = 0;
+
+    void cobra() {
+        if (relogio != nullptr) { relogio->agora += custo_ms; }
+    }
 
     ResultadoHttp envia(const Url& url, const char* token, FonteDeBytes fonte,
                         void* ctx, std::size_t tamanho, Logger&,
                         std::uint32_t) override {
         caminhos.push_back(url.caminho);
         tokens.push_back(token == nullptr ? "" : token);
+        ++envios;
+        cobra();
+        if (falhas_de_envio_restantes > 0) {
+            --falhas_de_envio_restantes;
+            return {ErroHttp::Interrompida, 0, 0};
+        }
         if (erro_no_envio != ErroHttp::Nenhum) {
             return {erro_no_envio, 0, 0, };
         }
@@ -175,7 +225,13 @@ public:
                                std::uint32_t* crc, Logger&,
                                std::uint32_t) override {
         tokens.push_back(token == nullptr ? "" : token);
+        ++consultas;
+        cobra();
         auto it = recebidos.find(nome_de(url));
+        if (falhas_de_consulta_restantes > 0) {
+            --falhas_de_consulta_restantes;
+            return {ErroHttp::TempoEsgotado, 0, 0};
+        }
         if (erro_na_consulta != ErroHttp::Nenhum) {
             // Parametro de saida apos chamada que falhou contem LIXO, e o
             // dublê devolve o pior lixo possivel: o valor certo. Um
@@ -193,6 +249,34 @@ public:
         const std::string c = url.caminho;
         const auto barra = c.rfind('/');
         return barra == std::string::npos ? c : c.substr(barra + 1);
+    }
+};
+
+// ===================================================== dublê de observador
+
+/// Anota tudo o que a tela receberia.
+class ObservadorEspiao : public ObservadorRemessa {
+public:
+    struct Aviso {
+        FaseRemessa fase;
+        std::string nome;
+        unsigned indice, total, tentativa;
+    };
+    std::vector<Aviso> avisos;
+
+    void fase(FaseRemessa f, const char* nome, unsigned indice,
+              unsigned total, unsigned tentativa) override {
+        avisos.push_back({f, nome == nullptr ? "" : nome, indice, total,
+                          tentativa});
+    }
+    void progresso(std::size_t, std::size_t) override {}
+
+    unsigned maior_tentativa(FaseRemessa f) const {
+        unsigned maior = 0;
+        for (const auto& a : avisos) {
+            if (a.fase == f && a.tentativa > maior) { maior = a.tentativa; }
+        }
+        return maior;
     }
 };
 
@@ -222,6 +306,7 @@ struct Cenario {
     CartaoFalso   cartao;
     RedeFalsa     rede;
     ServidorFalso servidor;
+    PausaFalsa    pausa;
     teste::LoggerMock log;
     Configuracao  cfg = cfg_valida();
     PreparoEspiao preparo;
@@ -230,16 +315,20 @@ struct Cenario {
     ResultadoRemessa roda() {
         rede.diario = &diario;
         preparo.diario = &diario;
-        RemessaDados r(cartao, rede, servidor, nullptr, &preparo);
+        servidor.relogio = &pausa;
+        rede.relogio = &pausa;
+        RemessaDados r(cartao, rede, servidor, pausa, nullptr, &preparo);
         auto saida = r.executa(cfg, log);
         entregues = r.entregues();
         falhados = r.falhados();
         retidos = r.retidos();
+        restantes = r.restantes();
         return saida;
     }
     unsigned entregues = 0;
     unsigned falhados = 0;
     unsigned retidos = 0;
+    unsigned restantes = 0;
 };
 
 // ====================== a ordem: conectar ANTES de preparar a sessao
@@ -513,15 +602,19 @@ TEST(Remessa, cartao_que_falha_na_soma_do_crc_nem_tenta_enviar) {
 // ====================================== o arquivo que cresce durante o envio
 
 TEST(Remessa, arquivo_que_cresceu_fica_no_cartao_mas_conta_como_entregue) {
-    // O `coruja.log` e o registro da viagem em curso crescem ENQUANTO a
-    // remessa roda. Apagar depois da confirmação de N bytes destruiria os
-    // bytes escritos depois -- e sem deixar rastro.
+    // Apagar depois da confirmação de N bytes destruiria os bytes escritos
+    // depois -- e sem deixar rastro. O conteúdo está a salvo no servidor.
+    //
+    // O DESFECHO mudou em 11/11/2026, e a regra não: era `Enviada`, porque
+    // crescer durante a remessa era normal enquanto o log ia para o próprio
+    // `coruja.log`. Com o desvio para `remessa.log`, crescer deixou de ser
+    // normal, e dizer ENVIADO escondia que tudo voltaria na remessa seguinte.
     Cenario c;
     c.cartao.arquivos["20261006_143000.log"] = "trecho ja gravado";
     c.cartao.cresce_em = "20261006_143000.log";
     c.cartao.cresce_depois_de_ler = "\nmais um ponto depois";
 
-    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    ASSERT_EQ(c.roda(), ResultadoRemessa::NaoApagou);
     EXPECT_EQ(c.entregues, 1u);
     EXPECT_EQ(c.retidos, 1u);
     EXPECT_TRUE(c.cartao.apagados.empty());
@@ -531,14 +624,16 @@ TEST(Remessa, arquivo_que_cresceu_fica_no_cartao_mas_conta_como_entregue) {
 }
 
 TEST(Remessa, falha_ao_apagar_nao_derruba_a_remessa) {
-    // O conteúdo está a salvo no servidor; não conseguir apagar é sujeira,
-    // não perda.
+    // Não é perda: o conteúdo está a salvo no servidor, e o arquivo continua
+    // íntegro no cartão. Mas também não é "ENVIADO", porque a remessa
+    // seguinte vai mandar tudo de novo.
     Cenario c;
     c.cartao.falha_ao_remover = true;
     c.cartao.arquivos["coruja.log"] = "dado";
-    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::NaoApagou);
     EXPECT_EQ(c.entregues, 1u);
     EXPECT_EQ(c.retidos, 1u);
+    EXPECT_EQ(c.falhados, 0u);
 }
 
 // ================================================= falhas de cartão e limites
@@ -570,10 +665,13 @@ TEST(Remessa, alem_do_teto_fica_para_a_proxima_e_nao_se_perde) {
                       static_cast<unsigned>(i + 1));
         c.cartao.arquivos[nome] = "viagem";
     }
-    // Parcial e não Enviada: sobrou coisa, e dizer "tudo entregue" seria
-    // mentir para quem lê a tela.
-    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    // Nem `Enviada` -- sobrou coisa -- nem falha: nada deu errado e nada se
+    // perdeu. Era `Parcial`, e `Parcial` é falha: com 84 arquivos esperando,
+    // toda remessa de um backlog terminava numa tela a dispensar.
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_FALSE(e_falha(ResultadoRemessa::EnviadaFaltaMais));
     EXPECT_EQ(c.entregues, kMaxRemessa);
+    EXPECT_EQ(c.restantes, 3u);
     EXPECT_EQ(c.cartao.arquivos.size(), 3u);
 
     // A segunda remessa leva o resto.
@@ -605,17 +703,19 @@ TEST(Remessa, falha_num_arquivo_nao_impede_os_seguintes) {
     EXPECT_EQ(c.falhados, 2u);
 }
 
-TEST(Remessa, entregue_sem_apagar_continua_sendo_entregue) {
-    // Retido não é falha: o conteúdo está no servidor. Chamar isto de
-    // `Parcial` mandaria o usuário tentar de novo um envio que deu certo.
+TEST(Remessa, entregue_sem_apagar_nao_e_envio_falhado) {
+    // A distinção que importa: `Parcial` diz "parte não chegou", e mandaria
+    // reenviar o que já está inteiro do outro lado. `NaoApagou` diz a
+    // verdade -- chegou tudo, e o cartão é que não soltou.
     Cenario c;
     c.cartao.arquivos["coruja.log"] = "diario";
     c.cartao.arquivos["infracoes.log"] = "multas";
     c.cartao.falha_ao_remover = true;
-    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::NaoApagou);
     EXPECT_EQ(c.entregues, 2u);
     EXPECT_EQ(c.retidos, 2u);
     EXPECT_EQ(c.falhados, 0u);
+    EXPECT_EQ(c.servidor.recebidos.size(), 2u);
 }
 
 TEST(Remessa, desconecta_mesmo_quando_tudo_da_errado) {
@@ -649,6 +749,8 @@ TEST(Remessa, todo_resultado_tem_texto_curto_que_cabe_na_faixa) {
     // A faixa da tela tem 26 caracteres. Um texto maior aparece cortado e
     // diz outra coisa.
     for (auto r : {ResultadoRemessa::Enviada, ResultadoRemessa::NadaAEnviar,
+                   ResultadoRemessa::EnviadaFaltaMais,
+                   ResultadoRemessa::NaoApagou,
                    ResultadoRemessa::Parcial, ResultadoRemessa::SemConfiguracao,
                    ResultadoRemessa::FalhaDeRede, ResultadoRemessa::FalhaDeCartao,
                    ResultadoRemessa::FalhaAoEnviar}) {
@@ -657,9 +759,14 @@ TEST(Remessa, todo_resultado_tem_texto_curto_que_cabe_na_faixa) {
     }
 }
 
-TEST(Remessa, so_os_dois_desfechos_bons_nao_sao_falha) {
+TEST(Remessa, so_os_tres_desfechos_bons_nao_sao_falha) {
     EXPECT_FALSE(e_falha(ResultadoRemessa::Enviada));
     EXPECT_FALSE(e_falha(ResultadoRemessa::NadaAEnviar));
+    // Entregue e sobrou: nada deu errado, não há o que dispensar.
+    EXPECT_FALSE(e_falha(ResultadoRemessa::EnviadaFaltaMais));
+    // Entregue e não apagou: o conteúdo está salvo, mas o cartão precisa de
+    // atenção -- calado, isso vira "manda tudo de novo toda vez".
+    EXPECT_TRUE(e_falha(ResultadoRemessa::NaoApagou));
     EXPECT_TRUE(e_falha(ResultadoRemessa::Parcial));
     EXPECT_TRUE(e_falha(ResultadoRemessa::SemConfiguracao));
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaDeRede));
@@ -681,6 +788,7 @@ struct CenarioCartaoReal {
     CartaoSd          cartao;
     RedeFalsa         rede;
     ServidorFalso     servidor;
+    PausaFalsa        pausa;
     teste::LoggerMock log;
     Configuracao      cfg = cfg_valida();
 
@@ -697,14 +805,16 @@ struct CenarioCartaoReal {
     }
 
     ResultadoRemessa roda() {
-        RemessaDados r(cartao, rede, servidor, nullptr, nullptr);
+        servidor.relogio = &pausa;
+        RemessaDados r(cartao, rede, servidor, pausa, nullptr, nullptr);
         auto saida = r.executa(cfg, log);
         entregues = r.entregues();
         falhados = r.falhados();
         retidos = r.retidos();
+        restantes = r.restantes();
         return saida;
     }
-    unsigned entregues = 0, falhados = 0, retidos = 0;
+    unsigned entregues = 0, falhados = 0, retidos = 0, restantes = 0;
 };
 
 TEST(RemessaComCartaoReal, uma_viagem_sobe_e_e_apagada) {
@@ -744,6 +854,371 @@ TEST(RemessaComCartaoReal, o_caminho_montado_leva_a_barra_e_o_nome) {
     ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
     ASSERT_FALSE(c.servidor.caminhos.empty());
     EXPECT_EQ(c.servidor.caminhos[0], "/envio/20261006_123858.log");
+}
+
+// ================== A RETENTATIVA ==================
+//
+// Doze arquivos sao vinte e quatro conexoes TCP. Sem retentativa, qualquer
+// uma delas que falhasse condenava o arquivo dela -- e a remessa parecia
+// falhar "no ultimo arquivo" so porque o ultimo e o que teve mais sorteios
+// antes dele. Relatado em 11/11/2026.
+
+TEST(Retentativa, um_envio_que_falha_uma_vez_sobe_na_segunda) {
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.falhas_de_envio_restantes = 1;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.envios, 2);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 0u);
+    EXPECT_EQ(c.cartao.apagados, std::vector<std::string>{"coruja.log"});
+}
+
+TEST(Retentativa, as_tentativas_se_esgotam_e_o_arquivo_fica_no_cartao) {
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.falhados, 1u);
+    EXPECT_EQ(c.cartao.arquivos.count("coruja.log"), 1u)
+        << "desistir nao pode apagar";
+}
+
+TEST(Retentativa, espera_entre_duas_tentativas_do_mesmo_arquivo) {
+    // Retentar na mesma instrucao nao deixa nada se resolver: o que falha
+    // aqui e DNS, aperto de mao e soquete, e tudo isso precisa de um momento.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.falhas_de_envio_restantes = 1;
+
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    ASSERT_EQ(c.pausa.esperas.size(), 1u);
+    EXPECT_EQ(c.pausa.esperas[0], kEsperaEntreTentativasRemessaMs);
+}
+
+TEST(Retentativa, a_primeira_tentativa_nao_espera) {
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_TRUE(c.pausa.esperas.empty());
+}
+
+TEST(Retentativa, um_arquivo_que_falha_nao_leva_os_outros_junto) {
+    Cenario c;
+    c.cartao.arquivos["20261006_120000.log"] = "um";
+    c.cartao.arquivos["20261006_130000.log"] = "dois";
+    // As tres primeiras chamadas falham: o primeiro arquivo esgota as
+    // tentativas dele, e o segundo comeca com o servidor ja funcionando.
+    c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 1u);
+}
+
+// =============== A CONFIRMACAO, QUE E REPETIDA SOZINHA ===============
+//
+// Quando a confirmacao falha o PUT JA ENTROU. Refazer o arquivo inteiro
+// reenvia o mesmo conteudo -- e era esse reenvio que duplicava registro no
+// historico do servidor.
+
+TEST(Confirmacao, e_repetida_SEM_reenviar_o_arquivo) {
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.falhas_de_consulta_restantes = 1;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.envios, 1) << "o arquivo subiu duas vezes a toa";
+    EXPECT_EQ(c.servidor.consultas, 2);
+    EXPECT_EQ(c.entregues, 1u);
+}
+
+TEST(Confirmacao, insiste_ate_o_limite_proprio) {
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.falhas_de_consulta_restantes = kTentativasDeConfirmacao - 1;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.servidor.consultas,
+              static_cast<int>(kTentativasDeConfirmacao));
+}
+
+TEST(Confirmacao, quando_nao_volta_de_jeito_nenhum_o_arquivo_nao_e_apagado) {
+    // O desfecho seguro: o conteudo PODE estar la, mas nao foi confirmado, e
+    // so a confirmacao autoriza destruir o unico exemplar.
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.falhas_de_consulta_restantes = 999;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_TRUE(c.cartao.apagados.empty());
+    EXPECT_EQ(c.cartao.arquivos.count("infracoes.log"), 1u);
+    // Cada tentativa do arquivo gasta o orcamento INTEIRO de confirmacao.
+    EXPECT_EQ(c.servidor.envios, static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.servidor.consultas,
+              static_cast<int>(kTentativasPorArquivo
+                               * kTentativasDeConfirmacao));
+}
+
+TEST(Confirmacao, crc_diferente_NAO_se_resolve_perguntando_de_novo) {
+    // O servidor guardou outra coisa. A pergunta seguinte traria a mesma
+    // resposta; quem conserta e reenviar o arquivo, que e a tentativa de fora.
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.mente_no_crc = true;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.consultas, static_cast<int>(kTentativasPorArquivo))
+        << "insistiu numa pergunta cuja resposta nao muda";
+    EXPECT_TRUE(c.cartao.apagados.empty());
+}
+
+// ================== O TETO DO CONJUNTO ==================
+//
+// O envio bloqueia o laco principal e nao tem cancelamento: enquanto roda, o
+// GPS nao e lido e nao ha alerta. Sem teto, o pior caso era o produto dos
+// tetos por etapa -- e a retentativa o multiplicaria por tres.
+
+TEST(TetoDaRemessa, para_entre_arquivos_e_o_resto_fica_para_a_proxima) {
+    Cenario c;
+    for (int i = 1; i <= 4; ++i) {
+        char nome[32];
+        std::snprintf(nome, sizeof nome, "2026100%d_120000.log", i);
+        c.cartao.arquivos[nome] = "viagem";
+    }
+    // Cada arquivo custa um PUT e uma consulta.
+    c.servidor.custo_ms = kTetoDaRemessaMs / 3;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_FALSE(e_falha(ResultadoRemessa::EnviadaFaltaMais));
+    EXPECT_EQ(c.entregues, 2u);
+    EXPECT_EQ(c.falhados, 0u) << "o que nao foi tentado nao falhou";
+    EXPECT_EQ(c.restantes, 2u);
+    EXPECT_EQ(c.cartao.arquivos.size(), 2u) << "o resto continua no cartao";
+}
+
+TEST(TetoDaRemessa, nao_corta_um_arquivo_no_meio) {
+    // Abortar um PUT pela metade deixaria o servidor com meio arquivo e o
+    // aparelho sem saber o que aconteceu. O que comecou, termina.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.cartao.arquivos["20261002_120000.log"] = "viagem";
+    c.servidor.custo_ms = kTetoDaRemessaMs;   // um pedido ja estoura o teto
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.cartao.apagados.size(), 1u)
+        << "o arquivo da vez foi entregue, confirmado e apagado inteiro";
+    EXPECT_EQ(c.restantes, 1u);
+}
+
+TEST(TetoDaRemessa, conta_desde_ANTES_de_conectar) {
+    // A varredura e a associacao do Wi-Fi sao dezenas de segundos de aparelho
+    // parado. Comecar a contar depois delas prometeria um teto que nao e o que
+    // o usuario espera.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.rede.custo_ms = kTetoDaRemessaMs + 1;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_EQ(c.entregues, 0u);
+    EXPECT_EQ(c.restantes, 1u);
+    EXPECT_EQ(c.servidor.envios, 0);
+    EXPECT_EQ(c.rede.desconectou, 1) << "radio ligado a toa";
+}
+
+TEST(TetoDaRemessa, impede_a_retentativa_de_esticar_o_conjunto) {
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
+    c.servidor.custo_ms = kTetoDaRemessaMs;   // a primeira tentativa ja estoura
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 1) << "retentou depois de o tempo acabar";
+}
+
+TEST(TetoDaRemessa, restantes_soma_os_que_nao_couberam_e_os_que_o_tempo_cortou) {
+    Cenario c;
+    for (std::size_t i = 0; i < kMaxRemessa + 2; ++i) {
+        char nome[32];
+        std::snprintf(nome, sizeof nome, "202610%02u_120000.log",
+                      static_cast<unsigned>(i + 1));
+        c.cartao.arquivos[nome] = "viagem";
+    }
+    c.servidor.custo_ms = kTetoDaRemessaMs / 3;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_EQ(c.entregues, 2u);
+    // Dois nao couberam na colheita + os 38 que o tempo cortou.
+    EXPECT_EQ(c.restantes, 2u + static_cast<unsigned>(kMaxRemessa) - 2u);
+}
+
+// ============== A ORDEM DOS DESFECHOS ==============
+
+TEST(Desfecho, nao_apagar_pesa_mais_que_sobrar_arquivo) {
+    // Um cartao que nao solta arquivo faz TUDO voltar na remessa seguinte.
+    // "Falta mais" e rotina; "nao apaguei" e o que precisa de atencao.
+    Cenario c;
+    for (std::size_t i = 0; i < kMaxRemessa + 1; ++i) {
+        char nome[32];
+        std::snprintf(nome, sizeof nome, "202610%02u_120000.log",
+                      static_cast<unsigned>(i + 1));
+        c.cartao.arquivos[nome] = "viagem";
+    }
+    c.cartao.falha_ao_remover = true;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::NaoApagou);
+    EXPECT_GT(c.restantes, 0u);
+    EXPECT_EQ(c.retidos, static_cast<unsigned>(kMaxRemessa));
+}
+
+TEST(Desfecho, uma_falha_pesa_mais_que_nao_apagar) {
+    // Falhou e nao chegou > chegou e nao saiu daqui.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "um";
+    c.cartao.arquivos["20261002_120000.log"] = "dois";
+    c.cartao.falha_ao_remover = true;
+    c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.falhados, 1u);
+    EXPECT_EQ(c.retidos, 1u);
+}
+
+// ============ O QUE O REFACTOR DA COLHEITA PASSOU A ARRISCAR ============
+
+TEST(Reuso, duas_remessas_no_MESMO_objeto_nao_se_misturam) {
+    // A `Colheita` era local de `executa()` e nascia zerada a cada chamada.
+    // Virou membro para sair da pilha de 8 KiB -- e aí passou a depender de
+    // alguém zerá-la. No aparelho o `RemessaDados` é UM só, construído na
+    // composição e reusado a cada ida ao menu: sem o zeramento, a segunda
+    // remessa listaria por cima da primeira e remandaria o que já foi.
+    CartaoFalso cartao;
+    RedeFalsa rede;
+    ServidorFalso servidor;
+    PausaFalsa pausa;
+    teste::LoggerMock log;
+    Configuracao cfg = cfg_valida();
+    servidor.relogio = &pausa;
+    rede.relogio = &pausa;
+
+    RemessaDados r(cartao, rede, servidor, pausa);
+
+    cartao.arquivos["20261001_120000.log"] = "primeira viagem";
+    ASSERT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+    ASSERT_EQ(r.entregues(), 1u);
+
+    cartao.arquivos["20261002_120000.log"] = "segunda viagem";
+    EXPECT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+    EXPECT_EQ(r.entregues(), 1u) << "a segunda remessa contou a primeira";
+    EXPECT_EQ(r.restantes(), 0u);
+    EXPECT_EQ(servidor.envios, 2) << "remandou o que ja tinha ido";
+    EXPECT_EQ(cartao.apagados.size(), 2u);
+}
+
+TEST(Reuso, uma_remessa_sem_nada_depois_de_uma_cheia_diz_NADA_A_ENVIAR) {
+    CartaoFalso cartao;
+    RedeFalsa rede;
+    ServidorFalso servidor;
+    PausaFalsa pausa;
+    teste::LoggerMock log;
+    Configuracao cfg = cfg_valida();
+    servidor.relogio = &pausa;
+    rede.relogio = &pausa;
+
+    RemessaDados r(cartao, rede, servidor, pausa);
+    cartao.arquivos["20261001_120000.log"] = "viagem";
+    ASSERT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+    EXPECT_EQ(r.executa(cfg, log), ResultadoRemessa::NadaAEnviar);
+    EXPECT_EQ(r.entregues(), 0u);
+}
+
+// ================= O QUE A TELA RECEBE =================
+
+TEST(Observador, a_tentativa_chega_a_quem_desenha) {
+    // Sem isto, a barra da segunda tentativa comeca na porcentagem da
+    // primeira e depois anda PARA TRAS -- ver `OtaNaTela::fase`.
+    CartaoFalso cartao;
+    RedeFalsa rede;
+    ServidorFalso servidor;
+    PausaFalsa pausa;
+    ObservadorEspiao olho;
+    teste::LoggerMock log;
+    Configuracao cfg = cfg_valida();
+    servidor.relogio = &pausa;
+    rede.relogio = &pausa;
+    cartao.arquivos["coruja.log"] = "diario";
+    servidor.falhas_de_envio_restantes = 1;
+
+    RemessaDados r(cartao, rede, servidor, pausa, &olho);
+    ASSERT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+    EXPECT_EQ(olho.maior_tentativa(FaseRemessa::Enviando), 2u);
+}
+
+TEST(Observador, sem_retentativa_a_tentativa_e_sempre_um) {
+    CartaoFalso cartao;
+    RedeFalsa rede;
+    ServidorFalso servidor;
+    PausaFalsa pausa;
+    ObservadorEspiao olho;
+    teste::LoggerMock log;
+    Configuracao cfg = cfg_valida();
+    servidor.relogio = &pausa;
+    rede.relogio = &pausa;
+    cartao.arquivos["coruja.log"] = "diario";
+
+    RemessaDados r(cartao, rede, servidor, pausa, &olho);
+    ASSERT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+    for (const auto& a : olho.avisos) {
+        EXPECT_EQ(a.tentativa, 1u) << descreve(a.fase);
+    }
+    // E o nome do arquivo chega junto, que e o que a faixa mostra.
+    EXPECT_EQ(olho.maior_tentativa(FaseRemessa::Enviando), 1u);
+    bool viu_o_nome = false;
+    for (const auto& a : olho.avisos) {
+        if (a.fase == FaseRemessa::Enviando && a.nome == "coruja.log"
+            && a.indice == 1 && a.total == 1) {
+            viu_o_nome = true;
+        }
+    }
+    EXPECT_TRUE(viu_o_nome);
+}
+
+TEST(TetoDaRemessa, corta_no_instante_EXATO_em_que_o_tempo_acaba) {
+    // A borda e fechada do lado de dentro: ao bater o teto, para. Um `>` no
+    // lugar do `>=` deixaria passar mais um arquivo inteiro -- ate 210 s de
+    // aparelho bloqueado alem do que foi prometido.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "um";
+    c.cartao.arquivos["20261002_120000.log"] = "dois";
+    // Um PUT e uma consulta por arquivo: o primeiro arquivo consome
+    // exatamente o teto, nem um milissegundo a mais.
+    c.servidor.custo_ms = kTetoDaRemessaMs / 2;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::EnviadaFaltaMais);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.restantes, 1u);
+}
+
+TEST(TetoDaRemessa, a_confirmacao_para_de_perguntar_quando_o_tempo_acaba) {
+    // O teto vale DENTRO da confirmacao tambem. Sem isto, um servidor que nao
+    // responde faria o aparelho insistir ate 3 x 30 s por arquivo depois de o
+    // tempo da remessa ja ter acabado -- e o envio bloqueia o laco principal.
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.falhas_de_consulta_restantes = 999;
+    // O PUT consome metade do teto; a primeira consulta consome a outra
+    // metade. Da segunda em diante, nao ha mais tempo.
+    c.servidor.custo_ms = kTetoDaRemessaMs / 2;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.consultas, 1) << "perguntou depois do tempo acabar";
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_TRUE(c.cartao.apagados.empty());
 }
 
 }  // namespace

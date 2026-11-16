@@ -36,6 +36,10 @@ const char* descreve(ResultadoRemessa r) {
     switch (r) {
         case ResultadoRemessa::Enviada:        return "tudo entregue e confirmado";
         case ResultadoRemessa::NadaAEnviar:    return "nao havia arquivo para enviar";
+        case ResultadoRemessa::EnviadaFaltaMais:
+            return "o que coube foi entregue; o resto fica para a proxima";
+        case ResultadoRemessa::NaoApagou:
+            return "entregue e confirmado, mas o cartao nao soltou o arquivo";
         case ResultadoRemessa::Parcial:        return "parte entregue; o resto fica para a proxima";
         case ResultadoRemessa::SemConfiguracao:
             return "falta url_envio, token_aparelho ou rede no coruja.cfg";
@@ -53,6 +57,8 @@ const char* descreve_curto(ResultadoRemessa r) {
     switch (r) {
         case ResultadoRemessa::Enviada:         return "ENVIADO";
         case ResultadoRemessa::NadaAEnviar:     return "NADA A ENVIAR";
+        case ResultadoRemessa::EnviadaFaltaMais: return "ENVIADO; FALTA MAIS";
+        case ResultadoRemessa::NaoApagou:       return "ENTREGUE; NAO APAGUEI";
         case ResultadoRemessa::Parcial:         return "ENVIO INCOMPLETO";
         case ResultadoRemessa::SemConfiguracao: return "SEM CONFIGURACAO";
         case ResultadoRemessa::FalhaDeRede:     return "SEM REDE";
@@ -136,8 +142,79 @@ std::size_t RemessaDados::ao_pedir(void* contexto, std::uint8_t* destino,
     return lidos;
 }
 
+void RemessaDados::avisa(FaseRemessa fase, const char* nome, unsigned indice,
+                         unsigned total, unsigned tentativa) {
+    if (observador_ != nullptr) {
+        observador_->fase(fase, nome, indice, total, tentativa);
+    }
+}
+
+bool RemessaDados::confirma(const Url& url, const Configuracao& cfg,
+                            const char* nome, std::uint32_t crc_local,
+                            unsigned indice, unsigned total,
+                            unsigned tentativa, Logger& log) {
+    char msg[112] = {};
+    for (unsigned t = 1; t <= kTentativasDeConfirmacao; ++t) {
+        if (t > 1) {
+            // O teto do conjunto vale aqui tambem: insistir numa pergunta
+            // depois que o tempo acabou so atrasa a tela.
+            if (esgotou_o_tempo()) { break; }
+            pausa_.espera_ms(kEsperaEntreTentativasRemessaMs);
+        }
+        avisa(FaseRemessa::Confirmando, nome, indice, total, tentativa);
+
+        std::uint32_t crc_remoto = 0;
+        const auto consulta = http_.consulta_crc(url, cfg.token_aparelho,
+                                                 &crc_remoto, log,
+                                                 kTempoLimiteConsultaMs);
+        if (consulta.ok()) {
+            if (crc_remoto == crc_local) { return true; }
+            // CRC diferente NAO se resolve perguntando de novo: o que esta
+            // guardado nao e o que foi mandado, e a pergunta seguinte traria
+            // a mesma resposta. Quem conserta isto e reenviar o arquivo --
+            // que e a tentativa de fora, nao esta.
+            std::snprintf(msg, sizeof msg,
+                          "%s chegou diferente (local %08x, servidor %08x)",
+                          nome, static_cast<unsigned>(crc_local),
+                          static_cast<unsigned>(crc_remoto));
+            log.warning(kOrigem, msg);
+            return false;
+        }
+        std::snprintf(msg, sizeof msg,
+                      "%s subiu mas nao confirmou (%u de %u): %s", nome, t,
+                      kTentativasDeConfirmacao, descreve(consulta.erro));
+        log.warning(kOrigem, msg);
+    }
+    return false;
+}
+
+bool RemessaDados::insiste(const Configuracao& cfg, const char* nome,
+                           unsigned indice, unsigned total, Logger& log) {
+    char msg[112] = {};
+    for (unsigned t = 1; t <= kTentativasPorArquivo; ++t) {
+        if (t > 1) {
+            if (esgotou_o_tempo()) {
+                std::snprintf(msg, sizeof msg,
+                              "%s: o tempo da remessa acabou entre tentativas",
+                              nome);
+                log.warning(kOrigem, msg);
+                return false;
+            }
+            std::snprintf(msg, sizeof msg,
+                          "%s: tentativa %u de %u, apos %lu ms", nome, t,
+                          kTentativasPorArquivo,
+                          static_cast<unsigned long>(kEsperaEntreTentativasRemessaMs));
+            log.warning(kOrigem, msg);
+            pausa_.espera_ms(kEsperaEntreTentativasRemessaMs);
+        }
+        if (despacha(cfg, nome, indice, total, t, log)) { return true; }
+    }
+    return false;
+}
+
 bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
-                            unsigned indice, unsigned total, Logger& log) {
+                            unsigned indice, unsigned total,
+                            unsigned tentativa, Logger& log) {
     char msg[96] = {};
 
     Url url;
@@ -187,9 +264,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
     }
 
     // --- segunda passada: o envio ---
-    if (observador_ != nullptr) {
-        observador_->fase(FaseRemessa::Enviando, nome, indice, total);
-    }
+    avisa(FaseRemessa::Enviando, nome, indice, total, tentativa);
     bomba_.cartao = &cartao_;
     bomba_.observador = observador_;
     bomba_.entregues = 0;
@@ -218,24 +293,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
     }
 
     // --- o servidor confirma o que GUARDOU ---
-    if (observador_ != nullptr) {
-        observador_->fase(FaseRemessa::Confirmando, nome, indice, total);
-    }
-    std::uint32_t crc_remoto = 0;
-    const auto consulta = http_.consulta_crc(url, cfg.token_aparelho, &crc_remoto,
-                                             log, kTempoLimiteConsultaMs);
-    if (!consulta.ok()) {
-        std::snprintf(msg, sizeof msg, "%s subiu mas nao confirmou: %s",
-                      nome, descreve(consulta.erro));
-        log.warning(kOrigem, msg);
-        return false;
-    }
-    if (crc_remoto != crc_local) {
-        std::snprintf(msg, sizeof msg,
-                      "%s chegou diferente (local %08x, servidor %08x)", nome,
-                      static_cast<unsigned>(crc_local),
-                      static_cast<unsigned>(crc_remoto));
-        log.warning(kOrigem, msg);
+    if (!confirma(url, cfg, nome, crc_local, indice, total, tentativa, log)) {
         return false;
     }
 
@@ -258,9 +316,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
         return true;
     }
 
-    if (observador_ != nullptr) {
-        observador_->fase(FaseRemessa::Apagando, nome, indice, total);
-    }
+    avisa(FaseRemessa::Apagando, nome, indice, total, tentativa);
     if (cartao_.remove(nome, log) != ErroCartao::Nenhum) {
         ++retidos_;
         std::snprintf(msg, sizeof msg,
@@ -277,7 +333,11 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
 }
 
 ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
-    entregues_ = falhados_ = retidos_ = 0;
+    entregues_ = falhados_ = retidos_ = restantes_ = 0;
+    // O relogio parte ANTES de conectar: a varredura e a associacao do Wi-Fi
+    // sao dezenas de segundos de aparelho parado, e quem promete um teto para
+    // o conjunto nao pode comecar a contar depois da parte mais lenta.
+    inicio_ms_ = pausa_.agora_ms();
 
     if (!cfg.envio_possivel()) {
         log.warning(kOrigem,
@@ -285,17 +345,13 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
         return ResultadoRemessa::SemConfiguracao;
     }
 
-    if (observador_ != nullptr) {
-        observador_->fase(FaseRemessa::Conectando, "", 0, 0);
-    }
+    avisa(FaseRemessa::Conectando, "", 0, 0, 1);
     const auto erro_rede = rede_.conecta(cfg, log);
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[96] = {};
         std::snprintf(msg, sizeof msg, "sem rede: %s", descreve(erro_rede));
         log.error(kOrigem, msg);
-        if (observador_ != nullptr) {
-            observador_->fase(FaseRemessa::Falhou, "", 0, 0);
-        }
+        avisa(FaseRemessa::Falhou, "", 0, 0, 1);
         return ResultadoRemessa::FalhaDeRede;
     }
 
@@ -306,39 +362,58 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     }
 
     ResultadoRemessa saida = ResultadoRemessa::NadaAEnviar;
-    Colheita colheita;
+    // So os contadores: os nomes alem de `n` nao sao lidos por ninguem, e
+    // limpar 1280 B a cada remessa seria trabalho para nao mudar nada.
+    colheita_.n = 0;
+    colheita_.ignorados = 0;
 
-    if (observador_ != nullptr) {
-        observador_->fase(FaseRemessa::Listando, "", 0, 0);
-    }
-    if (cartao_.lista(ao_listar, &colheita, log) != ErroCartao::Nenhum) {
+    avisa(FaseRemessa::Listando, "", 0, 0, 1);
+    if (cartao_.lista(ao_listar, &colheita_, log) != ErroCartao::Nenhum) {
         log.error(kOrigem, "nao consegui listar o cartao");
         saida = ResultadoRemessa::FalhaDeCartao;
     } else {
-        if (colheita.ignorados > 0) {
-            char msg[64] = {};
+        char msg[96] = {};
+        restantes_ = static_cast<unsigned>(colheita_.ignorados);
+        if (colheita_.ignorados > 0) {
             std::snprintf(msg, sizeof msg,
-                          "%u arquivos ficaram para a proxima",
-                          static_cast<unsigned>(colheita.ignorados));
+                          "%u arquivos nao couberam e ficam para a proxima",
+                          static_cast<unsigned>(colheita_.ignorados));
             log.info(kOrigem, msg);
         }
-        const auto total = static_cast<unsigned>(colheita.n);
-        for (std::size_t i = 0; i < colheita.n; ++i) {
-            if (!despacha(cfg, colheita.nomes[i],
-                          static_cast<unsigned>(i) + 1, total, log)) {
+        const auto total = static_cast<unsigned>(colheita_.n);
+        for (std::size_t i = 0; i < colheita_.n; ++i) {
+            // O teto e conferido ENTRE arquivos, nunca no meio de um: abortar
+            // um PUT pela metade deixaria o servidor com meio arquivo. O que
+            // nao foi tentado continua inteiro no cartao.
+            if (esgotou_o_tempo()) {
+                const auto faltam = static_cast<unsigned>(colheita_.n - i);
+                restantes_ += faltam;
+                std::snprintf(msg, sizeof msg,
+                              "o tempo da remessa acabou; %u arquivos ficam "
+                              "para a proxima", faltam);
+                log.warning(kOrigem, msg);
+                break;
+            }
+            if (!insiste(cfg, colheita_.nomes[i],
+                         static_cast<unsigned>(i) + 1, total, log)) {
                 ++falhados_;
             }
         }
         if (total == 0) {
             saida = ResultadoRemessa::NadaAEnviar;
-        } else if (falhados_ == 0) {
-            // Sobrar arquivo para a proxima nao e tudo entregue.
-            saida = colheita.ignorados > 0 ? ResultadoRemessa::Parcial
-                                           : ResultadoRemessa::Enviada;
-        } else if (entregues_ == 0) {
+        } else if (falhados_ > 0 && entregues_ == 0) {
             saida = ResultadoRemessa::FalhaAoEnviar;
-        } else {
+        } else if (falhados_ > 0) {
             saida = ResultadoRemessa::Parcial;
+        } else if (retidos_ > 0) {
+            // Antes de "falta mais", de proposito: um cartao que nao solta
+            // arquivo e o mais urgente dos dois, porque faz TUDO voltar na
+            // remessa seguinte -- e e esse o sintoma que mandou rever isto.
+            saida = ResultadoRemessa::NaoApagou;
+        } else if (restantes_ > 0) {
+            saida = ResultadoRemessa::EnviadaFaltaMais;
+        } else {
+            saida = ResultadoRemessa::Enviada;
         }
     }
 
@@ -346,14 +421,14 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     // consome e nao serve mais a ninguem.
     rede_.desconecta(log);
 
-    if (observador_ != nullptr) {
-        observador_->fase(e_falha(saida) ? FaseRemessa::Falhou
-                                         : FaseRemessa::Concluida,
-                          "", 0, 0);
-    }
-    char fim[96] = {};
-    std::snprintf(fim, sizeof fim, "%s (%u entregues, %u retidos, %u falhados)",
-                  descreve(saida), entregues_, retidos_, falhados_);
+    avisa(e_falha(saida) ? FaseRemessa::Falhou : FaseRemessa::Concluida,
+          "", 0, 0, 1);
+    char fim[160] = {};
+    std::snprintf(fim, sizeof fim,
+                  "%s (%u entregues, %u retidos, %u falhados, %u para a "
+                  "proxima, %lu ms)", descreve(saida), entregues_, retidos_,
+                  falhados_, restantes_,
+                  static_cast<unsigned long>(pausa_.agora_ms() - inicio_ms_));
     log.info(kOrigem, fim);
     return saida;
 }

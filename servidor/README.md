@@ -235,29 +235,53 @@ nome. Numa pasta só, o envio do segundo sobrescreveria o do primeiro — e aí 
 receberia o de um arquivo que nunca mandou. Pela mesma razão, a consulta de
 CRC olha só a pasta de quem perguntou.
 
-### O token também vai na URL
+### O histórico, e por que ele reconhece reenvio
 
-O servidor aceita o segredo no cabeçalho `X-Coruja-Token` **ou** como `?t=`:
+`coruja.log` e `infracoes.log` chegam sempre com o mesmo nome. O arquivo de
+nome fixo guarda **só o último trecho** — é dele que a consulta de CRC
+responde, e o aparelho compara esse CRC com o que acabou de mandar. O acervo
+fica ao lado, em `historico/`, que só cresce:
+
+```
+recebidos/a3f2c91e7b40d85c/
+├── infracoes.log                  ← o último trecho; é o que o CRC responde
+└── historico/
+    ├── infracoes.log              ← tudo que já chegou, em ordem
+    └── .infracoes.log.marca       ← tamanho e CRC do último trecho juntado
+```
+
+⚠️ **A marca não é zelo: sem ela o histórico duplica.** O aparelho só apaga o
+arquivo do cartão depois que a consulta de CRC confirma. Quando o `PUT` entra
+e a confirmação não volta — rede, DNS, prazo —, ele mantém o arquivo e manda
+os **mesmos bytes** na remessa seguinte; se nesse meio tempo o arquivo ainda
+cresceu, manda o trecho anterior inteiro mais a parte nova. Nos dois casos o
+acréscimo cego gravava registro repetido, e para o `infracoes.log` isso é dado
+do produto duplicado: uma passagem que aconteceu uma vez aparecendo duas.
+
+Reproduzido contra este servidor em 11/11/2026, com dois `PUT` idênticos.
+
+A marca guarda tamanho e CRC do último trecho juntado. Quando o trecho novo
+**começa pelo anterior**, só o rabo entra. Marca ausente ou ilegível faz o
+trecho inteiro ser acrescentado — o comportamento de antes dela —, porque
+duplicar é ruim e perder é pior.
+
+> O firmware ganhou a outra metade do conserto na mesma data: retentativa da
+> confirmação sem refazer o `PUT`, e um desfecho próprio para "entreguei e não
+> consegui apagar". A marca continua valendo para aparelho com firmware
+> antigo.
+
+### O token vai no cabeçalho, e só nele
 
 ```sh
 curl -i -H 'X-Coruja-Token: HBu2kQ...' http://localhost:8081/radares.versao
-curl -i 'http://localhost:8081/radares.versao?t=HBu2kQ...'
 ```
 
-O cabeçalho tem precedência quando os dois vêm.
-
-⚠️ **Isso existe por limitação do firmware, não por gosto.** O cliente de
-download do aparelho usa o `http_client` do lwIP, que monta a requisição
-internamente: a `httpc_connection_t` não tem campo para cabeçalho próprio e a
-biblioteca não oferece gancho. A alternativa seria reescrever o transporte do
-OTA sobre TCP cru — o código mais arriscado e menos testável do projeto — para
-mudar o lugar de uma string. O envio, que já é TCP cru, usa o cabeçalho.
-
-⚠️ **Token em URL entra no log de acesso** — do servidor e de qualquer proxy
-no caminho —, ao contrário de token em cabeçalho. Aqui pesa menos do que
-pareceria, porque tudo trafega em claro de qualquer forma; mas quem puser um
-proxy reverso na frente deve saber disso. O firmware mascara a consulta no
-próprio log.
+Houve uma versão que também o aceitava como `?t=` na URL, porque o cliente de
+download usava o `http_client` do lwIP — que monta a requisição internamente e
+não tem campo para cabeçalho próprio. Com TLS o transporte foi reescrito sobre
+`altcp`, o gancho passou a existir, e o `?t=` **saiu do código**
+(`_token_enviado` lê só o cabeçalho). Token em URL entra no log de acesso do
+servidor e de qualquer proxy no caminho; em cabeçalho, não.
 
 ## Receber dados do aparelho
 

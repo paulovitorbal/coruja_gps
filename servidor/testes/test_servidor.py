@@ -1116,3 +1116,106 @@ class HistoricoAppendOnly(Recepcao):
         self.assertIn("infracoes.log", self.recebidos())
         self.assertNotIn(s.SUBDIR_HISTORICO + "/", self.recebidos())
 
+
+    # ---------------------------------------------- o reenvio do mesmo trecho
+    #
+    # O aparelho so apaga o arquivo do cartao depois que o `GET` de CRC
+    # confirma. Tudo o que acontecer entre o `PUT` que entrou e o apagamento
+    # que nao aconteceu -- confirmacao perdida, `f_unlink` recusado, queda --
+    # faz os MESMOS bytes voltarem na remessa seguinte. O servidor nao tem
+    # como saber que e a mesma remessa; tem como saber que e o mesmo trecho.
+
+    def marca(self, nome, aparelho=None):
+        aparelho = aparelho if aparelho is not None else PASTA
+        return (self.dados / s.SUBDIR_ENVIO / aparelho / s.SUBDIR_HISTORICO
+                / ("." + nome + s.SUFIXO_MARCA))
+
+    def test_reenvio_identico_nao_duplica_o_historico(self):
+        # Reproduzido contra este servidor em 11/11/2026, antes da marca: a
+        # mesma infracao aparecia duas vezes no historico.
+        trecho = b"20261110;112233;EPTG;78;60\n"
+        self.assertEqual(self.envia("infracoes.log", trecho)[0], 201)
+        self.assertEqual(self.envia("infracoes.log", trecho)[0], 201)
+        self.assertEqual(self.historico("infracoes.log"), trecho)
+
+    def test_arquivo_que_cresceu_acrescenta_so_a_parte_nova(self):
+        """O outro caso: nao apagou, e ainda registrou mais.
+
+        O cartao mantem o trecho anterior e o diario escreve por cima dele.
+        O envio seguinte traz o anterior INTEIRO mais o rabo novo.
+        """
+        self.envia("infracoes.log", b"primeira\n")
+        self.envia("infracoes.log", b"primeira\nsegunda\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nsegunda\n")
+
+    def test_trecho_inedito_entra_inteiro_mesmo_sendo_maior(self):
+        """A guarda do CRC, e nao do tamanho.
+
+        Sem comparar o prefixo, "maior que o anterior" bastaria para pular
+        bytes -- e um trecho novo e maior sairia mutilado no historico.
+        """
+        self.envia("infracoes.log", b"aaaa\n")
+        self.envia("infracoes.log", b"bbbbbbbbbb\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"aaaa\nbbbbbbbbbb\n")
+
+    def test_tres_remessas_com_a_do_meio_repetida(self):
+        self.envia("infracoes.log", b"uma\n")
+        self.envia("infracoes.log", b"uma\n")      # nao confirmou; voltou
+        self.envia("infracoes.log", b"duas\n")     # apagou; trecho novo
+        self.assertEqual(self.historico("infracoes.log"), b"uma\nduas\n")
+
+    def test_historico_apagado_a_mao_nao_mutila_o_proximo_trecho(self):
+        """Marca orfa: o historico sumiu e ela ficou.
+
+        Confiar nela faria o prefixo ser pulado de um arquivo que ja nao o
+        contem, e o trecho entraria sem comeco.
+        """
+        self.envia("infracoes.log", b"primeira\n")
+        (self.dados / s.SUBDIR_ENVIO / PASTA / s.SUBDIR_HISTORICO
+         / "infracoes.log").unlink()
+        self.envia("infracoes.log", b"primeira\nsegunda\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nsegunda\n")
+
+    def test_marca_ilegivel_acrescenta_tudo(self):
+        # O lado seguro da duvida: duplicar e ruim, perder e pior.
+        self.envia("infracoes.log", b"primeira\n")
+        self.marca("infracoes.log").write_text("isto nao e uma marca\n")
+        self.envia("infracoes.log", b"primeira\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nprimeira\n")
+
+    def test_a_marca_nao_aparece_entre_os_recebidos(self):
+        self.envia("infracoes.log", b"uma\n")
+        self.assertTrue(self.marca("infracoes.log").is_file())
+        self.assertEqual(self.recebidos(), ["infracoes.log"])
+
+    def test_viagem_nao_gera_marca(self):
+        # O nome dela ja e unico: nao entra no historico e nao precisa de marca.
+        self.envia("20261006_123858.log", b"x\n")
+        self.assertFalse(self.marca("20261006_123858.log").is_file())
+
+    def test_o_coruja_log_tambem_e_deduplicado(self):
+        # A marca e por NOME: os dois arquivos de nome fixo passam por ela.
+        self.envia("coruja.log", b"linha\n")
+        self.envia("coruja.log", b"linha\n")
+        self.assertEqual(self.historico("coruja.log"), b"linha\n")
+
+    def test_o_crc_respondido_nao_muda_com_o_reenvio(self):
+        """O contrato com o aparelho nao pode mudar.
+
+        Ele pergunta o CRC do que MANDOU. Se o reenvio deduplicado passasse a
+        responder outra coisa, ele nunca apagaria -- e o remedio viraria a
+        causa do mesmo sintoma.
+        """
+        import zlib
+        trecho = b"20261110;112233;EPTG;78;60\n"
+        self.envia("infracoes.log", trecho)
+        status, corpo = self.envia("infracoes.log", trecho)
+        self.assertEqual(status, 201)
+        self.assertEqual(corpo.strip().decode(), f"{zlib.crc32(trecho):08x}")
+        status, corpo = self.pede("GET", s.ROTA_ENVIO + "infracoes.log")
+        self.assertEqual(status, 200)
+        self.assertEqual(corpo.strip().decode(), f"{zlib.crc32(trecho):08x}")

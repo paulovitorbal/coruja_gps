@@ -4,6 +4,7 @@
 
 #include "nucleo/Url.h"
 #include "rede/Baixador.h"
+#include "rede/CacheDeHost.h"
 #include "rede/Enviador.h"
 
 namespace coruja {
@@ -96,6 +97,21 @@ public:
 private:
     void* configuracao_ = nullptr;   ///< `struct altcp_tls_config*`
     char  token_[64] = {};
+
+    /// Qual nome já foi resolvido, e por quanto tempo isso ainda vale.
+    ///
+    /// Vive no cliente, e não no orquestrador, porque quem resolve é o
+    /// cliente — e assim o OTA e a remessa aproveitam o mesmo endereço sem
+    /// combinarem nada.
+    CacheDeHost cache_host_;
+
+    /// O endereço que acompanha o `cache_host_`, guardado **opaco**.
+    ///
+    /// Seria um `ip_addr_t`, mas esse é tipo do lwIP e este cabeçalho é
+    /// incluído por quem não o tem. O `.cpp` confere o tamanho num
+    /// `static_assert` — se o lwIP mudar, a compilação para em vez de
+    /// escrever fora.
+    std::uint8_t endereco_guardado_[16] = {};
 };
 
 }  // namespace coruja

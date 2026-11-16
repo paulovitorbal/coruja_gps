@@ -414,14 +414,36 @@ void ClienteTls::libera_configuracao() {
 /// corpo e para onde vai a resposta -- tudo parametro. Duas copias disto foi
 /// o que o `ClienteHttp` e o `ClienteEnvio` eram.
 static ResultadoHttp conversa(void** configuracao, const char* token,
+                              CacheDeHost* cache, std::uint8_t* endereco_cache,
                               const Url& url, const char* metodo,
                               Enviador::FonteDeBytes fonte, void* ctx_fonte,
                               std::size_t corpo,
                               Baixador::AoReceber ao_receber_corpo,
                               void* ctx_recebe, Logger& log,
                               std::uint32_t tempo_limite_ms) {
+    static_assert(sizeof(ip_addr_t) <= 16,
+                  "o endereco guardado no ClienteTls nao cabe mais");
     ResultadoHttp saida;
     char msg[224];
+
+    /// Um pedido que não chega a resposta nenhuma invalida o endereço
+    /// guardado: pode ser justamente ele que está errado — um servidor que
+    /// trocou de IP, ou um DHCP que renumerou a casa. Esquecer custa uma
+    /// resolução na tentativa seguinte; insistir num endereço morto custa
+    /// todas elas.
+    ///
+    /// Em bloco de saída, e não repetido nos oito `return` de falha: um
+    /// caminho de erro novo esqueceria de chamar, e a falha resultante seria
+    /// intermitente e de outro arquivo.
+    struct EsqueceSeNaoRespondeu {
+        CacheDeHost* cache;
+        const bool*  respondeu;
+        ~EsqueceSeNaoRespondeu() {
+            if (cache != nullptr && !*respondeu) { cache->esquece(); }
+        }
+    };
+    bool respondeu = false;
+    EsqueceSeNaoRespondeu guarda{cache, &respondeu};
 
     if (url.host[0] == '\0') {
         saida.erro = ErroHttp::UrlInvalida;
@@ -440,9 +462,22 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     log.debug(kOrigem, msg);
 
     ip_addr_t endereco = {};
-    if (!resolve(url.host, &endereco, tempo_limite_ms, log)) {
-        saida.erro = ErroHttp::NaoIniciou;
-        return saida;
+    const std::uint32_t agora_dns = to_ms_since_boot(get_absolute_time());
+    if (cache != nullptr && cache->serve(url.host, agora_dns)) {
+        // DEBUG: nao e acontecimento, e a ausencia de um -- mas sem a linha
+        // nao da para distinguir "o DNS respondeu depressa" de "nao foi
+        // perguntado" ao ler o remessa.log.
+        log.debug(kOrigem, "nome ja resolvido nesta sessao");
+        std::memcpy(&endereco, endereco_cache, sizeof endereco);
+    } else {
+        if (!resolve(url.host, &endereco, tempo_limite_ms, log)) {
+            saida.erro = ErroHttp::NaoIniciou;
+            return saida;
+        }
+        if (cache != nullptr) {
+            std::memcpy(endereco_cache, &endereco, sizeof endereco);
+            cache->guarda(url.host, agora_dns);
+        }
     }
 
     Pedido pedido;
@@ -675,6 +710,11 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         saida.erro = ErroHttp::Interrompida;
         return saida;
     }
+
+    // Houve resposta HTTP: o endereço está certo, mesmo que o status não
+    // agrade. Um 404 prova tanto quanto um 200 que o pedido chegou a alguém.
+    respondeu = true;
+
     if (saida.status < 200 || saida.status > 299) {
         std::snprintf(msg, sizeof msg, "status HTTP %u",
                       static_cast<unsigned>(saida.status));
@@ -693,7 +733,8 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
 ResultadoHttp ClienteTls::baixa(const Url& url, AoReceber ao_receber,
                                 void* contexto, Logger& log,
                                 std::uint32_t tempo_limite_ms) {
-    return conversa(&configuracao_, token_, url, "GET", nullptr, nullptr, 0,
+    return conversa(&configuracao_, token_, &cache_host_, endereco_guardado_,
+                    url, "GET", nullptr, nullptr, 0,
                     ao_receber, contexto, log, tempo_limite_ms);
 }
 
@@ -708,6 +749,7 @@ ResultadoHttp ClienteTls::envia(const Url& url, const char* token,
     }
     return conversa(&configuracao_,
                     token != nullptr && token[0] != '\0' ? token : token_,
+                    &cache_host_, endereco_guardado_,
                     url, "PUT", fonte, contexto, tamanho, nullptr, nullptr,
                     log, tempo_limite_ms);
 }
@@ -737,6 +779,7 @@ ResultadoHttp ClienteTls::consulta_crc(const Url& url, const char* token,
     CorpoCurto corpo;
     auto saida = conversa(&configuracao_,
                           token != nullptr && token[0] != '\0' ? token : token_,
+                          &cache_host_, endereco_guardado_,
                           url, "GET", nullptr, nullptr, 0,
                           CorpoCurto::ao_receber, &corpo, log,
                           tempo_limite_ms);

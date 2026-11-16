@@ -213,10 +213,68 @@ e de qualquer proxy no caminho.
 > ⚠️ Isso exige **o relógio acertado**: sem hora, todo certificado é recusado
 > por "ainda não vale". Ver `servidor_ntp`.
 
-Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue: o
-`coruja.log` e o registro da viagem em curso continuam sendo escritos enquanto
-a remessa roda, e apagar depois de confirmar N bytes destruiria os que vieram
-depois. Ver `servidor/README.md` para o outro lado.
+Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue:
+apagar depois de confirmar N bytes destruiria os que vieram depois. Ver
+`servidor/README.md` para o outro lado.
+
+Isso **deixou de ser rotina**. Enquanto o log da remessa ia para o próprio
+`coruja.log`, ele crescia sempre e nunca era apagado; desde que o `main.cpp`
+desvia o log para `remessa.log` durante o envio, nenhum arquivo deveria
+crescer. Um arquivo retido hoje quer dizer que o cartão não soltou — e a tela
+passou a dizer isso, com `ENTREGUE; NAO APAGUEI`, em vez do antigo `ENVIADO`.
+A distinção importa porque arquivo retido **volta inteiro na remessa
+seguinte**, e era essa volta que parecia "o envio recomeça do zero".
+
+### Retentativa, e o teto que ela exigiu
+
+Doze arquivos são vinte e quatro conexões TCP — um `PUT` e uma consulta de CRC
+por arquivo, cada uma com resolução de nome e aperto de mão. Até 11/11/2026
+qualquer uma delas que falhasse condenava o arquivo da vez, sem segunda
+chance; era por isso que a remessa parecia falhar "no último arquivo", quando
+o último é só o que teve mais sorteios antes dele.
+
+| | |
+| :--- | :--- |
+| tentativas por arquivo | 3, com 2 s entre elas |
+| tentativas da confirmação | 3, **sem refazer o `PUT`** |
+| teto do conjunto | 10 min, conferido entre arquivos e entre tentativas |
+| arquivos por remessa | 40 (era 12) |
+
+A confirmação é repetida sozinha porque, quando ela falha, o `PUT` já entrou e
+o servidor já guardou: refazer o arquivo inteiro reenvia o mesmo conteúdo. O
+nome do servidor é resolvido **uma vez por sessão** (`CacheDeHost`) e o
+endereço é descartado assim que um pedido não chega a resposta nenhuma.
+
+> ⚠️ **O envio bloqueia o aparelho inteiro, e não há como cancelá-lo.**
+> Enquanto ele roda o laço principal não volta: o GPS não é lido, não há
+> alerta, e o anel da UART enche e descarta bytes. Em 11/11/2026 um envio de
+> backlog (84 arquivos já no servidor) coincidiu com uma volta de 146,8 s e
+> 93 KB de NMEA perdidos no `vigia`. A causa é a coincidência de horário, não
+> uma medição do envio em si.
+>
+> O tempo máximo vinha dos limites por etapa, não de um total: varredura 12 s,
+> associação 20 s e, **por arquivo**, até 180 s de envio mais 30 s de consulta
+> de CRC — doze arquivos davam 42 minutos no pior caso, e a retentativa
+> multiplicaria isso por três. **Desde 11/11/2026 há um teto do conjunto de
+> 10 minutos** (`kTetoDaRemessaMs`), conferido entre arquivos e entre
+> tentativas. Ele estoura para cima em até uma tentativa, porque abortar um
+> `PUT` pela metade deixaria o servidor com meio arquivo; o que não foi
+> tentado fica para a próxima remessa e a tela diz `ENVIADO; FALTA MAIS`.
+>
+> Continua **não havendo cancelamento pelo encoder**: o teto limita o dano,
+> não devolve o controle.
+>
+> **O envio só começa por clique em "enviar dados"** — nada o dispara sozinho.
+> Mas o menu abre com o carro parado, e **sem nenhum fix desde o boot o
+> `DetectorParado` conta como parado após 3 s** (para os ajustes ficarem
+> acessíveis em garagem coberta). Ou seja, em casa, antes do fix, ele abre.
+>
+> Por isso: **envie o backlog em casa, com tempo, e nunca com pressa para
+> sair.** Com 40 arquivos por remessa em vez de 12, um backlog de 84 sai em
+> três idas ao menu em vez de sete — se o enlace der conta dentro do teto. Se sair andando durante o envio, o trecho fica sem alerta até ele
+> terminar. Enviar com frequência mantém cada remessa curta. O módulo GPS
+> segue rodando sozinho durante o envio; só os bytes enviados à placa se
+> perdem (não verificado como o firmware retoma depois).
 
 ### Testes do gerador
 

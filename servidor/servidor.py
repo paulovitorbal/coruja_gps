@@ -110,6 +110,24 @@ PADRAO_VIAGEM = re.compile(r"^\d{8}_\d{6}\.log$")
 #: concluir que nada chegou — e nunca apagar nada.
 SUBDIR_HISTORICO = "historico"
 
+#: Assinatura do último trecho acrescentado ao histórico, um arquivo por nome.
+#:
+#: ⚠️ **É o que impede o histórico de duplicar quando a remessa falha pela
+#: metade.** O aparelho só apaga o arquivo do cartão depois que o `GET` de CRC
+#: confirma. Quando o `PUT` entra e a confirmação não volta — rede, DNS, prazo
+#: estourado —, ele mantém o arquivo e manda os **mesmos bytes** na remessa
+#: seguinte. Se nesse meio tempo o arquivo ainda cresceu, manda o trecho
+#: anterior inteiro *mais* a parte nova.
+#:
+#: Nos dois casos o acréscimo cego gravava registro repetido, e para o
+#: `infracoes.log` isso é dado do produto duplicado — uma passagem que
+#: aconteceu uma vez aparecendo duas. Foi reproduzido contra este servidor em
+#: 11/11/2026: dois `PUT` idênticos, a mesma infração duas vezes no histórico.
+#:
+#: A marca guarda tamanho e CRC do que foi acrescentado por último. Quando o
+#: trecho novo **começa pelo anterior**, só o rabo entra.
+SUFIXO_MARCA = ".marca"
+
 #: Cabecalho do segredo combinado. Sem ele, ou errado, a resposta e 401.
 #:
 #: ⚠️ Isto NAO e autenticacao forte: o segredo viaja em claro, porque o
@@ -634,15 +652,72 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
         temporario.replace(destino / nome)
         if not PADRAO_VIAGEM.match(nome):
-            self._acrescenta_ao_historico(destino, nome)
+            self._acrescenta_ao_historico(destino, nome, crc, recebido)
         log.info("recebido %s/%s (%d bytes, crc %08x)", aparelho, nome,
                  recebido, crc)
         self._responde(201, f"{crc:08x}\n".encode(),
                        "text/plain; charset=utf-8")
 
     @staticmethod
-    def _acrescenta_ao_historico(destino: Path, nome: str) -> None:
-        """Acrescenta o trecho recém-recebido ao histórico do aparelho.
+    def _caminho_da_marca(pasta: Path, nome: str) -> Path:
+        """Onde fica a assinatura do último trecho de `nome`.
+
+        Dentro do `historico/`, que nenhuma listagem percorre — nem a de
+        recebidos nem a da página de viagens entram em subpasta. O ponto na
+        frente é convenção, não guarda: quem abrir a pasta à mão vê que
+        aquilo não é um trecho.
+        """
+        return pasta / ("." + nome + SUFIXO_MARCA)
+
+    @classmethod
+    def _le_marca(cls, pasta: Path, nome: str) -> tuple[int, int] | None:
+        """Tamanho e CRC do último trecho acrescentado, ou `None`.
+
+        Marca ausente ou ilegível devolve `None`, e aí o trecho inteiro é
+        acrescentado — que é exatamente o que o servidor fazia antes de ela
+        existir. Perder a deduplicação é ruim; perder o trecho seria pior, e
+        é esse o lado para o qual a dúvida cai.
+        """
+        try:
+            bruto = cls._caminho_da_marca(pasta, nome).read_text(
+                encoding="ascii")
+            tamanho, _, crc = bruto.strip().partition(" ")
+            return int(tamanho), int(crc, 16)
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _crc_do_prefixo(origem, quantos: int) -> int:
+        """CRC dos primeiros `quantos` bytes, deixando o arquivo neles.
+
+        Devolve `-1` quando o arquivo acaba antes. Nenhum CRC32 assume esse
+        valor, então um arquivo curto demais nunca casa por acidente — e é
+        isso que torna a comparação segura sozinha. A conferência de tamanho
+        em quem chama é atalho, não guarda: ela evita ler o arquivo inteiro
+        para descobrir o que o tamanho já dizia.
+        """
+        crc = 0
+        resta = quantos
+        while resta > 0:
+            pedaco = origem.read(min(64 * 1024, resta))
+            if not pedaco:
+                return -1
+            crc = zlib.crc32(pedaco, crc)
+            resta -= len(pedaco)
+        return crc
+
+    @classmethod
+    def _acrescenta_ao_historico(cls, destino: Path, nome: str, crc: int,
+                                 tamanho: int) -> None:
+        """Acrescenta ao histórico **só o que ainda não está lá**.
+
+        O trecho novo pode ser: conteúdo inédito (o caso normal, quando a
+        remessa anterior apagou o arquivo do cartão), uma repetição exata do
+        anterior, ou o anterior mais um rabo novo. Os dois últimos acontecem
+        quando o aparelho não conseguiu apagar — ver `SUFIXO_MARCA`.
+
+        Reconhecer os três custa um CRC do prefixo e uma marca de uma linha.
+        Não reconhecê-los custava registro duplicado, em silêncio.
 
         Falhar aqui **não** derruba a resposta. O arquivo definitivo já está
         gravado e o CRC já é o certo: responder erro faria o aparelho manter o
@@ -652,9 +727,46 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         try:
             pasta = destino / SUBDIR_HISTORICO
             pasta.mkdir(exist_ok=True)
-            with (destino / nome).open("rb") as origem, \
-                 (pasta / nome).open("ab") as historico:
-                shutil.copyfileobj(origem, historico, 64 * 1024)
+            historico = pasta / nome
+            # Marca sem histórico é marca órfã: alguém apagou o arquivo à mão.
+            # Confiar nela faria o prefixo ser pulado de um arquivo que já não
+            # o contém, e o trecho sairia mutilado.
+            anterior = cls._le_marca(pasta, nome) if historico.is_file() \
+                else None
+
+            with (destino / nome).open("rb") as origem:
+                repetido = 0
+                if anterior is not None:
+                    tamanho_antes, crc_antes = anterior
+                    if (tamanho >= tamanho_antes
+                            and cls._crc_do_prefixo(origem, tamanho_antes)
+                                == crc_antes):
+                        repetido = tamanho_antes
+                    else:
+                        origem.seek(0)
+                # ⚠️ **Quem pula o prefixo é a POSIÇÃO do arquivo**, não esta
+                # variável: o `_crc_do_prefixo` deixou `origem` logo depois
+                # dele. `repetido` só diz quanto foi pulado — para escolher a
+                # mensagem e para evitar abrir o histórico à toa. Uma campanha
+                # de mutação mostrou isso: zerá-la não muda uma linha do que é
+                # gravado, e quem a lesse como controle de fluxo erraria.
+                if repetido >= tamanho:
+                    log.info("%s repetiu o trecho anterior (%d bytes); "
+                             "historico intacto", nome, tamanho)
+                else:
+                    with historico.open("ab") as destino_historico:
+                        shutil.copyfileobj(origem, destino_historico,
+                                           64 * 1024)
+                    if repetido > 0:
+                        log.info("%s trouxe de volta %d bytes ja no "
+                                 "historico; acrescentei so os %d novos",
+                                 nome, repetido, tamanho - repetido)
+
+            # Por último, e de propósito: uma marca gravada antes de o
+            # acréscimo dar certo faria o trecho seguinte pular um prefixo que
+            # não está no histórico.
+            cls._caminho_da_marca(pasta, nome).write_text(
+                f"{tamanho} {crc:08x}\n", encoding="ascii")
         except OSError as e:
             log.error("falha acrescentando %s ao historico: %s", nome, e)
 
