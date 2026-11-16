@@ -213,6 +213,60 @@ Para desfazer, grave o `flash_nuke.uf2` oficial da Raspberry Pi, que apaga
 a flash inteira, inclusive a tabela. Depois disso a gravação volta a ser a de
 antes. 🔬 Não testado.
 
+### OTA de firmware — medidas
+
+Linha de base para o ADR 0012, tirada em 16/11/2026 do `coruja.log` que o
+aparelho mandou ao servidor (histórico até 11/11/2026). Só entraram as linhas
+`boot:`, `gps: receptor configurado`, `ota:`, `base: recebido` e `mem:`.
+
+**1. Do boot ao GPS respondendo.** O log não tem linha para a primeira
+sentença NMEA. A mais próxima é `gps: receptor configurado`, que só sai depois
+que o receptor respondeu no baud achado e confirmou a configuração.
+
+| Linha | Partidas | Mínimo | Mediana | Máximo |
+| :--- | ---: | ---: | ---: | ---: |
+| `gps: receptor configurado` | 26 | 2,2 s | 2,5 s | 4,0 s |
+| `boot: pronto` (últimas 30, v0.2.21 e v0.2.23) | 30 | 2,5 s | 2,8 s | 4,4 s |
+
+Fica longe dos 8 s em que o plano mandava parar, e o prazo de 10 s da decisão
+4 se mantém. No histórico inteiro há 27 partidas com `boot: pronto` acima de
+6 s (a pior, 8,7 s), todas de v0.2.13 a v0.2.15.
+
+**2. Vazão do download da base.** Intervalo entre a linha `ota: versao` e a
+`ota: base gravada`, com carimbo de 1 s, então cada intervalo erra ±1 s. Inclui
+a gravação no cartão.
+
+| Data | Bytes | Intervalo | Vazão |
+| :--- | ---: | ---: | ---: |
+| 11/10/2026 | 220 076 | 8 s | 27,5 KB/s |
+| 15/10/2026 | 220 256 | 40 s | 5,5 KB/s |
+| 20/10/2026 | 220 388 | 15 s | 14,7 KB/s |
+| 26/10/2026 | 220 424 | 8 s | 27,6 KB/s |
+| 28/10/2026 | 220 688 | 10 s | 22,1 KB/s |
+| 02/11/2026 | 220 700 | 13 s | 17,0 KB/s |
+
+Mediana de 19,5 KB/s. O OTA baixa o UF2, de 1 432 064 B: **52 s** na melhor
+vazão vista, **73 s** na mediana e **4 min 20 s** na pior. É estimativa: o OTA
+grava na flash, não no cartão, e 🔬 o custo de apagar e gravar a flash não
+está aí.
+
+**3. Pico de memória.** A linha `mem:` sai ao fim de cada sessão de rede, com
+o pico acumulado desde o boot (17 sessões, em 14 execuções).
+
+| | Pico | De | Sobra |
+| :--- | ---: | ---: | ---: |
+| heap do lwip | 14 924 B | 15 776 B | 852 B |
+| heap do sistema | 6 244 B | — | — |
+| pilha | 21 172 B | 24 576 B | 3 404 B |
+
+- ⚠️ **A pilha vem subindo:** 18 588 B em 08/10 e 21 172 B em 28/10, junto
+  com o firmware. O caminho de gravação do OTA soma pilha em cima disso, e a
+  sobra é de 3,4 KB. Medir na bancada antes de confiar.
+- O heap do lwip chegou aos ~14,9 KB sempre numa sessão sem download (a
+  consulta falhou ou a base já estava em dia). Nas cinco sessões com download
+  em que o pico ainda não estava alto, ele ficou em 3 096 B: baixar 220 KB não
+  passou disso. 🔬 Qual etapa enche o heap do lwip não está no log.
+
 ## Configuração
 
 ```sh
