@@ -72,6 +72,26 @@ else()
     add_dependencies(coruja_gps coruja_versao)
     target_include_directories(coruja_gps PRIVATE ${CMAKE_BINARY_DIR}/gerado)
 
+    # Versao e hash no bloco da imagem: com as particoes A/B, o bootrom
+    # escolhe a de MAIOR versao no boot. Ver docs/adr/0012.
+    include(cmake/versao_imagem.cmake)
+    coruja_versao_imagem(${CMAKE_CURRENT_SOURCE_DIR}
+                         ${CMAKE_BINARY_DIR}/gerado/VersaoImagem.h)
+
+    # ⚠️ SEM `ROLLBACK`: ele grava a versao minima em OTP, e OTP nao volta.
+    # Uma imagem velha deixaria de subir para sempre, inclusive por cabo.
+    #
+    # A versao entra DEPOIS do link, pelo `picotool seal` -- o mesmo passo
+    # que grava o hash. Nao e `pico_set_binary_version`, de proposito: sem
+    # ROLLBACK ela vira definicao de compilacao, e como a versao muda a cada
+    # commit, cada commit recompilava o alvo inteiro (325 objetos, 1 min 48 s,
+    # medido em 16/11/2026). Restringir a definicao ao crt0 nao adianta: o
+    # gerador Makefile a guarda no `flags.make`, de que todo objeto depende.
+    # No seal custa so religar.
+    set_property(TARGET coruja_gps APPEND PROPERTY PICOTOOL_EXTRA_PROCESS_ARGS
+        --major ${CORUJA_VERSAO_MAIOR} --minor ${CORUJA_VERSAO_MENOR})
+    pico_hash_binary(coruja_gps)
+
     # 🔴 PILHA DE 24 KiB: o SCRATCH inteiro mais 16 KiB tomados da RAM.
     #
     # O SDK poe a pilha do nucleo 0 em SCRATCH_Y (4 KiB) e a do nucleo 1 em

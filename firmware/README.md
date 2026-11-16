@@ -147,6 +147,72 @@ USB e copie o `.uf2` para o volume `RP2350` que aparece.
 O `stdio` sai pelo **USB-CDC**, não pela UART — a UART0 fica para o GPS. Para
 ler o log: `screen /dev/tty.usbmodem* 115200`.
 
+### Versão da imagem
+
+Desde o ADR 0012 a imagem carrega no bloco de metadados uma **versão
+numérica e um hash**. Com a tabela de partições A/B, o bootrom sobe a partição
+de maior versão. O número sai do `git describe` (ver
+`cmake/versao_imagem.cmake`):
+
+| `git describe` | versão |
+| :--- | :--- |
+| `v0.2.23-4-g86d7a7b` | 2.2304 |
+| `v0.2.24-0-g…` (em cima da tag) | 2.2400 |
+
+```sh
+firmware/build-pico/_deps/picotool/picotool info -a firmware/build-pico/coruja_gps.uf2
+```
+
+Sai `version: 2.2304` e `hash: verified`.
+
+⚠️ **O número é lido na configuração, não no build.** O build reconfigura
+sozinho quando o `logs/HEAD` muda (commit, *amend*, *checkout*) e quando uma
+tag nova aparece em `refs/tags`. Conferido em 16/11/2026 com um commit vazio e
+uma tag descartável. Se o `picotool info` mostrar versão diferente da do
+`git describe`, rode `cmake -S firmware -B firmware/build-pico` à mão.
+
+Com **100 commits ou mais depois da tag**, o build para e pede tag nova: o
+número colidiria com o da tag seguinte.
+
+### Migração para partições A/B (uma vez, por cabo)
+
+Só a primeira gravação precisa disto. Ela instala a tabela de partições do
+RP2350, e daí em diante o firmware pode ser atualizado pela rede (ADR 0012).
+
+| Região | Na flash | Tamanho |
+| :--- | :--- | ---: |
+| tabela de partições | `0x000000–0x002000` | 8 KiB |
+| Coruja A | `0x002000–0x182000` | 1536 KiB |
+| Coruja B | `0x182000–0x302000` | 1536 KiB |
+| sem partição | `0x302000–0x400000` | 1016 KiB |
+
+1. Gere a tabela:
+
+   ```sh
+   firmware/build-pico/_deps/picotool/picotool partition create \
+       firmware/particoes.json firmware/build-pico/pt.uf2
+   ```
+
+2. Aparelho em `BOOTSEL`, arraste `pt.uf2` para o volume `RP2350`. O volume
+   some sozinho quando a gravação termina.
+3. ⚠️ **A partir daqui o aparelho fica sem firmware que suba.** A tabela foi
+   gravada no começo da flash, onde ficava o início da imagem. É esperado.
+   Sem imagem válida o bootrom deve voltar sozinho ao modo de gravação
+   (🔬 não conferido). Se o volume `RP2350` não reaparecer, entre em
+   `BOOTSEL` de novo.
+4. Arraste `coruja_gps.uf2`. O bootrom grava a imagem numa das partições
+   e reinicia nela.
+5. Confira no `coruja.log`: a linha `boot:` traz o `git describe` gravado, a
+   base carregou e o GPS está lendo.
+
+Depois da migração, **todo UF2 arrastado vai para a partição que não está
+rodando**, inclusive o das bancadas. 🔬 Qual partição sobe no boot seguinte
+depende da versão das duas; a fase 2 do OTA confere isso.
+
+Para desfazer, grave o `flash_nuke.uf2` oficial da Raspberry Pi, que apaga
+a flash inteira, inclusive a tabela. Depois disso a gravação volta a ser a de
+antes. 🔬 Não testado.
+
 ## Configuração
 
 ```sh
