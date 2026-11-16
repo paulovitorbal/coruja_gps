@@ -13,11 +13,16 @@ namespace coruja {
 /// ligado o dia inteiro não carregue para sempre o endereço de uma sessão
 /// antiga.
 ///
-/// Cinco minutos cobrem uma remessa inteira (ver `kTetoDaRemessaMs`), que é o
-/// caso que motivou isto.
+/// Cinco minutos são metade do teto de uma remessa (`kTetoDaRemessaMs`, dez
+/// minutos), que é o caso que motivou isto: numa remessa longa o nome é
+/// resolvido de novo no meio, uma consulta a mais, e não um erro.
+///
+/// ⚠️ O prazo atravessa sessões: a `SessaoDeRede` não limpa o cache. Uma
+/// remessa logo depois de outra, em outra rede, tenta primeiro o endereço
+/// antigo; a falha o esquece, e a tentativa seguinte resolve de novo.
 constexpr std::uint32_t kValidadeDoHostMs = 300'000;
 
-/// Lembra que um nome já foi resolvido nesta sessão — e só isso.
+/// Lembra que um nome foi resolvido há pouco — e só isso.
 ///
 /// ## Por que existe
 ///

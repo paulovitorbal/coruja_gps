@@ -25,8 +25,10 @@ class Logger;
 /// terminando numa tela que pedia para ser dispensada. A contagem nunca foi o
 /// que precisava de teto — o que precisa é o tempo que o aparelho fica parado.
 ///
-/// Quarenta nomes de 32 bytes são 1280 B, e eles moram em `.bss` junto com a
-/// `Bomba`, não na pilha de 8 KiB. Ver `colheita_`.
+/// Quarenta nomes de 32 bytes são 1280 B, membros junto com a `Bomba`: moram
+/// onde o objeto morar. No `main.cpp` ele é `static`, então em `.bss`; como
+/// local de `main()` estaria na pilha de 24 KiB, que é onde estava até a
+/// revisão de 16/11/2026. Ver `colheita_`.
 constexpr std::size_t kMaxRemessa = 40;
 
 /// Buffer de transferência. Cada arquivo é lido duas vezes por este pedaço:

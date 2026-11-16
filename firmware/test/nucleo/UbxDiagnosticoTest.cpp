@@ -417,6 +417,25 @@ TEST(UbxDiagnostico, fix_que_o_modulo_nao_assina_diz_sem_OK) {
     EXPECT_NE(std::strstr(linha, "fix 3D sem OK"), nullptr) << linha;
 }
 
+TEST(UbxDiagnostico, a_ressalva_sem_OK_cabe_ao_lado_de_todo_tipo) {
+    // O texto mais longo e o do tipo 1: "fix dead reckoning sem OK" tem 25
+    // caracteres, e o buffer era de 24 -- saia `fix dead reckoning sem `,
+    // sem a palavra que a ressalva existe para dizer.
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+    EstadoSinal sinal; sinal.respondeu = true;
+    for (std::uint8_t tipo = 1; tipo <= 5; ++tipo) {
+        EstadoNavegacao nav;
+        nav.respondeu = true; nav.teve_fix = true;
+        nav.ttff_ms = 1000; nav.desde_boot_ms = 2000;
+        nav.tipo_fix = tipo; nav.fix_valido = false;
+        char linha[kTamDiagnostico] = {};
+        formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
+        EXPECT_NE(std::strstr(linha, " sem OK"), nullptr)
+            << "tipo " << unsigned{tipo} << ": " << linha;
+    }
+}
+
 TEST(UbxDiagnostico, antes_do_primeiro_fix_a_linha_diz_fix_nenhum) {
     EstadoNavegacao nav;
     nav.respondeu = true;   // tipo_fix 0: o modulo diz que nao tem nada

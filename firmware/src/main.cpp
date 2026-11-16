@@ -576,7 +576,12 @@ int main() {
     coruja::UartPico         uart;
     coruja::LeitorGps        gps(uart);
     coruja::RedeWifi         rede;
-    coruja::ClienteTls       http;
+    // 🔴 `static`, e o da `remessa` abaixo tambem: o que e local de `main()`
+    // mora na PILHA, e nao em `.bss`. O quadro de `main()` ja tinha 14 KiB dos
+    // 24 KiB, e o cache de DNS e a colheita de 40 nomes somaram mais 1,5 KiB
+    // em cima de um pico medido de 21 172 B. `main()` nunca retorna, entao a
+    // vida dos dois nao muda.
+    static coruja::ClienteTls http;
     coruja::ClienteSntp      ntp;
     coruja::RelogioAon       relogio;
 
@@ -689,8 +694,9 @@ int main() {
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
-    coruja::RemessaDados   remessa(cartao, rede, http, pausa, &ponte_remessa,
-                                   &preparo);
+    // `static` pelo mesmo motivo do `http`: sao 2,3 KiB.
+    static coruja::RemessaDados remessa(cartao, rede, http, pausa,
+                                        &ponte_remessa, &preparo);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
                                  piloto, led, buzzer, pausa, encoder, log,
                                  http, sincronizador, recarregador, gps,
@@ -792,6 +798,9 @@ int main() {
     // Duas perguntas, dois numeros, e as duas respostas vem do proprio
     // modulo: ele partiu sem dado nenhum, ou partiu cego por ruido?
     bool ttff_registrado = false;
+    // Se o `primeiro fix` e o diagnostico logo depois dele ja foram para o
+    // cartao. Ver a descarga junto de `registra_diagnostico`.
+    bool fix_no_cartao = false;
     bool esperando_diagnostico = false;
     std::uint32_t diagnostico_pedido_ms = 0;
     std::uint32_t respostas_antes = 0;
@@ -949,7 +958,16 @@ int main() {
             // Ainda sem fix: descarrega, pelo mesmo motivo da `vigia` -- chave
             // cortada com a linha so na RAM e linha perdida, e o carro que
             // sai antes do fix e justamente o que corta cedo.
-            if (!ttff_registrado) { log.descarrega(); }
+            //
+            // E uma vez mais, no diagnostico que o primeiro fix pede: sem
+            // isso, o `primeiro fix` e a linha `radio:` dele esperavam a
+            // proxima `vigia`, ate cinco minutos, e uma viagem curta os
+            // perdia -- justamente as duas linhas que a investigacao do fix
+            // lento precisa.
+            if (!ttff_registrado || !fix_no_cartao) {
+                log.descarrega();
+                fix_no_cartao = ttff_registrado;
+            }
         }
 
         // `esperando_diagnostico` evita empilhar um pedido sobre o outro.

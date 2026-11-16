@@ -213,7 +213,9 @@ std::size_t formata_diagnostico(const EstadoNavegacao& nav,
     // fix do firmware saiu 141 s e 206 s depois do TTFF do módulo, e sem o
     // tipo não há como separar "o módulo contou um fix só de hora" de "o
     // módulo fixou e o atraso é nosso".
-    char fix_txt[24];
+    // O mais longo, "fix dead reckoning sem OK", tem 25 caracteres. Eram 24
+    // aqui, e a ressalva saia cortada no meio.
+    char fix_txt[32];
     std::snprintf(fix_txt, sizeof fix_txt, "fix %s%s", descreve_tipo_fix(nav.tipo_fix),
                   (nav.tipo_fix != 0 && !nav.fix_valido) ? " sem OK" : "");
 
