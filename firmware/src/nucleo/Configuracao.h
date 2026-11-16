@@ -85,26 +85,22 @@ struct Configuracao {
     /// qual aparelho veio o arquivo — é o que faz os registros de dois carros
     /// não se misturarem. Vai em todas as requisições, não só nos envios.
     ///
-    /// Como ele chega ao servidor muda com a rota, e a razão é do lwIP:
+    /// Vai no cabeçalho `X-Coruja-Token`, em toda requisição — envio,
+    /// consulta e download: o `ClienteTls` o acrescenta.
     ///
-    /// - **envio** (`ClienteEnvio`, TCP cru): cabeçalho `X-Coruja-Token`.
-    /// - **download** (`ClienteHttp`, `http_client` do lwIP): parâmetro `?t=`
-    ///   na URL, porque a `httpc_connection_t` não tem campo para cabeçalho
-    ///   próprio e a biblioteca monta a requisição sem oferecer gancho.
+    /// Houve uma versão em que o download o levava na URL, como `?t=`,
+    /// porque o `http_client` do lwIP montava o pedido sem gancho para
+    /// cabeçalho próprio. Com o transporte reescrito sobre TLS ele saiu da
+    /// URL, onde entrava no log de acesso do servidor e de qualquer proxy.
+    /// Ver `AtualizadorOta.cpp`.
     ///
     /// ⚠️ **Nunca escrever este valor no log.** Mesma regra da senha de
     /// Wi-Fi, e pelo mesmo motivo: o log vai para o cartão e o cartão sai do
     /// carro.
     ///
-    /// ⚠️ Ele viaja **em claro**, porque este firmware não fala TLS. Não é
-    /// autenticação forte e não protege o conteúdo de quem escuta a rede; ele
-    /// existe para que a URL do servidor não seja um depósito aberto para
-    /// quem a descobrir. Decisão consciente do autor em 2026-10-06.
-    ///
-    /// ⚠️ Na rota de download ele vai **na URL**, e token em URL aparece em
-    /// log de acesso e de proxy — ao contrário de token em cabeçalho. Aqui
-    /// pesa menos do que pareceria, porque tudo trafega em claro de qualquer
-    /// forma; mas quem puser um proxy reverso na frente deve saber disso.
+    /// ⚠️ Não é autenticação forte. Existe para que a URL do servidor não
+    /// seja um depósito aberto para quem a descobrir. Decisão consciente do
+    /// autor em 2026-10-06.
     char token_aparelho[kMaxToken + 1] = {};
 
     /// Servidor de hora. Vazio usa `kServidorNtpPadrao` (`pool.ntp.br`).
