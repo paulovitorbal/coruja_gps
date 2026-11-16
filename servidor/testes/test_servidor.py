@@ -1219,3 +1219,87 @@ class HistoricoAppendOnly(Recepcao):
         status, corpo = self.pede("GET", s.ROTA_ENVIO + "infracoes.log")
         self.assertEqual(status, 200)
         self.assertEqual(corpo.strip().decode(), f"{zlib.crc32(trecho):08x}")
+
+    # ------------------------------- duas conexoes do mesmo arquivo de uma vez
+    #
+    # O firmware tenta de novo 2 s depois de uma falha. Se a conexao velha
+    # ainda estiver viva aqui -- o RST se perdeu junto com o enlace --, as duas
+    # se sobrepoem. Com um `.parcial` so para as duas, a velha, ao morrer,
+    # apagava o arquivo da nova no meio do recebimento: a nova ficava sem
+    # resposta e o arquivo nem chegava (reproduzido em 16/11/2026).
+
+    def abre_envio(self, nome, tamanho):
+        """Soquete com o cabecalho mandado e o corpo ainda por mandar."""
+        import socket
+        c = socket.create_connection(("127.0.0.1", self.porta), timeout=5)
+        c.sendall((f"PUT {s.ROTA_ENVIO}{nome} HTTP/1.1\r\n"
+                   f"Host: 127.0.0.1\r\n"
+                   f"{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+                   f"Content-Length: {tamanho}\r\n"
+                   f"Connection: close\r\n\r\n").encode())
+        return c
+
+    def parciais(self):
+        pasta = self.dados / s.SUBDIR_ENVIO / PASTA
+        return (sorted(p.name for p in pasta.glob("*.parcial"))
+                if pasta.is_dir() else [])
+
+    def espera(self, condicao, motivo):
+        """Espera deterministica: consulta o disco, nao conta tempo."""
+        import time
+        prazo = time.monotonic() + 5
+        while not condicao():
+            if time.monotonic() > prazo:
+                self.fail(f"{motivo}; no disco: {self.parciais()}")
+            time.sleep(0.01)
+
+    def test_a_conexao_velha_que_morre_nao_apaga_o_envio_novo(self):
+        import socket
+        corpo = b"20261116;101010;EPTG;81;60\n"
+        velha = self.abre_envio("infracoes.log", len(corpo))
+        nova = self.abre_envio("infracoes.log", len(corpo))
+        try:
+            velha.sendall(corpo[:5])
+            nova.sendall(corpo[:5])
+            self.espera(lambda: len(self.parciais()) == 2,
+                        "cada conexao precisa do PROPRIO .parcial")
+
+            # A velha morre. O 400 so volta depois de ela limpar o que e dela.
+            velha.shutdown(socket.SHUT_WR)
+            self.assertIn(b"400", velha.recv(64).split(b"\r\n")[0])
+
+            nova.sendall(corpo[5:])
+            self.assertIn(b"201", nova.recv(64).split(b"\r\n")[0])
+        finally:
+            velha.close()
+            nova.close()
+        self.assertEqual(self.recebidos(), ["infracoes.log"])
+        self.assertEqual(self.historico("infracoes.log"), corpo)
+        self.assertEqual(self.parciais(), [])
+
+    def test_o_servidor_tem_prazo_e_ele_e_maior_que_o_do_aparelho(self):
+        # Prazo nenhum prende a thread para sempre. Prazo menor que os 15 s
+        # de inatividade do firmware (`kInatividadeHttpMs`) cortaria, do
+        # lado de ca, um envio que o aparelho ainda considera vivo.
+        self.assertIsNotNone(s.Manipulador.timeout)
+        self.assertGreater(s.Manipulador.timeout, 15)
+
+    def test_conexao_que_para_de_mandar_nao_prende_o_servidor_para_sempre(self):
+        # Sem prazo, a thread de um PUT cujo aparelho sumiu ficava presa na
+        # leitura, segurando o `.parcial`, ate o processo reiniciar.
+        antes = s.Manipulador.timeout
+        s.Manipulador.timeout = 0.3
+        try:
+            presa = self.abre_envio("infracoes.log", 100)
+            try:
+                presa.sendall(b"comeco")
+                self.espera(lambda: len(self.parciais()) == 1,
+                            "o envio nem comecou")
+                self.espera(lambda: self.parciais() == [],
+                            "o .parcial de uma conexao parada nao sumiu")
+            finally:
+                presa.close()
+        finally:
+            s.Manipulador.timeout = antes
+        self.assertIsNone(self.historico("infracoes.log"))
+        self.assertEqual(self.recebidos(), [])

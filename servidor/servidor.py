@@ -128,6 +128,23 @@ SUBDIR_HISTORICO = "historico"
 #: trecho novo **começa pelo anterior**, só o rabo entra.
 SUFIXO_MARCA = ".marca"
 
+#: Quanto uma leitura ou escrita no soquete pode ficar parada.
+#:
+#: Sem prazo, a thread de um `PUT` cujo aparelho sumiu — o RST se perdeu
+#: junto com o enlace — ficava presa na leitura até o processo reiniciar.
+#: Bem acima dos 15 s de inatividade do firmware (`kInatividadeHttpMs`): quem
+#: decide que um envio morreu é o aparelho, que sabe se ele ainda vale.
+TEMPO_LIMITE_S = 60
+
+#: Uma gravação de cada vez: trocar o arquivo recebido e juntar o trecho ao
+#: histórico. O corpo é recebido FORA dela, então um envio lento não segura
+#: os outros.
+#:
+#: ⚠️ Existe porque o firmware passou a tentar de novo 2 s depois de uma
+#: falha (16/11/2026), e a conexão velha pode ainda estar viva aqui. Duas
+#: threads acrescentando ao mesmo histórico ao mesmo tempo o corrompiam.
+_TRAVA_DA_GRAVACAO = threading.Lock()
+
 #: Cabecalho do segredo combinado. Sem ele, ou errado, a resposta e 401.
 #:
 #: ⚠️ Isto NAO e autenticacao forte: o segredo viaja em claro, porque o
@@ -410,6 +427,8 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     server_version = "CorujaGPS/1.0"
     protocol_version = "HTTP/1.1"
+    # O `StreamRequestHandler` aplica no soquete. Ver `TEMPO_LIMITE_S`.
+    timeout = TEMPO_LIMITE_S
 
     # Injetado pelo `cria_servidor`.
     dados: Path = Path(".")
@@ -627,11 +646,18 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # pode deixar meio arquivo com o nome definitivo, porque o aparelho
         # perguntaria o CRC, receberia o de um pedaço, e... não apagaria o
         # local — que é o comportamento certo, mas o lixo ficaria aqui.
-        temporario = destino / (nome + ".parcial")
+        #
+        # ⚠️ Um temporário POR CONEXÃO. Com um nome só, duas conexões do
+        # mesmo arquivo escreviam no mesmo `.parcial`, e a que morria apagava
+        # o da outra no meio. Não é `mkstemp`: ele cria com 0600, e o arquivo
+        # recebido herdaria a permissão. O volume `recebidos/` é montado
+        # também pelo Alloy, com outro usuário, e mudar a permissão do que
+        # chega não era o assunto aqui.
+        temporario = destino / f"{nome}.{secrets.token_hex(4)}.parcial"
         recebido = 0
         crc = 0
         try:
-            with temporario.open("wb") as f:
+            with temporario.open("xb") as f:
                 while recebido < tamanho:
                     pedaco = self.rfile.read(min(64 * 1024, tamanho - recebido))
                     if not pedaco:
@@ -650,9 +676,22 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._erro(400, "corpo menor que o Content-Length", False)
             return
 
-        temporario.replace(destino / nome)
-        if not PADRAO_VIAGEM.match(nome):
-            self._acrescenta_ao_historico(destino, nome, crc, recebido)
+        # A resposta de erro sai FORA da trava: um soquete lento a seguraria
+        # pelo `TEMPO_LIMITE_S` inteiro.
+        falha = None
+        with _TRAVA_DA_GRAVACAO:
+            try:
+                temporario.replace(destino / nome)
+            except OSError as e:
+                falha = e
+            else:
+                if not PADRAO_VIAGEM.match(nome):
+                    self._acrescenta_ao_historico(destino, nome, crc, recebido)
+        if falha is not None:
+            temporario.unlink(missing_ok=True)
+            log.error("falha trocando %s: %s", nome, falha)
+            self._erro(500, "falha ao gravar", False)
+            return
         log.info("recebido %s/%s (%d bytes, crc %08x)", aparelho, nome,
                  recebido, crc)
         self._responde(201, f"{crc:08x}\n".encode(),

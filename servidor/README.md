@@ -269,6 +269,12 @@ duplicar é ruim e perder é pior.
 > confirmação sem refazer o `PUT`, e um desfecho próprio para "entreguei e não
 > consegui apagar". A marca continua valendo para aparelho com firmware
 > antigo.
+>
+> ⚠️ "Sem refazer o `PUT`" vale **dentro de uma tentativa**. Esgotadas as três
+> consultas de CRC, ou perdido o `201`, o firmware manda o arquivo inteiro de
+> novo, até três vezes, e é a marca que absorve o reenvio. Contra um servidor
+> sem a marca, cada reenvio vira uma cópia no histórico. Por isso **o servidor
+> sobe antes do firmware** que retenta.
 
 ### O token vai no cabeçalho, e só nele
 
