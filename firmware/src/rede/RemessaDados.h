@@ -59,7 +59,26 @@ constexpr std::uint32_t kTempoLimiteConsultaMs = 30'000;
 ///
 /// É por isso que a remessa parecia falhar **"no último arquivo"**: o último
 /// não tem nada de especial, é só o que teve mais sorteios antes dele.
+///
+/// **Só é repetido o que pode mudar.** Uma recusa do servidor (3xx, 4xx), um
+/// certificado recusado ou uma URL que não forma voltariam iguais dois
+/// segundos depois — e repeti-los era o que fazia uma remessa condenada
+/// gastar o teto inteiro. Ver `RemessaDados::vale_repetir`.
 constexpr unsigned kTentativasPorArquivo = 3;
+
+/// Quantos arquivos seguidos, falhando pelo caminho até o servidor, encerram
+/// a remessa. A contagem recomeça a cada entrega.
+///
+/// **Dois, e não um.** O primeiro arquivo sozinho não distingue o caminho do
+/// arquivo: um `coruja.log` grande que não cabe no enlace fraco, ou um nome
+/// que o servidor recusa, falham do mesmo jeito que a rede morta. Parar
+/// nele — como a primeira versão desta regra fazia, em 16/11/2026 — deixava
+/// esse arquivo, no topo da lista do diretório, barrar todos os outros em
+/// toda remessa. O segundo arquivo é a amostra mínima que separa os dois.
+///
+/// O certificado recusado para no primeiro: sem relógio, nenhum aperto de
+/// mão passa, de arquivo nenhum. Ver `RemessaDados::aponta_o_caminho`.
+constexpr unsigned kFalhasSeguidasAteParar = 2;
 
 /// Quantas vezes a confirmação é pedida antes de o arquivo contar como não
 /// confirmado.
@@ -98,6 +117,12 @@ constexpr std::uint32_t kEsperaEntreTentativasRemessaMs = 2'000;
 /// e o aparelho sem saber o que aconteceu. Ele estoura para cima em até uma
 /// tentativa, portanto, e o que sobrar fica para a próxima remessa — o mesmo
 /// destino de quem não coube na colheita.
+///
+/// **É a última guarda, e não a primeira.** Até 16/11/2026 era a única, e um
+/// erro que não muda — token errado, relógio sem hora para o certificado —
+/// levava os dez minutos inteiros. Hoje a remessa para antes, quando o
+/// caminho até o servidor falha em `kFalhasSeguidasAteParar` arquivos
+/// seguidos.
 constexpr std::uint32_t kTetoDaRemessaMs = 600'000;
 
 enum class ResultadoRemessa : std::uint8_t {
@@ -109,10 +134,25 @@ enum class ResultadoRemessa : std::uint8_t {
     /// Entregue e confirmado, mas o cartão não soltou o arquivo.
     NaoApagou,
     Parcial,          ///< alguns foram, outros não — o resto fica para depois
-    SemConfiguracao,  ///< falta `url_envio`, `token_aparelho` ou rede
+    /// Falta `url_envio`, `token_aparelho` ou rede — ou a `url_envio` não
+    /// forma URL com o nome do arquivo.
+    SemConfiguracao,
     FalhaDeRede,
-    FalhaDeCartao,    ///< não deu nem para listar
-    FalhaAoEnviar,    ///< havia o que mandar e nada completou
+    /// O cartão não deixou listar, ou não entregou nenhum dos arquivos.
+    FalhaDeCartao,
+    /// O servidor **respondeu**, e nada foi aceito: recusa (3xx, 4xx), erro
+    /// dele (5xx) ou um CRC que não bate com o que saiu daqui.
+    ///
+    /// Era o desfecho de toda remessa sem entrega, e a tela dizia SERVIDOR
+    /// NAO ACEITOU até quando o servidor nem tinha sido procurado. Ver os
+    /// dois abaixo.
+    FalhaAoEnviar,
+    /// Nada respondeu: DNS, conexão, tempo esgotado ou queda no meio. Não
+    /// diz que o servidor recusou — ele pode nem ter sido alcançado.
+    SemResposta,
+    /// O aperto de mão TLS recusou o certificado do servidor. Quase sempre é
+    /// o relógio: sem hora acertada, todo certificado "ainda não vale".
+    CertificadoRecusado,
 };
 
 const char* descreve(ResultadoRemessa r);
@@ -151,6 +191,8 @@ inline bool e_falha(ResultadoRemessa r) {
         case ResultadoRemessa::FalhaDeRede:
         case ResultadoRemessa::FalhaDeCartao:
         case ResultadoRemessa::FalhaAoEnviar:
+        case ResultadoRemessa::SemResposta:
+        case ResultadoRemessa::CertificadoRecusado:
             return true;
     }
     return true;  // enum fora de faixa: trata como falha, que é o lado seguro
@@ -234,7 +276,10 @@ bool nome_enviavel(const char* nome);
 /// arquivo sair do cartão.
 ///
 /// Cada arquivo é tentado até `kTentativasPorArquivo` vezes, e a confirmação
-/// até `kTentativasDeConfirmacao`, tudo dentro do `kTetoDaRemessaMs`.
+/// até `kTentativasDeConfirmacao`, tudo dentro do `kTetoDaRemessaMs`. Erro
+/// que se repete não é tentado de novo, e `kFalhasSeguidasAteParar` arquivos
+/// seguidos que falham pelo caminho até o servidor encerram a remessa, com o
+/// resto intacto no cartão para a próxima.
 class RemessaDados {
 public:
     /// `pausa` é a espera **e o relógio** — as duas coisas que a retentativa
@@ -255,8 +300,9 @@ public:
     unsigned falhados() const { return falhados_; }
     /// Entregues e confirmados, mas não apagados. Ver `NaoApagou`.
     unsigned retidos() const { return retidos_; }
-    /// Elegíveis que a remessa nem chegou a tentar: não couberam na colheita
-    /// ou o tempo acabou antes. Não se perderam — ficam para a próxima.
+    /// Elegíveis que a remessa nem chegou a tentar: não couberam na colheita,
+    /// o tempo acabou antes, ou ela parou porque o caminho até o servidor
+    /// falhava. Não se perderam — ficam para a próxima.
     unsigned restantes() const { return restantes_; }
 
 private:
@@ -283,26 +329,59 @@ private:
     static std::size_t ao_pedir(void* contexto, std::uint8_t* destino,
                                 std::size_t capacidade);
 
+    /// Como terminou uma tentativa de um arquivo — e o que isso diz da
+    /// tentativa seguinte e do arquivo seguinte.
+    ///
+    /// Era um `bool` até 16/11/2026, e todo erro valia o mesmo: três
+    /// tentativas, depois o próximo arquivo, até o teto. Um 401 não muda em
+    /// dois segundos, e com quarenta arquivos no cartão a remessa passava os
+    /// dez minutos colecionando a mesma recusa. Um byte, passado por valor:
+    /// nada de heap, nada que pese na pilha.
+    enum class Desfecho : std::uint8_t {
+        Entregue,        ///< chegou e o CRC bateu (apagado ou retido)
+        Cartao,          ///< o cartão não entregou o arquivo inteiro
+        Url,             ///< `url_envio` com este nome não forma URL
+        Divergiu,        ///< o servidor guardou outra coisa (CRC)
+        GrandeDemais,    ///< 413: o servidor não aceita este tamanho
+        SemResposta,     ///< nada voltou: DNS, conexão, tempo, queda
+        ErroNoServidor,  ///< voltou erro de momento: 5xx, 408, 429
+        Recusado,        ///< voltou recusa: 3xx e 4xx
+        Certificado,     ///< o TLS recusou o certificado do servidor
+    };
+
+    /// O que o cliente HTTP devolveu num pedido que **não** deu certo.
+    static Desfecho classifica(const ResultadoHttp& r);
+    /// Tentar o mesmo arquivo de novo pode dar outro resultado?
+    static bool vale_repetir(Desfecho d);
+    /// A falha pode ser do caminho até o servidor, e não só deste arquivo?
+    /// É o que conta para `kFalhasSeguidasAteParar`.
+    static bool aponta_o_caminho(Desfecho d);
+    /// O resultado de uma remessa sem entrega, pela última falha dela.
+    static ResultadoRemessa sem_entrega(Desfecho d);
+
     /// Monta a URL do arquivo a partir de `url_envio`. `false` se não couber.
     static bool url_do_arquivo(const char* base, const char* nome, Url* destino);
 
-    /// Um arquivo, do CRC local ao apagamento. `true` se chegou e foi
+    /// Um arquivo, do CRC local ao apagamento. `Entregue` se chegou e foi
     /// confirmado — mesmo que não tenha sido apagado.
-    bool despacha(const Configuracao& cfg, const char* nome, unsigned indice,
-                  unsigned total, unsigned tentativa, Logger& log);
+    Desfecho despacha(const Configuracao& cfg, const char* nome,
+                      unsigned indice, unsigned total, unsigned tentativa,
+                      Logger& log);
 
     /// As tentativas de um arquivo, com a espera entre elas e o teto do
-    /// conjunto. `true` se alguma delas chegou e foi confirmada.
-    bool insiste(const Configuracao& cfg, const char* nome, unsigned indice,
-                 unsigned total, Logger& log);
+    /// conjunto. Devolve o desfecho da última.
+    Desfecho insiste(const Configuracao& cfg, const char* nome,
+                     unsigned indice, unsigned total, Logger& log);
 
     /// Pergunta ao servidor o CRC do que ele guardou, repetindo a pergunta.
     ///
     /// Vale a pena repetir só esta parte: quando ela falha, o conteúdo **já
     /// está lá** e refazer o arquivo inteiro reenviaria o que já chegou.
-    bool confirma(const Url& url, const Configuracao& cfg, const char* nome,
-                  std::uint32_t crc_local, unsigned indice, unsigned total,
-                  unsigned tentativa, Logger& log);
+    /// `Entregue` se o CRC bateu.
+    Desfecho confirma(const Url& url, const Configuracao& cfg,
+                      const char* nome, std::uint32_t crc_local,
+                      unsigned indice, unsigned total, unsigned tentativa,
+                      Logger& log);
 
     /// O conjunto já tomou o tempo que podia tomar?
     ///

@@ -70,6 +70,11 @@ struct Pedido {
     bool falhou = false;
     bool malformada = false;
     bool fonte_secou = false;
+    /// O `ao_verificar` viu um certificado recusado, e o aperto de mao vai
+    /// morrer por isso. Sem a marca, a falha chegava a quem chama como
+    /// "conexao interrompida" -- e uma conexao interrompida merece outra
+    /// tentativa, um certificado recusado nao.
+    bool cert_recusado = false;
 };
 
 /// Encerra o pedido. Devolve `true` se teve de **abortar** -- e ai quem chama
@@ -293,10 +298,11 @@ char g_porque_cert[112];
 int ao_verificar(void* ctx, mbedtls_x509_crt* crt, int profundidade,
                  std::uint32_t* bandeiras) {
     auto* p = static_cast<Pedido*>(ctx);
-    if (p == nullptr || p->log == nullptr || crt == nullptr ||
-        bandeiras == nullptr) {
-        return 0;
-    }
+    if (p == nullptr || bandeiras == nullptr) { return 0; }
+    // ANTES das guardas do log: a marca decide se a remessa insiste, e nao
+    // pode depender de haver onde escrever.
+    if (*bandeiras != 0) { p->cert_recusado = true; }
+    if (p->log == nullptr || crt == nullptr) { return 0; }
     if (mbedtls_x509_dn_gets(g_nome_cert, sizeof g_nome_cert,
                              &crt->subject) < 0) {
         std::snprintf(g_nome_cert, sizeof g_nome_cert, "(nome ilegivel)");
@@ -327,6 +333,27 @@ int ao_verificar(void* ctx, mbedtls_x509_crt* crt, int profundidade,
     p->log->error(kOrigem, g_msg_cert);
     return 0;
 }
+
+/// Teto da resolucao de nome, separado do teto do pedido.
+///
+/// Ate 16/11/2026 o `conversa` passava aqui o teto do PROPRIO pedido -- 180 s
+/// no PUT da remessa --, e quem lia o codigo concluia que um DNS morto custava
+/// tres minutos por tentativa. Nao custava: o lwIP desiste antes. Com o timer
+/// de 1 s e `DNS_MAX_RETRIES` em 4, ele pergunta em ~0, 1, 2 e 4 s e entrega
+/// "nao achou" aos ~7 s; com o segundo servidor que o DHCP pode dar, recomeca
+/// e desiste de vez aos ~14 s. O teto do pedido so valia para um retorno que
+/// nunca chegasse.
+///
+/// Esse e o caso que este prazo fecha: de 180 s para 15. No caso comum nada
+/// muda, e de proposito -- abaixo dos 14 s, o segundo servidor seria cortado
+/// no meio da vez dele. O `static_assert` refaz a conta com as opcoes do
+/// lwIP: se alguem aumentar `DNS_MAX_RETRIES`, a compilacao para aqui em vez
+/// de o prazo passar a cortar o lwIP em silencio.
+constexpr std::uint32_t kPrazoDnsMs = 15'000;
+static_assert(kPrazoDnsMs > static_cast<std::uint32_t>(
+                  DNS_MAX_SERVERS * DNS_TMR_INTERVAL
+                  * (1 + DNS_MAX_RETRIES * (DNS_MAX_RETRIES - 1) / 2)),
+              "o lwIP insiste no DNS por mais tempo que kPrazoDnsMs");
 
 bool resolve(const char* host, ip_addr_t* destino, std::uint32_t limite_ms,
              Logger& log) {
@@ -470,7 +497,9 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         log.debug(kOrigem, "nome ja resolvido nesta sessao");
         std::memcpy(&endereco, endereco_cache, sizeof endereco);
     } else {
-        if (!resolve(url.host, &endereco, tempo_limite_ms, log)) {
+        const std::uint32_t prazo_dns =
+            tempo_limite_ms < kPrazoDnsMs ? tempo_limite_ms : kPrazoDnsMs;
+        if (!resolve(url.host, &endereco, prazo_dns, log)) {
             saida.erro = ErroHttp::NaoIniciou;
             return saida;
         }
@@ -645,6 +674,10 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
             log.error(kOrigem, msg);
             saida.erro = ErroHttp::TempoEsgotado;
             saida.recebidos = pedido.leitor.recebidos();
+            // O status tambem, se a linha dele chegou: quem chama decide se
+            // insiste por ele, e um 401 que chegou e travou continua sendo
+            // um 401 -- repeti-lo daria no mesmo.
+            saida.status = pedido.leitor.status();
             return saida;
         }
         if (pedido.conectou && !pedido.cabecalho_enviado) {
@@ -707,7 +740,10 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         } else {
             log.error(kOrigem, "conexao interrompida");
         }
-        saida.erro = ErroHttp::Interrompida;
+        // O lwIP avisa o handshake recusado como qualquer queda (`ERR_CLSD`
+        // no `ao_falhar`); so o `ao_verificar` sabe que foi o certificado.
+        saida.erro = pedido.cert_recusado ? ErroHttp::CertificadoRecusado
+                                          : ErroHttp::Interrompida;
         return saida;
     }
 

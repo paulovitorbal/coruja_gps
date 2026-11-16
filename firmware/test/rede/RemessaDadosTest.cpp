@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -60,6 +61,15 @@ public:
     bool falha_ao_rebobinar = false;
     bool falha_no_meio_da_leitura = false;
     bool falha_ao_remover = false;
+    /// Os que não abrem. Por nome, e não para todos como `falha_ao_abrir`:
+    /// é o setor ruim de UM arquivo, que não diz nada dos outros.
+    std::set<std::string> nao_abrem;
+    /// Quantas aberturas ainda falham antes de o cartão voltar: o soluço,
+    /// e não o setor ruim.
+    unsigned falhas_ao_abrir_restantes = 0;
+    /// Listados com conteúdo, abertos vazios: o arquivo esvaziou entre a
+    /// listagem e o envio.
+    std::set<std::string> esvaziaram;
     /// Quantos bytes ler antes de a leitura falhar, quando configurada.
     std::size_t bytes_ate_falhar = 0;
     /// A falha só é armada DEPOIS do `rebobina()`, ou seja, na segunda
@@ -81,14 +91,20 @@ public:
 
     ErroCartao abre_para_leitura(const char* nome, std::size_t* tamanho,
                                  Logger&) override {
-        if (falha_ao_abrir) { return ErroCartao::FalhaDeLeitura; }
+        if (falha_ao_abrir || nao_abrem.count(nome) > 0) {
+            return ErroCartao::FalhaDeLeitura;
+        }
+        if (falhas_ao_abrir_restantes > 0) {
+            --falhas_ao_abrir_restantes;
+            return ErroCartao::FalhaDeLeitura;
+        }
         auto it = arquivos.find(nome);
         if (it == arquivos.end()) { return ErroCartao::ArquivoAusente; }
         aberto_ = nome;
         pos_ = 0;
         lidos_nesta_passada_ = 0;
         rebobinou_ = false;
-        *tamanho = it->second.size();
+        *tamanho = esvaziaram.count(nome) > 0 ? 0 : it->second.size();
         return ErroCartao::Nenhum;
     }
 
@@ -171,6 +187,14 @@ public:
     std::vector<std::string>           tokens;
     ErroHttp erro_no_envio = ErroHttp::Nenhum;
     ErroHttp erro_na_consulta = ErroHttp::Nenhum;
+    /// O código que acompanha o erro acima. Zero é "nenhuma linha de status
+    /// voltou"; um 401 com `Interrompida` é a recusa que chega e a conexão
+    /// que cai logo depois, porque o servidor fecha sem ler o corpo.
+    std::uint32_t status_no_envio = 0;
+    std::uint32_t status_na_consulta = 0;
+    /// O que o servidor responde ao PUT DESTE arquivo, em vez de guardá-lo.
+    /// Os outros seguem o comportamento geral.
+    std::map<std::string, ResultadoHttp> recusa_de;
     /// Corrompe um byte do que chegar: o servidor guarda algo diferente.
     bool corrompe = false;
     /// Responde o CRC de outro conteúdo, sem corromper o guardado.
@@ -201,8 +225,10 @@ public:
             --falhas_de_envio_restantes;
             return {ErroHttp::Interrompida, 0, 0};
         }
+        const auto recusa = recusa_de.find(nome_de(url));
+        if (recusa != recusa_de.end()) { return recusa->second; }
         if (erro_no_envio != ErroHttp::Nenhum) {
-            return {erro_no_envio, 0, 0, };
+            return {erro_no_envio, status_no_envio, 0};
         }
         std::string corpo;
         std::uint8_t buf[256];
@@ -238,7 +264,7 @@ public:
             // orquestrador que olhasse so o CRC e ignorasse o `ok()`
             // apagaria o arquivo por causa de um acaso.
             if (it != recebidos.end()) { *crc = crc_de(it->second); }
-            return {erro_na_consulta, 0, 0};
+            return {erro_na_consulta, status_na_consulta, 0};
         }
         if (it == recebidos.end()) { return {ErroHttp::StatusNaoOk, 404, 0}; }
         *crc = mente_no_crc ? crc_de(it->second + "x") : crc_de(it->second);
@@ -511,11 +537,16 @@ TEST(Remessa, url_sem_barra_no_fim_nao_cola_o_nome_no_caminho) {
 }
 
 TEST(Remessa, url_invalida_nao_apaga_nada) {
+    // O desfecho era `FalhaAoEnviar`, que a tela diz como SERVIDOR NAO
+    // ACEITOU -- de um servidor que nem foi procurado. Quem conserta isto é o
+    // coruja.cfg. E repetir não forma a URL: tentar de novo só esperava.
     Cenario c;
     std::snprintf(c.cfg.url_envio, sizeof c.cfg.url_envio, "nao-e-url");
     c.cartao.arquivos["coruja.log"] = "dado";
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemConfiguracao);
     EXPECT_TRUE(c.cartao.apagados.empty());
+    EXPECT_EQ(c.servidor.envios, 0);
+    EXPECT_TRUE(c.pausa.esperas.empty());
 }
 
 // ================================================= o CRC é que autoriza apagar
@@ -549,7 +580,9 @@ TEST(Remessa, sem_confirmacao_nao_apaga) {
     Cenario c;
     c.servidor.erro_na_consulta = ErroHttp::TempoEsgotado;
     c.cartao.arquivos["coruja.log"] = "dado";
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    // A pergunta ficou sem resposta: dizer que o servidor recusou mandaria
+    // procurar defeito nele.
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_TRUE(c.cartao.apagados.empty());
     EXPECT_EQ(c.cartao.arquivos.count("coruja.log"), 1u);
     EXPECT_TRUE(c.log.contem(Nivel::Warning, "nao confirmou"));
@@ -564,7 +597,8 @@ TEST(Remessa, envio_que_falhou_nao_apaga_e_diz_que_foi_a_rede) {
     Cenario c;
     c.servidor.erro_no_envio = ErroHttp::Interrompida;
     c.cartao.arquivos["coruja.log"] = "dado";
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    // E a tela também: a conexão caiu, o servidor não recusou nada.
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_TRUE(c.cartao.apagados.empty());
     EXPECT_TRUE(c.log.contem(Nivel::Error, "nao subiu"));
     EXPECT_FALSE(c.log.contem(Nivel::Warning, "nao confirmou"));
@@ -579,7 +613,8 @@ TEST(Remessa, leitura_que_falha_no_meio_do_envio_acusa_o_cartao_e_nao_a_rede) {
     c.cartao.falha_no_meio_da_leitura = true;
     c.cartao.falha_so_na_segunda_passada = true;
     c.cartao.bytes_ate_falhar = 1024;
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    // A tela agora diz o mesmo que o log: o cartão.
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeCartao);
     EXPECT_TRUE(c.cartao.apagados.empty());
     EXPECT_TRUE(c.log.contem(Nivel::Error, "falhou no meio do envio"));
     EXPECT_FALSE(c.log.contem(Nivel::Error, "nao subiu"));
@@ -593,7 +628,7 @@ TEST(Remessa, cartao_que_falha_na_soma_do_crc_nem_tenta_enviar) {
     c.cartao.arquivos["coruja.log"] = std::string(3000, 'x');
     c.cartao.falha_no_meio_da_leitura = true;
     c.cartao.bytes_ate_falhar = 1024;
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeCartao);
     EXPECT_TRUE(c.servidor.recebidos.empty());
     EXPECT_TRUE(c.cartao.apagados.empty());
     EXPECT_TRUE(c.log.contem(Nivel::Error, "ilegivel"));
@@ -731,7 +766,7 @@ TEST(Remessa, nao_abrir_o_arquivo_nao_derruba_a_remessa_inteira) {
     Cenario c;
     c.cartao.arquivos["coruja.log"] = "dado";
     c.cartao.falha_ao_abrir = true;
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeCartao);
     EXPECT_EQ(c.rede.desconectou, 1);
 }
 
@@ -739,7 +774,7 @@ TEST(Remessa, nao_rebobinar_nao_apaga) {
     Cenario c;
     c.cartao.arquivos["coruja.log"] = "dado";
     c.cartao.falha_ao_rebobinar = true;
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeCartao);
     EXPECT_TRUE(c.cartao.apagados.empty());
 }
 
@@ -748,14 +783,23 @@ TEST(Remessa, nao_rebobinar_nao_apaga) {
 TEST(Remessa, todo_resultado_tem_texto_curto_que_cabe_na_faixa) {
     // A faixa da tela tem 26 caracteres. Um texto maior aparece cortado e
     // diz outra coisa.
+    //
+    // E nenhum se repete, como no OTA: dois desfechos com o mesmo texto são
+    // dois consertos diferentes que a tela não distingue -- que era o caso
+    // de "nao respondeu" e "recusou", os dois ditos SERVIDOR NAO ACEITOU.
+    std::set<std::string> vistos;
     for (auto r : {ResultadoRemessa::Enviada, ResultadoRemessa::NadaAEnviar,
                    ResultadoRemessa::EnviadaFaltaMais,
                    ResultadoRemessa::NaoApagou,
                    ResultadoRemessa::Parcial, ResultadoRemessa::SemConfiguracao,
                    ResultadoRemessa::FalhaDeRede, ResultadoRemessa::FalhaDeCartao,
-                   ResultadoRemessa::FalhaAoEnviar}) {
+                   ResultadoRemessa::FalhaAoEnviar,
+                   ResultadoRemessa::SemResposta,
+                   ResultadoRemessa::CertificadoRecusado}) {
         EXPECT_LE(std::strlen(descreve_curto(r)), 26u) << descreve(r);
         EXPECT_GT(std::strlen(descreve_curto(r)), 0u);
+        EXPECT_TRUE(vistos.insert(descreve_curto(r)).second)
+            << "texto repetido: " << descreve_curto(r);
     }
 }
 
@@ -772,6 +816,8 @@ TEST(Remessa, so_os_tres_desfechos_bons_nao_sao_falha) {
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaDeRede));
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaDeCartao));
     EXPECT_TRUE(e_falha(ResultadoRemessa::FalhaAoEnviar));
+    EXPECT_TRUE(e_falha(ResultadoRemessa::SemResposta));
+    EXPECT_TRUE(e_falha(ResultadoRemessa::CertificadoRecusado));
 }
 
 
@@ -880,7 +926,7 @@ TEST(Retentativa, as_tentativas_se_esgotam_e_o_arquivo_fica_no_cartao) {
     c.cartao.arquivos["coruja.log"] = "diario";
     c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
 
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_EQ(c.servidor.envios, static_cast<int>(kTentativasPorArquivo));
     EXPECT_EQ(c.falhados, 1u);
     EXPECT_EQ(c.cartao.arquivos.count("coruja.log"), 1u)
@@ -954,7 +1000,12 @@ TEST(Confirmacao, quando_nao_volta_de_jeito_nenhum_o_arquivo_nao_e_apagado) {
     c.cartao.arquivos["infracoes.log"] = "uma passagem";
     c.servidor.falhas_de_consulta_restantes = 999;
 
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    // A pergunta nunca teve resposta: o desfecho diz isso, e nao que o
+    // servidor recusou. Os tres PUTs continuam, e de proposito: tempo
+    // esgotado e de momento, e o PUT seguinte pode encontrar a rede melhor.
+    // O que deixou de ser repetido e a RECUSA -- ver
+    // `recusa_na_consulta_nao_se_resolve_perguntando_de_novo`.
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_TRUE(c.cartao.apagados.empty());
     EXPECT_EQ(c.cartao.arquivos.count("infracoes.log"), 1u);
     // Cada tentativa do arquivo gasta o orcamento INTEIRO de confirmacao.
@@ -975,6 +1026,22 @@ TEST(Confirmacao, crc_diferente_NAO_se_resolve_perguntando_de_novo) {
     EXPECT_EQ(c.servidor.consultas, static_cast<int>(kTentativasPorArquivo))
         << "insistiu numa pergunta cuja resposta nao muda";
     EXPECT_TRUE(c.cartao.apagados.empty());
+}
+
+TEST(Confirmacao, recusa_na_consulta_nao_se_resolve_perguntando_de_novo) {
+    // Mesmo raciocinio do CRC diferente: o servidor RESPONDEU, e a pergunta
+    // seguinte traria a mesma resposta. Tambem nao reenvia: o 401 ou o 404
+    // de agora seriam o 401 ou o 404 de daqui a dois segundos.
+    Cenario c;
+    c.cartao.arquivos["infracoes.log"] = "uma passagem";
+    c.servidor.erro_na_consulta = ErroHttp::StatusNaoOk;
+    c.servidor.status_na_consulta = 404;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.consultas, 1);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_TRUE(c.cartao.apagados.empty())
+        << "o duble escreve o CRC certo mesmo falhando; quem apagou leu lixo";
 }
 
 // ================== O TETO DO CONJUNTO ==================
@@ -1037,7 +1104,7 @@ TEST(TetoDaRemessa, impede_a_retentativa_de_esticar_o_conjunto) {
     c.servidor.falhas_de_envio_restantes = kTentativasPorArquivo;
     c.servidor.custo_ms = kTetoDaRemessaMs;   // a primeira tentativa ja estoura
 
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_EQ(c.servidor.envios, 1) << "retentou depois de o tempo acabar";
 }
 
@@ -1215,10 +1282,311 @@ TEST(TetoDaRemessa, a_confirmacao_para_de_perguntar_quando_o_tempo_acaba) {
     // metade. Da segunda em diante, nao ha mais tempo.
     c.servidor.custo_ms = kTetoDaRemessaMs / 2;
 
-    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
     EXPECT_EQ(c.servidor.consultas, 1) << "perguntou depois do tempo acabar";
     EXPECT_EQ(c.servidor.envios, 1);
     EXPECT_TRUE(c.cartao.apagados.empty());
+}
+
+// ================== O ERRO QUE SE REPETE ==================
+//
+// Ate 16/11/2026 todo erro era tentado tres vezes, e cada arquivo ate o teto
+// de dez minutos. Um 401, um 404 ou um certificado recusado nao mudam em dois
+// segundos: com quarenta arquivos no cartao, a remessa passava o teto inteiro
+// colecionando a mesma resposta, com o aparelho preso na tela e sem ler GPS.
+
+void poe_viagens(CartaoFalso& cartao, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+        char nome[32];
+        std::snprintf(nome, sizeof nome, "202610%02u_120000.log",
+                      static_cast<unsigned>(i + 1));
+        cartao.arquivos[nome] = "viagem";
+    }
+}
+
+TEST(ErroPermanente, recusa_do_servidor_nao_e_repetida) {
+    // 3xx entra junto: o aparelho nao segue redirecionamento, e um `http://`
+    // que o proxy manda para `https://` responde 301 a cada tentativa.
+    for (std::uint32_t status : {300u, 301u, 400u, 401u, 403u, 404u, 405u}) {
+        Cenario c;
+        c.cartao.arquivos["coruja.log"] = "diario";
+        c.servidor.erro_no_envio = ErroHttp::StatusNaoOk;
+        c.servidor.status_no_envio = status;
+
+        // O servidor respondeu: aqui, sim, ele nao aceitou.
+        EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar) << status;
+        EXPECT_EQ(c.servidor.envios, 1) << status;
+        EXPECT_TRUE(c.pausa.esperas.empty()) << status;
+        EXPECT_EQ(c.cartao.arquivos.count("coruja.log"), 1u) << status;
+    }
+}
+
+TEST(ErroPermanente, recusa_que_chega_com_a_conexao_caindo_vale_pelo_status) {
+    // O servidor recusa SEM ler o corpo e fecha (`_descarta_corpo`). O resto
+    // do PUT ainda esta saindo, e o RST pode chegar logo depois da resposta:
+    // o cliente devolve `Interrompida`, mas com o 401 que chegou a ler.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.erro_no_envio = ErroHttp::Interrompida;
+    c.servidor.status_no_envio = 401;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 1);
+}
+
+TEST(ErroPermanente, certificado_recusado_nao_e_repetido) {
+    // Sem relogio acertado todo certificado "ainda nao vale", e o relogio nao
+    // anda durante a remessa: o GPS nao e lido e o NTP ja foi tentado.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.erro_no_envio = ErroHttp::CertificadoRecusado;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::CertificadoRecusado);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_TRUE(c.pausa.esperas.empty());
+}
+
+TEST(ErroPermanente, erro_de_momento_do_servidor_continua_sendo_repetido) {
+    // 408 e 429 sao 4xx que pedem justamente outra tentativa, e 5xx e o
+    // servidor tropecando. Nenhum deles e resposta definitiva.
+    for (std::uint32_t status : {408u, 429u, 500u, 503u}) {
+        Cenario c;
+        c.cartao.arquivos["coruja.log"] = "diario";
+        c.servidor.erro_no_envio = ErroHttp::StatusNaoOk;
+        c.servidor.status_no_envio = status;
+
+        EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar) << status;
+        EXPECT_EQ(c.servidor.envios, static_cast<int>(kTentativasPorArquivo))
+            << status;
+    }
+}
+
+// ================== A REMESSA QUE PARA ==================
+//
+// Dois arquivos seguidos que nao passam pelo CAMINHO ate o servidor -- DNS,
+// rede, relogio, token, URL -- dizem que o terceiro cairia no mesmo lugar. A
+// remessa para ali, e o resto fica no cartao para a proxima.
+//
+// Dois, e nao um: o primeiro sozinho nao distingue o caminho do arquivo. Um
+// arquivo grande que nao cabe no enlace fraco, ou um nome que o servidor
+// recusa, falham do mesmo jeito que a rede morta -- e parar nele faria esse
+// arquivo, no topo da lista, barrar todos os outros em toda remessa. O
+// segundo arquivo e a amostra minima que separa os dois casos.
+//
+// O certificado para no primeiro: sem relogio, nenhum aperto de mao passa,
+// de arquivo nenhum. E o que e so do ARQUIVO -- o cartao que nao le, o 413,
+// o CRC que veio diferente -- nem entra na conta.
+
+TEST(Parada, dois_arquivos_seguidos_sem_resposta_encerram_a_remessa) {
+    Cenario c;
+    c.cartao.arquivos["20261006_120000.log"] = "um";
+    c.cartao.arquivos["20261006_130000.log"] = "dois";
+    c.cartao.arquivos["20261006_140000.log"] = "tres";
+    c.servidor.erro_no_envio = ErroHttp::Interrompida;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
+    EXPECT_EQ(c.servidor.envios, 2 * static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, 1u) << "o terceiro nao foi tentado: nao falhou";
+    EXPECT_EQ(c.cartao.arquivos.size(), 3u);
+    EXPECT_TRUE(c.log.contem(Nivel::Warning, "ficam para a proxima"));
+}
+
+TEST(Parada, recusa_do_servidor_custa_dois_pedidos_e_nao_o_teto) {
+    // O caso que motivou: quarenta arquivos e um token errado. Eram 59 PUTs
+    // e o teto inteiro de aparelho preso; agora sao dois pedidos.
+    Cenario c;
+    poe_viagens(c.cartao, kMaxRemessa);
+    c.servidor.erro_no_envio = ErroHttp::StatusNaoOk;
+    c.servidor.status_no_envio = 401;
+    c.servidor.custo_ms = 9'000;  // o aperto de mao a -88 dBm
+    const std::uint32_t antes = c.pausa.agora;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 2);
+    EXPECT_EQ(c.pausa.agora - antes, 18'000u) << "dois pedidos e nenhuma espera";
+    EXPECT_EQ(c.restantes, static_cast<unsigned>(kMaxRemessa) - 2);
+    EXPECT_EQ(c.cartao.arquivos.size(), kMaxRemessa);
+}
+
+TEST(Parada, certificado_recusado_custa_um_aperto_de_mao) {
+    Cenario c;
+    poe_viagens(c.cartao, kMaxRemessa);
+    c.servidor.erro_no_envio = ErroHttp::CertificadoRecusado;
+    c.servidor.custo_ms = 9'000;
+    const std::uint32_t antes = c.pausa.agora;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::CertificadoRecusado);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.pausa.agora - antes, 9'000u);
+    EXPECT_EQ(c.restantes, static_cast<unsigned>(kMaxRemessa) - 1);
+}
+
+TEST(Parada, dns_morto_custa_as_tentativas_de_dois_arquivos) {
+    // 14 s e quanto o lwIP leva para desistir do nome com os dois servidores
+    // de DNS que o DHCP pode dar -- conta feita no `kPrazoDnsMs`, no
+    // `ClienteTls.cpp`. Aqui o duble so cobra esse tempo por pedido.
+    Cenario c;
+    poe_viagens(c.cartao, kMaxRemessa);
+    c.servidor.erro_no_envio = ErroHttp::NaoIniciou;
+    c.servidor.custo_ms = 14'000;
+    const std::uint32_t antes = c.pausa.agora;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
+    EXPECT_EQ(c.servidor.envios, 2 * static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.pausa.agora - antes,
+              2 * (kTentativasPorArquivo * 14'000u
+                   + (kTentativasPorArquivo - 1)
+                     * kEsperaEntreTentativasRemessaMs));
+    EXPECT_EQ(c.restantes, static_cast<unsigned>(kMaxRemessa) - 2);
+}
+
+TEST(Parada, erro_do_servidor_em_dois_arquivos_tambem_encerra) {
+    // 5xx e repetido -- pode ser de momento --, mas o servidor que falha
+    // com dois arquivos seguidos falharia com o terceiro.
+    Cenario c;
+    poe_viagens(c.cartao, 3);
+    c.servidor.erro_no_envio = ErroHttp::StatusNaoOk;
+    c.servidor.status_no_envio = 500;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 2 * static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.restantes, 1u);
+}
+
+TEST(Parada, o_caminho_que_cai_depois_de_uma_entrega_encerra_em_dois_arquivos) {
+    // O Wi-Fi que some no meio da remessa. Com a parada so "antes de qualquer
+    // entrega", cada arquivo restante gastava as tres tentativas dele e a
+    // remessa so terminava no teto -- o defeito original, por outro caminho.
+    Cenario c;
+    poe_viagens(c.cartao, 5);
+    for (const char* nome : {"20261002_120000.log", "20261003_120000.log",
+                             "20261004_120000.log", "20261005_120000.log"}) {
+        c.servidor.recusa_de[nome] = {ErroHttp::NaoIniciou, 0, 0};
+    }
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, 2u);
+    EXPECT_EQ(c.servidor.envios, 1 + 2 * static_cast<int>(kTentativasPorArquivo));
+}
+
+TEST(Parada, uma_falha_isolada_do_caminho_nao_encerra) {
+    // Um 404 sozinho pode ser deste nome -- as listas de nomes do aparelho e
+    // do servidor discordando -- e o arquivo seguinte, que passa, prova que
+    // era. A contagem recomeca a cada entrega.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "um";
+    c.cartao.arquivos["20261002_120000.log"] = "dois";
+    c.cartao.arquivos["20261003_120000.log"] = "tres";
+    c.cartao.arquivos["20261004_120000.log"] = "quatro";
+    c.servidor.recusa_de["20261001_120000.log"] = {ErroHttp::StatusNaoOk, 404, 0};
+    c.servidor.recusa_de["20261003_120000.log"] = {ErroHttp::StatusNaoOk, 404, 0};
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.servidor.envios, 4) << "cada 404 uma vez so, e todos tentados";
+    EXPECT_EQ(c.entregues, 2u);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, 0u);
+}
+
+TEST(Parada, falha_do_cartao_nao_entra_na_conta) {
+    // Um setor ruim num arquivo nao diz nada da rede: dois seguidos nao
+    // encerram, e o terceiro sobe.
+    Cenario c;
+    poe_viagens(c.cartao, 3);
+    c.cartao.nao_abrem.insert("20261001_120000.log");
+    c.cartao.nao_abrem.insert("20261002_120000.log");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, 0u);
+}
+
+TEST(Parada, url_que_nao_cabe_so_para_alguns_nomes_nao_entra_na_conta) {
+    // Um caminho de 145 caracteres deixa `coruja.log` caber nos 160 e as
+    // viagens, com 19, nao. E configuracao, mas so destes nomes.
+    Cenario c;
+    std::snprintf(c.cfg.url_envio, sizeof c.cfg.url_envio, "http://a/%s",
+                  std::string(144, 'x').c_str());
+    poe_viagens(c.cartao, 2);
+    c.cartao.arquivos["coruja.log"] = "diario";
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 2u);
+}
+
+TEST(Parada, arquivo_grande_demais_nao_e_repetido_nem_barra_os_outros) {
+    // 413 e do arquivo: os outros sao menores e passam, e repetir nao encolhe
+    // ninguem.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "enorme";
+    c.cartao.arquivos["20261002_120000.log"] = "maior ainda";
+    c.cartao.arquivos["20261003_120000.log"] = "normal";
+    c.servidor.recusa_de["20261001_120000.log"] = {ErroHttp::StatusNaoOk, 413, 0};
+    c.servidor.recusa_de["20261002_120000.log"] = {ErroHttp::StatusNaoOk, 413, 0};
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.servidor.envios, 3);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.cartao.arquivos.count("20261001_120000.log"), 1u);
+}
+
+// ============== O QUE O CARTAO E O CLIENTE DIZEM SOZINHOS ==============
+
+TEST(Remessa, cartao_que_falha_uma_vez_sobe_na_segunda) {
+    // O soluco, e nao o setor ruim: repetir e o conserto.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.cartao.falhas_ao_abrir_restantes = 1;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.pausa.esperas.size(), 1u);
+}
+
+TEST(Remessa, arquivo_que_esvaziou_depois_de_listado_nao_vai_nem_e_apagado) {
+    // A listagem ja pula o vazio; este esvaziou depois dela. Mandar zero
+    // byte o servidor recusa com 400, e o cliente nem tenta -- devolveria
+    // `NaoIniciou`, que contaria como rede morta por culpa do arquivo.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "um";
+    c.cartao.arquivos["20261002_120000.log"] = "dois";
+    c.cartao.esvaziaram.insert("20261001_120000.log");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.cartao.arquivos.count("20261001_120000.log"), 1u);
+    EXPECT_TRUE(c.log.contem(Nivel::Error, "vazio"));
+}
+
+TEST(Remessa, pedido_que_o_cliente_nem_monta_acusa_a_configuracao) {
+    // Host vazio, ou cabecalho que nao coube: o cliente devolve `UrlInvalida`
+    // sem falar com ninguem. E coruja.cfg, nao servidor -- e nao repete.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "diario";
+    c.servidor.erro_no_envio = ErroHttp::UrlInvalida;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemConfiguracao);
+    EXPECT_EQ(c.servidor.envios, 1);
+}
+
+TEST(Remessa, sem_entrega_a_ultima_falha_e_que_diz_o_motivo) {
+    // O cartao falhou no primeiro, o servidor recusou o segundo por tamanho.
+    // Quem le a tela precisa do motivo mais recente: SERVIDOR NAO ACEITOU.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "um";
+    c.cartao.arquivos["20261002_120000.log"] = "enorme";
+    c.cartao.nao_abrem.insert("20261001_120000.log");
+    c.servidor.recusa_de["20261002_120000.log"] = {ErroHttp::StatusNaoOk, 413, 0};
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.falhados, 2u);
 }
 
 }  // namespace

@@ -15,6 +15,13 @@ enum class ErroHttp {
     TempoEsgotado,
     StatusNaoOk,       ///< respondeu, mas não com 200
     Interrompida,      ///< conexão caiu no meio
+    /// O aperto de mão TLS recusou o certificado do servidor.
+    ///
+    /// Era `Interrompida` até 16/11/2026, e a diferença importa a quem chama:
+    /// a conexão que cai pode passar na tentativa seguinte, o certificado
+    /// recusado não. O motivo mais comum é o relógio — sem hora acertada,
+    /// todo certificado "ainda não vale" —, e ele não anda durante um envio.
+    CertificadoRecusado,
 };
 
 inline const char* descreve(ErroHttp erro) {
@@ -25,6 +32,8 @@ inline const char* descreve(ErroHttp erro) {
         case ErroHttp::TempoEsgotado:   return "tempo esgotado";
         case ErroHttp::StatusNaoOk:     return "servidor respondeu com status != 200";
         case ErroHttp::Interrompida:    return "conexao interrompida no meio";
+        case ErroHttp::CertificadoRecusado:
+            return "certificado recusado (relogio? cadeia?)";
     }
     return "erro desconhecido";
 }

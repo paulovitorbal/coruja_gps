@@ -42,10 +42,16 @@ const char* descreve(ResultadoRemessa r) {
             return "entregue e confirmado, mas o cartao nao soltou o arquivo";
         case ResultadoRemessa::Parcial:        return "parte entregue; o resto fica para a proxima";
         case ResultadoRemessa::SemConfiguracao:
-            return "falta url_envio, token_aparelho ou rede no coruja.cfg";
+            return "url_envio, token_aparelho ou rede faltando ou invalido "
+                   "no coruja.cfg";
         case ResultadoRemessa::FalhaDeRede:    return "nao conectou";
-        case ResultadoRemessa::FalhaDeCartao:  return "nao consegui listar o cartao";
-        case ResultadoRemessa::FalhaAoEnviar:  return "havia o que mandar e nada completou";
+        case ResultadoRemessa::FalhaDeCartao:  return "nao consegui ler o cartao";
+        case ResultadoRemessa::FalhaAoEnviar:
+            return "o servidor respondeu e nada foi aceito";
+        case ResultadoRemessa::SemResposta:
+            return "o servidor nao respondeu (DNS, conexao ou tempo esgotado)";
+        case ResultadoRemessa::CertificadoRecusado:
+            return "o certificado do servidor foi recusado (relogio acertado?)";
     }
     return "resultado desconhecido";
 }
@@ -64,6 +70,9 @@ const char* descreve_curto(ResultadoRemessa r) {
         case ResultadoRemessa::FalhaDeRede:     return "SEM REDE";
         case ResultadoRemessa::FalhaDeCartao:   return "CARTAO ILEGIVEL";
         case ResultadoRemessa::FalhaAoEnviar:   return "SERVIDOR NAO ACEITOU";
+        case ResultadoRemessa::SemResposta:     return "SERVIDOR NAO RESPONDEU";
+        case ResultadoRemessa::CertificadoRecusado:
+            return "CERTIFICADO RECUSADO";
     }
     return "ERRO";
 }
@@ -149,11 +158,102 @@ void RemessaDados::avisa(FaseRemessa fase, const char* nome, unsigned indice,
     }
 }
 
-bool RemessaDados::confirma(const Url& url, const Configuracao& cfg,
-                            const char* nome, std::uint32_t crc_local,
-                            unsigned indice, unsigned total,
-                            unsigned tentativa, Logger& log) {
+RemessaDados::Desfecho RemessaDados::classifica(const ResultadoHttp& r) {
+    if (r.erro == ErroHttp::CertificadoRecusado) { return Desfecho::Certificado; }
+    // O cliente nem montou o pedido: host vazio, ou cabecalho que nao coube.
+    // E configuracao, como a URL que nao forma.
+    if (r.erro == ErroHttp::UrlInvalida) { return Desfecho::Url; }
+    // Vale o STATUS, e nao o erro. O servidor recusa sem ler o corpo e fecha
+    // (`_descarta_corpo`), e o RST pode chegar logo atras da resposta: o
+    // cliente devolve `Interrompida`, mas com o 401 que chegou a ler.
+    //
+    // Abaixo de 300 nao houve resposta que servisse: nenhuma linha de status,
+    // ou uma que caiu antes de terminar, ou que veio sem o CRC.
+    if (r.status < 300) { return Desfecho::SemResposta; }
+    if (r.status == 413) { return Desfecho::GrandeDemais; }
+    // Os dois 4xx que pedem, eles mesmos, outra tentativa.
+    if (r.status == 408 || r.status == 429) { return Desfecho::ErroNoServidor; }
+    // 3xx junto com 4xx: o aparelho nao segue redirecionamento, e o 301 de um
+    // `http://` que o proxy manda para `https://` volta a cada tentativa.
+    if (r.status < 500) { return Desfecho::Recusado; }
+    return Desfecho::ErroNoServidor;
+}
+
+bool RemessaDados::vale_repetir(Desfecho d) {
+    switch (d) {
+        // O que pode mudar em dois segundos: o cartao que solucou, a rede que
+        // voltou, o servidor que se recompos -- e o CRC diferente, que se
+        // conserta reenviando (ver `confirma`).
+        case Desfecho::Cartao:
+        case Desfecho::Divergiu:
+        case Desfecho::SemResposta:
+        case Desfecho::ErroNoServidor:
+            return true;
+        // O que voltaria igual. O certificado entra aqui porque o relogio nao
+        // anda durante a remessa: o GPS nao e lido, e o NTP ja foi tentado
+        // no `PreparoDeSessao`.
+        case Desfecho::Entregue:
+        case Desfecho::Url:
+        case Desfecho::GrandeDemais:
+        case Desfecho::Recusado:
+        case Desfecho::Certificado:
+            return false;
+    }
+    return false;  // fora de faixa: nao insistir e o lado que nao prende
+}
+
+bool RemessaDados::aponta_o_caminho(Desfecho d) {
+    switch (d) {
+        // DNS, rede, relogio, token, URL do servidor: o arquivo seguinte
+        // passaria pelo mesmo lugar. PODE ser so deste -- o tempo esgotado de
+        // um arquivo grande, o 404 de um nome --, e e por isso que a conta
+        // pede dois seguidos (`kFalhasSeguidasAteParar`).
+        case Desfecho::SemResposta:
+        case Desfecho::ErroNoServidor:
+        case Desfecho::Recusado:
+        case Desfecho::Certificado:
+            return true;
+        // So deste arquivo, com certeza. Nem entram na conta: o cartao e a
+        // URL nem chegaram a rede, e o 413 e o CRC diferente vieram de um
+        // servidor que respondeu.
+        case Desfecho::Entregue:
+        case Desfecho::Cartao:
+        case Desfecho::Url:
+        case Desfecho::Divergiu:
+        case Desfecho::GrandeDemais:
+            return false;
+    }
+    return true;  // fora de faixa: contar e o lado que nao prende o aparelho
+}
+
+ResultadoRemessa RemessaDados::sem_entrega(Desfecho d) {
+    switch (d) {
+        // Os que a tela nao pode dizer como SERVIDOR NAO ACEITOU: ele nao
+        // respondeu, ou nem chegou a ser procurado.
+        case Desfecho::SemResposta: return ResultadoRemessa::SemResposta;
+        case Desfecho::Certificado: return ResultadoRemessa::CertificadoRecusado;
+        case Desfecho::Cartao:      return ResultadoRemessa::FalhaDeCartao;
+        case Desfecho::Url:         return ResultadoRemessa::SemConfiguracao;
+        // Aqui ele respondeu, e nao aceitou.
+        case Desfecho::Divergiu:
+        case Desfecho::GrandeDemais:
+        case Desfecho::ErroNoServidor:
+        case Desfecho::Recusado:
+        case Desfecho::Entregue:  // nao chega aqui: so vem o que falhou
+            return ResultadoRemessa::FalhaAoEnviar;
+    }
+    return ResultadoRemessa::FalhaAoEnviar;
+}
+
+RemessaDados::Desfecho RemessaDados::confirma(const Url& url,
+                                              const Configuracao& cfg,
+                                              const char* nome,
+                                              std::uint32_t crc_local,
+                                              unsigned indice, unsigned total,
+                                              unsigned tentativa,
+                                              Logger& log) {
     char msg[112] = {};
+    Desfecho d = Desfecho::SemResposta;
     for (unsigned t = 1; t <= kTentativasDeConfirmacao; ++t) {
         if (t > 1) {
             // O teto do conjunto vale aqui tambem: insistir numa pergunta
@@ -168,7 +268,7 @@ bool RemessaDados::confirma(const Url& url, const Configuracao& cfg,
                                                  &crc_remoto, log,
                                                  kTempoLimiteConsultaMs);
         if (consulta.ok()) {
-            if (crc_remoto == crc_local) { return true; }
+            if (crc_remoto == crc_local) { return Desfecho::Entregue; }
             // CRC diferente NAO se resolve perguntando de novo: o que esta
             // guardado nao e o que foi mandado, e a pergunta seguinte traria
             // a mesma resposta. Quem conserta isto e reenviar o arquivo --
@@ -178,19 +278,30 @@ bool RemessaDados::confirma(const Url& url, const Configuracao& cfg,
                           nome, static_cast<unsigned>(crc_local),
                           static_cast<unsigned>(crc_remoto));
             log.warning(kOrigem, msg);
-            return false;
+            return Desfecho::Divergiu;
         }
+        // O status vai junto, como no PUT: um 401 e um 503 aqui pedem
+        // consertos diferentes, e so o codigo os separa no remessa.log.
         std::snprintf(msg, sizeof msg,
-                      "%s subiu mas nao confirmou (%u de %u): %s", nome, t,
-                      kTentativasDeConfirmacao, descreve(consulta.erro));
+                      "%s subiu mas nao confirmou (%u de %u): %s (status %u)",
+                      nome, t, kTentativasDeConfirmacao,
+                      descreve(consulta.erro),
+                      static_cast<unsigned>(consulta.status));
         log.warning(kOrigem, msg);
+        // A recusa tambem nao muda perguntando de novo, pelo motivo do CRC
+        // diferente: o servidor respondeu, e responderia o mesmo.
+        d = classifica(consulta);
+        if (!vale_repetir(d)) { return d; }
     }
-    return false;
+    return d;
 }
 
-bool RemessaDados::insiste(const Configuracao& cfg, const char* nome,
-                           unsigned indice, unsigned total, Logger& log) {
+RemessaDados::Desfecho RemessaDados::insiste(const Configuracao& cfg,
+                                             const char* nome,
+                                             unsigned indice, unsigned total,
+                                             Logger& log) {
     char msg[112] = {};
+    Desfecho d = Desfecho::SemResposta;
     for (unsigned t = 1; t <= kTentativasPorArquivo; ++t) {
         if (t > 1) {
             if (esgotou_o_tempo()) {
@@ -198,7 +309,7 @@ bool RemessaDados::insiste(const Configuracao& cfg, const char* nome,
                               "%s: o tempo da remessa acabou entre tentativas",
                               nome);
                 log.warning(kOrigem, msg);
-                return false;
+                return d;
             }
             std::snprintf(msg, sizeof msg,
                           "%s: tentativa %u de %u, apos %lu ms", nome, t,
@@ -207,14 +318,24 @@ bool RemessaDados::insiste(const Configuracao& cfg, const char* nome,
             log.warning(kOrigem, msg);
             pausa_.espera_ms(kEsperaEntreTentativasRemessaMs);
         }
-        if (despacha(cfg, nome, indice, total, t, log)) { return true; }
+        d = despacha(cfg, nome, indice, total, t, log);
+        if (d == Desfecho::Entregue) { return d; }
+        if (!vale_repetir(d)) {
+            std::snprintf(msg, sizeof msg,
+                          "%s: tentar de novo daria no mesmo; nao repito",
+                          nome);
+            log.warning(kOrigem, msg);
+            return d;
+        }
     }
-    return false;
+    return d;
 }
 
-bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
-                            unsigned indice, unsigned total,
-                            unsigned tentativa, Logger& log) {
+RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
+                                              const char* nome,
+                                              unsigned indice, unsigned total,
+                                              unsigned tentativa,
+                                              Logger& log) {
     char msg[96] = {};
 
     Url url;
@@ -222,14 +343,24 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
         std::snprintf(msg, sizeof msg, "url_envio + %s nao forma URL valida",
                       nome);
         log.error(kOrigem, msg);
-        return false;
+        return Desfecho::Url;
     }
 
     std::size_t tamanho = 0;
     if (cartao_.abre_para_leitura(nome, &tamanho, log) != ErroCartao::Nenhum) {
         std::snprintf(msg, sizeof msg, "nao abri %s", nome);
         log.error(kOrigem, msg);
-        return false;
+        return Desfecho::Cartao;
+    }
+    if (tamanho == 0) {
+        // A listagem ja pula o vazio; este esvaziou depois dela. O cliente
+        // nem manda corpo de zero byte -- devolveria `NaoIniciou`, que
+        // contaria como rede morta por culpa do arquivo.
+        cartao_.fecha_leitura();
+        std::snprintf(msg, sizeof msg, "%s ficou vazio depois de listado",
+                      nome);
+        log.error(kOrigem, msg);
+        return Desfecho::Cartao;
     }
 
     // --- primeira passada: o CRC do que esta no cartao agora ---
@@ -252,7 +383,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
                       static_cast<unsigned>(somados),
                       static_cast<unsigned>(tamanho));
         log.error(kOrigem, msg);
-        return false;
+        return Desfecho::Cartao;
     }
     const std::uint32_t crc_local = crc.valor();
 
@@ -260,7 +391,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
         cartao_.fecha_leitura();
         std::snprintf(msg, sizeof msg, "nao rebobinei %s", nome);
         log.error(kOrigem, msg);
-        return false;
+        return Desfecho::Cartao;
     }
 
     // --- segunda passada: o envio ---
@@ -282,20 +413,20 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
         std::snprintf(msg, sizeof msg,
                       "leitura de %s falhou no meio do envio", nome);
         log.error(kOrigem, msg);
-        return false;
+        return Desfecho::Cartao;
     }
     if (!envio.ok()) {
         std::snprintf(msg, sizeof msg, "%s nao subiu: %s (status %u)", nome,
                       descreve(envio.erro),
                       static_cast<unsigned>(envio.status));
         log.error(kOrigem, msg);
-        return false;
+        return classifica(envio);
     }
 
     // --- o servidor confirma o que GUARDOU ---
-    if (!confirma(url, cfg, nome, crc_local, indice, total, tentativa, log)) {
-        return false;
-    }
+    const Desfecho confirmacao = confirma(url, cfg, nome, crc_local, indice,
+                                          total, tentativa, log);
+    if (confirmacao != Desfecho::Entregue) { return confirmacao; }
 
     ++entregues_;
 
@@ -313,7 +444,7 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
                       "agora %u)", nome, static_cast<unsigned>(tamanho),
                       static_cast<unsigned>(agora));
         log.info(kOrigem, msg);
-        return true;
+        return Desfecho::Entregue;
     }
 
     avisa(FaseRemessa::Apagando, nome, indice, total, tentativa);
@@ -323,13 +454,13 @@ bool RemessaDados::despacha(const Configuracao& cfg, const char* nome,
                       "%s guardado no servidor, mas nao consegui apagar",
                       nome);
         log.warning(kOrigem, msg);
-        return true;
+        return Desfecho::Entregue;
     }
     std::snprintf(msg, sizeof msg, "%s entregue (%u B, crc %08x) e apagado",
                   nome, static_cast<unsigned>(tamanho),
                   static_cast<unsigned>(crc_local));
     log.info(kOrigem, msg);
-    return true;
+    return Desfecho::Entregue;
 }
 
 ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
@@ -372,6 +503,11 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
         log.error(kOrigem, "nao consegui listar o cartao");
         saida = ResultadoRemessa::FalhaDeCartao;
     } else {
+        // O laco mora aqui, e nao numa funcao propria, por causa da pilha:
+        // separado, o `msg` dele deixa de dividir a vaga com o `fim` la de
+        // baixo, e o caminho mais fundo da remessa -- o que desce ate o
+        // aperto de mao do mbedTLS -- ganhava 144 B. Medido com
+        // `-fstack-usage` em 16/11/2026.
         char msg[96] = {};
         restantes_ = static_cast<unsigned>(colheita_.ignorados);
         if (colheita_.ignorados > 0) {
@@ -381,6 +517,12 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
             log.info(kOrigem, msg);
         }
         const auto total = static_cast<unsigned>(colheita_.n);
+        // A falha mais recente. Quando nada passou, e ela que diz por que --
+        // e o que a tela diz ao usuario.
+        Desfecho ultima_falha = Desfecho::Entregue;
+        // Arquivos que falharam pelo caminho ate o servidor desde a ultima
+        // entrega. Ver `kFalhasSeguidasAteParar`.
+        unsigned seguidas = 0;
         for (std::size_t i = 0; i < colheita_.n; ++i) {
             // O teto e conferido ENTRE arquivos, nunca no meio de um: abortar
             // um PUT pela metade deixaria o servidor com meio arquivo. O que
@@ -394,15 +536,38 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
                 log.warning(kOrigem, msg);
                 break;
             }
-            if (!insiste(cfg, colheita_.nomes[i],
-                         static_cast<unsigned>(i) + 1, total, log)) {
-                ++falhados_;
+            const Desfecho d = insiste(cfg, colheita_.nomes[i],
+                                       static_cast<unsigned>(i) + 1, total,
+                                       log);
+            if (d == Desfecho::Entregue) {
+                seguidas = 0;
+                continue;
             }
+            ++falhados_;
+            ultima_falha = d;
+            if (!aponta_o_caminho(d)) { continue; }
+            // Sem esta parada a remessa so terminaria no teto, dez minutos
+            // depois -- inclusive quando o Wi-Fi some depois da primeira
+            // entrega. O certificado nao espera o segundo arquivo: sem
+            // relogio, aperto de mao nenhum passa.
+            ++seguidas;
+            const unsigned limite =
+                d == Desfecho::Certificado ? 1u : kFalhasSeguidasAteParar;
+            if (seguidas < limite) { continue; }
+            const auto faltam = static_cast<unsigned>(colheita_.n - i - 1);
+            restantes_ += faltam;
+            if (faltam > 0) {
+                std::snprintf(msg, sizeof msg,
+                              "o caminho ate o servidor nao passa; %u "
+                              "arquivos ficam para a proxima", faltam);
+                log.warning(kOrigem, msg);
+            }
+            break;
         }
         if (total == 0) {
             saida = ResultadoRemessa::NadaAEnviar;
         } else if (falhados_ > 0 && entregues_ == 0) {
-            saida = ResultadoRemessa::FalhaAoEnviar;
+            saida = sem_entrega(ultima_falha);
         } else if (falhados_ > 0) {
             saida = ResultadoRemessa::Parcial;
         } else if (retidos_ > 0) {
