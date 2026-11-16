@@ -144,6 +144,11 @@ A base é reserva estática de 24.000 pontos, 281,2 KiB. Ver `docs/adr/0006`
 para por que isso **não** é o teto de 40.000 do formato. Para gravar: segure `BOOTSEL`, conecte o
 USB e copie o `.uf2` para o volume `RP2350` que aparece.
 
+⚠️ **Aparelho novo, ou que ainda não tem partições A/B:** grave antes, uma
+vez, a tabela de partições (seção "Migração para partições A/B", abaixo). Sem
+ela o firmware roda igual, mas o aparelho nunca vai poder receber firmware
+pela rede.
+
 O `stdio` sai pelo **USB-CDC**, não pela UART — a UART0 fica para o GPS. Para
 ler o log: `screen /dev/tty.usbmodem* 115200`.
 
@@ -169,7 +174,9 @@ Sai `version: 2.2304` e `hash: verified`.
 sozinho quando o `logs/HEAD` muda (commit, *amend*, *checkout*) e quando uma
 tag nova aparece em `refs/tags`. Conferido em 16/11/2026 com um commit vazio e
 uma tag descartável. Se o `picotool info` mostrar versão diferente da do
-`git describe`, rode `cmake -S firmware -B firmware/build-pico` à mão.
+`git describe`, rode `cmake -S firmware -B firmware/build-pico` à mão. Na
+liberação, o `scripts/libera_fw.sh` faz essa conferência sozinho e desfaz a
+tag se o número não bater com ela.
 
 Com **100 commits ou mais depois da tag**, o build para e pede tag nova: o
 número colidiria com o da tag seguinte.
@@ -186,22 +193,25 @@ RP2350, e daí em diante o firmware pode ser atualizado pela rede (ADR 0012).
 | Coruja B | `0x182000–0x302000` | 1536 KiB |
 | sem partição | `0x302000–0x400000` | 1016 KiB |
 
-1. Gere a tabela:
+1. Pegue a tabela. Toda release, desde a v0.2.24, anexa a tabela como
+   `coruja_gps-vX.Y.Z-particoes.uf2`, com o SHA-256 ao lado. Sem release,
+   gere a partir do build:
 
    ```sh
    firmware/build-pico/_deps/picotool/picotool partition create \
        firmware/particoes.json firmware/build-pico/pt.uf2
    ```
 
-2. Aparelho em `BOOTSEL`, arraste `pt.uf2` para o volume `RP2350`. O volume
+2. Aparelho em `BOOTSEL`, arraste a tabela (`pt.uf2` ou o
+   `…-particoes.uf2` da release) para o volume `RP2350`. O volume
    some sozinho quando a gravação termina.
 3. ⚠️ **A partir daqui o aparelho fica sem firmware que suba.** A tabela foi
    gravada no começo da flash, onde ficava o início da imagem. É esperado.
    Sem imagem válida o bootrom deve voltar sozinho ao modo de gravação
    (🔬 não conferido). Se o volume `RP2350` não reaparecer, entre em
    `BOOTSEL` de novo.
-4. Arraste `coruja_gps.uf2`. O bootrom grava a imagem numa das partições
-   e reinicia nela.
+4. Arraste `coruja_gps.uf2` (ou o `coruja_gps-vX.Y.Z.uf2` da release). O
+   bootrom grava a imagem numa das partições e reinicia nela.
 5. Confira no `coruja.log`: a linha `boot:` traz o `git describe` gravado, a
    base carregou e o GPS está lendo.
 
