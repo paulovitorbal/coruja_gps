@@ -81,6 +81,24 @@ const char* descreve(Jamming j) {
     return "?";
 }
 
+namespace {
+
+/// `gpsFix` do UBX-NAV-STATUS. Valor fora da tabela vira `?`, e não um tipo
+/// inventado.
+const char* descreve_tipo_fix(std::uint8_t tipo) {
+    switch (tipo) {
+        case 0: return "nenhum";
+        case 1: return "dead reckoning";
+        case 2: return "2D";
+        case 3: return "3D";
+        case 4: return "GNSS+DR";
+        case 5: return "so hora";
+        default: return "?";
+    }
+}
+
+}  // namespace
+
 bool analisa_nav_status(const std::uint8_t* payload, std::size_t tamanho,
                         EstadoNavegacao* destino) {
     if (payload == nullptr || destino == nullptr ||
@@ -191,21 +209,29 @@ std::size_t formata_diagnostico(const EstadoNavegacao& nav,
         std::snprintf(rad, sizeof rad, "MON-HW sem resposta");
     }
 
-    char nav_txt[72];
+    // O TIPO do fix vai junto, nas duas formas: em 10 e 11/11/2026 o primeiro
+    // fix do firmware saiu 141 s e 206 s depois do TTFF do módulo, e sem o
+    // tipo não há como separar "o módulo contou um fix só de hora" de "o
+    // módulo fixou e o atraso é nosso".
+    char fix_txt[24];
+    std::snprintf(fix_txt, sizeof fix_txt, "fix %s%s", descreve_tipo_fix(nav.tipo_fix),
+                  (nav.tipo_fix != 0 && !nav.fix_valido) ? " sem OK" : "");
+
+    char nav_txt[96];
     if (!nav.respondeu) {
         std::snprintf(nav_txt, sizeof nav_txt, "NAV-STATUS sem resposta");
     } else if (!nav.teve_fix) {
         // Respondeu DIZENDO que ainda não fixou. É informação, e diferente
         // de silêncio.
         std::snprintf(nav_txt, sizeof nav_txt,
-                      "ttff do modulo ainda nao fixou (ligado ha %.1f s)",
-                      nav.desde_boot_ms / 1000.0);
+                      "ttff do modulo ainda nao fixou (ligado ha %.1f s, %s)",
+                      nav.desde_boot_ms / 1000.0, fix_txt);
     } else {
         // O relógio do próprio módulo ao lado do TTFF: com ele, a diferença
         // para o nosso cronômetro vira aritmética em vez de inferência.
         std::snprintf(nav_txt, sizeof nav_txt,
-                      "ttff do modulo %.1f s (ligado ha %.1f s)",
-                      nav.ttff_ms / 1000.0, nav.desde_boot_ms / 1000.0);
+                      "ttff do modulo %.1f s (ligado ha %.1f s, %s)",
+                      nav.ttff_ms / 1000.0, nav.desde_boot_ms / 1000.0, fix_txt);
     }
 
     char aop_txt[48];

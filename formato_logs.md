@@ -182,7 +182,7 @@ o que ele via. Da **v0.2.13** em diante:
 | `wifi` | `nenhuma das 2 redes da lista entre as 11 visiveis` | **ERRO** — nenhuma rede conhecida apareceu |
 | `mem` | `pico: lwip 9128/15776 B \| heap 1036 B em 5108 pedidos \| pilha 17148/24576 B` | o que foi reservado deu conta — **ERRO** se a pilha foi ao fundo |
 | `gps` | `primeiro fix em 168.4 s (9 sat, hdop 1.2)` | quanto a partida demorou, uma vez por ligação |
-| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s) \| aop ligado \| sinal: 9 vistos, 5 usados, 4 acima de 35, melhor 41 dBHz` | por que ela demorou — no primeiro fix e a cada 5 min |
+| `gps` | `radio: ruido 85 \| agc 1800/8191 \| antena ok \| interferencia 42/255 (limpo) \| ttff do modulo 166.1 s (ligado ha 172.8 s, fix 3D) \| aop ligado \| sinal: 9 vistos, 5 usados, 4 acima de 35, melhor 41 dBHz` | por que ela demorou — no primeiro fix, **a cada 30 s até o fix (primeiros 10 min)** e depois a cada 5 min |
 | `gps` | `radio: MON-HW sem resposta \| ttff do modulo 38.2 s (ligado ha 44.9 s) \| aop ligado` | a mesma linha quando uma das três perguntas não voltou |
 | `diario` | `trecho fechado: veiculo parado` | fechou o arquivo; **a gravação continua** |
 | `diario` | `viagem retomada` / `viagem nova: a parada passou de 2 h` | o que a energização decidiu sobre a viagem anterior |
@@ -191,6 +191,17 @@ o que ele via. Da **v0.2.13** em diante:
 | `gps` | `taxa de fixes normalizada: 4.0 Hz` | INFO — fecha o evento acima, e **só depois de 10 s nominais** |
 | `gps` | `taxa em falha e receptor calado: reenviando a configuracao (RF01.5)` | **WARN** — a tentativa de recuperação em voo começou |
 | `gps` | `reconfiguracao em voo: configurado; a porta ficou em 115200` | como ela terminou (ERRO se não foi `configurado`) |
+
+⚠️ **O fim do `ttff do modulo` traz o tipo de fix** (`fix nenhum`, `2D`, `3D`,
+`so hora`…), e `sem OK` quando o módulo não assina a solução (`gpsFixOK`
+desligado). Entrou em 11/11/2026, junto da linha a cada 30 s antes do primeiro
+fix, porque nas partidas de 10 e 11/11 o `primeiro fix` do firmware saiu 141 s e
+206 s depois do TTFF do módulo. **A hipótese de que o módulo conta um fix só de
+hora está por verificar:** se a linha pré-fix mostrar `fix so hora` por minutos
+e depois `fix 3D`, é isso; se mostrar `fix 3D` e o firmware ainda não tiver
+fixado, o atraso é nosso. A linha pré-fix também diz se o céu estava coberto:
+`sinal: … melhor 22 dBHz` sem satélite usado é garagem, não defeito. Sem fix
+nunca (bancada, garagem), param após 10 min e a `vigia` segue.
 
 ⚠️ **A linha `radio:` compara dois relógios de propósito.** O `primeiro fix`
 conta desde o boot do Pico e inclui a configuração do receptor; o `ttff do

@@ -840,6 +840,20 @@ int main() {
     constexpr std::uint32_t kIntervaloVigiaMs = 5U * 60U * 1000U;
     std::uint32_t proxima_vigilia_ms = pausa.agora_ms() + kIntervaloVigiaMs;
 
+    // ===================== o que acontece ANTES do primeiro fix, 11/11/2026
+    //
+    // Nas partidas de 10 e 11/11 o primeiro fix demorou de 56 s a 268 s, e em
+    // duas delas saiu 141 s e 206 s depois do TTFF que o proprio modulo
+    // mediu. O diario so tinha a linha do primeiro fix e a `vigia` de cinco em
+    // cinco minutos: nada dizia se o carro estava coberto (garagem, rampa) ou
+    // se o atraso era nosso. Esta linha, a cada 30 s ate o fix, e a prova.
+    //
+    // So nos primeiros 10 min (vinte linhas): sem ceu -- bancada, garagem --
+    // o aparelho nunca fixa, e a `vigia` ja cobre dai em diante.
+    constexpr std::uint32_t kIntervaloPreFixMs = 30U * 1000U;
+    constexpr std::uint32_t kJanelaPreFixMs = 10U * 60U * 1000U;
+    std::uint32_t proxima_pre_fix_ms = pausa.agora_ms() + kIntervaloPreFixMs;
+
     std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
         // Medido no TOPO da volta seguinte: assim a conta inclui tudo o que
@@ -932,6 +946,18 @@ int main() {
              agora_ms - diagnostico_pedido_ms > 3000U)) {
             esperando_diagnostico = false;
             registra_diagnostico(agora_ms);
+            // Ainda sem fix: descarrega, pelo mesmo motivo da `vigia` -- chave
+            // cortada com a linha so na RAM e linha perdida, e o carro que
+            // sai antes do fix e justamente o que corta cedo.
+            if (!ttff_registrado) { log.descarrega(); }
+        }
+
+        // `esperando_diagnostico` evita empilhar um pedido sobre o outro.
+        if (!ttff_registrado && !esperando_diagnostico &&
+            agora_ms < kJanelaPreFixMs &&
+            agora_ms - proxima_pre_fix_ms < (1U << 31)) {
+            pede_diagnostico(agora_ms);
+            proxima_pre_fix_ms = agora_ms + kIntervaloPreFixMs;
         }
 
         if (agora_ms - proxima_vigilia_ms < (1U << 31)) {

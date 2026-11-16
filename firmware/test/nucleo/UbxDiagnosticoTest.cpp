@@ -377,6 +377,68 @@ TEST(UbxDiagnostico, a_linha_traz_o_relogio_do_proprio_modulo) {
     EXPECT_NE(std::strstr(linha, "44.9 s"), nullptr);
 }
 
+TEST(UbxDiagnostico, a_linha_diz_o_TIPO_de_fix_que_o_modulo_tem) {
+    // Existe por causa das partidas de 10 e 11/11/2026: o `primeiro fix` do
+    // firmware saiu 141 s e 206 s depois do TTFF do modulo. Hipotese ainda
+    // nao verificada: o TTFF do modulo contar um fix so de hora (tipo 5), que
+    // a RMC nao entrega como valido. Sem o tipo ao lado, as duas leituras
+    // sao indistinguiveis no log.
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+
+    EstadoNavegacao so_hora;
+    so_hora.respondeu = true; so_hora.teve_fix = true;
+    so_hora.ttff_ms = 62100; so_hora.desde_boot_ms = 268100;
+    so_hora.tipo_fix = 5;
+    formata_diagnostico(so_hora, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "fix so hora"), nullptr) << linha;
+
+    EstadoNavegacao tri;
+    tri.respondeu = true; tri.teve_fix = true; tri.fix_valido = true;
+    tri.ttff_ms = 62100; tri.desde_boot_ms = 268100;
+    tri.tipo_fix = 3;
+    formata_diagnostico(tri, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "fix 3D"), nullptr) << linha;
+    EXPECT_EQ(std::strstr(linha, "sem OK"), nullptr) << linha;
+}
+
+TEST(UbxDiagnostico, fix_que_o_modulo_nao_assina_diz_sem_OK) {
+    EstadoNavegacao nav;
+    nav.respondeu = true; nav.teve_fix = true;
+    nav.ttff_ms = 1000; nav.desde_boot_ms = 2000;
+    nav.tipo_fix = 3; nav.fix_valido = false;   // gpsFixOK desligado
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "fix 3D sem OK"), nullptr) << linha;
+}
+
+TEST(UbxDiagnostico, antes_do_primeiro_fix_a_linha_diz_fix_nenhum) {
+    EstadoNavegacao nav;
+    nav.respondeu = true;   // tipo_fix 0: o modulo diz que nao tem nada
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_NE(std::strstr(linha, "ainda nao fixou"), nullptr) << linha;
+    EXPECT_NE(std::strstr(linha, "fix nenhum"), nullptr) << linha;
+}
+
+TEST(UbxDiagnostico, sem_resposta_do_nav_status_nao_inventa_tipo_de_fix) {
+    EstadoNavegacao nav;   // respondeu = false: tipo_fix 0 e silencio
+    EstadoRadio radio; radio.respondeu = true;
+    EstadoAop aop;     aop.respondeu = true;
+    EstadoSinal sinal; sinal.respondeu = true;
+    char linha[kTamDiagnostico] = {};
+    formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha);
+    EXPECT_EQ(std::strstr(linha, "fix nenhum"), nullptr) << linha;
+}
+
 TEST(UbxDiagnostico, ainda_sem_fix_e_diferente_de_sem_resposta) {
     EstadoNavegacao nav;
     nav.respondeu = true;   // o modulo respondeu...
