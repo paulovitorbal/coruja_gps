@@ -575,20 +575,47 @@ comprometido, não há como alterar a base que os aparelhos vão baixar.
 
 ## Testes
 
+No Docker, na mesma imagem que serve (Python 3.12 e folium), a partir da raiz
+do repositório:
+
+```sh
+docker build -q -t coruja-gps/api:testes servidor
+docker run --rm --network none -e PYTHONDONTWRITEBYTECODE=1 \
+    -v "$PWD/servidor":/repo/servidor:ro \
+    -v "$PWD/formato_radares.py":/repo/formato_radares.py:ro \
+    -w /repo --entrypoint python3 coruja-gps/api:testes \
+    -m unittest discover -s servidor/testes
+```
+
+- A etiqueta é `:testes`, e não a `1.0` do compose, para o build dos testes
+  não trocar a imagem que está servindo.
+- `--network none` porque os testes só falam com o servidor pelo *loopback*.
+- O `formato_radares.py` vai montado à parte: a imagem leva só os arquivos do
+  servidor, e `test_pagina_viagens` o importa da raiz do repositório para
+  conferir que as duas leituras do formato concordam.
+- Não é `docker compose run`: o compose exige o `aparelhos.cfg`, que guarda os
+  segredos dos aparelhos, e os testes não precisam dele.
+
+Sem Docker, com um Python de 3.12 a 3.14:
+
 ```sh
 python3 -m unittest discover -s servidor/testes
 ```
 
-130 casos. Sobem o servidor de verdade numa porta efêmera e falam HTTP com ele
+⚠️ Com o Python 3.15, o `discover` recusou o diretório ("Start directory is
+not importable") em 16/11/2026.
+
+387 casos. Sobem o servidor de verdade numa porta efêmera e falam HTTP com ele
 — testar o manipulador isolado deixaria de fora justamente o que o firmware
 consome: os códigos de status, os cabeçalhos e o `HEAD`.
 
 ### O teste de navegador é opcional
 
-Dez deles abrem o mapa num Chromium de verdade e conferem que os botões de
-velocidade **fazem alguma coisa**. São pulados quando o `playwright` ou o
-`folium` não estão instalados, para a suíte principal continuar sendo só
-biblioteca padrão.
+Vinte e cinco deles abrem o mapa num Chromium de verdade e conferem que os
+botões de velocidade **fazem alguma coisa**. São pulados quando o `playwright`
+ou o `folium` não estão instalados, para a suíte principal continuar sendo só
+biblioteca padrão. A imagem do Docker não tem `playwright`, então lá eles
+são pulados.
 
 ```sh
 python3 -m venv .venv
