@@ -78,8 +78,11 @@ else()
     coruja_versao_imagem(${CMAKE_CURRENT_SOURCE_DIR}
                          ${CMAKE_BINARY_DIR}/gerado/VersaoImagem.h)
 
-    # ⚠️ SEM `ROLLBACK`: ele grava a versao minima em OTP, e OTP nao volta.
-    # Uma imagem velha deixaria de subir para sempre, inclusive por cabo.
+    # ⚠️ SEM `ROLLBACK`: com secure boot ligado, o bootrom grava a versao
+    # minima em OTP, e OTP nao volta -- uma imagem velha deixaria de subir
+    # para sempre, inclusive por cabo. Hoje o secure boot esta desligado e
+    # nada vai para OTP; sem a opcao, ligar o secure boot um dia nao arrasta
+    # isso junto sem ninguem decidir.
     #
     # A versao entra DEPOIS do link, pelo `picotool seal` -- o mesmo passo
     # que grava o hash. Nao e `pico_set_binary_version`, de proposito: sem

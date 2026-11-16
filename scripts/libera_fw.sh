@@ -8,33 +8,37 @@
 #  projeto de estudo, build reprodutível aqui vale mais que infraestrutura
 #  remota para manter.
 #
-#  ## As nove etapas, e por que cada uma existe
+#  ## As dez etapas, e por que cada uma existe
 #
 #   1. árvore limpa      — tag aponta para commit; com pendências, o que foi
 #                          tagueado não é o que está em disco
 #   2. tag inédita       — mover tag publicada quebra quem já baixou
 #   3. suíte no host     — a verificação de sempre
 #   4. suíte no sanitizer— pega o que o host não pega: UB, leitura inválida
-#   5. alvos do Pico     — produto, bancada e OTA. Compilar só o produto
+#   5. suítes Python     — o gerador da configuração e o servidor. Nada que
+#                          rodava sempre as rodava, e dois testes do gerador
+#                          ficaram vermelhos por 23 dias sem ninguém ver. A
+#                          do servidor pede o Docker
+#   6. alvos do Pico     — produto, bancada e OTA. Compilar só o produto
 #                          deixa as bancadas quebrarem sem ninguém ver
-#   6. tag anotada       — carrega mensagem, autor e data; é a que o
+#   7. tag anotada       — carrega mensagem, autor e data; é a que o
 #                          `git describe` considera por padrão
-#   7. RECONSTRÓI        — **a ordem que o incidente de 2026-10-04 ensinou**:
+#   8. RECONSTRÓI        — **a ordem que o incidente de 2026-10-04 ensinou**:
 #                          o identificador vem do `git describe` no momento
 #                          do BUILD, então taguear depois de compilar carimba
 #                          o binário com a versão anterior
-#   8. verifica          — confere a string DENTRO do .uf2. Não é promessa de
+#   9. verifica          — confere a string DENTRO do .uf2. Não é promessa de
 #                          que o firmware carrega a versão, é verificação.
 #                          Confere também a versão NUMÉRICA do bloco da
 #                          imagem, que é a que o bootrom usa para escolher
 #                          a partição (ADR 0012)
-#   9. nomeia e soma     — `coruja_gps-vX.Y.Z.uf2` mais SHA-256; um
+#  10. nomeia e soma     — `coruja_gps-vX.Y.Z.uf2` mais SHA-256; um
 #                          `coruja_gps.uf2` solto na pasta de downloads não
 #                          diz qual versão é. Junto vai a tabela de
 #                          partições, `coruja_gps-vX.Y.Z-particoes.uf2`, que
 #                          a primeira instalação grava uma vez
 #
-#  Com `--publicar`, acrescenta a décima: empurra commits e tag e cria a
+#  Com `--publicar`, acrescenta a décima primeira: empurra commits e tag e cria a
 #  release no GitHub com o binário anexado. **Sem a opção, não toca na rede.**
 #
 #  Por que release e não commit do binário: são ~1 MB por versão, e o git
@@ -49,7 +53,15 @@ BUILD_PICO="${CORUJA_BUILD_PICO:-$DIR/firmware/build-pico}"
 BUILD_HOST="${CORUJA_BUILD_HOST:-$DIR/firmware/build-host}"
 BUILD_SAN="${CORUJA_BUILD_SAN:-$DIR/firmware/build-san}"
 UF2="$BUILD_PICO/coruja_gps.uf2"
-PICOTOOL="$BUILD_PICO/_deps/picotool/picotool"
+# O SDK baixa o picotool em `_deps` quando nao acha um instalado; com um
+# instalado no sistema, `_deps` nao existe.
+PICOTOOL="${CORUJA_PICOTOOL:-$BUILD_PICO/_deps/picotool/picotool}"
+[ -x "$PICOTOOL" ] || PICOTOOL="$(command -v picotool || true)"
+
+# Teto de uma imagem: o tamanho de cada particao em `firmware/particoes.json`.
+# Uma imagem maior liga e passa nas outras conferencias, mas o bootrom recusa
+# o que passa do fim da particao e a gravacao por cabo nao pega.
+TETO_IMAGEM=$((1536 * 1024))
 
 # A versão numérica que a imagem de uma tag TEM de carregar: vA.B.C vira
 # A*100+B . C*100, a conta do `firmware/cmake/versao_imagem.cmake` com zero
@@ -87,20 +99,20 @@ VERSAO_IMAGEM=$(versao_esperada "$TAG") \
     || falhou "a tag '$TAG' nao e vA.B.C; a versao da imagem sai dela."
 
 # --- 1. árvore limpa ---------------------------------------------------------
-etapa "1/9  arvore limpa"
+etapa "1/10 arvore limpa"
 if [ -n "$(git status --porcelain)" ]; then
     git status --short >&2
     falhou "arvore suja. Comite ou guarde antes de liberar."
 fi
 
 # --- 2. tag inédita ----------------------------------------------------------
-etapa "2/9  tag inedita"
+etapa "2/10 tag inedita"
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
     falhou "a tag '$TAG' ja existe."
 fi
 
 # --- 3. suíte no host --------------------------------------------------------
-etapa "3/9  suite no host"
+etapa "3/10 suite no host"
 cmake --build "$BUILD_HOST" -j8 > /tmp/libera-host-build.log 2>&1 \
     || falhou "a suite nao compila. Ver /tmp/libera-host-build.log"
 ctest --test-dir "$BUILD_HOST" > /tmp/libera-host-test.log 2>&1 || {
@@ -110,7 +122,7 @@ ctest --test-dir "$BUILD_HOST" > /tmp/libera-host-test.log 2>&1 || {
 echo "     $(grep -oE '[0-9]+% tests passed.*' /tmp/libera-host-test.log)"
 
 # --- 4. suíte no sanitizer ---------------------------------------------------
-etapa "4/9  suite no sanitizer"
+etapa "4/10 suite no sanitizer"
 cmake --build "$BUILD_SAN" -j8 > /tmp/libera-san-build.log 2>&1 \
     || falhou "o sanitizer nao compila. Ver /tmp/libera-san-build.log"
 ctest --test-dir "$BUILD_SAN" > /tmp/libera-san-test.log 2>&1 || {
@@ -119,27 +131,53 @@ ctest --test-dir "$BUILD_SAN" > /tmp/libera-san-test.log 2>&1 || {
 }
 echo "     $(grep -oE '[0-9]+% tests passed.*' /tmp/libera-san-test.log)"
 
-# --- 5. os três alvos do Pico ------------------------------------------------
-etapa "5/9  alvos do Pico"
+# --- 5. suítes Python --------------------------------------------------------
+etapa "5/10 suites Python"
+# O gerador roda no python3 da maquina. O servidor roda na IMAGEM dele, que e
+# onde ele vive: o python3 3.15 do macOS recusa o `discover` daquela pasta.
+python3 -m unittest discover -s "$DIR/scripts/testes" \
+    > /tmp/libera-py-gerador.log 2>&1 || {
+    tail -20 /tmp/libera-py-gerador.log >&2
+    falhou "suite do gerador vermelha."
+}
+echo "     gerador: $(grep -E '^(OK|FAILED)' /tmp/libera-py-gerador.log)"
+docker build -q -t coruja-gps/api:testes "$DIR/servidor" \
+    > /tmp/libera-py-servidor.log 2>&1 \
+    || falhou "a imagem do servidor nao constroi (o Docker esta rodando?). Ver /tmp/libera-py-servidor.log"
+docker run --rm --network none -e PYTHONDONTWRITEBYTECODE=1 \
+    -v "$DIR/servidor":/repo/servidor:ro \
+    -v "$DIR/formato_radares.py":/repo/formato_radares.py:ro \
+    -w /repo --entrypoint python3 coruja-gps/api:testes \
+    -m unittest discover -s servidor/testes \
+    > /tmp/libera-py-servidor.log 2>&1 || {
+    tail -20 /tmp/libera-py-servidor.log >&2
+    falhou "suite do servidor vermelha."
+}
+echo "     servidor: $(grep -E '^(OK|FAILED)' /tmp/libera-py-servidor.log)"
+
+# --- 6. os três alvos do Pico ------------------------------------------------
+etapa "6/10 alvos do Pico"
 for alvo in build-pico build-bancada build-ota; do
     cmake --build "$DIR/firmware/$alvo" -j8 > "/tmp/libera-$alvo.log" 2>&1 \
         || falhou "$alvo nao compila. Ver /tmp/libera-$alvo.log"
     echo "     $alvo ok"
 done
 
-# --- 6. a tag ----------------------------------------------------------------
-etapa "6/9  criando a tag $TAG"
+# --- 7. a tag ----------------------------------------------------------------
+etapa "7/10 criando a tag $TAG"
 git tag -a "$TAG" -m "$MSG" || falhou "nao deu para criar a tag."
 desfaz_tag() { echo "     (removendo a tag: git tag -d $TAG)" >&2; git tag -d "$TAG" > /dev/null; }
+# Um Ctrl-C no rebuild deixava a tag, e a proxima execucao parava na etapa 2.
+trap 'desfaz_tag; exit 130' INT TERM
 
-# --- 7. RECONSTRÓI na tag ----------------------------------------------------
-etapa "7/9  reconstruindo o firmware NA tag"
+# --- 8. RECONSTRÓI na tag ----------------------------------------------------
+etapa "8/10 reconstruindo o firmware NA tag"
 cmake --build "$BUILD_PICO" -j8 > /tmp/libera-fw.log 2>&1 || {
     desfaz_tag; falhou "o firmware nao compila. Ver /tmp/libera-fw.log"
 }
 
-# --- 8. verifica a versão DENTRO do binário ----------------------------------
-etapa "8/9  conferindo a versao no binario"
+# --- 9. verifica a versão DENTRO do binário ----------------------------------
+etapa "9/10 conferindo a versao no binario"
 # ⚠️ **Nao use `strings` aqui.** O `.uf2` embala 256 bytes de dado em blocos
 # de 512, com 32 de cabecalho na frente: uma string que cruza a fronteira do
 # bloco fica partida e o `strings` so ve o primeiro pedaco. Aconteceu com a
@@ -155,23 +193,34 @@ fi
 
 # A versao NUMERICA mora no bloco da imagem, nao numa string: e o
 # `picotool` que a le. ⚠️ Uma imagem com o numero da versao ANTERIOR passa
-# na conferencia de cima e, num aparelho com particoes A/B, perde para a
-# imagem que ja esta la: o bootrom sobe a de maior versao.
+# na conferencia de cima. Gravada por cabo num aparelho com particoes A/B,
+# ela sobe e o bootrom APAGA a copia mais nova; vinda pela rede, perderia a
+# escolha no boot. Ver `firmware/README.md`, migracao.
+[ -n "$PICOTOOL" ] || { desfaz_tag; falhou "picotool nao encontrado (nem em _deps, nem no PATH)."; }
 INFO=$("$PICOTOOL" info -a "$UF2" 2>&1) || {
     desfaz_tag; falhou "o picotool nao leu o .uf2: $INFO"
 }
-LIDA=$(printf '%s\n' "$INFO" | sed -n 's/^ *version: *//p' | head -1)
-if [ "$LIDA" != "$VERSAO_IMAGEM" ]; then
+# Qualquer linha `version:`, e nao a primeira: com `pico_set_program_version`
+# o picotool imprime antes a versao do binary info, que e texto.
+if printf '%s\n' "$INFO" | grep -qxE " *version: *${VERSAO_IMAGEM//./\\.}"; then
+    LIDA="$VERSAO_IMAGEM"
+else
+    LIDA=$(printf '%s\n' "$INFO" | sed -n 's/^ *version: *//p' | tr '\n' ' ')
     desfaz_tag
     falhou "a imagem diz versao '${LIDA:-nenhuma}', a tag pede '$VERSAO_IMAGEM'. Rode cmake -S firmware -B firmware/build-pico e tente de novo."
 fi
 if ! printf '%s\n' "$INFO" | grep -qE '^ *hash: *verified$'; then
     desfaz_tag; falhou "o hash da imagem nao confere."
 fi
-echo "     versao da imagem $LIDA, hash conferido"
+TAMANHO_IMAGEM=$(wc -c < "$BUILD_PICO/coruja_gps.bin" | tr -d ' ')
+if [ "$TAMANHO_IMAGEM" -gt "$TETO_IMAGEM" ]; then
+    desfaz_tag
+    falhou "a imagem tem $TAMANHO_IMAGEM bytes e a particao, $TETO_IMAGEM."
+fi
+echo "     versao da imagem $LIDA, hash conferido, $TAMANHO_IMAGEM de $TETO_IMAGEM bytes"
 
-# --- 9. nomeia e soma --------------------------------------------------------
-etapa "9/9  nomeando e somando"
+# --- 10. nomeia e soma --------------------------------------------------------
+etapa "10/10 nomeando e somando"
 ARTEFATO="$BUILD_PICO/coruja_gps-$TAG.uf2"
 cp "$UF2" "$ARTEFATO" || { desfaz_tag; falhou "nao copiou o artefato."; }
 SOMA=$(shasum -a 256 "$ARTEFATO" | cut -d' ' -f1)
@@ -196,27 +245,34 @@ echo "   versao da imagem $LIDA"
 echo "   tabela: $TABELA"
 echo "   a tela vai mostrar:  fw: $TAG"
 
-# --- 10. publicação (só com --publicar) --------------------------------------
+# --- 11. publicação (só com --publicar) --------------------------------------
+# Daqui em diante a tag pode ja estar no remoto: um Ctrl-C nao a desfaz mais.
+trap - INT TERM
 if [ "$PUBLICAR" -eq 0 ]; then
     echo
-    echo "Nada foi para a rede. Para publicar:"
-    echo "   $0 --publicar $TAG '<mensagem>'"
+    echo "Nada foi para a rede. Para publicar, a tag local tem de sair antes"
+    echo "(a etapa 2 recusa tag existente) -- o script a recria e reconstroi:"
+    echo "   git tag -d $TAG && $0 --publicar $TAG '<mensagem>'"
     exit 0
 fi
 
 echo
-etapa "10  publicando"
+etapa "11  publicando"
 echo "     vai empurrar para $(git remote get-url origin)"
-git push --follow-tags origin HEAD > /tmp/libera-push.log 2>&1 \
-    || { cat /tmp/libera-push.log >&2; falhou "o push falhou."; }
+# `--atomic`: o ramo e a tag entram juntos ou nenhum entra. Com
+# `--follow-tags`, um ramo recusado deixava a tag publica sozinha.
+git push --atomic origin HEAD "refs/tags/$TAG" > /tmp/libera-push.log 2>&1 \
+    || { cat /tmp/libera-push.log >&2; falhou "o push falhou; nada foi publicado."; }
 echo "     commits e tag empurrados"
 
 NOTAS="$MSG
 
 Instalação do zero, ou aparelho ainda sem partições A/B: grave **uma vez** o \`coruja_gps-$TAG-particoes.uf2\` e depois o firmware. Roteiro
-em \`firmware/README.md\`, seção \"Migração para partições A/B\"."
+em \`firmware/README.md\`, seção \"Migração para partições A/B\".
+
+⚠️ Com as partições A/B, gravar por cabo uma versão **mais velha** apaga a mais nova que estava no aparelho."
 gh release create "$TAG" "$ARTEFATO" "$ARTEFATO.sha256" \
     "$TABELA" "$TABELA.sha256" \
     --title "$TAG" --notes "$NOTAS" > /tmp/libera-release.log 2>&1 \
-    || { cat /tmp/libera-release.log >&2; falhou "a release falhou."; }
+    || { cat /tmp/libera-release.log >&2; falhou "a release falhou, mas a tag e os commits JA estao no remoto. Termine a mao: gh release create $TAG $ARTEFATO $ARTEFATO.sha256 $TABELA $TABELA.sha256 --title $TAG"; }
 echo "     release criada: $(gh release view "$TAG" --json url --jq .url)"

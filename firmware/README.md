@@ -155,9 +155,10 @@ ler o log: `screen /dev/tty.usbmodem* 115200`.
 ### Versão da imagem
 
 Desde o ADR 0012 a imagem carrega no bloco de metadados uma **versão
-numérica e um hash**. Com a tabela de partições A/B, o bootrom sobe a partição
-de maior versão. O número sai do `git describe` (ver
-`cmake/versao_imagem.cmake`):
+numérica e um hash**. Com a tabela de partições A/B, o bootrom sobe no boot
+normal a partição de maior versão. Logo depois de uma gravação por cabo, sobe
+a gravada, qualquer que seja a versão (ver a migração, abaixo). O número sai
+do `git describe` (ver `cmake/versao_imagem.cmake`):
 
 | `git describe` | versão |
 | :--- | :--- |
@@ -179,7 +180,13 @@ liberação, o `scripts/libera_fw.sh` faz essa conferência sozinho e desfaz a
 tag se o número não bater com ela.
 
 Com **100 commits ou mais depois da tag**, o build para e pede tag nova: o
-número colidiria com o da tag seguinte.
+número colidiria com o da tag seguinte. **Sem tag nenhuma** (o zip "Source
+code" da release, um clone raso), o build segue com um aviso e a imagem sai
+sem versão, que o bootrom lê como 0.0; a liberação a recusa.
+
+O hash é conferido **a cada boot**, com ou sem tabela: uma imagem corrompida
+não sobe, e o aparelho cai no `BOOTSEL`. 🔬 Isso custa tempo de boot, de 0,2 s
+a 1 s pela estimativa, a medir na linha `boot: pronto`.
 
 ### Migração para partições A/B (uma vez, por cabo)
 
@@ -207,21 +214,37 @@ RP2350, e daí em diante o firmware pode ser atualizado pela rede (ADR 0012).
    some sozinho quando a gravação termina.
 3. ⚠️ **A partir daqui o aparelho fica sem firmware que suba.** A tabela foi
    gravada no começo da flash, onde ficava o início da imagem. É esperado.
-   Sem imagem válida o bootrom deve voltar sozinho ao modo de gravação
-   (🔬 não conferido). Se o volume `RP2350` não reaparecer, entre em
-   `BOOTSEL` de novo.
+   Sem imagem válida, o bootrom volta sozinho ao modo de gravação (pelo
+   código dele; 🔬 não conferido no aparelho). Se o volume `RP2350` não
+   reaparecer, entre em `BOOTSEL` de novo.
 4. Arraste `coruja_gps.uf2` (ou o `coruja_gps-vX.Y.Z.uf2` da release). O
-   bootrom grava a imagem numa das partições e reinicia nela.
+   bootrom grava a imagem na partição **B** (`0x182000`) e reinicia nela.
+   É a B, e não a A, porque com as duas vazias o bootrom escolheria a A para
+   subir, e um UF2 arrastado vai sempre para a que ele **não** subiria.
 5. Confira no `coruja.log`: a linha `boot:` traz o `git describe` gravado, a
    base carregou e o GPS está lendo.
 
-Depois da migração, **todo UF2 arrastado vai para a partição que não está
-rodando**, inclusive o das bancadas. 🔬 Qual partição sobe no boot seguinte
-depende da versão das duas; a fase 2 do OTA confere isso.
+**Depois da migração, o que acontece a cada UF2 arrastado:**
 
-Para desfazer, grave o `flash_nuke.uf2` oficial da Raspberry Pi, que apaga
-a flash inteira, inclusive a tabela. Depois disso a gravação volta a ser a de
-antes. 🔬 Não testado.
+- Ele vai para a partição que não está rodando. As gravações alternam: B, A,
+  B…
+- Ele **sobe logo em seguida, qualquer que seja a versão**: o bootrom faz um
+  boot "de atualização" apontado para a partição recém-gravada.
+- ⚠️ **Se a versão dele for menor ou igual à da outra partição, o bootrom
+  apaga o começo da outra.** A cópia anterior se perde. Arrastar uma bancada,
+  ou a v0.2.23, que não tem versão e conta como 0.0, apaga o produto. Para
+  voltar, arraste o produto de novo. A/B não protege contra gravação de versão
+  mais velha por cabo.
+- Só quando a versão sobe, a outra cópia fica guardada. No boot normal sobe a
+  de maior versão; em empate, a A.
+
+Para desfazer, grave o `flash_nuke.uf2` oficial da Raspberry Pi, **o build
+para RP2350** (um de RP2040 é ignorado sem aviso). Ele apaga a flash inteira,
+inclusive a tabela, e a gravação volta a ser a de antes.
+
+🔬 Tudo isto saiu da leitura do código do bootrom (`raspberrypi/pico-bootrom-rp2350`:
+`varm_nsboot.c`, `varm_flash_boot.c`, `usb_virtual_disk.c`), em 16/11/2026.
+Nada foi conferido no aparelho ainda.
 
 ### OTA de firmware — medidas
 
