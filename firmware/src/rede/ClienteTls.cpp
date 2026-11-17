@@ -276,6 +276,13 @@ char g_nome_cert[80];
 char g_msg_cert[192];
 char g_porque_cert[112];
 
+// A marca `cert_recusado` so quer dizer "o aperto de mao vai morrer" porque a
+// verificacao e obrigatoria. Com `VERIFY_OPTIONAL` o mbedTLS seguiria apesar
+// das bandeiras, e uma queda qualquer, mais adiante, chegaria a remessa como
+// certificado recusado -- que ela nao repete e que a encerra no primeiro.
+static_assert(ALTCP_MBEDTLS_AUTHMODE == MBEDTLS_SSL_VERIFY_REQUIRED,
+              "cert_recusado supoe a verificacao obrigatoria do lwipopts.h");
+
 /// Chamado pelo mbedTLS para CADA certificado da cadeia, durante o handshake.
 ///
 /// Existe por uma razao so: quando o handshake falha, o lwIP aborta e libera o
@@ -354,6 +361,10 @@ static_assert(kPrazoDnsMs > static_cast<std::uint32_t>(
                   DNS_MAX_SERVERS * DNS_TMR_INTERVAL
                   * (1 + DNS_MAX_RETRIES * (DNS_MAX_RETRIES - 1) / 2)),
               "o lwIP insiste no DNS por mais tempo que kPrazoDnsMs");
+// A conta acima e a de UMA pergunta por nome. Com IPv6 ligado, o lwIP pode
+// perguntar de novo pelo outro tipo de endereco (`dns.c`, o recomeco em
+// `DNS_STATE_NEW`) e somar outro ciclo inteiro, que o prazo cortaria.
+static_assert(!LWIP_IPV6, "com IPv6 o DNS pode passar de kPrazoDnsMs");
 
 bool resolve(const char* host, ip_addr_t* destino, std::uint32_t limite_ms,
              Logger& log) {
@@ -674,9 +685,10 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
             log.error(kOrigem, msg);
             saida.erro = ErroHttp::TempoEsgotado;
             saida.recebidos = pedido.leitor.recebidos();
-            // O status tambem, se a linha dele chegou: quem chama decide se
-            // insiste por ele, e um 401 que chegou e travou continua sendo
-            // um 401 -- repeti-lo daria no mesmo.
+            // O status tambem, se o cabecalho chegou inteiro -- o leitor so o
+            // conhece depois da linha em branco, e ate ali ele e zero. Quem
+            // chama decide se insiste por ele, e um 401 que chegou e travou
+            // continua sendo um 401: repeti-lo daria no mesmo.
             saida.status = pedido.leitor.status();
             return saida;
         }

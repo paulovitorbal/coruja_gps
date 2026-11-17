@@ -67,7 +67,9 @@ constexpr std::uint32_t kTempoLimiteConsultaMs = 30'000;
 constexpr unsigned kTentativasPorArquivo = 3;
 
 /// Quantos arquivos seguidos, falhando pelo caminho até o servidor, encerram
-/// a remessa. A contagem recomeça a cada entrega.
+/// a remessa. A contagem recomeça sempre que o servidor responde de um jeito
+/// que prova o caminho: a entrega, o 413, o CRC diferente
+/// (`RemessaDados::prova_o_caminho`).
 ///
 /// **Dois, e não um.** O primeiro arquivo sozinho não distingue o caminho do
 /// arquivo: um `coruja.log` grande que não cabe no enlace fraco, ou um nome
@@ -356,7 +358,11 @@ private:
     /// A falha pode ser do caminho até o servidor, e não só deste arquivo?
     /// É o que conta para `kFalhasSeguidasAteParar`.
     static bool aponta_o_caminho(Desfecho d);
-    /// O resultado de uma remessa sem entrega, pela última falha dela.
+    /// O servidor respondeu a este arquivo de um jeito que prova o caminho
+    /// até ele, mesmo sem aceitá-lo. É o que zera a conta.
+    static bool prova_o_caminho(Desfecho d);
+    /// O resultado de uma remessa sem entrega, pelo motivo que ela guardou —
+    /// ver o laço de `executa`.
     static ResultadoRemessa sem_entrega(Desfecho d);
 
     /// Monta a URL do arquivo a partir de `url_envio`. `false` se não couber.

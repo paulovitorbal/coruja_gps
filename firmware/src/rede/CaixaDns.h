@@ -13,10 +13,11 @@ namespace coruja {
 /// escrita atrasada corrompe o que estiver ali.
 ///
 /// O caminho mais curto para isso é o NTP, e não por pouco: o prazo dele é
-/// 5 s e o lwIP desiste em `DNS_MAX_RETRIES (4) × DNS_TMR_INTERVAL (1000 ms)`.
-/// Os dois prazos caem um em cima do outro, e o NTP roda em **toda** sessão de
-/// rede, logo depois de associar ao Wi-Fi — que é justamente quando o DNS
-/// demora.
+/// 5 s, e o lwIP só desiste de um servidor aos ~7 s — com `DNS_MAX_RETRIES`
+/// em 4 e o timer de 1 s, ele pergunta em ~0, 1, 2 e 4 s (ver `kPrazoDnsMs`,
+/// no `ClienteTls.cpp`). Com o DNS mudo, a resposta atrasada chega **sempre**
+/// depois do prazo do NTP, e o NTP roda em **toda** sessão de rede, logo
+/// depois de associar ao Wi-Fi — que é justamente quando o DNS demora.
 ///
 /// A caixa vive pelo programa inteiro e o `arg` deixa de ser ponteiro: passa a
 /// ser um **número de geração**. A resposta atrasada chega, não reconhece a

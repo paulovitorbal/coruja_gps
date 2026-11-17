@@ -388,8 +388,9 @@ o último é só o que teve mais sorteios antes dele.
 
 | | |
 | :--- | :--- |
-| tentativas por arquivo | 3, com 2 s entre elas |
-| tentativas da confirmação | 3, **sem refazer o `PUT`** |
+| tentativas por arquivo | 3, com 2 s entre elas — só o que pode mudar (ver abaixo) |
+| tentativas da confirmação | 3, **sem refazer o `PUT`**, com a mesma regra |
+| parada | 2 arquivos seguidos falhando pelo caminho até o servidor; certificado recusado, no 1º |
 | teto do conjunto | 10 min, conferido entre arquivos e entre tentativas |
 | arquivos por remessa | 40 (era 12) |
 
@@ -428,6 +429,50 @@ endereço é descartado assim que um pedido não chega a resposta nenhuma.
 > terminar. Enviar com frequência mantém cada remessa curta. O módulo GPS
 > segue rodando sozinho durante o envio; só os bytes enviados à placa se
 > perdem (não verificado como o firmware retoma depois).
+
+### O erro que não muda
+
+Até a v0.2.24 todo erro era tentado três vezes por arquivo, e a remessa só
+parava no teto. Um token errado, uma `url_envio` errada ou um relógio sem hora
+— que faz todo certificado ser recusado — voltam iguais dois segundos depois:
+com 40 arquivos e um 401, eram 59 `PUT` e os dez minutos inteiros de aparelho
+preso. Desde a v0.2.25 cada tentativa termina num desfecho, e só é repetido o
+que pode mudar (`RemessaDados::classifica`):
+
+| desfecho | repete? | na conta da parada |
+| :--- | :--- | :--- |
+| sem resposta: DNS, conexão, tempo esgotado, queda | sim | conta |
+| erro de momento: 5xx, 408, 429 | sim | conta |
+| recusa: 3xx, 4xx (token, `url_envio`) | não | conta |
+| certificado recusado | não | para no 1º |
+| 413 | não | zera |
+| CRC diferente | sim, reenviando | zera |
+| cartão que não lê, URL que não forma | cartão sim, URL não | fica de fora |
+
+Vale o **status**, e não o erro: o 401 que chega com a conexão caindo atrás (o
+servidor recusa sem ler o corpo) é recusa. **Dois arquivos seguidos** que
+falham pelo caminho até o servidor encerram a remessa, e o resto fica no
+cartão para a próxima. Dois, e não um, porque um arquivo sozinho não separa o
+caminho do arquivo. A conta zera quando o servidor responde de um jeito que
+prova o caminho — a entrega, o 413, o CRC diferente —, e o certificado
+recusado para no primeiro: sem relógio, aperto de mão nenhum passa.
+
+Uma remessa condenada custa hoje, além da associação e do NTP: um aperto de
+mão (certificado), dois pedidos (recusa), ~92 s (DNS morto) ou ~98 s (servidor
+que não atende). O teto de 10 min fica como última guarda, para o enlace vivo
+e lento — e é ele que ainda segura um `PUT` que anda mas não termina em 180 s,
+tentado três vezes por arquivo.
+
+Sem nenhuma entrega, a tela diz o motivo. A falha do caminho vale mais que a
+do arquivo, porque é ela que pede conserto; entre iguais, a mais recente.
+
+| tela | o que houve | onde olhar |
+| :--- | :--- | :--- |
+| `SERVIDOR NAO RESPONDEU` | DNS, conexão ou tempo esgotado | rede, servidor fora do ar |
+| `CERTIFICADO RECUSADO` | o TLS recusou o certificado | relógio: `servidor_ntp`, fix do GPS |
+| `SERVIDOR NAO ACEITOU` | respondeu e recusou: 3xx, 4xx, 5xx, CRC | `token_aparelho`, `url_envio`, servidor |
+| `CARTAO ILEGIVEL` | o cartão não entregou os arquivos | cartão |
+| `SEM CONFIGURACAO` | `url_envio`, `token_aparelho` ou rede faltando ou inválidos | `coruja.cfg` |
 
 ### Testes do gerador
 

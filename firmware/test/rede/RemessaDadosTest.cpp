@@ -91,6 +91,10 @@ public:
 
     ErroCartao abre_para_leitura(const char* nome, std::size_t* tamanho,
                                  Logger&) override {
+        // Como o `CartaoSd`: uma leitura de cada vez. Sem isto, uma leitura
+        // que a remessa esquecesse aberta passaria aqui -- e no aparelho todo
+        // `abre_para_leitura` seguinte falharia, ate o reinicio.
+        if (!aberto_.empty()) { return ErroCartao::FalhaDeLeitura; }
         if (falha_ao_abrir || nao_abrem.count(nome) > 0) {
             return ErroCartao::FalhaDeLeitura;
         }
@@ -139,6 +143,9 @@ public:
     }
 
     void fecha_leitura() override { aberto_.clear(); }
+
+    /// Ficou alguma leitura aberta? Conferido ao fim de todo `Cenario`.
+    bool aberto() const { return !aberto_.empty(); }
 
     ErroCartao remove(const char* nome, Logger&) override {
         if (falha_ao_remover) { return ErroCartao::FalhaDeEscrita; }
@@ -203,6 +210,9 @@ public:
     /// É assim que se exercita a retentativa sem um servidor de verdade.
     unsigned falhas_de_envio_restantes = 0;
     unsigned falhas_de_consulta_restantes = 0;
+    /// O que cada uma dessas consultas que falham devolve. Por padrão, o
+    /// tempo esgotado sem linha de status nenhuma.
+    ResultadoHttp falha_de_consulta = {ErroHttp::TempoEsgotado, 0, 0};
     /// Quanto o relógio anda a cada pedido. Zero é o enlace instantâneo que
     /// quase todos os testes querem.
     std::uint32_t custo_ms = 0;
@@ -256,7 +266,7 @@ public:
         auto it = recebidos.find(nome_de(url));
         if (falhas_de_consulta_restantes > 0) {
             --falhas_de_consulta_restantes;
-            return {ErroHttp::TempoEsgotado, 0, 0};
+            return falha_de_consulta;
         }
         if (erro_na_consulta != ErroHttp::Nenhum) {
             // Parametro de saida apos chamada que falhou contem LIXO, e o
@@ -345,6 +355,9 @@ struct Cenario {
         rede.relogio = &pausa;
         RemessaDados r(cartao, rede, servidor, pausa, nullptr, &preparo);
         auto saida = r.executa(cfg, log);
+        // Em TODO cenario, inclusive os de erro: o cartao do aparelho nao
+        // abre outra leitura enquanto uma estiver aberta.
+        EXPECT_FALSE(cartao.aberto()) << "a remessa deixou uma leitura aberta";
         entregues = r.entregues();
         falhados = r.falhados();
         retidos = r.retidos();
@@ -1044,6 +1057,28 @@ TEST(Confirmacao, recusa_na_consulta_nao_se_resolve_perguntando_de_novo) {
         << "o duble escreve o CRC certo mesmo falhando; quem apagou leu lixo";
 }
 
+TEST(Confirmacao, erro_de_momento_na_consulta_e_repetido_sem_reenviar) {
+    // 5xx, 408 e 429 pedem outra PERGUNTA, e nao outro PUT: o conteudo ja
+    // esta la. Trata-los como recusa devolveria o arquivo a tentativa de
+    // fora, que reenviaria o que ja chegou.
+    for (std::uint32_t status : {408u, 429u, 500u, 503u}) {
+        Cenario c;
+        c.cartao.arquivos["infracoes.log"] = "uma passagem";
+        c.servidor.falha_de_consulta = {ErroHttp::StatusNaoOk, status, 0};
+        c.servidor.falhas_de_consulta_restantes = 1;
+
+        EXPECT_EQ(c.roda(), ResultadoRemessa::Enviada) << status;
+        EXPECT_EQ(c.servidor.envios, 1) << status;
+        EXPECT_EQ(c.servidor.consultas, 2) << status;
+        EXPECT_EQ(c.cartao.apagados,
+                  (std::vector<std::string>{"infracoes.log"}))
+            << status;
+        EXPECT_TRUE(c.log.contem(Nivel::Warning,
+                                 "status " + std::to_string(status)))
+            << "o remessa.log tem de separar um 503 de um 401";
+    }
+}
+
 // ================== O TETO DO CONJUNTO ==================
 //
 // O envio bloqueia o laco principal e nao tem cancelamento: enquanto roda, o
@@ -1361,6 +1396,45 @@ TEST(ErroPermanente, erro_de_momento_do_servidor_continua_sendo_repetido) {
     }
 }
 
+TEST(ErroPermanente, vale_o_status_que_chegou_e_nao_o_erro) {
+    // O `ClienteTls` devolve o status junto com o erro sempre que o cabecalho
+    // chegou inteiro -- na queda e, desde 16/11/2026, no tempo esgotado.
+    // Abaixo de 300 nao houve resposta que servisse; dali para cima, quem
+    // decide e o codigo. Sem o status, decide o erro.
+    struct Caso {
+        ErroHttp erro;
+        std::uint32_t status;
+        int envios;
+        ResultadoRemessa esperado;
+    };
+    const int todas = static_cast<int>(kTentativasPorArquivo);
+    const Caso casos[] = {
+        {ErroHttp::Interrompida, 201, todas, ResultadoRemessa::SemResposta},
+        {ErroHttp::Interrompida, 299, todas, ResultadoRemessa::SemResposta},
+        {ErroHttp::Interrompida, 300, 1, ResultadoRemessa::FalhaAoEnviar},
+        {ErroHttp::StatusNaoOk, 499, 1, ResultadoRemessa::FalhaAoEnviar},
+        {ErroHttp::StatusNaoOk, 500, todas, ResultadoRemessa::FalhaAoEnviar},
+        {ErroHttp::TempoEsgotado, 0, todas, ResultadoRemessa::SemResposta},
+        {ErroHttp::TempoEsgotado, 401, 1, ResultadoRemessa::FalhaAoEnviar},
+        {ErroHttp::TempoEsgotado, 503, todas, ResultadoRemessa::FalhaAoEnviar},
+        {ErroHttp::CertificadoRecusado, 0, 1,
+         ResultadoRemessa::CertificadoRecusado},
+        {ErroHttp::UrlInvalida, 0, 1, ResultadoRemessa::SemConfiguracao},
+    };
+    for (const Caso& k : casos) {
+        Cenario c;
+        c.cartao.arquivos["coruja.log"] = "diario";
+        c.servidor.erro_no_envio = k.erro;
+        c.servidor.status_no_envio = k.status;
+
+        const std::string rotulo =
+            std::string(descreve(k.erro)) + ", status " + std::to_string(k.status);
+        EXPECT_EQ(c.roda(), k.esperado) << rotulo;
+        EXPECT_EQ(c.servidor.envios, k.envios) << rotulo;
+        EXPECT_TRUE(c.cartao.apagados.empty()) << rotulo;
+    }
+}
+
 // ================== A REMESSA QUE PARA ==================
 //
 // Dois arquivos seguidos que nao passam pelo CAMINHO ate o servidor -- DNS,
@@ -1389,7 +1463,8 @@ TEST(Parada, dois_arquivos_seguidos_sem_resposta_encerram_a_remessa) {
     EXPECT_EQ(c.falhados, 2u);
     EXPECT_EQ(c.restantes, 1u) << "o terceiro nao foi tentado: nao falhou";
     EXPECT_EQ(c.cartao.arquivos.size(), 3u);
-    EXPECT_TRUE(c.log.contem(Nivel::Warning, "ficam para a proxima"));
+    // "ficam para a proxima" sozinho tambem casaria com o aviso do teto.
+    EXPECT_TRUE(c.log.contem(Nivel::Warning, "caminho ate o servidor"));
 }
 
 TEST(Parada, recusa_do_servidor_custa_dois_pedidos_e_nao_o_teto) {
@@ -1537,6 +1612,79 @@ TEST(Parada, arquivo_grande_demais_nao_e_repetido_nem_barra_os_outros) {
     EXPECT_EQ(c.cartao.arquivos.count("20261001_120000.log"), 1u);
 }
 
+TEST(Parada, crc_diferente_nao_entra_na_conta) {
+    // O servidor respondeu e guardou -- so que outra coisa. O caminho passa;
+    // quem falha e o arquivo, ou o que o corrompe no trajeto.
+    Cenario c;
+    poe_viagens(c.cartao, 3);
+    c.servidor.mente_no_crc = true;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 3 * static_cast<int>(kTentativasPorArquivo));
+    EXPECT_EQ(c.falhados, 3u);
+    EXPECT_EQ(c.restantes, 0u);
+    EXPECT_TRUE(c.cartao.apagados.empty());
+}
+
+TEST(Parada, resposta_do_servidor_entre_duas_falhas_zera_a_conta) {
+    // O 413 e do arquivo, mas veio de um servidor que respondeu: DNS,
+    // certificado e token passaram. A falha seguinte e a primeira de novo, e
+    // o quarto arquivo e tentado.
+    Cenario c;
+    poe_viagens(c.cartao, 4);
+    c.servidor.recusa_de["20261001_120000.log"] = {ErroHttp::NaoIniciou, 0, 0};
+    c.servidor.recusa_de["20261002_120000.log"] = {ErroHttp::StatusNaoOk, 413, 0};
+    c.servidor.recusa_de["20261003_120000.log"] = {ErroHttp::NaoIniciou, 0, 0};
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 3u);
+    EXPECT_EQ(c.restantes, 0u);
+}
+
+TEST(Parada, falha_do_cartao_no_meio_nao_zera_a_conta) {
+    // O cartao que nao le nem chegou a rede: nao diz nada do caminho, nem
+    // para o bem. As duas falhas de caminho em volta dele sao seguidas.
+    Cenario c;
+    poe_viagens(c.cartao, 4);
+    c.servidor.recusa_de["20261001_120000.log"] = {ErroHttp::StatusNaoOk, 404, 0};
+    c.cartao.nao_abrem.insert("20261002_120000.log");
+    c.servidor.recusa_de["20261003_120000.log"] = {ErroHttp::StatusNaoOk, 404, 0};
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.servidor.envios, 2);
+    EXPECT_EQ(c.falhados, 3u);
+    EXPECT_EQ(c.restantes, 1u);
+}
+
+TEST(Parada, arquivo_esvaziado_nao_entra_na_conta) {
+    // Mandar zero byte daria `NaoIniciou`, que contaria como rede morta por
+    // culpa do arquivo. Dois vazios seguidos nao encerram, e o terceiro sobe.
+    Cenario c;
+    poe_viagens(c.cartao, 3);
+    c.cartao.esvaziaram.insert("20261001_120000.log");
+    c.cartao.esvaziaram.insert("20261002_120000.log");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::Parcial);
+    EXPECT_EQ(c.servidor.envios, 1);
+    EXPECT_EQ(c.entregues, 1u);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, 0u);
+    EXPECT_EQ(c.cartao.arquivos.size(), 2u);
+}
+
+TEST(Parada, restantes_soma_os_que_nao_couberam_e_os_da_parada) {
+    Cenario c;
+    poe_viagens(c.cartao, kMaxRemessa + 2);
+    c.servidor.erro_no_envio = ErroHttp::StatusNaoOk;
+    c.servidor.status_no_envio = 401;
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.falhados, 2u);
+    EXPECT_EQ(c.restantes, static_cast<unsigned>(kMaxRemessa + 2) - 2)
+        << "2 fora da colheita e 38 depois da parada";
+}
+
 // ============== O QUE O CARTAO E O CLIENTE DIZEM SOZINHOS ==============
 
 TEST(Remessa, cartao_que_falha_uma_vez_sobe_na_segunda) {
@@ -1587,6 +1735,42 @@ TEST(Remessa, sem_entrega_a_ultima_falha_e_que_diz_o_motivo) {
 
     EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
     EXPECT_EQ(c.falhados, 2u);
+}
+
+TEST(Remessa, sem_entrega_a_falha_do_caminho_vale_mais_que_a_do_arquivo) {
+    // Um 401 e depois um cartao que solucou: o conserto e o token, e a tela
+    // que dissesse CARTAO ILEGIVEL mandaria trocar o cartao.
+    Cenario c;
+    poe_viagens(c.cartao, 2);
+    c.servidor.recusa_de["20261001_120000.log"] = {ErroHttp::StatusNaoOk, 401, 0};
+    c.cartao.nao_abrem.insert("20261002_120000.log");
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaAoEnviar);
+    EXPECT_EQ(c.falhados, 2u);
+}
+
+TEST(Remessa, sem_entrega_entre_iguais_vale_a_mais_recente) {
+    {
+        // Dois do arquivo: o 413 e depois o cartao. Vale o cartao.
+        Cenario c;
+        poe_viagens(c.cartao, 2);
+        c.servidor.recusa_de["20261001_120000.log"] =
+            {ErroHttp::StatusNaoOk, 413, 0};
+        c.cartao.nao_abrem.insert("20261002_120000.log");
+        EXPECT_EQ(c.roda(), ResultadoRemessa::FalhaDeCartao);
+    }
+    {
+        // Dois do caminho: a recusa e depois a rede morta, que encerram a
+        // remessa. Vale a rede.
+        Cenario c;
+        poe_viagens(c.cartao, 3);
+        c.servidor.recusa_de["20261001_120000.log"] =
+            {ErroHttp::StatusNaoOk, 404, 0};
+        c.servidor.recusa_de["20261002_120000.log"] = {ErroHttp::NaoIniciou, 0, 0};
+        EXPECT_EQ(c.roda(), ResultadoRemessa::SemResposta);
+        EXPECT_EQ(c.falhados, 2u);
+        EXPECT_EQ(c.restantes, 1u);
+    }
 }
 
 }  // namespace

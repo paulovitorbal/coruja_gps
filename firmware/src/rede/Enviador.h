@@ -54,9 +54,10 @@ public:
     /// que interessa não é o que o servidor diz ter recebido, é o que ele diz
     /// **ter guardado** depois de fechar o arquivo.
     ///
-    /// Status 404 chega aqui como `StatusNaoOk`, e isso basta: para quem
-    /// chama, "o servidor não tem" e "o servidor não respondeu direito" levam
-    /// à mesma decisão — não apagar.
+    /// Status 404 chega aqui como `StatusNaoOk`, com o status junto. Para
+    /// apagar, "o servidor não tem" e "o servidor não respondeu direito" dão
+    /// no mesmo — não apagar. Para insistir, não: a recusa volta igual e não
+    /// é repetida, a falta de resposta é (ver `RemessaDados::classifica`).
     virtual ResultadoHttp consulta_crc(const Url& url, const char* token,
                                        std::uint32_t* crc, Logger& log,
                                        std::uint32_t tempo_limite_ms) = 0;

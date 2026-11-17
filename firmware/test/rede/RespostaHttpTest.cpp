@@ -409,6 +409,27 @@ TEST(LeitorResposta, status_de_erro_e_lido_e_o_corpo_tambem) {
     EXPECT_EQ(c.corpo, "nops!");
 }
 
+TEST(LeitorResposta, o_status_so_aparece_com_o_cabecalho_inteiro) {
+    // O `ClienteTls` devolve, no tempo esgotado, o status que o leitor tiver
+    // -- e a remessa decide por ele se insiste. O leitor so o conhece depois
+    // da linha em branco: ate ali e zero, que a remessa trata como "sem
+    // resposta", o lado que insiste.
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "HTTP/1.1 40", 4, &c));
+    EXPECT_EQ(leitor.status(), 0u);
+    ASSERT_TRUE(alimenta_em_blocos(
+        leitor, "1 Unauthorized\r\nContent-Length: 5\r\n", 4, &c));
+    EXPECT_EQ(leitor.status(), 0u);
+    EXPECT_FALSE(leitor.cabecalhos_prontos());
+
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "\r\nno", 4, &c));
+    EXPECT_EQ(leitor.status(), 401u);
+    EXPECT_TRUE(leitor.cabecalhos_prontos());
+    EXPECT_FALSE(leitor.completa());
+    EXPECT_EQ(leitor.recebidos(), 2u);
+}
+
 TEST(LeitorResposta, resposta_sem_linha_de_status_e_recusada) {
     const std::string bruto = "ISTO NAO E HTTP\r\n\r\ncorpo";
     LeitorRespostaHttp leitor;

@@ -42,9 +42,11 @@ void ao_chegar(void* arg, struct udp_pcb*, struct pbuf* p, const ip_addr_t*,
 
 /// A caixa do DNS deste cliente. Ver `CaixaDns`: o lwIP nao cancela um
 /// `dns_gethostbyname`, e aqui o aperto e o pior do projeto -- o prazo e de
-/// 5 s e o lwIP desiste em `DNS_MAX_RETRIES (4) x DNS_TMR_INTERVAL (1000 ms)`.
-/// Os dois caem um em cima do outro, e isto roda em TODA sessao de rede, logo
-/// depois de associar ao Wi-Fi, que e justamente quando o DNS demora.
+/// 5 s e o lwIP so desiste de um servidor aos ~7 s (ver `kPrazoDnsMs`, no
+/// `ClienteTls.cpp`). Com o DNS mudo a resposta chega sempre depois do prazo,
+/// e isto roda em TODA sessao de rede, logo depois de associar ao Wi-Fi, que
+/// e justamente quando o DNS demora. O mesmo prazo impede o NTP de chegar ao
+/// segundo servidor de DNS quando o primeiro esta morto.
 CaixaDns g_dns;
 ip_addr_t g_endereco_dns = {};
 

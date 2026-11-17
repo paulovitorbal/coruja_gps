@@ -226,6 +226,30 @@ bool RemessaDados::aponta_o_caminho(Desfecho d) {
     return true;  // fora de faixa: contar e o lado que nao prende o aparelho
 }
 
+bool RemessaDados::prova_o_caminho(Desfecho d) {
+    switch (d) {
+        // O servidor respondeu a ESTE arquivo: DNS, conexao, certificado e
+        // token passaram. O 413 e o CRC diferente sao so do arquivo, e dizem
+        // que o seguinte encontraria o caminho aberto.
+        case Desfecho::Entregue:
+        case Desfecho::GrandeDemais:
+        case Desfecho::Divergiu:
+            return true;
+        // A recusa e o erro do servidor tambem vieram dele, mas sao do
+        // caminho -- token, `url_envio`, servidor caido -- e o seguinte daria
+        // no mesmo. O cartao e a URL nem chegaram a rede: nao dizem nada do
+        // caminho, nem para o bem nem para o mal.
+        case Desfecho::Cartao:
+        case Desfecho::Url:
+        case Desfecho::SemResposta:
+        case Desfecho::ErroNoServidor:
+        case Desfecho::Recusado:
+        case Desfecho::Certificado:
+            return false;
+    }
+    return false;  // fora de faixa: nao zerar e o lado que nao prende
+}
+
 ResultadoRemessa RemessaDados::sem_entrega(Desfecho d) {
     switch (d) {
         // Os que a tela nao pode dizer como SERVIDOR NAO ACEITOU: ele nao
@@ -517,11 +541,13 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
             log.info(kOrigem, msg);
         }
         const auto total = static_cast<unsigned>(colheita_.n);
-        // A falha mais recente. Quando nada passou, e ela que diz por que --
-        // e o que a tela diz ao usuario.
-        Desfecho ultima_falha = Desfecho::Entregue;
+        // O motivo de uma remessa sem entrega, que e o que a tela diz ao
+        // usuario. A falha do caminho vale mais que a do arquivo, porque e
+        // ela que pede conserto: um 401 seguido de um cartao que solucou e
+        // token errado, e nao CARTAO ILEGIVEL. Entre iguais, a mais recente.
+        Desfecho motivo = Desfecho::Entregue;
         // Arquivos que falharam pelo caminho ate o servidor desde a ultima
-        // entrega. Ver `kFalhasSeguidasAteParar`.
+        // resposta que o provou. Ver `kFalhasSeguidasAteParar`.
         unsigned seguidas = 0;
         for (std::size_t i = 0; i < colheita_.n; ++i) {
             // O teto e conferido ENTRE arquivos, nunca no meio de um: abortar
@@ -539,12 +565,12 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
             const Desfecho d = insiste(cfg, colheita_.nomes[i],
                                        static_cast<unsigned>(i) + 1, total,
                                        log);
-            if (d == Desfecho::Entregue) {
-                seguidas = 0;
-                continue;
-            }
+            if (prova_o_caminho(d)) { seguidas = 0; }
+            if (d == Desfecho::Entregue) { continue; }
             ++falhados_;
-            ultima_falha = d;
+            if (aponta_o_caminho(d) || !aponta_o_caminho(motivo)) {
+                motivo = d;
+            }
             if (!aponta_o_caminho(d)) { continue; }
             // Sem esta parada a remessa so terminaria no teto, dez minutos
             // depois -- inclusive quando o Wi-Fi some depois da primeira
@@ -567,7 +593,7 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
         if (total == 0) {
             saida = ResultadoRemessa::NadaAEnviar;
         } else if (falhados_ > 0 && entregues_ == 0) {
-            saida = sem_entrega(ultima_falha);
+            saida = sem_entrega(motivo);
         } else if (falhados_ > 0) {
             saida = ResultadoRemessa::Parcial;
         } else if (retidos_ > 0) {
