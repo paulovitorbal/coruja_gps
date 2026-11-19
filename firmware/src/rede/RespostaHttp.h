@@ -81,12 +81,25 @@ public:
     bool cabecalhos_prontos() const { return fase_ != Fase::Cabecalhos; }
     std::uint32_t status() const { return status_; }
 
-    /// O corpo terminou de chegar **e isso é sabido**: ou o `Content-Length`
-    /// foi atingido, ou veio o pedaço de tamanho zero.
+    /// O corpo terminou de chegar **e isso é sabido**: o `Content-Length` foi
+    /// atingido, veio o pedaço de tamanho zero, ou — numa resposta sem
+    /// nenhum dos dois — a conexão fechou (`fim_do_fluxo`).
     ///
-    /// Falso não significa erro: numa resposta sem nenhum dos dois, o fim é
-    /// o fechamento da conexão, e quem sabe disso é a camada de transporte.
+    /// Falso depois do `fim_do_fluxo` é **corpo truncado**, e quem chama tem
+    /// de tratá-lo como falha.
     bool completa() const { return fase_ == Fase::Fim; }
+
+    /// A conexão fechou. Quem sabe disso é o transporte; o que isso quer
+    /// dizer é daqui.
+    ///
+    /// Só a resposta que não anunciou o próprio fim termina no fechamento.
+    /// Nas outras, fechar antes do `Content-Length` ou do pedaço zero deixa
+    /// `completa()` falso. Até 17/11/2026 o `ClienteTls` tomava todo
+    /// fechamento como fim do corpo, e um `radares.versao` cortado no meio,
+    /// com 200, ia parar no `versao.txt`.
+    void fim_do_fluxo() {
+        if (fase_ == Fase::CorpoAteFechar) { fase_ = Fase::Fim; }
+    }
 
     std::size_t recebidos() const { return recebidos_; }
 

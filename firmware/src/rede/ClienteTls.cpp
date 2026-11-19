@@ -197,9 +197,12 @@ err_t ao_receber(void* arg, struct altcp_pcb* pcb, struct pbuf* buf,
     if (p == nullptr) { return ERR_OK; }
 
     if (buf == nullptr || erro != ERR_OK) {
-        // Fim do fluxo. Nao e falha por si: numa resposta sem
-        // Content-Length nem pedacos, o fechamento E o fim do corpo.
-        if (buf != nullptr) { pbuf_free(buf); }
+        // Fim do fluxo. Nao e falha por si -- numa resposta sem
+        // Content-Length nem pedacos, o fechamento E o fim do corpo --, mas
+        // tambem nao e sucesso por si: quem diz se o corpo chegou inteiro e
+        // o leitor, que sabe o que a resposta anunciou.
+        if (buf == nullptr) { p->leitor.fim_do_fluxo(); }
+        else                { pbuf_free(buf); }
         return encerra(p, pcb, false) ? ERR_ABRT : ERR_OK;
     }
 
@@ -768,6 +771,20 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
                       static_cast<unsigned>(saida.status));
         log.error(kOrigem, msg);
         saida.erro = ErroHttp::StatusNaoOk;
+        return saida;
+    }
+    if (!pedido.leitor.completa()) {
+        // A conexao fechou antes do fim que a propria resposta anunciou. Ate
+        // 17/11/2026 isto era `ok()`, e um `radares.versao` cortado no meio
+        // ia parar no `versao.txt`. Ver `LeitorRespostaHttp::fim_do_fluxo`.
+        // Em pedacos nao ha total anunciado: o que faltou foi o pedaco zero.
+        std::snprintf(msg, sizeof msg,
+                      "corpo truncado: a conexao fechou com %u B, de %ld "
+                      "anunciados (-1 = em pedacos)",
+                      static_cast<unsigned>(saida.recebidos),
+                      pedido.leitor.content_length());
+        log.error(kOrigem, msg);
+        saida.erro = ErroHttp::Interrompida;
         return saida;
     }
 

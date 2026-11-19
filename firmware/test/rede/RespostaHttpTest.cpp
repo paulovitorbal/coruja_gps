@@ -604,4 +604,58 @@ TEST(LeitorResposta, pedaco_exatamente_no_teto_e_aceito) {
     EXPECT_FALSE(leitor.completa());
 }
 
+// --- o fim do fluxo -------------------------------------------------------
+//
+// A conexao fechou. Ate 17/11/2026 o `ClienteTls` tomava todo fechamento
+// como fim do corpo: um `radares.versao` cortado no meio, com 200, virava
+// `ok()` e ia parar no `versao.txt`. So a resposta que nao anunciou o
+// proprio fim termina no fechamento; nas outras, fechar antes e corpo
+// truncado.
+
+TEST(LeitorResposta, o_fechamento_so_completa_quem_nao_anunciou_o_fim) {
+    struct Caso {
+        const char* nome;
+        const char* bruto;
+        bool        completa;
+    };
+    const Caso casos[] = {
+        {"sem tamanho: o fechamento e o fim",
+         "HTTP/1.1 200 OK\r\n\r\ncorpo solto", true},
+        {"content-length inteiro",
+         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc", true},
+        {"content-length pela metade",
+         "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nola, ", false},
+        {"pedacos com o pedaco zero",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "2\r\noi\r\n0\r\n\r\n", true},
+        {"pedacos sem o pedaco zero",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "2\r\noi\r\n", false},
+        {"pedaco cortado no meio",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "5\r\nab", false},
+        {"cabecalhos pela metade",
+         "HTTP/1.1 200 OK\r\nContent-Le", false},
+    };
+    for (const auto& caso : casos) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, caso.bruto, 5, &c)) << caso.nome;
+        leitor.fim_do_fluxo();
+        EXPECT_EQ(leitor.completa(), caso.completa) << caso.nome;
+    }
+}
+
+TEST(LeitorResposta, depois_do_fechamento_nada_mais_e_corpo) {
+    // O lwIP nao entrega byte depois do FIN; se algo chegasse, nao poderia
+    // reabrir um corpo que o fechamento ja deu por terminado.
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "HTTP/1.1 200 OK\r\n\r\nabc", 4, &c));
+    leitor.fim_do_fluxo();
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "def", 4, &c));
+    EXPECT_EQ(c.corpo, "abc");
+    EXPECT_TRUE(leitor.completa());
+}
+
 }  // namespace
