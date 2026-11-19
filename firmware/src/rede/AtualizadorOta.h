@@ -37,6 +37,13 @@ enum class ResultadoOta {
     FalhaAoBaixar,     ///< o download não completou
     BaseRecusada,      ///< baixou inteiro e o conteúdo não passou
     FalhaAoGravar,     ///< chegou íntegra e o cartão não aceitou
+    /// O servidor respondeu e recusou: 3xx, 4xx. Quase sempre é o
+    /// `token_aparelho` (401) ou a URL (404). Não se repete.
+    ServidorRecusou,
+    /// O aperto de mão TLS recusou o certificado do servidor. Quase sempre é
+    /// o relógio: sem hora acertada, todo certificado "ainda não vale". Não
+    /// se repete.
+    CertificadoRecusado,
 };
 
 const char* descreve(ResultadoOta resultado);
@@ -73,6 +80,8 @@ inline bool e_falha(ResultadoOta r) {
         case ResultadoOta::FalhaAoBaixar:
         case ResultadoOta::BaseRecusada:
         case ResultadoOta::FalhaAoGravar:
+        case ResultadoOta::ServidorRecusou:
+        case ResultadoOta::CertificadoRecusado:
             return true;
     }
     return true;  // enum fora de faixa: trata como falha, que é o lado seguro

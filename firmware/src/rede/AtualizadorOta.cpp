@@ -70,6 +70,26 @@ void ao_receber_base(void* contexto, const std::uint8_t* bytes,
     }
 }
 
+/// O resultado de um pedido que falhou, pelo que a falha diz.
+///
+/// `passageira` e o resultado da falha que pode sumir tentando de novo --
+/// `FalhaAoConsultar` na consulta, `FalhaAoBaixar` no download --, e e o
+/// unico que o laco de tentativas repete. A tela precisa da diferenca:
+/// DOWNLOAD INCOMPLETO pede outra tentativa; SERVIDOR RECUSOU pede o
+/// `coruja.cfg`, e CERTIFICADO RECUSADO, o relogio.
+ResultadoOta resultado_da_falha(const ResultadoHttp& r,
+                                ResultadoOta passageira) {
+    switch (classifica_falha(r)) {
+        case FalhaHttp::SemResposta:
+        case FalhaHttp::ErroNoServidor: return passageira;
+        case FalhaHttp::Url:            return ResultadoOta::SemConfiguracao;
+        case FalhaHttp::Certificado:    return ResultadoOta::CertificadoRecusado;
+        case FalhaHttp::GrandeDemais:
+        case FalhaHttp::Recusado:       return ResultadoOta::ServidorRecusou;
+    }
+    return passageira;  // fora de faixa: o lado que insiste
+}
+
 /// O que chegou no download, em uma linha -- e o despejo inteiro em DEBUG.
 ///
 /// 🔴 **Eram catorze linhas por atualizacao** (27/10/2026), com moldura de
@@ -173,6 +193,10 @@ const char* descreve(ResultadoOta resultado) {
         case ResultadoOta::FalhaAoBaixar:    return "o download nao completou";
         case ResultadoOta::BaseRecusada:     return "base recusada na verificacao";
         case ResultadoOta::FalhaAoGravar:    return "chegou integra, mas o cartao nao aceitou";
+        case ResultadoOta::ServidorRecusou:
+            return "o servidor recusou o pedido (token? URL?)";
+        case ResultadoOta::CertificadoRecusado:
+            return "o certificado do servidor foi recusado (relogio acertado?)";
     }
     return "resultado desconhecido";
 }
@@ -189,6 +213,8 @@ const char* descreve_curto(ResultadoOta resultado) {
         case ResultadoOta::FalhaAoBaixar:    return "DOWNLOAD INCOMPLETO";
         case ResultadoOta::BaseRecusada:     return "ARQUIVO CORROMPIDO";
         case ResultadoOta::FalhaAoGravar:    return "CARTAO NAO GRAVOU";
+        case ResultadoOta::ServidorRecusou:  return "SERVIDOR RECUSOU";
+        case ResultadoOta::CertificadoRecusado: return "CERTIFICADO RECUSADO";
     }
     return "ERRO DESCONHECIDO";
 }
@@ -310,11 +336,13 @@ bool AtualizadorOta::consulta_versao(const Url& url, Logger& log,
     const auto consulta = http_.baixa(url, ao_receber_versao, &coleta, log,
                                       15'000);
     if (!consulta.ok()) {
+        // O status vai junto: um 401 e um 503 pedem consertos diferentes.
         char msg[96];
-        std::snprintf(msg, sizeof msg, "consulta de versao: %s",
-                      descreve(consulta.erro));
+        std::snprintf(msg, sizeof msg, "consulta de versao: %s (status %u)",
+                      descreve(consulta.erro),
+                      static_cast<unsigned>(consulta.status));
         log.error("ota", msg);
-        *motivo = ResultadoOta::FalhaAoConsultar;
+        *motivo = resultado_da_falha(consulta, ResultadoOta::FalhaAoConsultar);
         return false;
     }
     if (coleta.estourou) {
@@ -401,12 +429,18 @@ ResultadoOta AtualizadorOta::tenta_baixar(const Url& url, unsigned tentativa,
                                       120'000);
 
     if (!download.ok()) {
-        std::snprintf(msg, sizeof msg, "download: %s (%lu B chegaram)",
+        std::snprintf(msg, sizeof msg, "download: %s (status %u, %lu B chegaram)",
                       descreve(download.erro),
+                      static_cast<unsigned>(download.status),
                       static_cast<unsigned long>(verificador_.bytes_recebidos()));
         log.error("ota", msg);
         cartao_.descarta_escrita(kArquivoTmp, log);
-        return ResultadoOta::FalhaAoBaixar;
+        // So o que pode mudar se repete. Um 401, um 404 ou um certificado
+        // recusado voltariam iguais cinco segundos depois.
+        const ResultadoOta r =
+            resultado_da_falha(download, ResultadoOta::FalhaAoBaixar);
+        *repete = r == ResultadoOta::FalhaAoBaixar;
+        return r;
     }
     if (destino.falhou_a_escrita) {
         log.error("ota", "o cartao recusou a escrita no meio do download");

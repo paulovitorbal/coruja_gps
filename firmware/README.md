@@ -487,6 +487,20 @@ Quem sabe de onde a base veio é a carga do boot, e não o OTA relendo o
 arquivo: reler custaria 214 KB de cartão a cada clique, e a carga confere
 mais (ordem e domínio) do que a verificação do download.
 
+O download é tentado até 3 vezes, com 5 s entre elas — **só o que pode
+mudar**, pela mesma leitura da remessa (`classifica_falha`). Até a revisão
+de 17/11/2026 um 401 era baixado três vezes e a tela dizia `DOWNLOAD
+INCOMPLETO`.
+
+| tela | o que houve | repete? | onde olhar |
+| :--- | :--- | :--- | :--- |
+| `SERVIDOR NAO RESPONDE` | a consulta de versão não voltou: DNS, conexão, tempo, 5xx | não (é uma consulta só) | rede, servidor fora do ar |
+| `DOWNLOAD INCOMPLETO` | o download caiu: conexão, tempo, 5xx | sim | sinal do Wi-Fi |
+| `SERVIDOR RECUSOU` | respondeu e recusou: 3xx, 4xx | não | `token_aparelho`, `url_versao`, `url_base` |
+| `CERTIFICADO RECUSADO` | o TLS recusou o certificado | não | relógio: `servidor_ntp`, fix do GPS |
+| `ARQUIVO CORROMPIDO` | baixou e não passou na verificação | sim | servidor |
+| `CARTAO NAO GRAVOU` | o cartão não aceitou | sim; a troca atômica, não | cartão |
+
 ### Testes do gerador
 
 ```sh

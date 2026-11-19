@@ -514,6 +514,87 @@ TEST(AtualizadorOta, falha_na_troca_atomica_nao_tenta_de_novo) {
     EXPECT_EQ(b.rede.desconexoes, 1U);
 }
 
+// ================================================== o erro que nao muda
+//
+// Ate 17/11/2026 o OTA repetia toda falha de download tres vezes, com 5 s
+// entre elas, e a tela dizia DOWNLOAD INCOMPLETO -- inclusive para um 401
+// (token errado), um 404 (`url_base` errada) ou um certificado recusado
+// (relogio sem hora). Nada disso muda em cinco segundos. A leitura e a da
+// remessa: `classifica_falha`.
+
+TEST(ErroPermanenteOta, recusa_na_consulta_diz_que_o_servidor_recusou) {
+    Bancada b;
+    b.http.resposta_versao = ResultadoHttp{ErroHttp::StatusNaoOk, 401, 0};
+    EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou)
+        << "um 401 nao e SERVIDOR NAO RESPONDE: ele respondeu";
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(ErroPermanenteOta, certificado_recusado_na_consulta_diz_o_motivo) {
+    Bancada b;
+    b.http.resposta_versao = ResultadoHttp{ErroHttp::CertificadoRecusado, 0, 0};
+    EXPECT_EQ(b.roda(), ResultadoOta::CertificadoRecusado);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(ErroPermanenteOta, consulta_sem_resposta_ou_com_erro_de_momento_nao_muda) {
+    for (const auto r : {ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0},
+                         ResultadoHttp{ErroHttp::StatusNaoOk, 503, 0}}) {
+        Bancada b;
+        b.http.resposta_versao = r;
+        EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar) << r.status;
+    }
+}
+
+TEST(ErroPermanenteOta, download_recusado_nao_e_repetido) {
+    for (const std::uint32_t status : {401U, 403U, 404U}) {
+        Bancada b;
+        b.http.resposta_base = ResultadoHttp{ErroHttp::StatusNaoOk, status, 0};
+        b.http.cura_na_tentativa = 99;
+        EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou) << status;
+        EXPECT_EQ(b.http.pedidos_base, 1U) << status;
+        EXPECT_TRUE(b.pausa.esperas.empty()) << status;
+        EXPECT_EQ(b.cartao.descartes, 1U) << "o temporario ficou no cartao";
+        EXPECT_FALSE(b.chamou("promove"));
+    }
+}
+
+TEST(ErroPermanenteOta, certificado_recusado_no_download_nao_e_repetido) {
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::CertificadoRecusado, 0, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::CertificadoRecusado);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(ErroPermanenteOta, recusa_que_chega_com_a_conexao_caindo_vale_pelo_status) {
+    // O servidor recusa sem ler o resto e fecha; o RST chega atras da
+    // resposta, e o cliente devolve `Interrompida` com o 401 que leu.
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::Interrompida, 401, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(ErroPermanenteOta, erro_de_momento_do_servidor_continua_sendo_repetido) {
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::StatusNaoOk, 503, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoBaixar);
+    EXPECT_EQ(b.http.pedidos_base, kTentativas);
+}
+
+TEST(ErroPermanenteOta, pedido_que_o_cliente_nem_monta_acusa_a_configuracao) {
+    // Cabecalho que nao coube, ou token com caractere invalido: o pedido nem
+    // saiu, e repetir monta o mesmo pedido.
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::UrlInvalida, 0, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::SemConfiguracao);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
 TEST(AtualizadorOta, o_radio_desce_em_todos_os_desfechos) {
     for (int caso = 0; caso < 4; ++caso) {
         Bancada b;
@@ -673,7 +754,9 @@ TEST(DescreveCurto, cabe_na_faixa_de_texto_da_tela) {
     for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
                          ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_LE(std::strlen(descreve_curto(r)), 26u)
             << "motivo longo demais: " << descreve_curto(r);
     }
@@ -685,7 +768,9 @@ TEST(DescreveCurto, cada_falha_tem_texto_proprio) {
     std::set<std::string> vistos;
     for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_TRUE(vistos.insert(descreve_curto(r)).second)
             << "motivo repetido: " << descreve_curto(r);
     }
@@ -695,7 +780,9 @@ TEST(DescreveCurto, nenhum_resultado_fica_sem_texto) {
     for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
                          ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_GT(std::strlen(descreve_curto(r)), 0u);
     }
 }
@@ -712,7 +799,9 @@ TEST(EFalha, todo_o_resto_e_falha) {
     // o usuario dispensar uma atualizacao que simplesmente nao era precisa.
     for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_TRUE(e_falha(r)) << descreve(r);
     }
 }
