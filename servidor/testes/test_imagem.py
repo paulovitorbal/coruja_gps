@@ -65,5 +65,21 @@ class ImagemLevaTodosOsModulos(unittest.TestCase):
                         f"{modulo} importa {nome}, que não vai na imagem")
 
 
+class ComposeDaApi(unittest.TestCase):
+    """Como a API sobe. Lido SEM comentários: ver `sem_comentarios`."""
+
+    def compose(self) -> str:
+        from sem_comentarios import sem_comentarios  # noqa: PLC0415
+        return sem_comentarios(
+            (RAIZ / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    def test_a_api_tem_teto_de_memoria(self):
+        # Medido em 19/11/2026: o mapa de uma viagem de 10 h passa de
+        # 72 MB no pico, e o de um arquivo de 8 MB -- o maior que a
+        # recepcao aceita -- chega a 319 MB. Sem teto, alguns desses ao mesmo
+        # tempo empurram a maquina inteira para a troca.
+        self.assertRegex(self.compose(), r"(?m)^\s+mem_limit:\s*\d+[mg]\s*$")
+
+
 if __name__ == "__main__":
     unittest.main()

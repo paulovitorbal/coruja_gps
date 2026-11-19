@@ -240,6 +240,44 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertIn("20261006_123858.log", corpo)
         self.assertNotIn("20261005_000000.log", corpo)
 
+    # -- um arquivo que nao e UTF-8 (S1 da revisao de 17/11/2026) --
+    #
+    # O `read_text` levanta `UnicodeDecodeError`, que NAO e `OSError`, e a
+    # listagem so capturava `ErroDeViagem`: um unico arquivo assim derrubava
+    # a conexao sem resposta, e com ele a pagina inteira do aparelho.
+
+    def poe_arquivo_que_nao_e_utf8(self, nome="20261005_000000.log"):
+        bruto = viagem_sintetica(inicio="2026-10-05T00:00:00Z").encode()
+        (self.recebidos / PASTA / nome).write_bytes(
+            bruto[:60] + b"\xff\xfe" + bruto[60:])
+
+    def test_arquivo_que_nao_e_utf8_nao_derruba_a_listagem(self):
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("20261006_123858.log", corpo)
+        self.assertNotIn("20261005_000000.log", corpo)
+
+    def test_arquivo_que_nao_e_utf8_nao_derruba_o_mapa_da_vizinha(self):
+        # O mapa monta as jornadas do aparelho inteiro antes de desenhar, e
+        # e ali que o arquivo ruim estourava -- no mapa de OUTRA viagem.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, _corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261006_123858.log", cookie=cookie)
+        self.assertEqual(st, 200)
+
+    def test_o_mapa_do_arquivo_que_nao_e_utf8_explica(self):
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261005_000000.log", cookie=cookie)
+        self.assertEqual(st, 422)
+        self.assertIn("UTF-8", corpo)
+
     # ===================================================== as outras rotas
 
     def test_a_pagina_nao_interfere_na_rota_da_base(self):
@@ -342,6 +380,95 @@ class LeituraDeViagem(unittest.TestCase):
 
     def test_resumo_devolve_none_para_arquivo_ruim(self):
         self.assertIsNone(viagem.resumo(self.escreve("lixo\n")))
+
+    # -- o arquivo vem de fora: tudo e validado AQUI, uma vez --
+    #
+    # O cartao pode ter sido mexido, o relogio do GPS pode estar errado, e
+    # quem tem o token sobe o que quiser. O que passa daqui e usado sem
+    # desconfianca pela listagem, pelo recorte de privacidade e pelo mapa.
+
+    def linhas(self, *dados: str) -> str:
+        return ("# coruja_gps viagem v2\nutc;lat;lon;v_media;dist_km\n"
+                + "".join(d + "\n" for d in dados))
+
+    def test_byte_que_nao_e_utf8_vira_erro_de_viagem(self):
+        alvo = self.pasta / "20261006_123858.log"
+        alvo.write_bytes(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;-10.0;-40.0;20.0;0.01").encode()
+            + b"\xff\n")
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(alvo)
+        self.assertIn("UTF-8", str(e.exception))
+
+    def test_coordenada_que_nao_e_numero_finito_nao_vira_ponto(self):
+        # `float()` aceita "nan" e "inf". Um NaN chegava ao GeoJSON como
+        # `NaN`, que nao e JSON, e o `metros_entre` de um NaN e falso para
+        # toda comparacao -- inclusive a da zona privada.
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;nan;-40.0;20.0;0.01",
+            "2026-10-06T12:00:12Z;-10.0;inf;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.0;-40.0;nan;0.03",
+            "2026-10-06T12:00:24Z;-10.0;-40.0;20.0;-inf",
+            "2026-10-06T12:00:30Z;-10.001;-40.0;20.0;0.05")))
+        self.assertEqual([p.quando.second for p in v.pontos], [0, 30])
+
+    def test_coordenada_fora_da_faixa_nao_vira_ponto(self):
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;-90.5;-40.0;20.0;0.01",
+            "2026-10-06T12:00:12Z;-10.0;180.5;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.001;-40.0;20.0;0.03")))
+        self.assertEqual([p.quando.second for p in v.pontos], [0, 18])
+
+    def test_ano_implausivel_nao_vira_ponto(self):
+        # 1980-01-06 e a epoca do GPS: e o que um receptor sem hora valida
+        # costuma informar. Uma amostra dessas no meio de uma viagem boa nao
+        # pode condenar a viagem -- nem virar um salto de 46 anos.
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "1980-01-06T00:00:00Z;-10.0;-40.0;20.0;0.01",
+            "9999-12-31T23:59:59Z;-10.0;-40.0;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.001;-40.0;20.0;0.03")))
+        self.assertEqual([p.quando.year for p in v.pontos], [2026, 2026])
+
+    def test_nenhuma_linha_util_diz_o_primeiro_motivo(self):
+        # "0 pontos" sozinho manda procurar; o motivo da primeira recusa
+        # costuma ser o de todas -- um relogio errado erra em toda linha.
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(self.escreve(self.linhas(
+                "2007-02-17T12:00:00Z;-10.0;-40.0;20.0;0.00",
+                "2007-02-17T12:00:06Z;-10.0;-40.0;20.0;0.01")))
+        self.assertIn("2007", str(e.exception))
+
+    def test_salto_de_tempo_entre_amostras_recusa_o_arquivo(self):
+        # O firmware fecha o arquivo depois de 5 min parado
+        # (formato_logs.md, secao 4). Um ano entre duas amostras do MESMO
+        # arquivo e relogio que pulou, e a animacao tentaria preencher o ano
+        # inteiro de dois em dois segundos.
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(self.escreve(self.linhas(
+                "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+                "2026-10-06T12:00:06Z;-10.0;-40.0;20.0;0.01",
+                "2027-10-06T12:00:12Z;-10.001;-40.0;20.0;0.02")))
+        self.assertIn("salto", str(e.exception))
+
+    def test_o_adensamento_tem_teto(self):
+        # O teto e o que impede um arquivo de pedir memoria sem fim. O
+        # `Viagem` e montado direto, sem passar pelo leitor: o teto vale
+        # mesmo para o que nao veio de arquivo.
+        a = viagem.PontoViagem(
+            quando=datetime.datetime(2026, 10, 6, tzinfo=datetime.timezone.utc),
+            lat=-10.0, lon=-40.0, v_media_kmh=20.0, dist_km=0.0)
+        b = viagem.PontoViagem(
+            quando=a.quando + datetime.timedelta(days=5),
+            lat=-10.1, lon=-40.0, v_media_kmh=20.0, dist_km=11.0)
+        denso = viagem._densifica(viagem.Viagem(nome="x", pontos=[a, b]))
+        # Duas amostras nao podem virar duzentos mil pontos.
+        self.assertLess(len(denso), 100_000)
+        self.assertLessEqual(len(denso), viagem.TETO_DE_PASSOS + 2)
+        self.assertEqual((denso[0], denso[-1]), (a, b))
 
     def test_o_geojson_e_uma_LineString_adensada(self):
         # 6 registros de minuto viram 5 trechos de 60 s, a 5 s por passo:

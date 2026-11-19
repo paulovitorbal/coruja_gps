@@ -45,6 +45,21 @@ Sem Docker, funciona igual:
 python3 servidor.py --dados ./dados --porta 8080
 ```
 
+### Teto de memória: `mem_limit: 512m`
+
+Medido em 19/11/2026, dentro da imagem: parado com o folium carregado, ~50 MB;
+o mapa de uma viagem de 10 h, 72 MB no pico; o de um arquivo de 8 MB — o
+maior que a recepção aceita —, 319 MB. O teto cabe o maior mapa legítimo, e
+quem passar dele é morto e reiniciado pelo `restart` em vez de empurrar a
+máquina inteira para a troca.
+
+O arquivo de viagem é validado **na entrada** (`viagem.le_viagem`): byte que
+não é UTF-8, coordenada impossível ou que não é número finito, ano fora de
+2020–2100 e salto de mais de 24 h entre amostras. Linha ruim é pulada;
+arquivo ruim some da listagem e o mapa dele explica o motivo, sem derrubar a
+página do aparelho. A animação inventa no máximo `TETO_DE_PASSOS` pontos por
+trecho, por longo que ele seja.
+
 ## A versão sai do próprio arquivo
 
 Nada de incrementar número à mão. O `radares.bin` já carrega um **CRC-32 do

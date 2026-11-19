@@ -89,6 +89,16 @@ services:
     security_opt:
       - no-new-privileges:true
 
+    # Teto de memória. **Medido, não estimado** (19/11/2026): parado, o
+    # processo tem ~50 MB com o folium carregado; o mapa de uma viagem de
+    # 10 h chega a 72 MB no pico, e o de um arquivo de 8 MB — o maior que a
+    # recepção aceita — a 319 MB. Cabe o maior mapa legítimo com folga.
+    #
+    # Quem estoura é morto e reiniciado pelo `restart`, e isso é o ponto: o
+    # que sai do ar é este container, e não a máquina inteira indo para a
+    # troca — ela hospeda a pilha de observabilidade e outros serviços.
+    mem_limit: 512m
+
     logging:
       driver: json-file
       options:
