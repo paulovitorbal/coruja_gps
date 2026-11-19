@@ -24,6 +24,33 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# `-Wall -Wextra` nos alvos DO PROJETO, e so neles.
+#
+# Nao com `add_compile_options`: o `pico_sdk_init()` acrescenta o SDK como
+# subdiretorio DESTE, entao a opcao desceria para o SDK, o lwIP e o mbedTLS
+# junto -- milhares de avisos de codigo de terceiro, que ninguem vai
+# consertar e que escondem os nossos.
+#
+# Sem `-Werror`, de proposito: aviso que quebra o build de quem clona hoje,
+# com outro compilador, e aviso que acaba desligado.
+#
+# A lista de alvos sai do proprio CMake (`BUILDSYSTEM_TARGETS` das NOSSAS
+# pastas), e nao escrita a mao: alvo novo ja nasce com os avisos ligados.
+function(coruja_avisos_nos_alvos_de)
+    foreach(PASTA IN LISTS ARGN)
+        get_property(ALVOS DIRECTORY "${PASTA}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(ALVO IN LISTS ALVOS)
+            get_target_property(TIPO ${ALVO} TYPE)
+            # Alvo de utilidade nao compila nada, e a INTERFACE empurraria a
+            # opcao para quem a usa -- inclusive para fontes de terceiros.
+            if(NOT TIPO STREQUAL "UTILITY"
+               AND NOT TIPO STREQUAL "INTERFACE_LIBRARY")
+                target_compile_options(${ALVO} PRIVATE -Wall -Wextra)
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+
 if(CORUJA_TESTES)
     project(coruja_gps_testes CXX)
     if(CORUJA_COBERTURA)
@@ -44,6 +71,7 @@ if(CORUJA_TESTES)
     add_subdirectory(src)
     add_subdirectory(test)
     add_subdirectory(ferramentas)
+    coruja_avisos_nos_alvos_de(src test ferramentas)
 else()
     if(CORUJA_SANITIZER)
         message(FATAL_ERROR "CORUJA_SANITIZER e da suite do host: use com -DCORUJA_TESTES=ON.")
@@ -194,4 +222,6 @@ else()
     pico_enable_stdio_usb(coruja_gps 1)
     pico_enable_stdio_uart(coruja_gps 0)
     pico_add_extra_outputs(coruja_gps)
+    # Por ultimo: `coruja_gps` mora nesta pasta e precisa ja existir.
+    coruja_avisos_nos_alvos_de(src "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
