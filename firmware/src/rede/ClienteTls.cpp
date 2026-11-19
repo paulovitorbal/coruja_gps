@@ -22,6 +22,7 @@
 #include "rede/CaixaDns.h"
 #include "rede/PlataformaMbedtls.h"
 #include "rede/RaizesConfiaveis.h"
+#include "rede/ResolucaoDns.h"
 #include "rede/RespostaHttp.h"
 
 namespace coruja {
@@ -375,51 +376,9 @@ static_assert(kPrazoDnsMs > static_cast<std::uint32_t>(
 // `DNS_STATE_NEW`) e somar outro ciclo inteiro, que o prazo cortaria.
 static_assert(!LWIP_IPV6, "com IPv6 o DNS pode passar de kPrazoDnsMs");
 
-bool resolve(const char* host, ip_addr_t* destino, std::uint32_t limite_ms,
-             Logger& log) {
-    // `cache` e local e isso esta certo: o lwIP so escreve nele de forma
-    // SINCRONA, quando o nome ja esta em cache, e nunca o guarda para depois.
-    // Quem ele guarda e o `callback_arg`, e esse e que deixou de ser ponteiro.
-    ip_addr_t cache = {};
-    const std::uint32_t geracao = g_dns.abre();
-    cyw43_arch_lwip_begin();
-    const err_t imediato = dns_gethostbyname(
-        host, &cache, ao_resolver,
-        reinterpret_cast<void*>(static_cast<std::uintptr_t>(geracao)));
-    cyw43_arch_lwip_end();
-
-    if (imediato == ERR_OK) {
-        g_dns.abandona();
-        *destino = cache;
-        return true;
-    }
-    if (imediato != ERR_INPROGRESS) {
-        g_dns.abandona();
-        log.error(kOrigem, "DNS nao iniciou");
-        return false;
-    }
-    const absolute_time_t prazo = make_timeout_time_ms(limite_ms);
-    while (!g_dns.pronto()) {
-        if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
-            // O lwIP VAI chamar de volta, mais tarde, com esta geracao --
-            // nao ha como cancelar. Abandonar e o que faz essa chamada nao
-            // encontrar ninguem.
-            g_dns.abandona();
-            log.error(kOrigem, "DNS nao respondeu a tempo");
-            return false;
-        }
-        cyw43_arch_poll();
-        sleep_ms(1);
-    }
-    const bool achou = g_dns.achou();
-    g_dns.abandona();
-    if (!achou) {
-        log.error(kOrigem, "host nao resolveu");
-        return false;
-    }
-    *destino = g_endereco_dns;
-    return true;
-}
+/// O pedido deste cliente: caixa, callback e endereco desta unidade de
+/// traducao. A espera em si mora no `ResolucaoDns`, compartilhada com o NTP.
+const PedidoDns g_pedido_dns{&g_dns, ao_resolver, &g_endereco_dns, kOrigem};
 
 }  // namespace
 
@@ -519,7 +478,8 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     } else {
         const std::uint32_t prazo_dns =
             tempo_limite_ms < kPrazoDnsMs ? tempo_limite_ms : kPrazoDnsMs;
-        if (!resolve(url.host, &endereco, prazo_dns, log)) {
+        if (!resolve_nome(g_pedido_dns, url.host, &endereco, prazo_dns,
+                          log)) {
             saida.erro = ErroHttp::NaoIniciou;
             return saida;
         }

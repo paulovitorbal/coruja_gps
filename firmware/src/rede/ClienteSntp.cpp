@@ -12,6 +12,7 @@
 
 #include "log/Logger.h"
 #include "rede/CaixaDns.h"
+#include "rede/ResolucaoDns.h"
 #include "rede/Sntp.h"
 
 namespace coruja {
@@ -75,6 +76,10 @@ void ao_resolver(const char*, const ip_addr_t* ip, void* arg) {
     }
 }
 
+/// O pedido deste cliente: caixa, callback e endereco DESTA unidade de
+/// traducao. Ver `PedidoDns`.
+const PedidoDns g_pedido_dns{&g_dns, ao_resolver, &g_endereco_dns, kOrigem};
+
 }  // namespace
 
 bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
@@ -89,45 +94,14 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
 
     // --- resolve o nome ---
     //
-    // `cache` e local e isso esta certo: o lwIP so escreve nele de forma
-    // SINCRONA, quando o nome ja esta em cache. O que ele guarda para depois e
-    // o `callback_arg`, e esse deixou de ser ponteiro.
-    ip_addr_t cache = {};
+    // A espera mora no `ResolucaoDns`, compartilhada com o `ClienteTls`. O
+    // que NAO se compartilha e a caixa: o lwIP guarda tambem o ponteiro da
+    // funcao, e e isso que faz a resposta atrasada de um pedido do NTP so
+    // poder chegar ao callback do NTP. Ver `PedidoDns`.
     ip_addr_t endereco = {};
-    const std::uint32_t geracao = g_dns.abre();
-    cyw43_arch_lwip_begin();
-    const err_t imediato = dns_gethostbyname(
-        servidor, &cache, ao_resolver,
-        reinterpret_cast<void*>(static_cast<std::uintptr_t>(geracao)));
-    cyw43_arch_lwip_end();
-
-    if (imediato == ERR_OK) {
-        g_dns.abandona();
-        endereco = cache;
-    } else if (imediato != ERR_INPROGRESS) {
-        g_dns.abandona();
-        log.warning(kOrigem, "DNS nao iniciou");
+    if (!resolve_nome(g_pedido_dns, servidor, &endereco, kTempoLimiteNtpMs,
+                      log)) {
         return false;
-    } else {
-        const absolute_time_t prazo = make_timeout_time_ms(kTempoLimiteNtpMs);
-        while (!g_dns.pronto()) {
-            if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
-                // O lwIP VAI responder mais tarde, com esta geracao. Abandonar
-                // e o que faz essa resposta nao encontrar ninguem.
-                g_dns.abandona();
-                log.warning(kOrigem, "DNS nao respondeu a tempo");
-                return false;
-            }
-            cyw43_arch_poll();
-            sleep_ms(1);
-        }
-        const bool achou = g_dns.achou();
-        g_dns.abandona();
-        if (!achou) {
-            log.warning(kOrigem, "servidor de hora nao resolveu");
-            return false;
-        }
-        endereco = g_endereco_dns;
     }
 
     // --- manda o pedido ---

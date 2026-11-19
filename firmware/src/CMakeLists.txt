@@ -150,6 +150,7 @@ if(NOT CORUJA_TESTES)
         rede/RedeWifi.cpp
         rede/ClienteTls.cpp
         rede/ClienteSntp.cpp
+        rede/ResolucaoDns.cpp
         rede/PlataformaMbedtls.cpp
     )
     # O ".." e onde mora o lwipopts.h, que o proprio lwIP inclui por nome.
