@@ -278,6 +278,53 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertEqual(st, 422)
         self.assertIn("UTF-8", corpo)
 
+    # ======================== corpo nao lido na MESMA conexao (keep-alive)
+    #
+    # O defeito de 2026-10-06 (ver `test_put_recusado_nao_contamina...` em
+    # test_servidor.py), em rotas que vieram depois: a resposta sai antes de
+    # o corpo ser lido, e os bytes dele viram o "proximo pedido" da conexao.
+    # O Cloudflare reaproveita conexao; estes testes tambem.
+
+    def na_mesma_conexao(self, *pedidos):
+        """`(metodo, rota, corpo, cabecalhos)` em sequencia, numa conexao so."""
+        c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=10)
+        respostas = []
+        try:
+            for metodo, rota, corpo, cab in pedidos:
+                c.request(metodo, rota, body=corpo, headers=cab)
+                r = c.getresponse()
+                respostas.append((r.status, r.read().decode("utf-8", "replace")))
+        finally:
+            c.close()
+        return respostas
+
+    def test_login_com_corpo_grande_e_recusado_sem_contaminar_o_seguinte(self):
+        formulario = {"Content-Type": "application/x-www-form-urlencoded"}
+        grande = "token=" + "a" * 5000
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS, grande, formulario),
+            ("GET", s.ROTA_VIAGENS, None, {}))
+        self.assertEqual(st1, 400)
+        self.assertEqual(st2, 200)
+        self.assertIn('name="token"', corpo2)
+
+    def test_sair_com_corpo_nao_contamina_o_pedido_seguinte(self):
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS + "/sair", "qualquer=coisa", {}),
+            ("GET", s.ROTA_VIAGENS, None, {}))
+        self.assertEqual(st1, 200)
+        self.assertEqual(st2, 200)
+        self.assertIn('name="token"', corpo2)
+
+    def test_mapa_pedido_com_corpo_nao_contamina_o_seguinte(self):
+        _st, cookie = self.entra()
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS + "/20261006_123858.log", "x=1",
+             {"Cookie": cookie}),
+            ("GET", s.ROTA_VIAGENS, None, {"Cookie": cookie}))
+        self.assertEqual(st1, 404)
+        self.assertEqual(st2, 200)
+
     # ===================================================== as outras rotas
 
     def test_a_pagina_nao_interfere_na_rota_da_base(self):

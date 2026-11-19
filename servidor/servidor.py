@@ -78,6 +78,14 @@ SUBDIR_ENVIO = "recebidos"
 #: sobra e impede que um corpo sem fim encha o disco.
 TAMANHO_MAXIMO = 8 * 1024 * 1024
 
+#: Um `Content-Length` aceito: dígitos ASCII, e nada mais.
+#:
+#: O `int()` aceita `+5`, `1_0` e dígitos de outros alfabetos. Quem está na
+#: frente — a borda, um proxy — lê o mesmo cabeçalho do jeito dela, e duas
+#: contas diferentes do tamanho do mesmo corpo são o começo de um pedido
+#: contrabandeado: o resto de um vira o início do outro.
+PADRAO_TAMANHO = re.compile(r"[0-9]{1,12}", re.ASCII)
+
 #: Nome aceito: o que o firmware gera, e nada mais.
 #:
 #:   coruja.log               o diario de diagnostico
@@ -464,49 +472,91 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     #: {endereco: instante ate o qual novas tentativas esperam}
     castigo: dict = {}
 
+    #: Quantos bytes do corpo deste pedido ainda estão no soquete. `None`
+    #: quando não dá para saber: `Content-Length` malformado ou repetido com
+    #: valores diferentes, ou `Transfer-Encoding`. Ver `_responde`.
+    _corpo_pendente: int | None = 0
+
     def log_message(self, formato: str, *args) -> None:
         log.info("%s %s", self.address_string(), formato % args)
 
+    def parse_request(self) -> bool:
+        """O da biblioteca, mais a conta do corpo, que vale para toda rota.
+
+        `Transfer-Encoding` é recusado aqui, antes de qualquer rota: este
+        servidor não decodifica pedaços, e o firmware sempre manda
+        `Content-Length`. 411 diz ao cliente exatamente o que falta.
+        """
+        if not super().parse_request():
+            return False
+        self._corpo_pendente = self._tamanho_declarado()
+        if self.headers.get("Transfer-Encoding") is not None:
+            self._erro(411, "mande Content-Length; Transfer-Encoding nao e "
+                       "aceito", self.command == "HEAD")
+            return False
+        return True
+
+    def _tamanho_declarado(self) -> int | None:
+        """O tamanho que o pedido anuncia para o corpo, ou `None`.
+
+        Sem `Content-Length` o corpo é vazio: é o caso de todo GET. Dois
+        `Content-Length` diferentes, ou um que não é só dígito, não têm
+        leitura segura — ver `PADRAO_TAMANHO`.
+        """
+        if self.headers.get("Transfer-Encoding") is not None:
+            return None
+        valores = {v.strip() for v in self.headers.get_all("Content-Length", [])}
+        if not valores:
+            return 0
+        if len(valores) > 1:
+            return None
+        (valor,) = valores
+        return int(valor) if PADRAO_TAMANHO.fullmatch(valor) else None
+
+    def _le_corpo(self, quanto: int) -> bytes:
+        """Até `quanto` bytes do corpo, descontando do que falta ler."""
+        pedaco = self.rfile.read(min(quanto, self._corpo_pendente or 0))
+        self._corpo_pendente = (self._corpo_pendente or 0) - len(pedaco)
+        return pedaco
+
     def _responde(self, codigo: int, corpo: bytes, tipo: str,
-                  so_cabecalho: bool = False) -> None:
+                  so_cabecalho: bool = False,
+                  extras: tuple[tuple[str, str], ...] = ()) -> None:
+        """A única saída de resposta, e por isso o único lugar da decisão.
+
+        ⚠️ **Corpo por ler fecha a conexão, em TODA resposta.** Responder
+        sem ler o corpo deixa os bytes dele no soquete. Com `keep-alive` — e
+        o Cloudflare usa — o pedido SEGUINTE chega grudado nesse resto, e o
+        servidor vê um método inventado:
+
+            Unsupported method ('xGET')
+
+        Apareceu assim, em produção, no deploy de 2026-10-06: um `PUT` de um
+        byte recusado com 401, e o `GET /radares.versao` logo depois voltando
+        501. Foi corrigido só no `_erro`, e voltou em 17/11/2026 pelas rotas
+        que vieram depois — login grande, saída com corpo — porque a decisão
+        morava num lugar por onde nem toda resposta passava. Agora mora aqui.
+
+        Drenar o corpo seria a alternativa, e é pior: o teto de
+        `TAMANHO_MAXIMO` existe justamente para NÃO ler o que não se quer, e
+        um corpo enorme recusado passaria a ser lido inteiro assim mesmo.
+        """
+        if self._corpo_pendente != 0:
+            self.close_connection = True
         self.send_response(codigo)
         self.send_header("Content-Type", tipo)
         # O RF05.2 aborta se `Content-Length` faltar.
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("Cache-Control", "no-store")
+        for nome, valor in extras:
+            self.send_header(nome, valor)
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
         if not so_cabecalho:
             self.wfile.write(corpo)
 
-    def _descarta_corpo(self) -> None:
-        """Fecha a conexao quando o corpo do pedido nao foi lido.
-
-        ⚠️ **Isto nao e zelo; e correcao.** Recusar um PUT sem ler o corpo
-        deixa os bytes dele na conexao. Com `keep-alive` -- e o Cloudflare usa
-        -- o pedido SEGUINTE chega grudado nesse resto, e o servidor ve um
-        metodo inventado:
-
-            Unsupported method ('xGET')
-
-        Apareceu assim, em producao, no deploy de 2026-10-06: um `PUT` de um
-        byte recusado com 401, e o `GET /radares.versao` logo depois voltando
-        501. Em teste nao aparecia, porque cada caso abria conexao nova.
-
-        Drenar o corpo seria a alternativa, e e pior: o teto de
-        `TAMANHO_MAXIMO` existe justamente para NAO ler o que nao se quer, e
-        um corpo enorme recusado passaria a ser lido inteiro assim mesmo.
-        """
-        try:
-            resta = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            resta = 1          # malformado: trate como se houvesse corpo
-        if resta > 0:
-            self.close_connection = True
-
     def _erro(self, codigo: int, msg: str, so_cabecalho: bool) -> None:
-        self._descarta_corpo()
         self._responde(codigo, (msg + "\n").encode(), "text/plain; charset=utf-8",
                        so_cabecalho)
 
@@ -623,9 +673,8 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._erro(404, "nome de arquivo nao aceito", False)
             return
 
-        try:
-            tamanho = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
+        tamanho = self._corpo_pendente
+        if tamanho is None:
             self._erro(400, "Content-Length invalido", False)
             return
         if tamanho <= 0:
@@ -659,7 +708,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         try:
             with temporario.open("xb") as f:
                 while recebido < tamanho:
-                    pedaco = self.rfile.read(min(64 * 1024, tamanho - recebido))
+                    pedaco = self._le_corpo(64 * 1024)
                     if not pedaco:
                         break
                     f.write(pedaco)
@@ -884,15 +933,10 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     def _html(self, codigo: int, corpo: str,
               cookie: tuple[str, str] | None = None) -> None:
-        bytes_ = corpo.encode("utf-8")
-        self.send_response(codigo)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(bytes_)))
-        self.send_header("Cache-Control", "no-store")
         # A pagina monta HTML com dados que vieram do aparelho. Os cabecalhos
         # abaixo sao a segunda linha de defesa; a primeira e o `html.escape`.
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        extras = [("X-Content-Type-Options", "nosniff"),
+                  ("Referrer-Policy", "no-referrer")]
         if cookie is not None:
             nome, valor = cookie
             # `Secure` so quando a borda diz que o cliente veio por HTTPS: o
@@ -906,10 +950,10 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
                 pedacos.append("Secure")
             if not valor:
                 pedacos.append("Max-Age=0")
-            self.send_header("Set-Cookie", "; ".join(pedacos))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(bytes_)
+            extras.append(("Set-Cookie", "; ".join(pedacos)))
+        self._responde(codigo, corpo.encode("utf-8"),
+                       "text/html; charset=utf-8", self.command == "HEAD",
+                       tuple(extras))
 
     def _pagina_viagens(self) -> None:
         aparelho = self._sessao()
@@ -1003,14 +1047,11 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         if espera > agora:
             time.sleep(min(espera - agora, ESPERA_APOS_ERRO_S))
 
-        try:
-            tamanho = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            tamanho = 0
-        if tamanho <= 0 or tamanho > 4096:
+        tamanho = self._corpo_pendente
+        if not tamanho or tamanho > 4096:
             self._html(400, pagina.formulario("formulario invalido"))
             return
-        bruto = self.rfile.read(tamanho).decode("utf-8", errors="replace")
+        bruto = self._le_corpo(tamanho).decode("utf-8", errors="replace")
         campos = urllib.parse.parse_qs(bruto)
         token = (campos.get("token") or [""])[0].strip()
 

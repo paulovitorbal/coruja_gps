@@ -635,6 +635,85 @@ class Recepcao(unittest.TestCase):
         finally:
             c.close()
 
+    def na_mesma_conexao(self, *pedidos):
+        """`(metodo, rota, corpo, cabecalhos)` em sequencia, numa conexao so.
+
+        Como o Cloudflare faz. Se o servidor avisar `Connection: close`, o
+        `http.client` abre outra para o pedido seguinte -- que e o
+        comportamento certo de um cliente, e o que os testes querem ver.
+        """
+        c = self.conexao()
+        respostas = []
+        try:
+            for metodo, rota, corpo, cab in pedidos:
+                c.request(metodo, rota, body=corpo, headers=cab)
+                r = c.getresponse()
+                respostas.append((r.status, r.read(),
+                                  r.getheader("Connection", "").lower()))
+        finally:
+            c.close()
+        return respostas
+
+    def test_get_com_corpo_nao_contamina_o_pedido_seguinte(self):
+        # Toda resposta que sai com corpo por ler, e nao so a de erro.
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        cab = {s.CABECALHO_TOKEN: TOKEN}
+        (st1, _, _), (st2, corpo2, _) = self.na_mesma_conexao(
+            ("GET", s.ROTA_VERSAO, b"corpo que ninguem le", cab),
+            ("GET", s.ROTA_VERSAO, None, cab))
+        self.assertEqual((st1, st2), (200, 200))
+        self.assertIn(b"crc32:", corpo2)
+
+    def test_envio_em_pedacos_e_recusado_e_fecha_a_conexao(self):
+        """`Transfer-Encoding: chunked` nao tem Content-Length.
+
+        O servidor via "corpo vazio", respondia 400 e deixava os pedacos na
+        conexao. Com os dois cabecalhos juntos e a receita de contrabando de
+        pedido.
+
+        Soquete cru, so com o cabecalho: o `http.client` manda os pedacos
+        enquanto a recusa ja voltou, e o teste ficaria entre um `EPIPE` e
+        outro. O que se confere e o que um cliente ve: UMA resposta, 411, e
+        a conexao fechada logo depois -- `recv` chegando ao fim.
+        """
+        import socket
+        with socket.create_connection(("127.0.0.1", self.porta),
+                                      timeout=5) as c:
+            c.sendall((f"PUT {s.ROTA_ENVIO}coruja.log HTTP/1.1\r\n"
+                       f"Host: 127.0.0.1\r\n"
+                       f"{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+                       f"Transfer-Encoding: chunked\r\n\r\n").encode())
+            resposta = b""
+            while pedaco := c.recv(4096):
+                resposta += pedaco
+        self.assertTrue(resposta.startswith(b"HTTP/1.1 411"), resposta[:40])
+        self.assertIn(b"\r\nConnection: close\r\n", resposta)
+        self.assertEqual(resposta.count(b"HTTP/1.1 "), 1)
+        self.assertEqual(self.recebidos(), [])
+
+    def test_content_length_so_aceita_digitos(self):
+        # O `int()` aceita "+5" e "1_0". A borda pode ler o mesmo cabecalho
+        # de outro jeito, e duas contas diferentes do mesmo corpo sao o
+        # comeco de um pedido contrabandeado.
+        for declarado in ("+5", "1_0", "5 5", "0x5"):
+            with self.subTest(declarado=declarado):
+                c = self.conexao()
+                try:
+                    c.putrequest("PUT", s.ROTA_ENVIO + "coruja.log",
+                                 skip_accept_encoding=True)
+                    c.putheader(s.CABECALHO_TOKEN, TOKEN)
+                    c.putheader("Content-Length", declarado)
+                    c.endheaders()
+                    c.send(b"12345")
+                    r = c.getresponse()
+                    r.read()
+                    self.assertEqual(r.status, 400)
+                    self.assertEqual(r.getheader("Connection", "").lower(),
+                                     "close")
+                finally:
+                    c.close()
+        self.assertEqual(self.recebidos(), [])
+
     # -- a rota de saude, a UNICA sem token --
 
     def test_saude_responde_sem_token(self):
