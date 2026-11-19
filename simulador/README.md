@@ -93,3 +93,9 @@ python3 gera_rota.py --de-arquivo x.json  # de uma resposta ja baixada
 
 O gerador tenta três espelhos: o principal devolve `504` sob carga com alguma
 frequência, e isso não é motivo para desistir da rota.
+
+**O `rota_eixao.csv` só é tocado depois de a resposta passar na conferência**
+— comprimento de ~16,5 km em um sentido e todos os pontos dentro da caixa do
+Plano Piloto —, e a troca é atômica. Resposta curta, vazia ou com `remark` de
+tempo esgotado deixa o arquivo como estava e sai com erro: a rota versionada
+é a única cópia, e é por ela que o simulador roda sem rede.

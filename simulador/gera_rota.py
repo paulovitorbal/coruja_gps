@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -38,11 +39,29 @@ ESPELHOS = (
     "https://overpass.osm.ch/api/interpreter",
 )
 
-CONSULTA = """
+#: A caixa do Plano Piloto, (sul, oeste, norte, leste). Vai na consulta E
+#: na conferencia: uma via com a mesma `ref` noutro canto do DF entraria na
+#: linha de centro e a puxaria para fora do Eixao.
+CAIXA = (-15.90, -47.96, -15.70, -47.82)
+
+CONSULTA = f"""
 [out:json][timeout:60];
-way["ref"="DF-002"](-15.90,-47.96,-15.70,-47.82);
+way["ref"="DF-002"]({CAIXA[0]},{CAIXA[1]},{CAIXA[2]},{CAIXA[3]});
 out geom;
 """
+
+#: Quanto o Eixao tem de ter, em km, em UM sentido.
+#:
+#: ⚠️ **E esta conferencia que o CSV versionado nao tinha.** O arquivo era
+#: aberto em "w" -- truncado -- antes de a resposta ser olhada: uma Overpass
+#: sobrecarregada, que devolve meia via ou nenhuma, destruia a rota boa. E
+#: meia rota ainda CARREGA no simulador: o percurso simplesmente fica mais
+#: curto, e os radares do resto do Eixao somem sem ninguem notar.
+#:
+#: A rota medida em 2026-09-24 deu 16,53 km. A folga de 2 km cobre uma
+#: remessa de nos um pouco diferente do OSM sem aceitar meia via.
+COMPRIMENTO_KM = 16.5
+FOLGA_KM = 2.0
 
 # A ponte do Bragueto aparece na consulta por compartilhar a referência, mas
 # fica além do Eixão e puxaria a rota para fora da via.
@@ -58,6 +77,22 @@ FAIXAS = 100
 JANELA = 2
 
 
+def elementos_de(pacote: dict) -> list[dict]:
+    """Os `elements` de uma resposta da Overpass, ou `ValueError`.
+
+    ⚠️ A Overpass avisa de tempo esgotado com **200 e um `remark`**, e a
+    lista de elementos vem vazia. Lido como resposta boa, isso virava
+    "nenhuma via DF-002 retornada" -- mensagem que manda procurar o
+    problema no OSM, e nao no servidor sobrecarregado.
+    """
+    remark = pacote.get("remark", "")
+    if remark:
+        raise ValueError(f"a Overpass respondeu com um aviso: {remark}")
+    if "elements" not in pacote:
+        raise ValueError("resposta da Overpass sem 'elements'")
+    return pacote["elements"]
+
+
 def baixa() -> list[dict]:
     corpo = urllib.parse.urlencode({"data": CONSULTA}).encode()
     ultimo = ""
@@ -68,7 +103,7 @@ def baixa() -> list[dict]:
                 headers={"User-Agent": "coruja_gps-simulador/1.0"})
             with urllib.request.urlopen(pedido, timeout=90) as r:
                 print(f"  respondeu: {espelho}")
-                return json.load(r)["elements"]
+                return elementos_de(json.load(r))
         except (urllib.error.URLError, OSError, ValueError) as e:
             ultimo = f"{espelho}: {e}"
             print(f"  falhou, tentando o proximo -- {ultimo}")
@@ -107,6 +142,57 @@ def linha_de_centro(nos: list[tuple[float, float]]) -> list[tuple[float, float]]
     return suave
 
 
+def comprimento_km(rota: list[tuple[float, float]]) -> float:
+    return sum(metros(rota[i], rota[i + 1])
+               for i in range(len(rota) - 1)) / 1000.0
+
+
+def confere(rota: list[tuple[float, float]]) -> str | None:
+    """A rota é o Eixão inteiro, e dentro da caixa? Erro, ou None."""
+    if len(rota) < 2:
+        return "rota com menos de dois pontos"
+    km = comprimento_km(rota)
+    if abs(km - COMPRIMENTO_KM) > FOLGA_KM:
+        return (f"a rota tem {km:.2f} km, e o Eixao tem ~{COMPRIMENTO_KM} km "
+                f"em um sentido (tolerancia de {FOLGA_KM} km). A resposta "
+                "veio incompleta, ou a via mudou no OSM -- confira antes de "
+                "gravar.")
+    sul, oeste, norte, leste = CAIXA
+    for lat, lon in rota:
+        if not (sul <= lat <= norte and oeste <= lon <= leste):
+            return (f"o ponto ({lat:.5f}, {lon:.5f}) esta fora da caixa do "
+                    "Plano Piloto")
+    return None
+
+
+def grava(rota: list[tuple[float, float]], nos: int, saida: Path) -> None:
+    """Escreve o CSV de forma atômica: temporário ao lado, depois `replace`.
+
+    Entre truncar e terminar de escrever havia uma janela em que o arquivo
+    estava pela metade -- e meia rota ainda carrega no simulador. O
+    temporário fica no MESMO diretório porque `os.replace` só é atômico
+    dentro do mesmo sistema de arquivos.
+    """
+    quando = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    temporario = saida.with_name(saida.name + ".parcial")
+    try:
+        with temporario.open("w", encoding="utf-8") as f:
+            f.write("# Linha de centro do Eixão (DF-002), sentido sul -> norte.\n")
+            f.write(f"# GERADO por gera_rota.py em {quando}. Não edite à mão.\n")
+            f.write("#\n")
+            f.write("# Origem: OpenStreetMap via Overpass API, ways com ref=DF-002\n")
+            f.write(f"# na caixa ({CAIXA[0]},{CAIXA[1]})-({CAIXA[2]},{CAIXA[3]}). "
+                    "Dados ODbL.\n")
+            f.write(f"# {nos} nós brutos -> {len(rota)} pontos de centro,\n")
+            f.write(f"# {comprimento_km(rota):.2f} km de percurso em um sentido.\n")
+            f.write("lat,lon\n")
+            for lat, lon in rota:
+                f.write(f"{lat:.6f},{lon:.6f}\n")
+        os.replace(temporario, saida)
+    finally:
+        temporario.unlink(missing_ok=True)
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -114,33 +200,34 @@ def main(argv: list[str]) -> int:
                    help="usa uma resposta da Overpass ja baixada, em JSON")
     args = p.parse_args(argv[1:])
 
-    if args.de_arquivo:
-        print(f"  lendo {args.de_arquivo}")
-        elementos = json.loads(args.de_arquivo.read_text(encoding="utf-8"))["elements"]
-    else:
-        print("  consultando a Overpass API...")
-        elementos = baixa()
+    try:
+        if args.de_arquivo:
+            print(f"  lendo {args.de_arquivo}")
+            elementos = elementos_de(
+                json.loads(args.de_arquivo.read_text(encoding="utf-8")))
+        else:
+            print("  consultando a Overpass API...")
+            elementos = baixa()
+    except (OSError, ValueError) as e:
+        print(f"  erro: {e}")
+        return 1
     nos = nos_do_eixao(elementos)
     if not nos:
         print("  erro: nenhuma via DF-002 retornada")
         return 1
     rota = linha_de_centro(nos)
-    comprimento = sum(metros(rota[i], rota[i + 1]) for i in range(len(rota) - 1))
 
-    quando = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with SAIDA.open("w", encoding="utf-8") as f:
-        f.write("# Linha de centro do Eixão (DF-002), sentido sul -> norte.\n")
-        f.write(f"# GERADO por gera_rota.py em {quando}. Não edite à mão.\n")
-        f.write("#\n")
-        f.write("# Origem: OpenStreetMap via Overpass API, ways com ref=DF-002\n")
-        f.write("# na caixa (-15.90,-47.96)-(-15.70,-47.82). Dados ODbL.\n")
-        f.write(f"# {len(nos)} nós brutos -> {len(rota)} pontos de centro,\n")
-        f.write(f"# {comprimento/1000:.2f} km de percurso em um sentido.\n")
-        f.write("lat,lon\n")
-        for lat, lon in rota:
-            f.write(f"{lat:.6f},{lon:.6f}\n")
+    # Conferir ANTES de tocar no arquivo: o CSV versionado e a unica copia
+    # da rota, e o simulador roda sem rede por causa dele.
+    erro = confere(rota)
+    if erro:
+        print(f"  erro: {erro}")
+        print(f"  {SAIDA.name} NAO foi tocado.")
+        return 1
 
-    print(f"  {len(nos)} nós -> {len(rota)} pontos, {comprimento/1000:.2f} km")
+    grava(rota, len(nos), SAIDA)
+    print(f"  {len(nos)} nós -> {len(rota)} pontos, "
+          f"{comprimento_km(rota):.2f} km")
     print(f"  escrito: {SAIDA}")
     return 0
 
