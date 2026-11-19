@@ -157,6 +157,15 @@ private:
     /// Escreve a linha única do desfecho, no nível que o desfecho merece.
     void registra_resumo(ResultadoConfigGps r, Logger& log);
 
+    /// Devolve a porta ao baud em que o módulo falou por último.
+    ///
+    /// Depois do `CFG-PRT` a porta local sobe para 115200 **antes** de haver
+    /// qualquer prova de que o módulo trocou. Se nada responder dali em
+    /// diante, ele continua no baud antigo, e deixar a porta em 115200
+    /// condena quem lê depois a um fluxo ilegível — o aparelho fica mudo com
+    /// o receptor funcionando do outro lado (08/10/2026).
+    void volta_ao_baud(std::uint32_t baud, Logger& log);
+
     Uart&            uart_;
     Pausa&           pausa_;
     ubx::LeitorUbx   leitor_;

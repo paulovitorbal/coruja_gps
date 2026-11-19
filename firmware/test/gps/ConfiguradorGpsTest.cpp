@@ -51,6 +51,10 @@ public:
     unsigned engole_apos_trocar_baud = 0;
     /// O módulo só responde quando a porta está neste baud. Zero = qualquer.
     std::uint32_t baud_exigido = 0;
+    /// O `CFG-PRT` se perde: o módulo não responde **e não troca a própria
+    /// velocidade**. É o 08/10/2026 -- o aparelho sobe a porta para 115200 e
+    /// o receptor continua falando 9600 do outro lado.
+    bool ignora_cfg_prt = false;
     /// Texto NMEA injetado junto das respostas, como na linha de verdade.
     bool intercala_nmea = false;
     /// Responde ACK, mas dizendo confirmar OUTRO comando. Acontece de
@@ -132,6 +136,10 @@ private:
                 --engole_apos_trocar_baud;
                 return;
             }
+        }
+        if (ignora_cfg_prt && c.classe == ubx::kClasseCfg &&
+            c.id == ubx::kCfgPrt) {
+            return;
         }
         for (const auto id : muda) { if (id == c.id) { return; } }
         bool nak = false;
@@ -734,6 +742,62 @@ TEST(ConfiguradorGps, NAK_no_CFG_PRT_e_recusa_e_nao_silencio_tolerado) {
     Bancada b;
     b.uart.recusa.push_back(ubx::kCfgPrt);
     EXPECT_EQ(b.roda(), ResultadoConfigGps::Recusado);
+}
+
+// ---- a porta nao pode ficar num baud que o modulo nao fala ---------------
+//
+// Depois do `CFG-PRT` o aparelho sobe a porta local para 115200. Se dali em
+// diante nada responder, o modulo esta falando no baud ANTIGO -- e deixar a
+// porta em 115200 condena quem le depois a um fluxo ilegivel. E o 08/10/2026:
+// viagem inteira muda, com o receptor funcionando do outro lado.
+
+TEST(ConfiguradorGps, NAK_no_CFG_PRT_devolve_a_porta_ao_baud_do_modulo) {
+    // Recusa e certeza: o modulo entendeu e nao trocou de velocidade.
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;
+    b.uart.recusa.push_back(ubx::kCfgPrt);
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Recusado);
+    EXPECT_EQ(b.baud_final, kBaudFabrica);
+    EXPECT_EQ(b.uart.bauds.back(), kBaudFabrica) << "a porta ficou em 115200";
+}
+
+TEST(ConfiguradorGps, CFG_PRT_perdido_devolve_a_porta_ao_baud_do_modulo) {
+    // Nem ACK nem NAK, e o comando seguinte tambem sem resposta: a unica
+    // velocidade com evidencia e aquela em que o modulo respondeu.
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;
+    b.uart.ignora_cfg_prt = true;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_EQ(b.baud_final, kBaudFabrica);
+    EXPECT_EQ(b.uart.bauds.back(), kBaudFabrica) << "a porta ficou em 115200";
+}
+
+TEST(ConfiguradorGps, a_tentativa_seguinte_reencontra_o_modulo_no_baud_certo) {
+    // O desfecho que importa: com a porta devolvida, a repeticao do RF01.5
+    // acha o receptor de novo em vez de sondar a partir de um baud morto.
+    SimuladorUart uart;
+    PausaFalsa    pausa;
+    teste::LoggerMock log;
+    uart.baud_exigido = kBaudFabrica;
+    uart.ignora_cfg_prt = true;
+    ConfiguradorGps c(uart, pausa);
+    ASSERT_EQ(c.executa(log), ResultadoConfigGps::SemResposta);
+    ASSERT_EQ(c.baud_final(), kBaudFabrica);
+
+    uart.ignora_cfg_prt = false;   // o quadro seguinte passa
+    EXPECT_EQ(c.executa(log), ResultadoConfigGps::Configurado);
+}
+
+TEST(ConfiguradorGps, confirmado_o_baud_novo_a_porta_fica_nele) {
+    // O contrario: o `CFG-CFG` falhando DEPOIS de o modulo ter respondido a
+    // 115200. Ali a troca esta provada, e voltar a 9600 e que deixaria a
+    // porta errada.
+    Bancada b;
+    b.uart.baud_exigido = kBaudFabrica;   // o modulo troca ao ver o CFG-PRT
+    b.uart.muda.push_back(ubx::kCfgCfg);
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::NaoPersistiu);
+    EXPECT_EQ(b.baud_final, kBaudDesejado);
+    EXPECT_EQ(b.uart.bauds.back(), kBaudDesejado);
 }
 
 TEST(ConfiguradorGps, descricoes_cobrem_todos_os_desfechos) {
