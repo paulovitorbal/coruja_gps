@@ -1,0 +1,26 @@
+#!/bin/bash
+# ctest FALSO, para os testes do libera_fw.sh e do mutante.sh.
+#
+# Anota a chamada e o UBSAN_OPTIONS que recebeu em $FALSO_DIARIO. Passa,
+# salvo se FALSO_CTEST_ACAO, avaliado com `$dir` (o --test-dir) a mao,
+# terminar com erro. A saida imita as linhas que os scripts procuram.
+set -u
+dir=""
+args="$*"
+while [ $# -gt 0 ]; do
+    [ "$1" = "--test-dir" ] && { dir="$2"; shift; }
+    shift
+done
+echo "ctest $args [UBSAN_OPTIONS=${UBSAN_OPTIONS:-}]" >> "$FALSO_DIARIO"
+rc=0
+if [ -n "${FALSO_CTEST_ACAO:-}" ]; then
+    eval "$FALSO_CTEST_ACAO" || rc=1
+fi
+if [ "$rc" -eq 0 ]; then
+    echo "100% tests passed, 0 tests failed out of 1"
+else
+    echo "0% tests passed, 1 tests failed out of 1"
+    echo "The following tests FAILED:"
+    printf '\t  1 - Falso.Teste (Failed)\n'
+fi
+exit "$rc"
