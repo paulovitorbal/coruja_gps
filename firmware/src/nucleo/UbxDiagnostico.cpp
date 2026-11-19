@@ -248,7 +248,11 @@ std::size_t formata_diagnostico(const EstadoNavegacao& nav,
                       aop.calculando ? ", calculando" : "");
     }
 
-    char sin[72];
+    // O pior caso sao 81 caracteres: 49 de texto fixo, 15 dos cinco
+    // numeros de tres digitos e 17 da ressalva " (resumo parcial)". Eram 72,
+    // e a ressalva saia cortada -- justamente no ceu cheio, que e quando o
+    // quadro estoura os 248 bytes do leitor e o resumo VIRA parcial.
+    char sin[96];
     if (!sinal.respondeu) {
         std::snprintf(sin, sizeof sin, "NAV-SAT sem resposta");
     } else {

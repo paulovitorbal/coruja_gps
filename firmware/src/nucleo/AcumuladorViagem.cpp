@@ -244,18 +244,28 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     ultimo_rumo_valido_ = t.rumo_valido;
 
     // --- encerramento automático ---
-    if (t.velocidade_kmh < kVelocidadeParadoKmh) {
-        if (!contando_parado_) {
-            contando_parado_ = true;
-            parado_desde_ms_ = agora_ms;
-        } else if (agora_ms - parado_desde_ms_ >= kParadoFechaTrechoMs) {
-            fecha_trecho();
-            return EventoViagem::FechaTrecho;
-        }
-    } else {
+    if (t.velocidade_kmh >= kVelocidadeParadoKmh) {
         contando_parado_ = false;
+        return evento;
+    }
+    if (!contando_parado_) {
+        contando_parado_ = true;
+        parado_desde_ms_ = agora_ms;
+        return evento;
     }
 
+    // ⚠️ **Um evento por chamada, e o `Grava` tem precedência.** O carro
+    // parar em cima da virada de uma fatia faz as duas coisas caírem na
+    // mesma leitura, e devolver só o fechamento perdia o ponto: ele nunca
+    // era escrito no cartão, e o `viagem.est` ficava com o carimbo da fatia
+    // anterior. O fechamento pode esperar a leitura seguinte -- o relógio da
+    // parada continua correndo, e lá ele já estará vencido. O ponto, não: a
+    // fatia dele já fechou.
+    if (evento == EventoViagem::Nada &&
+        agora_ms - parado_desde_ms_ >= kParadoFechaTrechoMs) {
+        fecha_trecho();
+        return EventoViagem::FechaTrecho;
+    }
     return evento;
 }
 

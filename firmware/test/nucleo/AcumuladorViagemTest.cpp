@@ -767,4 +767,33 @@ TEST(RadarDaViagem, a_zona_e_a_contagem_zeram_na_fatia_seguinte) {
     EXPECT_EQ(a.ultimo_ponto().radar.n_candidatos, 0);
 }
 
+
+TEST(AcumuladorViagem, o_fechamento_do_trecho_nao_engole_a_gravacao_da_fatia) {
+    // ⚠️ As duas coisas caem na mesma leitura quando o carro para em cima da
+    // virada de uma fatia: ha ponto para gravar E cinco minutos parado. A
+    // funcao devolve UM evento, e devolver so o fechamento perdia o ponto --
+    // nunca escrito no cartao, e o `viagem.est` ficava com o carimbo da fatia
+    // anterior. O fechamento pode esperar a leitura seguinte; o ponto, nao.
+    AcumuladorViagem a;
+    a.inicia();
+    ASSERT_EQ(a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0),
+              EventoViagem::Abre);
+    a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 1000);   // comeca a contar
+
+    // Virada de fatia exatamente no instante em que a parada vence.
+    EXPECT_EQ(a.alimenta(em(17, 35, 6, 0.0F), kSemRadar, true,
+                         1000 + kParadoFechaTrechoMs),
+              EventoViagem::Grava)
+        << "o ponto da fatia fechada foi engolido pelo fechamento";
+    EXPECT_EQ(a.ultimo_ponto().minuto, 30);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 0);
+
+    // E o fechamento sai na leitura seguinte, sem precisar de outros cinco
+    // minutos: o relogio da parada continuou correndo.
+    EXPECT_EQ(a.alimenta(em(17, 35, 7, 0.0F), kSemRadar, true,
+                         1000 + kParadoFechaTrechoMs + 250),
+              EventoViagem::FechaTrecho);
+    EXPECT_EQ(a.estado(), EstadoViagem::Aguardando);
+}
+
 }  // namespace

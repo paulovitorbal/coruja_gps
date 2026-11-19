@@ -33,12 +33,17 @@ std::int32_t dias_desde_epoca(int ano, unsigned mes, unsigned dia) {
 }
 
 void civil_de_dias(std::int32_t dias, int* ano, unsigned* mes, unsigned* dia) {
-    dias += 719468;
-    const int era = (dias >= 0 ? dias : dias - 146096) / 146097;
-    const auto doe = static_cast<unsigned>(dias - era * 146097);
+    // Em 64 bits porque o deslocamento da epoca NAO cabe de volta no int32:
+    // `dias + 719468` estoura com sinal perto do fim da faixa, e o que saia
+    // era uma data pequena e de aparencia normal. A funcao aceita qualquer
+    // `int32_t`, e `de_segundos` lhe entrega ate o extremo.
+    const std::int64_t desde_era_zero = static_cast<std::int64_t>(dias) + 719468;
+    const std::int64_t era =
+        (desde_era_zero >= 0 ? desde_era_zero : desde_era_zero - 146096) / 146097;
+    const auto doe = static_cast<unsigned>(desde_era_zero - era * 146097);
     const unsigned yoe =
         (doe - doe / 1460U + doe / 36524U - doe / 146096U) / 365U;
-    const int y = static_cast<int>(yoe) + era * 400;
+    const int y = static_cast<int>(yoe) + static_cast<int>(era * 400);
     const unsigned doy = doe - (365U * yoe + yoe / 4U - yoe / 100U);
     const unsigned mp = (5U * doy + 2U) / 153U;
     const unsigned d = doy - (153U * mp + 2U) / 5U + 1U;

@@ -184,4 +184,30 @@ TEST(CivilDeDias, aceita_ponteiros_nulos) {
     civil_de_dias(0, nullptr, nullptr, nullptr);  // não pode explodir
 }
 
+
+TEST(CivilDeDias, o_fim_da_faixa_de_int32_nao_da_a_volta) {
+    // ⚠️ `dias += 719468` estourava com sinal -- comportamento indefinido --
+    // e o que saia era uma data PEQUENA, perto de 1970. A funcao aceita
+    // qualquer `int32_t`, e `de_segundos` lhe entrega ate o extremo da
+    // faixa; um dia absurdo tem de virar um ano absurdo, que o `plausivel()`
+    // recusa, e nao uma data de aparencia normal.
+    constexpr std::int32_t kMaior = 2147483647;
+    constexpr std::int32_t kAntesDoEstouro = kMaior - 719468;
+
+    int ano_antes = 0;
+    civil_de_dias(kAntesDoEstouro, &ano_antes, nullptr, nullptr);
+    ASSERT_GT(ano_antes, 5000000) << "a referencia ja estava errada";
+
+    for (const std::int32_t d : {kAntesDoEstouro + 1, kMaior}) {
+        int ano = 0;
+        civil_de_dias(d, &ano, nullptr, nullptr);
+        EXPECT_GE(ano, ano_antes) << "o dia " << d << " andou para TRAS";
+    }
+
+    // E o outro extremo, onde o `dias - 146096` do mesmo calculo estoura.
+    int ano_minimo = 0;
+    civil_de_dias(-kMaior - 1, &ano_minimo, nullptr, nullptr);
+    EXPECT_LT(ano_minimo, -5000000);
+}
+
 }  // namespace
