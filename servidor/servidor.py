@@ -222,6 +222,37 @@ ROTA_SAUDE = "/saude"
 #: identificador so da acesso de leitura, e morre com o processo.
 COOKIE_SESSAO = "coruja_sessao"
 
+#: A política que vale para TODA página, e a única que o mapa recebe.
+#:
+#: `frame-ancestors 'none'` é contra clickjacking: a página mostra onde o
+#: carro esteve, e um quadro invisível por cima dela faz o clique de quem
+#: olha ir para outro lugar. Ela não restringe o que a página carrega, e por
+#: isso é a que o mapa pode receber sem risco.
+#:
+#: ⚠️ **O mapa não leva mais que isto, de propósito.** Ele é montado pelo
+#: folium: script embutido, biblioteca de CDN, tiles de outro domínio e
+#: fontes. Uma política de origem ali quebraria o mapa — e não há navegador
+#: nesta imagem para perceber antes de ir para o ar.
+CSP_MINIMA = "frame-ancestors 'none'; base-uri 'none'"
+
+#: As páginas que o próprio servidor monta: formulário, listagem e aviso.
+#:
+#: Elas não carregam NADA de fora — o estilo e o script vão embutidos, e há
+#: um teste que recusa a primeira página que passar a buscar algo. É isso que
+#: torna `default-src 'none'` seguro aqui: uma injeção que escape do
+#: `html.escape` ainda não consegue trazer código de lugar nenhum.
+#:
+#: `'unsafe-inline'` continua necessário: o conversor de horário e o estilo
+#: são embutidos. Trocá-lo por nonce é possível e fica para quando houver
+#: navegador no caminho dos testes.
+CSP_PAGINA = (
+    "default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; form-action 'self'; " + CSP_MINIMA)
+
+#: A página de redirecionamento não tem script nem estilo: só o `meta
+#: refresh` e um link. Nada é permitido, e nada é preciso.
+CSP_SEM_SCRIPT = "default-src 'none'; form-action 'none'; " + CSP_MINIMA
+
 #: Quanto tempo uma sessao dura sem uso.
 VALIDADE_SESSAO_S = 8 * 3600
 
@@ -1075,11 +1106,23 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         return sid
 
     def _html(self, codigo: int, corpo: str,
-              cookie: tuple[str, str] | None = None) -> None:
+              cookie: tuple[str, str] | None = None,
+              csp: str = CSP_PAGINA) -> None:
+        """Uma resposta HTML. `csp` escolhe a política -- ver `CSP_MINIMA`.
+
+        O padrão é a política das páginas próprias: quem serve HTML de outra
+        origem -- hoje só o mapa do folium -- tem de dizer isso, e não o
+        contrário. Esquecer aqui aperta; esquecer ao contrário afrouxa.
+        """
         # A pagina monta HTML com dados que vieram do aparelho. Os cabecalhos
         # abaixo sao a segunda linha de defesa; a primeira e o `html.escape`.
         extras = [("X-Content-Type-Options", "nosniff"),
-                  ("Referrer-Policy", "no-referrer")]
+                  ("Referrer-Policy", "no-referrer"),
+                  # `X-Frame-Options` alem do `frame-ancestors`: o cabecalho
+                  # velho ainda e o que vale em navegador que nao implementa
+                  # a diretiva, e custa uma linha.
+                  ("X-Frame-Options", "DENY"),
+                  ("Content-Security-Policy", csp)]
         if cookie is not None:
             nome, valor = cookie
             # `Secure` so quando a borda diz que o cliente veio por HTTPS: o
@@ -1181,7 +1224,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._html(503, pagina.aviso(
                 "o mapa precisa do folium: pip install folium"))
             return
-        self._html(200, corpo)
+        self._html(200, corpo, csp=CSP_MINIMA)
 
     def _entra(self) -> None:
         agora = time.monotonic()
@@ -1206,7 +1249,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             return
         self.castigo.pop(de_onde, None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
-                   cookie=(COOKIE_SESSAO, sid))
+                   cookie=(COOKIE_SESSAO, sid), csp=CSP_SEM_SCRIPT)
 
     def _sai(self) -> None:
         bruto = self.headers.get("Cookie", "")
@@ -1215,7 +1258,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             if chave == COOKIE_SESSAO:
                 self.sessoes.pop(valor, None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
-                   cookie=(COOKIE_SESSAO, ""))
+                   cookie=(COOKIE_SESSAO, ""), csp=CSP_SEM_SCRIPT)
 
     def _trata_viagens(self, caminho: str) -> bool:
         """`True` se a rota era de viagens e ja foi respondida."""

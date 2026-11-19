@@ -325,6 +325,85 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertEqual(st1, 404)
         self.assertEqual(st2, 200)
 
+    # ===================================================== cabecalhos
+
+    def cabecalhos_de_cada_pagina(self):
+        """`(nome, cabecalhos)` de cada tipo de pagina HTML que o servidor da."""
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        _st, _c, formulario = self.pede("GET", s.ROTA_VIAGENS)
+        _st, _c, listagem = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        _st, _c, mapa = self.pede(
+            "GET", s.ROTA_VIAGENS + "/20261006_123858.log", cookie=cookie)
+        _st, _c, avis = self.pede(
+            "GET", s.ROTA_VIAGENS + "/20261006_000000.log", cookie=cookie)
+        _st, _c, entrada = self.pede(
+            "POST", s.ROTA_VIAGENS, f"token={TOKEN}",)
+        return [("formulario", formulario), ("listagem", listagem),
+                ("mapa", mapa), ("aviso", avis), ("redirecionamento", entrada)]
+
+    def test_toda_pagina_recusa_ser_emoldurada(self):
+        # Clickjacking: a pagina mostra onde o carro esteve, e um quadro
+        # invisivel por cima dela faz o clique ir para outro lugar.
+        for nome, cab in self.cabecalhos_de_cada_pagina():
+            with self.subTest(pagina=nome):
+                self.assertEqual(cab.get("X-Frame-Options"), "DENY")
+                self.assertIn("frame-ancestors 'none'",
+                              cab.get("Content-Security-Policy", ""))
+
+    def test_a_pagina_do_mapa_nao_ganha_politica_que_a_quebre(self):
+        # ⚠️ O mapa e folium: script embutido, biblioteca de CDN, tiles de
+        # outro dominio e fontes. Uma politica de origem aqui o quebraria, e
+        # nao ha navegador nesta imagem para perceber. So `frame-ancestors`.
+        cab = dict(self.cabecalhos_de_cada_pagina())["mapa"]
+        politica = cab.get("Content-Security-Policy", "")
+        for diretiva in ("default-src", "script-src", "style-src", "img-src",
+                         "connect-src", "font-src"):
+            self.assertNotIn(diretiva, politica)
+
+    def test_as_paginas_do_servidor_ganham_politica_estrita(self):
+        # Elas nao carregam NADA de fora -- ver o teste seguinte, que e o que
+        # torna esta politica segura.
+        for nome in ("formulario", "listagem", "aviso"):
+            with self.subTest(pagina=nome):
+                politica = dict(self.cabecalhos_de_cada_pagina())[nome].get(
+                    "Content-Security-Policy", "")
+                self.assertIn("default-src 'none'", politica)
+                self.assertIn("form-action 'self'", politica)
+
+    def test_o_redirecionamento_nao_precisa_nem_de_script(self):
+        politica = dict(self.cabecalhos_de_cada_pagina())[
+            "redirecionamento"].get("Content-Security-Policy", "")
+        self.assertIn("default-src 'none'", politica)
+        self.assertNotIn("script-src", politica)
+
+    def test_nenhuma_pagina_do_servidor_carrega_coisa_de_fora(self):
+        """O que sustenta o `default-src 'none'` das paginas proprias.
+
+        Se um dia uma delas passar a buscar uma fonte, um icone ou uma
+        biblioteca, o navegador vai recusar -- e e aqui que isso aparece,
+        antes de ir para o ar.
+        """
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        paginas = {
+            "formulario": self.pede("GET", s.ROTA_VIAGENS)[1],
+            "listagem": self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)[1],
+            "aviso": self.pede("GET", s.ROTA_VIAGENS + "/20261006_000000.log",
+                               cookie=cookie)[1],
+            "redirecionamento": self.pede(
+                "POST", s.ROTA_VIAGENS, f"token={TOKEN}")[1],
+        }
+        # `//` cru nao serve de busca: o script embutido tem comentario de
+        # linha. O que nao pode e endereco em atributo e `url()` no estilo.
+        de_fora = re.compile(r"""(?:src|href|action)\s*=\s*["'](?:\w+:)?//""")
+        for nome, corpo in paginas.items():
+            with self.subTest(pagina=nome):
+                self.assertIsNone(de_fora.search(corpo),
+                                  "endereco de outro dominio na pagina")
+                self.assertNotIn("url(", corpo)
+                self.assertNotIn("<img", corpo)
+
     # ===================================================== as outras rotas
 
     def test_a_pagina_nao_interfere_na_rota_da_base(self):
