@@ -364,6 +364,15 @@ TEST(PilotoAlerta, numa_curva_o_radar_a_frente_na_propria_via_nao_e_vetado) {
     EXPECT_EQ(v.zona, Zona::Perigo);
 }
 
+TEST(PilotoAlerta, curva_suave_de_dois_graus_por_segundo_tambem_abre_o_veto) {
+    // A curva que a constante do giro cita como a que desliga o veto. A
+    // 40 km/h, 2 graus/s tambem sao ~320 m de raio, e o radar 145 m adiante
+    // fica 32 m ao lado da proa. Em 12 fixes a 4 Hz a janela ve 5,5 graus.
+    const Veredito v = percorre_curva(40.0F, 2.0F, 145.0F, 40);
+    EXPECT_TRUE(v.tem_alvo) << "o veto lateral escondeu o radar da curva";
+    EXPECT_EQ(v.alvo.limite, 40);
+}
+
 TEST(PilotoAlerta, na_reta_o_mesmo_padrao_de_laco_mantem_o_veto) {
     // O contrapeso: a mesma cadencia de laco, sem curva, e o radar 32 m ao
     // lado da via continua vetado. Sem isto o teste acima passaria com o

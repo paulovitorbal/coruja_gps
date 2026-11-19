@@ -146,11 +146,24 @@ constexpr float kFolgaLateralPorMetro = 0.07F;
 
 /// Giro acumulado acima do qual a proa não serve para projetar nada.
 ///
-/// A folga por metro absorve erro de medida, não curva de verdade: numa curva
-/// de 2°/s, os 6,7 s que o veículo leva para vencer 150 m valem 13° de giro,
-/// e 13° a 150 m são 34 m de lateral — mais que o próprio limiar. Aqui o veto
-/// desliga e o alerta volta a ser o de antes. **Na dúvida, abre.**
-constexpr float kGiroMaximoGraus = 8.0F;
+/// A folga por metro absorve erro de medida, não curva de verdade. Numa curva
+/// de velocidade angular ω a v, o radar que está sobre a via a `d` metros
+/// fica `d²·ω/(2v)` ao lado da reta que a proa projeta; quando isso passa do
+/// limiar (`kDesvioLateralM + d·kFolgaLateralPorMetro`), o veto esconderia um
+/// radar da própria via. Acima deste giro o veto desliga e o alerta volta a
+/// ser o de antes. **Na dúvida, abre.**
+///
+/// 🔴 **Era 8°, e não abria a curva de 2°/s que este comentário citava.** A
+/// janela tem 12 fixes, 2,75 s a 4 Hz, e 2°/s cabem nela como 5,5°: abaixo
+/// de 8°, o veto ficava ligado. Medido em teste a 40 km/h, com o radar 145 m
+/// adiante e 32 m ao lado da proa, contra 25 m tolerados. 8° só protegiam de
+/// ~80 km/h para cima.
+///
+/// 4° vêm da mesma conta no pior ponto da janela curta, `d` = 150 m, onde o
+/// limiar vale 25,5 m: ω·2,75 s ≤ 4° é seguro até ~40 km/h. Abaixo disso
+/// ainda sobra curva lenta que o veto não enxerga. O ruído não chega perto:
+/// o rumo Doppler do NEO-M8N erra ~0,5° por leitura, e a janela compara duas.
+constexpr float kGiroMaximoGraus = 4.0F;
 
 /// Quantas proas entram na janela do giro. A 4 Hz são 3 s, que é a ordem do
 /// tempo de voo até o ponto mais distante que o veto alcança.
