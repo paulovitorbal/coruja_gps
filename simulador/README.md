@@ -57,7 +57,32 @@ não confie.
 **Não há ruído, nem perda de fix, nem cold start.** Todo fix é válido. Testar
 o RF07 e o comportamento sem sinal exige acrescentar isso — hoje não está.
 
-**A hora é a do computador**, em UTC, não a do relógio do satélite.
+**A hora é a do computador**, em UTC, não a do relógio do satélite. O carimbo
+anda em passos de 250 ms (`.00`, `.25`, `.50`, `.75`) a partir do instante em
+que o simulador subiu, e não é lido do relógio a cada sentença.
+
+**Ele não responde ao ACK do UBX.** O firmware configura o módulo por quadros
+UBX binários (`CFG-RATE`, `CFG-MSG`, `CFG-PRT`…) e espera o `ACK-ACK` de cada
+um; o simulador ignora o que chega e só emite RMC. Para o `ConfiguradorGps`
+isso é um módulo que **não responde**: ele repete cada comando até
+`kTentativasPorComando` e segue sem a configuração, no caminho de "sem
+resposta". Dá para exercitar esse caminho de propósito — ele é o que acontece
+com o módulo mudo —, mas **não dá para testar a configuração em si** por
+aqui.
+
+## Capturar as sentenças
+
+⚠️ **`simula_gps.py | tee captura.nmea` NÃO captura a NMEA.** O que sai pela
+saída padrão é o console — a volta, o percentual, a velocidade. As sentenças
+saem pela **pty**, que é justamente o ponto dela. O arquivo fica com o status
+e nenhuma `$GNRMC`.
+
+Para capturar o que o aparelho leria, leia o outro lado:
+
+```bash
+python3 simula_gps.py --sem-pausa &   # cria o atalho ./serial
+cat serial > captura.nmea             # ou: cat "$(readlink serial)"
+```
 
 ## Regerar a rota
 

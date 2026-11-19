@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 import urllib.error
@@ -25,6 +24,9 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from geo import metros  # noqa: E402
 
 AQUI = Path(__file__).resolve().parent
 SAIDA = AQUI / "rota_eixao.csv"
@@ -103,11 +105,6 @@ def linha_de_centro(nos: list[tuple[float, float]]) -> list[tuple[float, float]]
         z = min(len(bruto), i + JANELA + 1)
         suave.append((lat, sum(p[1] for p in bruto[a:z]) / (z - a)))
     return suave
-
-
-def metros(a: tuple[float, float], b: tuple[float, float]) -> float:
-    return math.hypot((b[0] - a[0]) * 111320.0,
-                      (b[1] - a[1]) * 111320.0 * math.cos(math.radians(a[0])))
 
 
 def main(argv: list[str]) -> int:
