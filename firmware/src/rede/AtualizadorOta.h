@@ -143,6 +143,26 @@ public:
     const char* versao_local() const { return versao_local_; }
 
 private:
+    // O `executa` em pedaços, na ordem em que rodam. Cada um devolve o
+    // resultado em vez de encerrar: quem desconecta é só o `encerra`, e um
+    // retorno adiantado lá dentro não tem como esquecer o rádio.
+    void avisa(FaseOta fase, unsigned tentativa = 1);
+    void le_versao_local(Logger& log);
+    ResultadoOta encerra(ResultadoOta r, Logger& log);
+    ResultadoOta fala_com_o_servidor(const Url& url_versao,
+                                     const Url& url_base, Logger& log);
+    /// Passo 1. `false`, com o motivo, quando a resposta não serve.
+    bool consulta_versao(const Url& url, Logger& log, ResultadoOta* motivo);
+    bool ja_em_dia(Logger& log) const;
+    /// As tentativas do RF05.2, com a espera entre elas.
+    ResultadoOta baixa_com_tentativas(const Url& url, Logger& log);
+    /// Uma tentativa. `repete` diz se a seguinte pode dar outro resultado.
+    ResultadoOta tenta_baixar(const Url& url, unsigned tentativa, Logger& log,
+                              bool* repete);
+    /// Passos 2 a 5 do RF05.2, com o download já no temporário.
+    ResultadoOta verifica_e_promove(unsigned tentativa, Logger& log,
+                                    bool* repete);
+
     Armazenamento&      cartao_;
     Conexao&            rede_;
     Baixador&           http_;

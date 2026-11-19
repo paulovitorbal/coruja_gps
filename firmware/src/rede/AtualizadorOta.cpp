@@ -193,13 +193,14 @@ const char* descreve_curto(ResultadoOta resultado) {
     return "ERRO DESCONHECIDO";
 }
 
-ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
-    // Apelidos locais: o corpo abaixo foi escrito contra parametros e nao
-    // muda ao passarem a ser membros. Trocar os nomes seria diff sem ganho.
-    Armazenamento& cartao = cartao_;
-    Conexao&       rede = rede_;
-    char msg[224];
 
+void AtualizadorOta::avisa(FaseOta fase, unsigned tentativa) {
+    if (observador_ != nullptr) {
+        observador_->fase(fase, tentativa);
+    }
+}
+
+ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     if (!cfg.ota_possivel()) {
         log.warning("ota", "sem rede ou sem URLs: nada a fazer");
         return ResultadoOta::SemConfiguracao;
@@ -223,33 +224,12 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     // de acesso do servidor e de qualquer proxy no caminho.
 
     log.debug("ota", "==== atualizacao solicitada ====");
-
-    // A versão local vem do CARTÃO. Guardá-la só em RAM fazia o primeiro
-    // clique depois de cada boot rebaixar 214 KB sem necessidade.
-    std::size_t lidos = 0;
-    versao_local_[0] = '\0';
-    const auto leitura_versao = cartao.le_arquivo(kArquivoVersao, versao_local_,
-                                                  kMaxVersao, &lidos, log);
-    if (leitura_versao == ErroCartao::Nenhum) {
-        apara_branco(versao_local_, &lidos);
-    } else if (leitura_versao == ErroCartao::ArquivoAusente) {
-        // Normal na primeira atualização. Não é erro, e não deve soar como um.
-        log.debug("ota", "sem versao registrada no cartao: primeira atualizacao");
-    } else {
-        std::snprintf(msg, sizeof msg, "versao local ilegivel (%s): vai rebaixar",
-                      descreve(leitura_versao));
-        log.warning("ota", msg);
-    }
-
-    const auto avisa = [&](FaseOta f, unsigned tentativa = 1) {
-        if (observador_ != nullptr) {
-            observador_->fase(f, tentativa);
-        }
-    };
+    le_versao_local(log);
 
     avisa(FaseOta::Conectando);
-    const auto erro_rede = rede.conecta(cfg, log);
+    const auto erro_rede = rede_.conecta(cfg, log);
     if (erro_rede != ErroWifi::Nenhum) {
+        char msg[64];
         std::snprintf(msg, sizeof msg, "rede: %s", descreve(erro_rede));
         log.error("ota", msg);
         avisa(FaseOta::Falhou);
@@ -264,34 +244,78 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
         preparo_->apos_conectar(log);
     }
 
-    // `desconecta` tem de acontecer em TODA saída daqui para baixo. Um retorno
-    // adiantado que esquecesse disso deixaria o rádio associado indefinidamente
-    // — exatamente o que a conexão episódica existe para evitar.
-    const auto encerra = [&](ResultadoOta r) {
-        // A fase final sai daqui, e nao de cada ponto de retorno: e o unico
-        // lugar por onde todos passam, e foi escrito justamente para que o
-        // `desconecta` nao fosse esquecido em nenhum deles.
-        avisa(r == ResultadoOta::Atualizada      ? FaseOta::Concluida
-              : r == ResultadoOta::JaEstavaEmDia ? FaseOta::JaEmDia
-                                                 : FaseOta::Falhou);
-        std::snprintf(msg, sizeof msg, "resultado: %s", descreve(r));
-        log.info("ota", msg);
-        rede.desconecta(log);
-        // A moldura some: a linha `resultado:` acima e quem fecha o evento.
-        log.debug("ota", "==== fim da atualizacao ====");
-        return r;
-    };
+    // `desconecta` tem de acontecer em TODA saída daqui para baixo. Por isso
+    // o que fala com o servidor devolve o resultado em vez de encerrar: um
+    // retorno adiantado lá dentro não tem como esquecer o rádio associado.
+    return encerra(fala_com_o_servidor(url_versao, url_base, log), log);
+}
 
+void AtualizadorOta::le_versao_local(Logger& log) {
+    // A versão local vem do CARTÃO. Guardá-la só em RAM fazia o primeiro
+    // clique depois de cada boot rebaixar 214 KB sem necessidade.
+    std::size_t lidos = 0;
+    versao_local_[0] = '\0';
+    const auto leitura_versao = cartao_.le_arquivo(kArquivoVersao, versao_local_,
+                                                   kMaxVersao, &lidos, log);
+    if (leitura_versao == ErroCartao::Nenhum) {
+        apara_branco(versao_local_, &lidos);
+    } else if (leitura_versao == ErroCartao::ArquivoAusente) {
+        // Normal na primeira atualização. Não é erro, e não deve soar como um.
+        log.debug("ota", "sem versao registrada no cartao: primeira atualizacao");
+    } else {
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "versao local ilegivel (%s): vai rebaixar",
+                      descreve(leitura_versao));
+        log.warning("ota", msg);
+    }
+}
+
+ResultadoOta AtualizadorOta::encerra(ResultadoOta r, Logger& log) {
+    // A fase final sai daqui, e nao de cada ponto de retorno: e o unico
+    // lugar por onde todos passam, e foi escrito justamente para que o
+    // `desconecta` nao fosse esquecido em nenhum deles.
+    avisa(r == ResultadoOta::Atualizada      ? FaseOta::Concluida
+          : r == ResultadoOta::JaEstavaEmDia ? FaseOta::JaEmDia
+                                             : FaseOta::Falhou);
+    char msg[96];
+    std::snprintf(msg, sizeof msg, "resultado: %s", descreve(r));
+    log.info("ota", msg);
+    rede_.desconecta(log);
+    // A moldura some: a linha `resultado:` acima e quem fecha o evento.
+    log.debug("ota", "==== fim da atualizacao ====");
+    return r;
+}
+
+ResultadoOta AtualizadorOta::fala_com_o_servidor(const Url& url_versao,
+                                                 const Url& url_base,
+                                                 Logger& log) {
     // ---- 1. consultar a versão disponível --------------------------------
+    ResultadoOta motivo = ResultadoOta::FalhaAoConsultar;
+    if (!consulta_versao(url_versao, log, &motivo)) {
+        return motivo;
+    }
+    if (ja_em_dia(log)) {
+        return ResultadoOta::JaEstavaEmDia;
+    }
+
+    // ---- 2. baixar, gravando e verificando ao mesmo tempo ----------------
+    log.debug("ota", "versao diferente: baixando a base");
+    return baixa_com_tentativas(url_base, log);
+}
+
+bool AtualizadorOta::consulta_versao(const Url& url, Logger& log,
+                                     ResultadoOta* motivo) {
     avisa(FaseOta::Consultando);
     ColetaVersao coleta{versao_remota_, kMaxVersao};
-    const auto consulta = http_.baixa(url_versao, ao_receber_versao, &coleta,
-                                      log, 15'000);
+    const auto consulta = http_.baixa(url, ao_receber_versao, &coleta, log,
+                                      15'000);
     if (!consulta.ok()) {
+        char msg[96];
         std::snprintf(msg, sizeof msg, "consulta de versao: %s",
                       descreve(consulta.erro));
         log.error("ota", msg);
-        return encerra(ResultadoOta::FalhaAoConsultar);
+        *motivo = ResultadoOta::FalhaAoConsultar;
+        return false;
     }
     if (coleta.estourou) {
         log.warning("ota", "resposta de versao maior que o buffer; truncada");
@@ -300,128 +324,153 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     apara_branco(versao_remota_, &versao_remota_tam_);
     if (versao_remota_tam_ == 0) {
         log.error("ota", "o servidor devolveu versao vazia");
-        return encerra(ResultadoOta::FalhaAoConsultar);
+        *motivo = ResultadoOta::FalhaAoConsultar;
+        return false;
     }
+    return true;
+}
 
+bool AtualizadorOta::ja_em_dia(Logger& log) const {
     // Uma linha para a comparacao inteira: duas metades de uma pergunta so
     // eram duas linhas por consulta, e a resposta esta na diferenca.
+    char msg[224];
     std::snprintf(msg, sizeof msg, "versao: local '%s' x servidor '%s'",
                   versao_local_[0] != '\0' ? versao_local_ : "(nenhuma)",
                   versao_remota_);
     log.info("ota", msg);
 
-    if (std::strcmp(versao_local_, versao_remota_) == 0) {
-        if (vigente_em_uso_) {
-            return encerra(ResultadoOta::JaEstavaEmDia);
-        }
-        // A versao descreve o `radares.bin`, e nao e ele que esta em uso.
-        // Ver `informa_vigente_em_uso`.
-        log.warning("ota", "mesma versao, mas a base em uso nao e o "
-                           "radares.bin: baixando de novo");
+    if (std::strcmp(versao_local_, versao_remota_) != 0) {
+        return false;
     }
+    if (vigente_em_uso_) {
+        return true;
+    }
+    // A versao descreve o `radares.bin`, e nao e ele que esta em uso. Ver
+    // `informa_vigente_em_uso`.
+    log.warning("ota", "mesma versao, mas a base em uso nao e o "
+                       "radares.bin: baixando de novo");
+    return false;
+}
 
-    // ---- 2. baixar, gravando e verificando ao mesmo tempo ----------------
-    log.debug("ota", "versao diferente: baixando a base");
-
+ResultadoOta AtualizadorOta::baixa_com_tentativas(const Url& url,
+                                                  Logger& log) {
     ResultadoOta ultimo_erro = ResultadoOta::FalhaAoBaixar;
     for (unsigned tentativa = 1; tentativa <= kTentativas; ++tentativa) {
         if (tentativa > 1) {
+            char msg[64];
             std::snprintf(msg, sizeof msg, "tentativa %u de %u, apos %lu ms",
                           tentativa, kTentativas,
                           static_cast<unsigned long>(kEsperaEntreTentativasMs));
             log.warning("ota", msg);
             pausa_.espera_ms(kEsperaEntreTentativasMs);
         }
-
-        avisa(FaseOta::Baixando, tentativa);
-        verificador_.reinicia();
-        const auto abertura = cartao.abre_para_escrita(kArquivoTmp, log);
-        if (abertura != ErroCartao::Nenhum) {
-            std::snprintf(msg, sizeof msg, "nao deu para abrir '%s': %s",
-                          kArquivoTmp, descreve(abertura));
-            log.error("ota", msg);
-            ultimo_erro = ResultadoOta::FalhaAoGravar;
-            continue;
+        bool repete = false;
+        ultimo_erro = tenta_baixar(url, tentativa, log, &repete);
+        if (!repete) {
+            return ultimo_erro;
         }
-
-        DestinoDownload destino;
-        destino.verificador = &verificador_;
-        destino.cartao = &cartao;
-        destino.observador = observador_;
-
-        const auto download = http_.baixa(url_base, ao_receber_base, &destino,
-                                          log, 120'000);
-
-        if (!download.ok()) {
-            std::snprintf(msg, sizeof msg, "download: %s (%lu B chegaram)",
-                          descreve(download.erro),
-                          static_cast<unsigned long>(verificador_.bytes_recebidos()));
-            log.error("ota", msg);
-            cartao.descarta_escrita(kArquivoTmp, log);
-            ultimo_erro = ResultadoOta::FalhaAoBaixar;
-            continue;
-        }
-        if (destino.falhou_a_escrita) {
-            log.error("ota", "o cartao recusou a escrita no meio do download");
-            cartao.descarta_escrita(kArquivoTmp, log);
-            ultimo_erro = ResultadoOta::FalhaAoGravar;
-            continue;
-        }
-
-        avisa(FaseOta::Verificando, tentativa);
-        imprime_cabecalho(verificador_, log);
-
-        // Passo 2 do RF05.2. Valida ANTES de mexer na base vigente: é o que
-        // garante que um arquivo remoto corrompido não derrube a que funciona.
-        const auto veredito = verificador_.conclui(kCapacidadeFirmware);
-        if (veredito != ErroBase::Nenhum) {
-            std::snprintf(msg, sizeof msg, "base RECUSADA: %s", descreve(veredito));
-            log.error("ota", msg);
-            cartao.descarta_escrita(kArquivoTmp, log);
-            ultimo_erro = ResultadoOta::BaseRecusada;
-            continue;
-        }
-
-        if (cartao.conclui_escrita(log) != ErroCartao::Nenhum) {
-            cartao.descarta_escrita(kArquivoTmp, log);
-            ultimo_erro = ResultadoOta::FalhaAoGravar;
-            continue;
-        }
-
-        // ---- 3 e 4. a troca atômica --------------------------------------
-        avisa(FaseOta::Gravando, tentativa);
-        const auto troca = cartao.promove(kArquivoTmp, kArquivoBase,
-                                          kArquivoBak, log);
-        if (troca != ErroCartao::Nenhum) {
-            std::snprintf(msg, sizeof msg, "troca atomica: %s", descreve(troca));
-            log.error("ota", msg);
-            return encerra(ResultadoOta::FalhaAoGravar);
-        }
-        // O que esta no lugar agora e o que acabou de passar na verificacao.
-        vigente_em_uso_ = true;
-
-        // ---- 5. a versão, por último -------------------------------------
-        //
-        // Depois da base estar no lugar, de propósito. Se o aparelho desligar
-        // entre as duas, sobra a versão antiga e o próximo clique rebaixa:
-        // desperdício de rede, que é o modo de falha certo para escolher.
-        std::memcpy(versao_local_, versao_remota_, versao_remota_tam_ + 1);
-        const auto gravou_versao = cartao.grava_arquivo(
-            kArquivoVersao, versao_remota_, versao_remota_tam_, log);
-        if (gravou_versao != ErroCartao::Nenhum) {
-            log.warning("ota", "base gravada, mas a versao nao: vai rebaixar "
-                               "no proximo clique");
-        }
-
-        std::snprintf(msg, sizeof msg, "base gravada em '%s' (%lu bytes)",
-                      kArquivoBase,
-                      static_cast<unsigned long>(verificador_.bytes_recebidos()));
-        log.info("ota", msg);
-        return encerra(ResultadoOta::Atualizada);
     }
 
     log.error("ota", "as tentativas se esgotaram; a base vigente segue intacta");
-    return encerra(ultimo_erro);
+    return ultimo_erro;
+}
+
+ResultadoOta AtualizadorOta::tenta_baixar(const Url& url, unsigned tentativa,
+                                          Logger& log, bool* repete) {
+    char msg[96];
+    // Quase toda falha daqui merece outra tentativa; as que nao merecem
+    // dizem isso no ponto em que acontecem.
+    *repete = true;
+
+    avisa(FaseOta::Baixando, tentativa);
+    verificador_.reinicia();
+    const auto abertura = cartao_.abre_para_escrita(kArquivoTmp, log);
+    if (abertura != ErroCartao::Nenhum) {
+        std::snprintf(msg, sizeof msg, "nao deu para abrir '%s': %s",
+                      kArquivoTmp, descreve(abertura));
+        log.error("ota", msg);
+        return ResultadoOta::FalhaAoGravar;
+    }
+
+    DestinoDownload destino;
+    destino.verificador = &verificador_;
+    destino.cartao = &cartao_;
+    destino.observador = observador_;
+
+    const auto download = http_.baixa(url, ao_receber_base, &destino, log,
+                                      120'000);
+
+    if (!download.ok()) {
+        std::snprintf(msg, sizeof msg, "download: %s (%lu B chegaram)",
+                      descreve(download.erro),
+                      static_cast<unsigned long>(verificador_.bytes_recebidos()));
+        log.error("ota", msg);
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        return ResultadoOta::FalhaAoBaixar;
+    }
+    if (destino.falhou_a_escrita) {
+        log.error("ota", "o cartao recusou a escrita no meio do download");
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        return ResultadoOta::FalhaAoGravar;
+    }
+    return verifica_e_promove(tentativa, log, repete);
+}
+
+ResultadoOta AtualizadorOta::verifica_e_promove(unsigned tentativa,
+                                                Logger& log, bool* repete) {
+    char msg[96];
+    avisa(FaseOta::Verificando, tentativa);
+    imprime_cabecalho(verificador_, log);
+
+    // Passo 2 do RF05.2. Valida ANTES de mexer na base vigente: é o que
+    // garante que um arquivo remoto corrompido não derrube a que funciona.
+    const auto veredito = verificador_.conclui(kCapacidadeFirmware);
+    if (veredito != ErroBase::Nenhum) {
+        std::snprintf(msg, sizeof msg, "base RECUSADA: %s", descreve(veredito));
+        log.error("ota", msg);
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        return ResultadoOta::BaseRecusada;
+    }
+
+    if (cartao_.conclui_escrita(log) != ErroCartao::Nenhum) {
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        return ResultadoOta::FalhaAoGravar;
+    }
+
+    // ---- 3 e 4. a troca atômica ------------------------------------------
+    avisa(FaseOta::Gravando, tentativa);
+    const auto troca = cartao_.promove(kArquivoTmp, kArquivoBase, kArquivoBak,
+                                       log);
+    if (troca != ErroCartao::Nenhum) {
+        // Renomeacao que falha nao melhora na tentativa seguinte, e repetir
+        // arriscaria o estado do cartao.
+        std::snprintf(msg, sizeof msg, "troca atomica: %s", descreve(troca));
+        log.error("ota", msg);
+        *repete = false;
+        return ResultadoOta::FalhaAoGravar;
+    }
+    // O que esta no lugar agora e o que acabou de passar na verificacao.
+    vigente_em_uso_ = true;
+
+    // ---- 5. a versão, por último -----------------------------------------
+    //
+    // Depois da base estar no lugar, de propósito. Se o aparelho desligar
+    // entre as duas, sobra a versão antiga e o próximo clique rebaixa:
+    // desperdício de rede, que é o modo de falha certo para escolher.
+    std::memcpy(versao_local_, versao_remota_, versao_remota_tam_ + 1);
+    const auto gravou_versao = cartao_.grava_arquivo(
+        kArquivoVersao, versao_remota_, versao_remota_tam_, log);
+    if (gravou_versao != ErroCartao::Nenhum) {
+        log.warning("ota", "base gravada, mas a versao nao: vai rebaixar "
+                           "no proximo clique");
+    }
+
+    std::snprintf(msg, sizeof msg, "base gravada em '%s' (%lu bytes)",
+                  kArquivoBase,
+                  static_cast<unsigned long>(verificador_.bytes_recebidos()));
+    log.info("ota", msg);
+    *repete = false;
+    return ResultadoOta::Atualizada;
 }
 
 }  // namespace coruja
