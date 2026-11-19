@@ -127,7 +127,17 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
     bool tem_senha[kMaxRedes] = {};
     Rede brutas[kMaxRedes];
 
+    // O BOM do UTF-8 (EF BB BF), que o Bloco de Notas e outros editores
+    // gravam no inicio do arquivo. Colado na primeira chave, ele fazia a
+    // linha nao casar com nada: a rede sumia e o log acusava chave
+    // desconhecida, mandando procurar erro de digitacao numa linha certa.
+    // So no inicio -- no meio do arquivo aqueles bytes sao lixo.
     std::size_t i = 0;
+    if (tamanho >= 3 && static_cast<unsigned char>(texto[0]) == 0xEF &&
+        static_cast<unsigned char>(texto[1]) == 0xBB &&
+        static_cast<unsigned char>(texto[2]) == 0xBF) {
+        i = 3;
+    }
     while (i < tamanho) {
         std::size_t fim = i;
         while (fim < tamanho && texto[fim] != '\n') {
@@ -157,6 +167,13 @@ ResultadoConfig le_config(const char* texto, std::size_t tamanho,
         if (idx >= 0) {
             if (static_cast<std::size_t>(idx) >= kMaxRedes) {
                 ++r.diagnostico.indices_fora;
+            } else if (nv == 0) {
+                // `wifi_ssid_1=` e o que sobra de apagar o nome da rede sem
+                // apagar a chave. Virava uma rede de nome vazio, com o
+                // aparelho tentando associar-se a ela e o diagnostico
+                // LIMPO -- nada dizia por que nao havia Wi-Fi. Senha vazia,
+                // essa sim, e legitima: rede aberta.
+                ++r.diagnostico.valores_invalidos;
             } else if (!copia(brutas[idx].ssid, kMaxSsid, valor, nv)) {
                 ++r.diagnostico.valores_longos;
             } else {
