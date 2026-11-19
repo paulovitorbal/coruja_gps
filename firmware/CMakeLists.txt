@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.13)
 
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
+option(CORUJA_SANITIZER "ASan e UBSan na suite do host (requer CORUJA_TESTES)" OFF)
 
 # Identificacao do build, regenerada a cada compilacao. Ver
 # cmake/gera_versao.cmake para o motivo de nao ser na configuracao.
@@ -26,11 +27,24 @@ if(CORUJA_TESTES)
         add_compile_options(--coverage -O0 -g)
         add_link_options(--coverage)
     endif()
+    # A receita do `build-san` da liberacao. Era feita a mao, sem
+    # `-fno-sanitize-recover`: o UBSan imprimia o erro e o teste seguia
+    # verde, e a etapa do sanitizer passava por cima de UB. Com ela, o
+    # primeiro UB aborta o teste.
+    if(CORUJA_SANITIZER)
+        add_compile_options(-fsanitize=address,undefined
+                            -fno-sanitize-recover=all
+                            -fno-omit-frame-pointer -g -O1)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
     enable_testing()
     add_subdirectory(src)
     add_subdirectory(test)
     add_subdirectory(ferramentas)
 else()
+    if(CORUJA_SANITIZER)
+        message(FATAL_ERROR "CORUJA_SANITIZER e da suite do host: use com -DCORUJA_TESTES=ON.")
+    endif()
     include(pico_sdk_import.cmake)
     project(coruja_gps C CXX ASM)
     pico_sdk_init()

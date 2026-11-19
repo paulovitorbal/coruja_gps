@@ -112,6 +112,22 @@ cmake --build firmware/build-cov && ./firmware/build-cov/test/testes
 cd firmware/build-cov && xcrun gcov -b src/CMakeFiles/coruja_nucleo.dir/nucleo/*.gcda
 ```
 
+### Sanitizer
+
+A mesma suíte com ASan e UBSan. É a etapa 4 do `scripts/libera_fw.sh`, que
+configura o `build-san` assim quando ele não existe:
+
+```sh
+cmake -S firmware -B firmware/build-san -DCORUJA_TESTES=ON -DCORUJA_SANITIZER=ON
+cmake --build firmware/build-san
+UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir firmware/build-san --output-on-failure
+```
+
+> ⚠️ A receita era feita à mão, com `-fsanitize=address,undefined` e sem
+> `-fno-sanitize-recover`. Assim o UBSan **imprime o erro e segue**: o teste
+> termina verde e a etapa passava por cima de UB. Conferido em 19/11/2026 com
+> um estouro de inteiro proposital: verde na receita antiga, abortado na nova.
+
 ## Firmware para o Pico 2 W
 
 ```sh
