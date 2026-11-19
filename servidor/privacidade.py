@@ -240,8 +240,11 @@ def esconde_jornada(j: viagem.Jornada | viagem.Viagem,
         return j
     fragmentos: list[viagem.Viagem] = []
     cortou = False
-    for t in j.trechos:
-        pedacos, perdeu = esconde(t, conf, j.nome)
+    for n, t in enumerate(j.trechos):
+        # O indice do trecho entra na semente: duas travessias da mesma zona
+        # em trechos diferentes da MESMA jornada nao podem dividir o raio
+        # sorteado -- ver `_recorte`.
+        pedacos, perdeu = esconde(t, conf, f"{j.nome}|{n}")
         fragmentos.extend(pedacos)
         cortou = cortou or perdeu
     if not cortou:
@@ -262,40 +265,111 @@ def esconde(v: viagem.Viagem, conf: Privacidade,
     É o mesmo motivo pelo qual `trilha_da_jornada` desenha um `Feature` por
     trecho em vez de emendar as pausas.
     """
-    raios = [conf.raio_de(i, semente) for i in range(len(conf.zonas))]
-    visivel = [not _dentro(p, conf.zonas, raios) for p in v.pontos]
-    if all(visivel):
+    ocultos, cortes = _recorte(v.pontos, conf, semente)
+    if not any(ocultos) and not any(cortes):
         return [v], False
 
     fragmentos: list[viagem.Viagem] = []
     total = len(v.pontos)
-    i = 0
-    while i < total:
-        if not visivel[i]:
-            i += 1
+    comeco = None
+    for i in range(total):
+        if ocultos[i]:
+            comeco = _fecha(fragmentos, v, comeco, i, total)
             continue
-        comeco = i
-        while i < total and visivel[i]:
-            i += 1
-        corrida = v.pontos[comeco:i]
-        if len(corrida) < MINIMO_DE_PONTOS:
-            continue
-        fragmentos.append(viagem.Viagem(
-            nome=v.nome,
-            pontos=corrida,
-            inicio_oculto=comeco > 0 or v.inicio_oculto,
-            fim_oculto=i < total or v.fim_oculto,
-        ))
+        if comeco is None:
+            comeco = i
+        # Lacuna cortada: o ponto seguinte continua visível, mas a reta
+        # entre os dois passa por dentro da zona e não pode ser desenhada.
+        if i + 1 < total and cortes[i]:
+            comeco = _fecha(fragmentos, v, comeco, i + 1, total)
+    _fecha(fragmentos, v, comeco, total, total)
     return fragmentos, True
 
 
-def _dentro(ponto: viagem.PontoViagem, zonas: tuple[ZonaPrivada, ...],
-            raios: list[float]) -> bool:
-    """Está dentro de alguma zona? Na borda exata, **sim**.
+def _fecha(fragmentos: list[viagem.Viagem], v: viagem.Viagem,
+           comeco: int | None, fim: int, total: int) -> None:
+    """Fecha o fragmento `[comeco, fim)`, se ele tiver trajeto. Devolve `None`.
 
-    `<=` e não `<`: o pedido é "nenhum ponto dentro de 1 km", e na dúvida
-    esconde. Custa um ponto de trajeto.
+    Um fragmento de um ponto só é descartado: ele não desenha trajeto, e
+    viraria um pingo na borda do recorte — exatamente onde não pode estar.
     """
-    return any(
-        viagem.metros_entre(ponto.lat, ponto.lon, z.lat, z.lon) <= raio
-        for z, raio in zip(zonas, raios))
+    if comeco is not None and fim - comeco >= MINIMO_DE_PONTOS:
+        fragmentos.append(viagem.Viagem(
+            nome=v.nome,
+            pontos=v.pontos[comeco:fim],
+            inicio_oculto=comeco > 0 or v.inicio_oculto,
+            fim_oculto=fim < total or v.fim_oculto,
+        ))
+    return None
+
+
+def _recorte(pontos: list[viagem.PontoViagem], conf: Privacidade,
+             semente: str) -> tuple[list[bool], list[bool]]:
+    """Que pontos somem, e entre que pares a linha não pode ser ligada.
+
+    ⚠️ **Uma aproximação, um raio sorteado.** Antes o raio era um por
+    viagem, e a ida e a volta de uma mesma jornada caíam na MESMA
+    circunferência: quatro pontas, dois raios e um centro — duas jornadas
+    davam equações suficientes para resolver o centro, que é a casa. Com um
+    raio por aproximação, cada corte traz uma incógnita nova e a conta deixa
+    de fechar.
+
+    A detecção usa o raio MÁXIMO (`raio_m + folga_m`) e o recorte usa o
+    sorteado. É isso que mantém a numeração das aproximações estável: ela não
+    pode depender do sorteio, senão recarregar a página embaralharia os
+    raios e daria duas amostras do mesmo trajeto.
+    """
+    n = len(pontos)
+    ocultos = [False] * n
+    cortes = [False] * max(n - 1, 0)
+    for j, z in enumerate(conf.zonas):
+        # `<=` e não `<`: o pedido é "nenhum ponto dentro de 1 km", e na
+        # dúvida esconde. Custa um ponto de trajeto.
+        ate_o_ponto = [viagem.metros_entre(p.lat, p.lon, z.lat, z.lon)
+                       for p in pontos]
+        ate_a_reta = [
+            viagem.metros_ate_segmento(z.lat, z.lon,
+                                       pontos[i].lat, pontos[i].lon,
+                                       pontos[i + 1].lat, pontos[i + 1].lon)
+            for i in range(n - 1)]
+        maximo = conf.raio_m + max(conf.folga_m, 0.0)
+        for k, (a, b) in enumerate(_aproximacoes(ate_o_ponto, ate_a_reta,
+                                                 maximo)):
+            raio = conf.raio_de(j, f"{semente}|{k}")
+            for m in range(a, b + 1):
+                if ate_o_ponto[m] <= raio:
+                    ocultos[m] = True
+            # As lacunas que TOCAM a aproximação. Fora dela a reta já está a
+            # mais que o raio máximo, e nenhum raio sorteado a alcança.
+            for g in range(max(a - 1, 0), min(b + 1, n - 1)):
+                if ate_a_reta[g] <= raio:
+                    cortes[g] = True
+    return ocultos, cortes
+
+
+def _aproximacoes(ate_o_ponto: list[float], ate_a_reta: list[float],
+                  raio: float) -> list[tuple[int, int]]:
+    """Cada chegada perto da zona, como o intervalo de pontos `[a, b]`.
+
+    Uma travessia sem amostra nenhuma dentro — duas amostras de um arquivo
+    v1 têm 2 km entre si — vira um intervalo VAZIO (`a > b`) na lacuna em
+    que ela acontece. É o caso que o filtro ponto a ponto não via.
+    """
+    achadas: list[tuple[int, int]] = []
+    n = len(ate_o_ponto)
+    i = 0
+    while i < n:
+        if ate_o_ponto[i] <= raio:
+            a = i
+            while i < n and ate_o_ponto[i] <= raio:
+                i += 1
+            achadas.append((a, i - 1))
+        else:
+            i += 1
+    for g, distancia in enumerate(ate_a_reta):
+        if (distancia <= raio and ate_o_ponto[g] > raio
+                and ate_o_ponto[g + 1] > raio):
+            achadas.append((g + 1, g))     # vazia: só a reta passa perto
+    # Em ordem de acontecimento, que é o que numera as aproximações.
+    achadas.sort()
+    return achadas

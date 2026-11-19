@@ -541,16 +541,45 @@ def le_radares(caminho: Path) -> list[RadarNoMapa]:
     return saida
 
 
-def metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
-    """Distância aproximada, equirretangular. Erro de centímetros nesta escala.
+def deslocamento_m(lat0: float, lon0: float,
+                   lat1: float, lon1: float) -> tuple[float, float]:
+    """(leste, norte) em metros, equirretangular em torno de `lat0`.
 
-    Pública porque o `privacidade.py` mede com ela. Duas implementações da
-    mesma conta divergiriam com o tempo, e aqui a divergência apareceria
-    como ponto exibido a 999 m de casa.
+    **A única projeção do servidor.** O `privacidade.py` mede distância com
+    ela e o `pista.py` monta geometria plana com ela; duas implementações da
+    mesma conta divergiriam com o tempo, e aqui a divergência apareceria como
+    ponto exibido a 999 m de casa.
     """
     leste = (lon1 - lon0) * _M_POR_GRAU * math.cos(math.radians(lat0))
     norte = (lat1 - lat0) * _M_POR_GRAU
-    return math.hypot(leste, norte)
+    return leste, norte
+
+
+def metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
+    """Distância aproximada, equirretangular. Erro de centímetros nesta escala."""
+    return math.hypot(*deslocamento_m(lat0, lon0, lat1, lon1))
+
+
+def metros_ate_segmento(lat: float, lon: float,
+                        lat_a: float, lon_a: float,
+                        lat_b: float, lon_b: float) -> float:
+    """Distância de um ponto ao SEGMENTO `ab` — não à reta que o contém.
+
+    O `privacidade.py` mede com ela a aproximação de um TRECHO percorrido, e
+    não só a das amostras: entre duas amostras de um arquivo v1 cabem 2 km, e
+    uma zona de 1 km de raio cabe inteira entre elas.
+
+    Projetar na reta infinita atribuiria ao segmento a aproximação de um
+    trecho que ninguém percorreu — e esconderia pedaço de trajeto por causa
+    de uma curva do outro lado da cidade.
+    """
+    px, py = deslocamento_m(lat_a, lon_a, lat, lon)
+    bx, by = deslocamento_m(lat_a, lon_a, lat_b, lon_b)
+    comprimento2 = bx * bx + by * by
+    if comprimento2 == 0.0:
+        return math.hypot(px, py)
+    t = max(0.0, min(1.0, (px * bx + py * by) / comprimento2))
+    return math.hypot(px - t * bx, py - t * by)
 
 
 def radares_na_rota(v: Viagem, radares: list[RadarNoMapa],
