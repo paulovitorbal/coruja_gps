@@ -2,18 +2,16 @@
 
 #include <cstring>
 
+#include "nucleo/Texto.h"
+
 namespace coruja {
 
-bool e_espaco(char c) {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-}
-
 void apara(const char*& ini, std::size_t& n) {
-    while (n > 0 && e_espaco(*ini)) {
+    while (n > 0 && e_branco(*ini)) {
         ++ini;
         --n;
     }
-    while (n > 0 && e_espaco(ini[n - 1])) {
+    while (n > 0 && e_branco(ini[n - 1])) {
         --n;
     }
 }

@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "nucleo/BytesLe.h"
+
 namespace coruja {
 
 namespace {
@@ -44,19 +46,6 @@ constexpr std::size_t kConfig = 4;
 constexpr std::size_t kStatus = 5;
 constexpr std::uint8_t kBitUsaAop = 0x01;
 }  // namespace aopstatus
-
-std::uint16_t le_u16(const std::uint8_t* p) {
-    // Little-endian, como todo campo do UBX.
-    return static_cast<std::uint16_t>(p[0] |
-                                      (static_cast<std::uint16_t>(p[1]) << 8));
-}
-
-std::uint32_t le_u32(const std::uint8_t* p) {
-    return static_cast<std::uint32_t>(p[0]) |
-           (static_cast<std::uint32_t>(p[1]) << 8) |
-           (static_cast<std::uint32_t>(p[2]) << 16) |
-           (static_cast<std::uint32_t>(p[3]) << 24);
-}
 
 }  // namespace
 

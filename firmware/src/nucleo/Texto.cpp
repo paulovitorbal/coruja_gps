@@ -1,15 +1,22 @@
 #include "nucleo/Texto.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace coruja {
-namespace {
 
-bool branco(char c) {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+bool inteiro(const char* ini, std::size_t n, std::uint32_t* destino) {
+    if (n == 0) { return false; }
+    std::uint32_t v = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (ini[i] < '0' || ini[i] > '9') { return false; }
+        const auto d = static_cast<std::uint32_t>(ini[i] - '0');
+        if (v > (UINT32_MAX - d) / 10U) { return false; }
+        v = v * 10U + d;
+    }
+    *destino = v;
+    return true;
 }
-
-}  // namespace
 
 void apara_branco(char* texto, std::size_t* tamanho) {
     if (texto == nullptr || tamanho == nullptr) {
@@ -18,10 +25,10 @@ void apara_branco(char* texto, std::size_t* tamanho) {
     std::size_t inicio = 0;
     std::size_t fim = *tamanho;
 
-    while (fim > inicio && branco(texto[fim - 1])) {
+    while (fim > inicio && e_branco(texto[fim - 1])) {
         --fim;
     }
-    while (inicio < fim && branco(texto[inicio])) {
+    while (inicio < fim && e_branco(texto[inicio])) {
         ++inicio;
     }
     if (inicio > 0) {

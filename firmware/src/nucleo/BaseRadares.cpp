@@ -4,25 +4,11 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "nucleo/BytesLe.h"
 
 namespace coruja {
 
 namespace {
-
-std::uint32_t le_u32(const std::uint8_t* p) {
-    return static_cast<std::uint32_t>(p[0]) |
-           (static_cast<std::uint32_t>(p[1]) << 8) |
-           (static_cast<std::uint32_t>(p[2]) << 16) |
-           (static_cast<std::uint32_t>(p[3]) << 24);
-}
-
-std::int32_t le_i32(const std::uint8_t* p) {
-    return static_cast<std::int32_t>(le_u32(p));
-}
-
-std::uint16_t le_u16(const std::uint8_t* p) {
-    return static_cast<std::uint16_t>(p[0] | (p[1] << 8));
-}
 
 constexpr const char* kOrigem = "base";
 

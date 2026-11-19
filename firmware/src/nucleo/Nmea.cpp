@@ -1,5 +1,7 @@
 #include "nucleo/Nmea.h"
 
+#include "nucleo/Texto.h"
+
 namespace coruja {
 namespace {
 
@@ -36,22 +38,11 @@ std::size_t posicao_asterisco(const char* s, std::size_t n) {
     return n;
 }
 
-/// Inteiro sem sinal, exigindo **todos** os caracteres dígitos. Devolve false
-/// para campo vazio ou com qualquer caractere estranho — nada de `atoi`, que
-/// devolve 0 para lixo e não distingue "zero" de "não é número".
+/// O mesmo `inteiro` do `Texto.h`, lido de um campo recortado. A regra --
+/// todos os caracteres dígitos, sem dar a volta em 32 bits -- é a mesma do
+/// leitor de configuração, e por isso mora num lugar só.
 bool inteiro(const Campo& c, std::uint32_t* destino) {
-    if (c.vazio()) return false;
-    std::uint32_t v = 0;
-    for (std::size_t i = 0; i < c.n; ++i) {
-        if (c.ini[i] < '0' || c.ini[i] > '9') return false;
-        const auto d = static_cast<std::uint32_t>(c.ini[i] - '0');
-        // Sem esta guarda o `uint32_t` dá a volta em silêncio, e 2^32 + 9
-        // satélites viram 9 -- um número plausível.
-        if (v > (UINT32_MAX - d) / 10U) return false;
-        v = v * 10U + d;
-    }
-    *destino = v;
-    return true;
+    return coruja::inteiro(c.ini, c.n, destino);
 }
 
 /// Decimal **sem sinal**, com ponto, em `double`. Sem `strtod`: o campo não é

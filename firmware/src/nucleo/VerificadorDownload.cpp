@@ -2,19 +2,10 @@
 
 #include <cstring>
 
+#include "nucleo/BytesLe.h"
+
 namespace coruja {
 namespace {
-
-std::uint16_t le_u16(const std::uint8_t* b) {
-    return static_cast<std::uint16_t>(b[0] | (b[1] << 8));
-}
-
-std::uint32_t le_u32(const std::uint8_t* b) {
-    return static_cast<std::uint32_t>(b[0]) |
-           (static_cast<std::uint32_t>(b[1]) << 8) |
-           (static_cast<std::uint32_t>(b[2]) << 16) |
-           (static_cast<std::uint32_t>(b[3]) << 24);
-}
 
 }  // namespace
 
