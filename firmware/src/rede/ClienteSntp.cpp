@@ -4,6 +4,7 @@
 #include <lwip/pbuf.h>
 #include <lwip/udp.h>
 #include <pico/cyw43_arch.h>
+#include <pico/rand.h>
 #include <pico/stdlib.h>
 
 #include <cstdio>
@@ -22,13 +23,27 @@ struct Espera {
     std::uint8_t resposta[kTamanhoPacoteNtp] = {};
     std::size_t  recebidos = 0;
     bool         chegou = false;
+    /// De quem se espera resposta. Um socket UDP aceita pacote de QUALQUER
+    /// origem; sem conferir, o primeiro que chegasse a porta durante a
+    /// espera seria a hora do aparelho. O nonce do `Sntp.cpp` e a guarda
+    /// principal -- esta e a barata, que descarta antes de olhar o resto.
+    ip_addr_t    servidor = {};
+    /// Pacotes recusados pela origem. Vai para o log: um numero diferente de
+    /// zero e alguem mandando pacote de hora para este aparelho.
+    unsigned     de_outra_origem = 0;
 };
 
-void ao_chegar(void* arg, struct udp_pcb*, struct pbuf* p, const ip_addr_t*,
-               u16_t) {
+void ao_chegar(void* arg, struct udp_pcb*, struct pbuf* p,
+               const ip_addr_t* origem, u16_t porta) {
     auto* e = static_cast<Espera*>(arg);
     if (p == nullptr) { return; }
     if (e != nullptr && !e->chegou) {
+        if (origem == nullptr || !ip_addr_eq(origem, &e->servidor) ||
+                porta != kPortaNtp) {
+            ++e->de_outra_origem;
+            pbuf_free(p);
+            return;
+        }
         const std::size_t n = p->tot_len < kTamanhoPacoteNtp ? p->tot_len
                                                              : kTamanhoPacoteNtp;
         // `pbuf_copy_partial` junta os pedacos da cadeia: a resposta cabe num
@@ -117,6 +132,10 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
 
     // --- manda o pedido ---
     Espera espera;
+    espera.servidor = endereco;
+    // O sorteio que amarra a resposta ao pedido. Do TRNG do RP2350, a mesma
+    // fonte da entropia do TLS -- ver `monta_pedido_ntp`.
+    const std::uint64_t nonce = get_rand_64();
     cyw43_arch_lwip_begin();
     struct udp_pcb* pcb = udp_new_ip_type(IPADDR_TYPE_V4);
     if (pcb != nullptr) {
@@ -134,7 +153,7 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
                                     static_cast<u16_t>(kTamanhoPacoteNtp),
                                     PBUF_RAM);
     if (saida != nullptr) {
-        monta_pedido_ntp(static_cast<std::uint8_t*>(saida->payload));
+        monta_pedido_ntp(static_cast<std::uint8_t*>(saida->payload), nonce);
         mandou = udp_sendto(pcb, saida, &endereco, kPortaNtp) == ERR_OK;
         pbuf_free(saida);
     }
@@ -156,7 +175,13 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
             cyw43_arch_lwip_begin();
             udp_remove(pcb);
             cyw43_arch_lwip_end();
-            log.warning(kOrigem, "sem resposta a tempo");
+            // O numero de descartados vai junto: "sem resposta" com
+            // pacotes recusados e outra historia -- alguem mandou hora para
+            // este aparelho e o servidor nao respondeu.
+            std::snprintf(msg, sizeof msg,
+                          "sem resposta a tempo (%u pacotes de outra origem "
+                          "descartados)", espera.de_outra_origem);
+            log.warning(kOrigem, msg);
             return false;
         }
         cyw43_arch_poll();
@@ -167,8 +192,15 @@ bool ClienteSntp::consulta(const char* servidor, std::int64_t* segundos,
     udp_remove(pcb);
     cyw43_arch_lwip_end();
 
+    if (espera.de_outra_origem > 0) {
+        std::snprintf(msg, sizeof msg,
+                      "%u pacotes de hora vieram de outra origem e foram "
+                      "descartados", espera.de_outra_origem);
+        log.warning(kOrigem, msg);
+    }
+
     // --- le, com toda a validacao que o Sntp.cpp faz ---
-    const auto erro = le_resposta_ntp(espera.resposta, espera.recebidos,
+    const auto erro = le_resposta_ntp(espera.resposta, espera.recebidos, nonce,
                                       segundos);
     if (erro != ErroNtp::Nenhum) {
         std::snprintf(msg, sizeof msg, "resposta recusada: %s", descreve(erro));

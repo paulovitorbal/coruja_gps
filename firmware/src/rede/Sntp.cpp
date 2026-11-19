@@ -7,11 +7,17 @@
 namespace coruja {
 namespace {
 
-constexpr std::size_t kDeslocamentoTransmissao = 40;  // RFC 4330 §4
+// RFC 4330 §4.
+constexpr std::size_t kDeslocamentoOrigem = 24;      // `originate`
+constexpr std::size_t kDeslocamentoTransmissao = 40;  // `transmit`
 
 constexpr std::uint8_t kModoCliente = 3;
 constexpr std::uint8_t kModoServidor = 4;
 constexpr std::uint8_t kVersao = 4;
+/// A menor versao que este cliente le. A 3 e a 4 nao diferem em nada do
+/// que ele usa, e ha servidor publico respondendo na 3: recusa-la seria
+/// perder hora por nada.
+constexpr std::uint8_t kVersaoMinima = 3;
 constexpr std::uint8_t kSaltoNaoSincronizado = 3;
 constexpr std::uint8_t kEstratoMaximo = 15;
 
@@ -20,6 +26,17 @@ std::uint32_t le_u32_be(const std::uint8_t* p) {
            (static_cast<std::uint32_t>(p[1]) << 16) |
            (static_cast<std::uint32_t>(p[2]) << 8) |
            static_cast<std::uint32_t>(p[3]);
+}
+
+std::uint64_t le_u64_be(const std::uint8_t* p) {
+    return (static_cast<std::uint64_t>(le_u32_be(p)) << 32) |
+           le_u32_be(p + 4);
+}
+
+void escreve_u64_be(std::uint8_t* p, std::uint64_t v) {
+    for (std::size_t i = 0; i < 8; ++i) {
+        p[i] = static_cast<std::uint8_t>(v >> (56 - 8 * i));
+    }
 }
 
 }  // namespace
@@ -33,29 +50,47 @@ const char* descreve(ErroNtp erro) {
         case ErroNtp::EstratoInvalido: return "estrato invalido (kiss-o-death?)";
         case ErroNtp::TimestampZero:   return "sem hora de transmissao";
         case ErroNtp::ForaDeFaixa:     return "hora implausivel";
+        case ErroNtp::NaoEhDoNossoPedido:
+            return "resposta nao e do pedido que saiu daqui";
+        case ErroNtp::VersaoInvalida:  return "versao de NTP que nao falamos";
     }
     return "erro desconhecido";
 }
 
-void monta_pedido_ntp(std::uint8_t* pacote) {
+void monta_pedido_ntp(std::uint8_t* pacote, std::uint64_t nonce) {
     if (pacote == nullptr) { return; }
     std::memset(pacote, 0, kTamanhoPacoteNtp);
     // LI = 0 (sem aviso), VN = 4, Mode = 3 (cliente).
     pacote[0] = static_cast<std::uint8_t>((kVersao << 3) | kModoCliente);
+    // A hora de transmissao do pedido, que o servidor devolve no
+    // `originate`. Aqui ela nao e hora: e o sorteio que amarra a resposta
+    // ao pedido. O aparelho nem sabe a hora -- e por isso que esta
+    // perguntando.
+    escreve_u64_be(pacote + kDeslocamentoTransmissao, nonce);
 }
 
 ErroNtp le_resposta_ntp(const std::uint8_t* pacote, std::size_t tamanho,
-                        std::int64_t* segundos_unix) {
+                        std::uint64_t nonce, std::int64_t* segundos_unix) {
     if (pacote == nullptr || segundos_unix == nullptr ||
             tamanho < kTamanhoPacoteNtp) {
         return ErroNtp::TamanhoInvalido;
     }
 
     const std::uint8_t salto = (pacote[0] >> 6) & 0x03U;
+    const std::uint8_t versao = (pacote[0] >> 3) & 0x07U;
     const std::uint8_t modo = pacote[0] & 0x07U;
     const std::uint8_t estrato = pacote[1];
 
     if (modo != kModoServidor) { return ErroNtp::NaoEhResposta; }
+    if (versao < kVersaoMinima || versao > kVersao) {
+        return ErroNtp::VersaoInvalida;
+    }
+    // ANTES de olhar a hora: um pacote que nao devolve o nonce nao foi
+    // mandado por quem viu o pedido, e nada mais nele interessa. Ver
+    // `monta_pedido_ntp`.
+    if (le_u64_be(pacote + kDeslocamentoOrigem) != nonce) {
+        return ErroNtp::NaoEhDoNossoPedido;
+    }
     // Indicador de salto 3 e o servidor dizendo "meu relogio nao esta
     // sincronizado". Ele responde assim quando acabou de subir e ainda nao
     // se acertou com o proprio par -- e a hora que ele manda nesse estado

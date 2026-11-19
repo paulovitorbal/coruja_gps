@@ -365,6 +365,14 @@ e de qualquer proxy no caminho.
 >
 > ⚠️ Isso exige **o relógio acertado**: sem hora, todo certificado é recusado
 > por "ainda não vale". Ver `servidor_ntp`.
+>
+> E quem acerta o relógio decide, por tabela, se um certificado vencido
+> passa. O SNTP é UDP sem assinatura, então o pedido leva um **nonce**
+> sorteado do TRNG no campo `transmit`, e só é aceita a resposta que o
+> devolve no `originate`, vinda do **IP e da porta** a quem se perguntou,
+> com modo, versão e estrato válidos. Isso não protege de quem está no
+> caminho — esse vê o nonce —, mas tira do jogo quem só sabe o endereço do
+> aparelho. Pacotes recusados pela origem aparecem no log.
 
 Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue:
 apagar depois de confirmar N bytes destruiria os que vieram depois. Ver
