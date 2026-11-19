@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "apoio/LoggerMock.h"
+#include "apoio/fatfs/FatFsFalso.h"
+#include "armazenamento/CartaoSd.h"
 #include "nucleo/FormatoLog.h"
 
 namespace {
@@ -56,7 +58,20 @@ public:
     bool escreve(const std::uint8_t*, std::size_t) override { return true; }
     ErroCartao conclui_escrita(Logger&) override { return ErroCartao::Nenhum; }
     void descarta_escrita(const char*, Logger&) override {}
-    ErroCartao promove(const char*, const char*, const char*, Logger&) override {
+    /// A troca do `CartaoSd`: base vira reserva, temporario vira base. O
+    /// estado de viagem passou a ser gravado por ela.
+    ErroCartao promove(const char* tmp, const char* base, const char* reserva,
+                       Logger&) override {
+        if (falha_escrita) { return ErroCartao::FalhaDeRenomeacao; }
+        const auto t = arquivos.find(tmp);
+        if (t == arquivos.end()) { return ErroCartao::FalhaDeRenomeacao; }
+        const auto b = arquivos.find(base);
+        if (b != arquivos.end()) {
+            arquivos[reserva] = b->second;
+            arquivos.erase(base);
+        }
+        arquivos[base] = arquivos[tmp];
+        arquivos.erase(tmp);
         return ErroCartao::Nenhum;
     }
 
@@ -359,7 +374,8 @@ TEST(DiarioBordo, estado_ilegivel_nao_vira_leitura_de_cartao_a_4_Hz) {
         d.passo(Veredito{}, em(17, 10, 0, 60.0F), true, ms);
     }
 
-    EXPECT_LE(c.leituras, 1u) << "sondou o cartao " << c.leituras << " vezes";
+    // Uma tentativa so: o estado e, na falta dele, a reserva.
+    EXPECT_LE(c.leituras, 2u) << "sondou o cartao " << c.leituras << " vezes";
     EXPECT_EQ(d.estado_viagem(), EstadoViagem::Parada);
 }
 
@@ -377,6 +393,66 @@ TEST(DiarioBordo, falha_de_escrita_nao_derruba_nem_trava) {
     // O estado interno segue coerente: o cartao falhou, o aparelho nao.
     EXPECT_EQ(d.estado_viagem(), EstadoViagem::Gravando);
     EXPECT_GT(l.contagem(Nivel::Error), 0u) << "falhou em silencio";
+}
+
+// --- a queda de energia NO MEIO da gravacao do estado ----------------------
+//
+// O `viagem.est` e regravado a cada ponto, e a alimentacao e pos-chave: a
+// queda no meio de uma gravacao nao e caso raro, e o caso de toda viagem que
+// termina com o motor desligando durante uma escrita. Reescrever no lugar
+// (`FA_CREATE_ALWAYS`) trunca o arquivo dentro do `f_open`, e a queda logo
+// depois deixava o cartao sem estado: o religamento comecava do zero.
+
+/// Dirige dois minutos -- dois pontos gravados, dois estados salvos -- com a
+/// energia caindo depois da operacao de cartao numero `queda` (0 = nunca).
+/// `minutos` = 1 para no primeiro estado salvo. Devolve quantas operacoes de
+/// cartao a corrida fez.
+std::size_t dirige_e_cai(std::size_t queda, unsigned minutos = 2) {
+    auto& fs = teste::FatFsFalso::instancia();
+    fs.reinicia();
+    fs.volumes[0].monta = true;
+    fs.queda_apos_n = queda;
+    CartaoSd   sd;
+    LoggerMock l;
+    DiarioBordo d(sd, l);
+    d.alterna_viagem();
+    for (unsigned m = 0; m <= minutos; ++m) {
+        d.passo(Veredito{}, em(17, static_cast<std::uint8_t>(30 + m), 0, 72.0F),
+                true, m * 60000U);
+    }
+    return fs.operacoes.size();
+}
+
+TEST(DiarioBordoNoCartao, queda_em_qualquer_ponto_da_gravacao_do_estado_retoma) {
+    // Varre TODOS os pontos de queda da segunda gravacao, sem o teste saber
+    // quais operacoes ela faz: o que se exige e o desfecho, nao a receita.
+    auto& fs = teste::FatFsFalso::instancia();
+    const std::size_t ate_o_primeiro = dirige_e_cai(0, 1);
+    ASSERT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+    const std::size_t total = dirige_e_cai(0);
+    ASSERT_GT(total, ate_o_primeiro);
+    ASSERT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+
+    for (std::size_t queda = ate_o_primeiro + 1; queda <= total; ++queda) {
+        dirige_e_cai(queda);
+        const std::string ultima = fs.operacoes.at(queda - 1);
+        fs.religa();
+
+        CartaoSd   sd;
+        LoggerMock l;
+        DiarioBordo depois(sd, l);
+        depois.passo(Veredito{}, em(17, 50, 0, 60.0F), true, 1000);
+        EXPECT_NE(depois.estado_viagem(), EstadoViagem::Parada)
+            << "a queda depois de '" << ultima << "' perdeu a viagem";
+    }
+}
+
+TEST(DiarioBordoNoCartao, a_gravacao_do_estado_deixa_um_arquivo_so_no_fim) {
+    // A troca atomica nao pode deixar o temporario para tras a cada ponto.
+    dirige_e_cai(0);
+    auto& fs = teste::FatFsFalso::instancia();
+    EXPECT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+    EXPECT_FALSE(fs.existe(0, kArquivoEstadoViagemTmp));
 }
 
 }  // namespace

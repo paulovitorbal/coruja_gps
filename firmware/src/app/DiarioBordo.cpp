@@ -1,6 +1,7 @@
 #include "app/DiarioBordo.h"
 
 #include <cstring>
+#include <initializer_list>
 
 #include "log/Logger.h"
 #include "nucleo/FormatoLog.h"
@@ -42,38 +43,56 @@ void DiarioBordo::grava_infracao(const RegistroInfracao& r) {
     log_.warning(kOrigem, trabalho_);
 }
 
+void DiarioBordo::grava_estado(const EstadoViagemSalvo& e) {
+    char buf[kTamEstadoViagem];
+    const auto n = formata_estado(e, buf, sizeof buf);
+    if (n == 0) {
+        return;
+    }
+    // ⚠️ **Nunca no lugar.** Reescrever o `viagem.est` direto truncava o
+    // arquivo dentro do `f_open`, e a energia que caisse antes do fechamento
+    // -- a alimentacao e pos-chave, e isto roda a cada minuto -- deixava o
+    // cartao sem estado: o religamento comecava viagem nova do zero. Escreve
+    // o temporario inteiro e o promove, como a base e o cfg; numa queda no
+    // meio da troca, `le_estado` acha o anterior na reserva.
+    if (cartao_.grava_arquivo(kArquivoEstadoViagemTmp, buf, n, log_) !=
+        ErroCartao::Nenhum) {
+        return;
+    }
+    cartao_.promove(kArquivoEstadoViagemTmp, kArquivoEstadoViagem,
+                    kArquivoEstadoViagemBak, log_);
+}
+
+bool DiarioBordo::le_estado(EstadoViagemSalvo* salvo) {
+    for (const char* nome : {kArquivoEstadoViagem, kArquivoEstadoViagemBak}) {
+        char buf[kTamEstadoViagem] = {};
+        std::size_t lidos = 0;
+        if (cartao_.le_arquivo(nome, buf, sizeof buf, &lidos, log_) ==
+                ErroCartao::Nenhum &&
+            analisa_estado(buf, lidos, salvo)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void DiarioBordo::salva_estado(bool ativa, const PontoViagem& p) {
     EstadoViagemSalvo e;
     e.ativa = ativa;
     e.ano = p.ano; e.mes = p.mes; e.dia = p.dia;
     e.hora = p.hora; e.minuto = p.minuto;
     e.dist_km = viagem_.dist_km();
-    char buf[kTamEstadoViagem];
-    const auto n = formata_estado(e, buf, sizeof buf);
-    if (n > 0) {
-        cartao_.grava_arquivo(kArquivoEstadoViagem, buf, n, log_);
-    }
+    grava_estado(e);
 }
 
 void DiarioBordo::limpa_estado() {
-    EstadoViagemSalvo e;  // ativa = false
-    char buf[kTamEstadoViagem];
-    const auto n = formata_estado(e, buf, sizeof buf);
-    if (n > 0) {
-        cartao_.grava_arquivo(kArquivoEstadoViagem, buf, n, log_);
-    }
+    grava_estado(EstadoViagemSalvo{});  // ativa = false
 }
 
 void DiarioBordo::tenta_retomar(const Telemetria& t) {
     tentou_retomar_ = true;
-    char buf[kTamEstadoViagem] = {};
-    std::size_t lidos = 0;
-    if (cartao_.le_arquivo(kArquivoEstadoViagem, buf, sizeof buf, &lidos,
-                           log_) != ErroCartao::Nenhum) {
-        return;
-    }
     EstadoViagemSalvo salvo;
-    if (!analisa_estado(buf, lidos, &salvo)) {
+    if (!le_estado(&salvo)) {
         return;
     }
     if (!salvo.ativa) {

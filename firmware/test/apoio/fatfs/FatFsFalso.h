@@ -76,6 +76,10 @@ public:
     /// um `f_rename` já trocou o nome. É assim que se prova que uma
     /// sequência de escrita sobrevive a uma queda no meio.
     std::string queda_apos;
+    /// O mesmo, contado: a energia cai depois da N-ésima operação anotada
+    /// (0 = nunca). Serve para varrer TODOS os pontos de queda de uma
+    /// sequência, sem o teste precisar saber quais operações ela faz.
+    std::size_t queda_apos_n = 0;
     bool        sem_energia = false;
     /// A energia volta: nada montado, nada aberto, e o cartão com o que já
     /// estava gravado nele. É o boot seguinte.

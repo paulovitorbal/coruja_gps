@@ -326,10 +326,15 @@ servidor.
 
 ## 4. Estado da viagem — `viagem.est`
 
-Arquivo minúsculo, reescrito a cada ponto gravado. Guarda se a **gravação
+Arquivo minúsculo, regravado a cada ponto gravado. Guarda se a **gravação
 está ligada**, a data/hora da última amostra e a distância acumulada.
 
 Não é log e não sobe para o servidor.
+
+**Nunca é reescrito no lugar.** Cada gravação escreve o `viagem.tmp` inteiro e
+o promove: `viagem.est` → `viagem.bak`, `viagem.tmp` → `viagem.est`. Uma queda
+de energia no meio deixa no cartão o estado novo ou o anterior, nunca um
+arquivo vazio; na falta do `viagem.est`, o religamento lê o `viagem.bak`.
 
 ### Gravar é um MODO, e só o menu o desliga
 

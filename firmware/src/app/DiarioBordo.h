@@ -13,6 +13,11 @@ class Logger;
 
 constexpr const char* kArquivoInfracoes = "infracoes.log";
 
+/// O temporario e a reserva do `viagem.est`, na rotacao do `promove()`. Ver
+/// `DiarioBordo::grava_estado`.
+constexpr const char* kArquivoEstadoViagemTmp = "viagem.tmp";
+constexpr const char* kArquivoEstadoViagemBak = "viagem.bak";
+
 /// Os dois registros em cartão: infrações consumadas e trajeto de viagem.
 ///
 /// **Junta detector, acumulador e cartão numa peça só** para que a
@@ -30,7 +35,8 @@ constexpr const char* kArquivoInfracoes = "infracoes.log";
 ///
 /// ## A retomada depois do corte de energia
 ///
-/// Cada ponto gravado atualiza `viagem.est`. Na energização seguinte, o
+/// Cada ponto gravado atualiza `viagem.est`, por temporário e troca atômica
+/// (`viagem.tmp` e `viagem.bak`). Na energização seguinte, o
 /// primeiro fix compara o relógio com o que está salvo: dentro de
 /// `kJanelaRetomadaMin` a viagem continua, em arquivo novo e com a distância
 /// de onde parou. Fora dela, nada acontece e o estado é descartado.
@@ -57,6 +63,11 @@ private:
     void tenta_retomar(const Telemetria& t);
     void salva_estado(bool ativa, const PontoViagem& p);
     void limpa_estado();
+    /// Temporario e promocao: nenhuma queda deixa o cartao sem um estado
+    /// inteiro, o novo ou o anterior.
+    void grava_estado(const EstadoViagemSalvo& e);
+    /// O `viagem.est`, ou a reserva quando ele falta ou nao se le.
+    bool le_estado(EstadoViagemSalvo* salvo);
     bool arquivo_existe(const char* nome);
 
     Armazenamento& cartao_;

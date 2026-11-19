@@ -32,6 +32,7 @@ void FatFsFalso::reinicia() {
     escrita_curta_apos = 0;
     leitura_falha_apos = 0;
     queda_apos.clear();
+    queda_apos_n = 0;
     sem_energia = false;
     operacoes.clear();
     montagens = 0;
@@ -44,6 +45,7 @@ void FatFsFalso::reinicia() {
 
 void FatFsFalso::religa() {
     queda_apos.clear();
+    queda_apos_n = 0;
     sem_energia = false;
     for (auto& v : volumes) { v.montado = false; }
     limpa_abertos();
@@ -125,9 +127,13 @@ bool separa(const char* caminho, int* volume, std::string* nome) {
 void anota(const std::string& o) {
     auto& f = FatFsFalso::instancia();
     f.operacoes.push_back(o);
-    if (!f.queda_apos.empty() && o == f.queda_apos) {
+    const bool pelo_nome = !f.queda_apos.empty() && o == f.queda_apos;
+    const bool pela_conta =
+        f.queda_apos_n != 0 && f.operacoes.size() == f.queda_apos_n;
+    if (pelo_nome || pela_conta) {
         // A operacao anotada termina; a energia cai antes da SEGUINTE.
         f.queda_apos.clear();
+        f.queda_apos_n = 0;
         f.sem_energia = true;
     }
 }

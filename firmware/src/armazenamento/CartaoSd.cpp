@@ -397,7 +397,9 @@ ErroCartao CartaoSd::promove(const char* temporario, const char* base,
             return ErroCartao::FalhaDeRenomeacao;
         }
         std::snprintf(msg, sizeof msg, "base anterior guardada como '%s'", reserva);
-        log.info("sd", msg);
+        // DEBUG: o estado de viagem passa por aqui a cada minuto, e quem
+        // promove ja diz no proprio log o que trocou.
+        log.debug("sd", msg);
     }
 
     // Passo 4. Deste ponto em diante o cartão volta a estar consistente.

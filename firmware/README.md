@@ -338,6 +338,10 @@ reserva), e o próximo ajuste gravado devolve o `coruja.cfg` ao cartão. A
 reserva só é lida quando o cfg **não está lá**: um cfg presente, mesmo
 grande demais ou ilegível, é o que vale.
 
+O estado de viagem usa a mesma rotação a cada ponto gravado: `viagem.tmp` →
+`viagem.est`, com o anterior em `viagem.bak` (ver `formato_logs.md` §4). Os
+dois arquivos novos não sobem na remessa.
+
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.
