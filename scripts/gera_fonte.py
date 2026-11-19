@@ -62,8 +62,13 @@ class Conjunto:
 
 # 56x94 e 12x20 são os do §4.1, e o orçamento de flash de lá conta com eles:
 # 11 glifos de 56x94 dão 7,1 KiB, e 95 de 12x20 dão 2,9 KiB.
+#
+# O hífen e o espaço entraram no "Numero" em 2026-11-19: a tela escreve
+# "- -" sem fix, e o painel PULA o glifo que a fonte não tem, sem largura.
+# Sem os dois a área do número ficava vazia justamente quando o aparelho
+# precisava dizer que não sabe a velocidade. Custam 1.316 bytes de flash.
 CONJUNTOS = [
-    Conjunto("Numero", 56, 94, "0123456789/", 1.30),
+    Conjunto("Numero", 56, 94, "0123456789/- ", 1.30),
     # O limite, em metade da escala da velocidade. NAO estava no §4.1, e a
     # falta era defeito: "100/120" sao 7 glifos, e a 56 px cada dao 392 px
     # numa tela de 320. O §4.1 fixou 56x94 sem conferir o conteudo maximo,
@@ -88,38 +93,72 @@ CONJUNTOS = [
 ]
 
 
-def rasteriza(conj: Conjunto, caminho_fonte: pathlib.Path):
-    """Devolve (bytes_por_glifo, [(glifo, bytes)]) em 1 bpp."""
-    # Busca o maior tamanho em pontos que ainda caiba na célula. Fixar o
-    # ponto por regra de três erra, porque a métrica varia por glifo.
-    alvo = int(conj.altura * conj.razao)
-    fonte = ImageFont.truetype(str(caminho_fonte), alvo)
-    while alvo > 4:
+#: Piso da busca de tamanho. Abaixo disto o glifo em 1 bpp deixa de ser
+#: letra; não caber acima dele é célula mal dimensionada, e é erro.
+PONTOS_MIN = 6
+
+
+def extensao_vertical(fonte, glifos: str) -> tuple[int, int]:
+    """(sobe, desce): quanto a tinta do conjunto vai acima e abaixo da base.
+
+    É a união de todos os glifos, e não o pior de cada um: na linha de base
+    comum o `$` sobe e o `g` desce, e os dois dividem a mesma célula.
+    """
+    sobe = desce = 0
+    for g in glifos:
+        # `anchor="ls"`: coordenadas a partir da linha de base. O Pillow
+        # sempre inclui a base na caixa (um `-` vai de -36 a 0), o que só
+        # deixa a conta mais conservadora.
+        _x0, topo, _x1, fundo = fonte.getbbox(g, anchor="ls")
+        sobe = max(sobe, -topo)
+        desce = max(desce, fundo)
+    return sobe, desce
+
+
+def tamanho_que_cabe(conj: Conjunto, caminho_fonte: pathlib.Path):
+    """(pontos, fonte, sobe, desce) do maior tamanho que cabe na célula.
+
+    Levanta `ValueError` se nenhum couber: seguir com um tamanho qualquer
+    gravaria glifos cortados num cabeçalho que diz estar certo.
+    """
+    # Fixar o ponto por regra de três erra, porque a métrica varia por
+    # glifo; por isso a busca, de cima para baixo.
+    for alvo in range(int(conj.altura * conj.razao), PONTOS_MIN - 1, -1):
         fonte = ImageFont.truetype(str(caminho_fonte), alvo)
-        cabe = True
+        # Na horizontal a caixa do Pillow é o AVANÇO, e é ele que tem de
+        # caber: a fonte é monoespaçada e cada glifo fica na posição dele.
+        largo = False
         for g in conj.glifos:
-            caixa = fonte.getbbox(g)
-            if caixa is None:
-                continue
-            if (caixa[2] - caixa[0]) > conj.largura or \
-               (caixa[3] - caixa[1]) > conj.altura:
-                cabe = False
-                break
-        if cabe:
-            break
-        alvo -= 1
+            x0, _topo, x1, _fundo = fonte.getbbox(g)
+            largo = largo or x1 - x0 > conj.largura
+        sobe, desce = extensao_vertical(fonte, conj.glifos)
+        if not largo and sobe + desce <= conj.altura:
+            return alvo, fonte, sobe, desce
+    raise ValueError(f"{conj.nome}: nenhum tamanho da fonte cabe em "
+                     f"{conj.largura}x{conj.altura}")
+
+
+def rasteriza(conj: Conjunto, caminho_fonte: pathlib.Path):
+    """Devolve (pontos, bytes_por_linha, [(glifo, bytes)]), em 1 bpp.
+
+    `pontos` é o tamanho escolhido. Cada `bytes` é o glifo linha a linha,
+    de cima para baixo, com `bytes_por_linha` bytes em cada linha.
+    """
+    alvo, fonte, sobe, desce = tamanho_que_cabe(conj, caminho_fonte)
+    # Todos os glifos apoiados na MESMA linha de base, com o bloco
+    # sobe+desce centralizado na célula. Centralizar cada glifo pela própria
+    # caixa deixava o ponto no meio da altura e o pé do `a` dois pixels
+    # acima do pé do `k`.
+    base = (conj.altura - (sobe + desce)) // 2 + sobe
 
     bytes_por_linha = (conj.largura + 7) // 8
     saida = []
     for g in conj.glifos:
         img = Image.new("1", (conj.largura, conj.altura), 0)
         d = ImageDraw.Draw(img)
-        caixa = fonte.getbbox(g) or (0, 0, 0, 0)
-        # Centraliza horizontalmente e apoia na linha de base comum, para
-        # que os dígitos não dancem entre si.
+        caixa = fonte.getbbox(g, anchor="ls")
         x = (conj.largura - (caixa[2] - caixa[0])) // 2 - caixa[0]
-        y = (conj.altura - (caixa[3] - caixa[1])) // 2 - caixa[1]
-        d.text((x, y), g, font=fonte, fill=1)
+        d.text((x, base), g, font=fonte, fill=1, anchor="ls")
 
         linhas = []
         px = img.load()
@@ -161,8 +200,7 @@ def escreve(conj: Conjunto, pontos: int, bytes_por_linha: int, glifos,
     linhas.append(f"constexpr std::uint8_t kBitmap[kQuantos]"
                   f"[kBytesPorLinha * kAltura] = {{")
     for g, dados in glifos:
-        rot = g if g not in (chr(92), '"', chr(39)) else "?"
-        linhas.append(f"    // '{rot}'" if g != ' ' else "    // ' ' (espaco)")
+        linhas.append(f"    // {rotulo(g)}")
         for i in range(0, len(dados), 12):
             fatia = ", ".join(f"0x{b:02X}" for b in dados[i:i + 12])
             linhas.append(f"    {fatia},")
@@ -181,6 +219,21 @@ def escreve(conj: Conjunto, pontos: int, bytes_por_linha: int, glifos,
     destino.write_text("\n".join(linhas), encoding="utf-8")
     print(f"  {destino.name}: {conj.largura}x{conj.altura}, {n} glifos, "
           f"{pontos} pt, {n * por_glifo} bytes de flash")
+
+
+def rotulo(g: str) -> str:
+    """O glifo como literal de caractere C++, para o comentário do bitmap.
+
+    Escrito como literal, e não cru: `'''` e `'\\'` não são lidos como um
+    glifo só. As três que precisam de cuidado (aspas simples, aspas duplas
+    e barra invertida) saíam como `'?'`, que não diz qual delas é.
+    """
+    barra = chr(92)
+    if g in (barra, "'"):
+        return "'" + barra + g + "'"
+    if g == " ":
+        return "' ' (espaco)"
+    return "'" + g + "'"
 
 
 def escapa(s: str) -> str:
@@ -217,7 +270,11 @@ def main(argv=None) -> int:
     print(f"rasterizando {args.fonte.name}")
     total = 0
     for conj in CONJUNTOS:
-        pontos, bpl, glifos = rasteriza(conj, args.fonte)
+        try:
+            pontos, bpl, glifos = rasteriza(conj, args.fonte)
+        except ValueError as e:
+            print(f"erro: {e}", file=sys.stderr)
+            return 1
         destino = args.destino / f"Fonte{conj.nome}.h"
         escreve(conj, pontos, bpl, glifos, destino)
         total += len(glifos) * bpl * conj.altura
