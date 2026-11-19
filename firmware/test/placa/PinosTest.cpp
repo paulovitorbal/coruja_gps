@@ -84,9 +84,15 @@ TEST(Pinos, NenhumGpioColideComOModuloWiFi) {
     }
 }
 
-TEST(Pinos, DisplayESdCompartilhamOSpiMasTemCsSeparados) {
-    // O compartilhamento é intencional (RNF06) e exige mutex. O que não pode é
-    // o CS ser o mesmo, o que selecionaria os dois ao mesmo tempo.
+TEST(Pinos, DisplayESdTemBarramentosSeparados) {
+    // ✅ **Eles deixaram de compartilhar o SPI em 2026-09-29**, quando o
+    // display migrou para o SPI1: caíram juntos o mutex, a troca de
+    // velocidade a cada transação e a classe inteira de defeito de
+    // barramento compartilhado. O nome e o comentário deste teste ficaram
+    // doze meses dizendo o contrário (achado da revisão de 17/11/2026).
+    //
+    // O CS continua tendo de ser diferente: com o mesmo pino, os dois seriam
+    // selecionados ao mesmo tempo.
     EXPECT_NE(kSdCs, kDisplayCs);
 
     // GP10 e GP11 nao sao escolha arbitraria: sao as funcoes SCK e TX do

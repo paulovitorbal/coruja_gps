@@ -277,8 +277,10 @@ void ao_resolver(const char*, const ip_addr_t* ip, void* arg) {
 /// O `ao_verificar` roda no ponto mais fundo da pilha do programa: dentro do
 /// handshake do mbedTLS, dentro do callback de recepcao do lwIP, dentro do
 /// `cyw43_arch_poll()`. Meio kibibyte de locais aqui e meio kibibyte tirado de
-/// onde ja e mais apertado -- a pilha inteira tem 8 KiB. Nao ha reentrancia: o
-/// cyw43 esta em modo poll e so existe um pedido por vez.
+/// onde ja e mais apertado -- a pilha inteira tem 24 KiB, e a verificacao da
+/// cadeia e justamente o que desce mais fundo nela (ver `PICO_STACK_SIZE`, no
+/// CMakeLists: eram 8 KiB, e nao bastaram). Nao ha reentrancia: o cyw43 esta
+/// em modo poll e so existe um pedido por vez.
 char g_nome_cert[80];
 char g_msg_cert[192];
 char g_porque_cert[112];

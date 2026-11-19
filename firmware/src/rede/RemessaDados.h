@@ -407,13 +407,14 @@ private:
     Pausa&             pausa_;
     ObservadorRemessa* observador_ = nullptr;
     PreparoDeSessao*   preparo_ = nullptr;
-    /// Membro, e não local de `despacha()`: 1 KB na pilha de 8 KB do Pico, num
-    /// caminho que ainda passa pelo lwIP, é folga que não existe. Em `.bss`
-    /// ele aparece no mapa de memória; na pilha, não.
+    /// Membro, e não local de `despacha()`: 1 KB de pilha num caminho que
+    /// desce até o handshake do mbedTLS é folga que não existe — a pilha tem
+    /// 24 KiB e o pico medido no carro foi de 21 172 B. Em `.bss` ele aparece
+    /// no mapa de memória; na pilha, não.
     Bomba              bomba_;
     /// Membro pelo mesmo motivo da `Bomba`, e o motivo ficou mais forte: com
-    /// `kMaxRemessa` em 40 são 1280 B, e isso na pilha de 8 KiB seria um
-    /// sexto dela ocupado por um retrato de diretório.
+    /// `kMaxRemessa` em 40 são 1280 B, e isso na pilha seria um retrato de
+    /// diretório ocupando o que o aperto de mão precisa.
     ///
     /// `executa()` zera só `n` e `ignorados`: os nomes além de `n` não são
     /// lidos por ninguém, e limpar 1280 B a cada remessa seria trabalho para

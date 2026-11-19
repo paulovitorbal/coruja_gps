@@ -193,7 +193,8 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
     // Aponta DIRETO para dentro de `cabecalhos_`, sem copia: a `fase_` acabou
     // de deixar de ser `Cabecalhos`, e nenhuma outra fase escreve nesse
     // buffer. A copia que havia aqui custava 2 KiB de pilha dentro de um
-    // callback de recepcao, numa pilha de 8 KiB.
+    // callback de recepcao -- a pilha do aparelho tem 24 KiB, e este
+    // caminho e o que desce mais fundo nela.
     if (n_corpo > 0) {
         return alimenta(reinterpret_cast<const std::uint8_t*>(corpo),
                         n_corpo, ao_receber, contexto);
