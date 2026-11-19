@@ -374,16 +374,27 @@ ErroCartao CartaoSd::conclui_escrita(Logger& log) {
 }
 
 void CartaoSd::descarta_escrita(const char* nome, Logger& log) {
-    if (!escrevendo_) {
+    // ⚠️ **Não é "cancela a escrita aberta", é "este arquivo não deve
+    // existir".** Era a primeira coisa, e por isso virava um no-op no caso
+    // que mais importa: quando `conclui_escrita` falha ela já baixou a
+    // bandeira e desmontou, e o `AtualizadorOta` chama o descarte logo
+    // depois. O `radares.tmp` ficava no cartão, ocupando espaço e parecendo
+    // um download bom.
+    char raiz[4];
+    if (escrevendo_) {
+        f_close(&g_arquivo);
+        escrevendo_ = false;
+        std::snprintf(raiz, sizeof raiz, "%s", raiz_aberta_);
+    } else if (monta_volume(raiz, sizeof raiz, log) != ErroCartao::Nenhum) {
+        // Sem cartão não há o que apagar agora. O `.tmp` que ficou será
+        // truncado pelo `FA_CREATE_ALWAYS` da próxima tentativa.
         return;
     }
-    f_close(&g_arquivo);
-    escrevendo_ = false;
 
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_aberta_, nome);
+    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
     const FRESULT r = f_unlink(caminho);
-    desmonta_volume(raiz_aberta_);
+    desmonta_volume(raiz);
 
     char msg[96];
     std::snprintf(msg, sizeof msg, "'%s' descartado%s", nome,

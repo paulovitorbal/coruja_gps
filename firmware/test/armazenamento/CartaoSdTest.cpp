@@ -286,6 +286,30 @@ TEST_F(CartaoSdNoHost, a_espera_nao_atrapalha_a_leitura_logo_apos_uma_falha) {
     EXPECT_EQ(fs.operacoes.size(), sondas);
 }
 
+TEST_F(CartaoSdNoHost, descartar_apaga_o_temporario_mesmo_depois_de_concluir) {
+    // O caminho do OTA: `conclui_escrita` falha e ele chama
+    // `descarta_escrita` logo em seguida. Como o concluir ja tinha baixado a
+    // bandeira de escrita, o descarte nao fazia NADA e o `radares.tmp` ficava
+    // no cartao -- ocupando espaco e parecendo um download bom.
+    fs.volumes[0].monta = true;
+    ASSERT_EQ(sd.abre_para_escrita("radares.tmp", log), ErroCartao::Nenhum);
+    const std::uint8_t a[] = {'x'};
+    ASSERT_TRUE(sd.escreve(a, sizeof a));
+    fs.erro_close = FR_DISK_ERR;
+    ASSERT_EQ(sd.conclui_escrita(log), ErroCartao::FalhaDeEscrita);
+    ASSERT_TRUE(fs.existe(0, "radares.tmp")) << "o teste nao reproduziu o caso";
+
+    fs.erro_close = FR_OK;
+    sd.descarta_escrita("radares.tmp", log);
+    EXPECT_FALSE(fs.existe(0, "radares.tmp"));
+    EXPECT_EQ(fs.montagens, fs.desmontagens) << "o cartao ficou montado";
+}
+
+TEST_F(CartaoSdNoHost, descartar_sem_cartao_nao_quebra) {
+    sd.descarta_escrita("radares.tmp", log);
+    SUCCEED();
+}
+
 TEST_F(CartaoSdNoHost, acrescentar_nao_reescreve_o_arquivo_inteiro) {
     poe(0, "coruja.log", "primeira\n");
     ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "segunda\n", 8, log),
