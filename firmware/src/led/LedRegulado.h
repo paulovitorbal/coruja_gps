@@ -61,9 +61,18 @@ public:
     explicit LedRegulado(LedRgb& alvo) : alvo_(alvo) {}
 
     /// Presets por período, como os do `Brilho`. Fora da faixa vai à ponta.
+    ///
+    /// ⚠️ **Só toca no LED quando algum dos dois MUDA.** A `Aplicacao`
+    /// reaplica a configuração a cada volta do laço -- centenas de vezes por
+    /// segundo --, e reaplicar sempre era escrita de registrador de PWM por
+    /// nada, no caminho mais quente do firmware. Mesma regra do `liga()` e do
+    /// `define_periodo()`.
     void define_presets(std::uint8_t dia_pct, std::uint8_t noite_pct) {
-        dia_ = limita(dia_pct);
-        noite_ = limita(noite_pct);
+        const std::uint8_t dia = limita(dia_pct);
+        const std::uint8_t noite = limita(noite_pct);
+        if (dia == dia_ && noite == noite_) { return; }
+        dia_ = dia;
+        noite_ = noite;
         reaplica();
     }
 
