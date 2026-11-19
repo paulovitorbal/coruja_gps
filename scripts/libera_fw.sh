@@ -50,9 +50,11 @@
 #                          a primeira instalação grava uma vez
 #
 #  Com `--publicar`, acrescenta a décima primeira: empurra o commit e a tag e
-#  cria a release no GitHub com o binário anexado, e com ele os avisos de
-#  licença do que vai dentro (`THIRD_PARTY_NOTICES.md`). **Sem a opção, não
-#  toca na rede.**
+#  cria a release no GitHub com o binário anexado, e com ele as licenças —
+#  `LICENSE.md`, `NOTICE`, `PERMISSOES-ADICIONAIS.md` e
+#  `THIRD_PARTY_NOTICES.md`. Quem baixa só o `.uf2` da release tem de receber
+#  os termos junto; é o que a PolyForm exige na seção "Notices". **Sem a
+#  opção, não toca na rede.**
 #
 #  Qualquer saída antes do fim, por erro ou Ctrl-C, desfaz a tag local: a
 #  próxima execução começa do mesmo lugar. Depois do push a tag já está no
@@ -80,9 +82,10 @@ PICOTOOL="${CORUJA_PICOTOOL:-$BUILD_PICO/_deps/picotool/picotool}"
 # Fora da arvore: um log dentro dela sujaria o que a etapa 1 conferiu.
 LOGS="${CORUJA_LOGS:-/tmp}"
 
-# O que vai anexo a release junto com o binario: as licencas do que esta
-# dentro dele. Nomes relativos a raiz, sem espaco.
-AVISOS=""
+# O que vai anexo a release junto com o binario: as licencas do projeto e as
+# do que esta dentro do binario. Nomes relativos a raiz, sem espaco. A etapa
+# 1 recusa a liberacao se faltar algum.
+AVISOS="LICENSE.md NOTICE PERMISSOES-ADICIONAIS.md THIRD_PARTY_NOTICES.md"
 
 # A versão numérica que a imagem de uma tag TEM de carregar: vA.B.C vira
 # A*100+B . C*100, a conta do `firmware/cmake/versao_imagem.cmake` com zero

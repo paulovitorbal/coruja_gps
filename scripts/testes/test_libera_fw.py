@@ -184,6 +184,19 @@ class Liberacao(unittest.TestCase):
         self.assertIn("main", r.stderr)
         self.assertEqual(self.chamadas("cmake"), [])
 
+    def test_sem_um_dos_avisos_de_licenca_nao_libera(self):
+        # A release entrega o .uf2 a quem nunca vai ao repositorio: sem os
+        # termos junto, a distribuicao sai sem a licenca que ela exige.
+        alvo = self.repo / "NOTICE"
+        if not alvo.exists():
+            self.skipTest("o repositorio ainda nao tem NOTICE")
+        alvo.unlink()
+        self.git("commit", "-q", "-am", "sem o NOTICE")
+        r = self.libera(TAG, "primeira")
+        self.assertSemTag(r)
+        self.assertIn("NOTICE", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [])
+
     def test_publicar_recusa_cedo_tag_que_ja_esta_no_remoto(self):
         self.git("tag", TAG)
         self.git("push", "-q", "origin", TAG)

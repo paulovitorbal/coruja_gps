@@ -1,0 +1,25 @@
+coruja_gps — detector de radares com GPS para Raspberry Pi Pico 2 W
+
+Required Notice: Copyright 2026 os autores do coruja_gps (ver o historico do git)
+
+A linha acima é exigida pela PolyForm Noncommercial License 1.0.0, seção
+"Notices": quem distribuir qualquer parte deste software tem de entregar
+junto uma cópia dela e dos termos da licença.
+
+O código está sob a PolyForm Noncommercial License 1.0.0 (`LICENSE.md`); a
+documentação e o projeto de hardware, sob a Creative Commons
+Atribuição-NãoComercial 4.0 Internacional (`LICENSES/CC-BY-NC-4.0.txt`). O
+`README.md` diz quais caminhos ficam sob cada uma.
+
+Os autores concedem duas permissões além das licenças — montagem gratuita
+para terceiros e uso por motoristas profissionais. Ver
+`PERMISSOES-ADICIONAIS.md`.
+
+Licenças para usos não cobertos pela PolyForm Noncommercial 1.0.0, pela CC
+BY-NC 4.0 ou pelas permissões adicionais, inclusive uso comercial, podem ser
+negociadas com os autores pelo repositório do projeto (por exemplo, abrindo
+uma issue). Ver `PERMISSOES-ADICIONAIS.md`.
+
+O binário publicado embute software de terceiros, cada um com a sua própria
+licença — inclusive o `cyw43-driver`, que **não** é BSD. Ver
+`THIRD_PARTY_NOTICES.md`.

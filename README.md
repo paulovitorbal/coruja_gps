@@ -321,3 +321,53 @@ Valores extraídos do datasheet do GPS e usados no projeto: limites elétricos
 30 mA, `ICC_RF` até 50 mA), faixa térmica (−40 a +85 °C, **operação e
 armazenamento**) e teto de taxa de navegação (**5 Hz** em GPS+GLONASS, 10 Hz em
 GNSS único).
+
+## Licença
+
+Em uma frase: **é livre para uso pessoal, e não é para vender.**
+
+> Você pode montar o seu próprio aparelho, gravar o firmware, usar e hospedar
+> o servidor para uso pessoal, de estudo ou de hobby. Você também pode montar
+> aparelhos **de graça** para outras pessoas, cobrando no máximo o custo das
+> peças. Motoristas profissionais — de aplicativo, táxi, caminhão, entrega, ou
+> empregados de uma empresa — podem usar o aparelho no veículo em que
+> trabalham.
+>
+> Não é permitido vender aparelhos montados, kits, placas ou caixas feitos a
+> partir deste projeto, cobrar pela montagem, nem usar o projeto em produto ou
+> serviço comercial, ou por uma empresa.
+>
+> Para outros usos, inclusive comerciais, as licenças podem ser negociadas:
+> veja `PERMISSOES-ADICIONAIS.md`.
+>
+> Este resumo **não substitui** as licenças: em caso de dúvida, valem os
+> textos de `LICENSE.md`, `LICENSES/CC-BY-NC-4.0.txt` e
+> `PERMISSOES-ADICIONAIS.md`.
+
+As duas permissões acima — montagem gratuita para terceiros e uso por
+motoristas profissionais — são concedidas pelos autores **além** das licenças,
+e estão escritas em `PERMISSOES-ADICIONAIS.md`, com as condições de cada uma.
+
+### O que fica sob cada licença
+
+| Licença | Caminhos |
+| :--- | :--- |
+| **PolyForm Noncommercial 1.0.0** (`LICENSE.md`) — o código | `firmware/`, `servidor/`, `simulador/`, `scripts/`, `caixa/gera_stl.sh`, `caixa/verifica_caixa.py`, `docs/` quando for código, `coruja.cfg.exemplo` e os `.py` da raiz (`converte.py`, `formato_radares.py`, `fritzing_geo.py`, `gera_fritzing.py`, `netlist.py`) |
+| **CC BY-NC 4.0** (`LICENSES/CC-BY-NC-4.0.txt`) — documentação e hardware | `docs/` (texto, `.puml` e `.svg`), `kicad/`, `caixa/` (os `.scad`, o `README.md` e as prévias em PNG), `coruja_gps.fzz`, este `README.md` e os demais `.md` da raiz — `bom_schematic.md`, `montagem.md`, `pcb.md`, `requirements.md`, `revisao_tecnica.md`, `medidas_modulos.md`, `formato_dados.md`, `formato_logs.md`, `previa_host.md` — e o `roteiro_bancada.html` |
+
+Na dúvida sobre um arquivo — um `.py` dentro de `docs/`, por exemplo —, vale a
+PolyForm: código é código onde quer que esteja.
+
+### O que **não** é nosso para licenciar
+
+- `ativos/sprites/*.png` — arte do **Twemoji**, © Twitter Inc. e
+  colaboradores, sob CC-BY 4.0 (`docs/licencas/CC-BY-4.0-twemoji.txt`).
+- `docs/licencas/*` — textos de licenças de terceiros, de quem os publicou.
+- Os PDF de datasheet da raiz (`NEO-M8_*.pdf`, `adafruit-microsd-spi-sdio.pdf`)
+  pertencem aos **fabricantes** — u-blox e Adafruit. Estão aqui para
+  referência e não são licenciados por este projeto.
+- As dependências que vão **dentro do binário** mantêm cada uma a sua licença.
+  Ver `THIRD_PARTY_NOTICES.md`, que inclui um ponto em aberto sobre o driver
+  SDIO da biblioteca de cartão SD.
+
+O `NOTICE` traz o aviso que a PolyForm exige que acompanhe as cópias.
