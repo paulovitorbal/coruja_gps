@@ -5,8 +5,15 @@
 namespace coruja {
 namespace {
 
-std::size_t arredonda(std::size_t n, std::size_t para) {
-    return (n + para - 1) / para * para;
+/// `n` arredondado para cima ao múltiplo de `para`. Falso quando o resultado
+/// não cabe: a conta crua daria a volta e devolveria um número PEQUENO, e um
+/// pedido gigante viraria uma alocação de zero bytes.
+bool arredonda(std::size_t n, std::size_t para, std::size_t* saida) {
+    const std::size_t resto = n % para;
+    const std::size_t falta = (resto == 0) ? 0 : para - resto;
+    if (n > SIZE_MAX - falta) { return false; }
+    *saida = n + falta;
+    return true;
 }
 
 }  // namespace
@@ -23,13 +30,16 @@ void ArenaMemoria::adota(void* memoria, std::size_t bytes) {
 
     // Alinha o inicio: o chamador pode entregar qualquer endereco, e um
     // cabecalho desalinhado derruba o Cortex-M33 em acesso de 64 bits.
-    auto bruto = reinterpret_cast<std::uintptr_t>(memoria);
-    const std::uintptr_t alinhado = arredonda(bruto, kAlinhamento);
+    const auto bruto =
+        static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(memoria));
+    std::size_t alinhado = 0;
+    if (!arredonda(bruto, kAlinhamento, &alinhado)) { return; }
     const std::size_t perdido = alinhado - bruto;
     if (bytes <= perdido + sizeof(Bloco) + kAlinhamento) { return; }
 
     bytes -= perdido;
-    auto* cabeca = reinterpret_cast<Bloco*>(alinhado);
+    auto* cabeca =
+        reinterpret_cast<Bloco*>(static_cast<std::uintptr_t>(alinhado));
     cabeca->tamanho = (bytes - sizeof(Bloco)) / kAlinhamento * kAlinhamento;
     cabeca->proximo = nullptr;
     cabeca->livre = true;
@@ -45,11 +55,12 @@ void* ArenaMemoria::aloca(std::size_t quantos, std::size_t tamanho) {
     // Multiplicacao que nao pode estourar em silencio: `quantos * tamanho`
     // dando a volta pediria poucos bytes e devolveria um ponteiro que quem
     // chama usaria como se fosse enorme.
-    if (quantos > SIZE_MAX / tamanho) {
+    std::size_t pedido = 0;
+    if (quantos > SIZE_MAX / tamanho ||
+        !arredonda(quantos * tamanho, kAlinhamento, &pedido)) {
         ++faltas_;
         return nullptr;
     }
-    const std::size_t pedido = arredonda(quantos * tamanho, kAlinhamento);
 
     for (Bloco* b = primeiro_; b != nullptr; b = b->proximo) {
         if (!b->livre || b->tamanho < pedido) { continue; }

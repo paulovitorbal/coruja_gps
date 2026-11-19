@@ -209,6 +209,19 @@ TEST(ArenaMemoria, multiplicacao_que_estouraria_e_recusada) {
     EXPECT_EQ(arena.aloca(SIZE_MAX, SIZE_MAX), nullptr);
 }
 
+TEST(ArenaMemoria, pedido_que_o_arredondamento_faria_dar_a_volta_e_recusado) {
+    // O produto cabe, mas arredondar para o multiplo de 8 passa do teto e da
+    // a volta: SIZE_MAX - 3 virava um pedido de ZERO bytes, atendido com um
+    // ponteiro que quem chama usaria como se apontasse para quase tudo.
+    Area a;
+    ArenaMemoria arena(a.bytes, sizeof a.bytes);
+    for (std::size_t n : {SIZE_MAX, SIZE_MAX - 3, SIZE_MAX - 6}) {
+        EXPECT_EQ(arena.aloca(1, n), nullptr) << n;
+    }
+    EXPECT_EQ(arena.faltas(), 3U);
+    EXPECT_EQ(arena.em_uso(), 0U);
+}
+
 TEST(ArenaMemoria, pedido_zerado_devolve_nulo) {
     Area a;
     ArenaMemoria arena(a.bytes, sizeof a.bytes);
