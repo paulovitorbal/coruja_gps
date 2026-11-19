@@ -33,9 +33,16 @@ public:
     /// frente, que é pública e o `main` usa.
     LoggerCartao*     redescarrega = nullptr;
 
+    /// A N-esima chamada de acrescimo falha (0 = nenhuma). O aviso de perda
+    /// sai numa chamada PROPRIA, logo depois do buffer: e a unica forma de
+    /// derrubar so ela.
+    int falha_na_chamada = 0;
+    int chamadas = 0;
+
     ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
                                   std::size_t tamanho, Logger&) override {
         nome_recebido = nome;
+        if (++chamadas == falha_na_chamada) { return ErroCartao::FalhaDeEscrita; }
         if (realimenta != nullptr) {
             realimenta->error("cartao", "falhei ao gravar");
         }
@@ -180,6 +187,30 @@ TEST(LoggerCartao, buffer_cheio_descarta_e_DECLARA_a_perda) {
     EXPECT_NE(b.cartao.arquivo.find("linha(s) perdida(s) por buffer cheio"),
               std::string::npos)
         << "descartou em silencio";
+}
+
+TEST(LoggerCartao, o_aviso_de_perda_SOBREVIVE_a_gravacao_que_falha) {
+    // A contagem era zerada mesmo quando o aviso nao entrava no arquivo: o
+    // buraco voltava a ser silencioso, que e exatamente o que o aviso existe
+    // para impedir. E o caso nao e raro -- quem perde linha por buffer cheio
+    // e justamente quem esta com o cartao ocupado ou ruim.
+    Bancada b;
+    b.cartao.resposta = ErroCartao::FalhaDeEscrita;
+    for (int i = 0; i < 400; ++i) {
+        b.log.info("origem", "mensagem de tamanho razoavel para encher o buffer");
+    }
+    b.cartao.resposta = ErroCartao::Nenhum;
+    // O buffer entra (chamada 1) e o aviso, logo atras, nao (chamada 2).
+    b.cartao.falha_na_chamada = b.cartao.chamadas + 2;
+    b.log.descarrega();
+    ASSERT_EQ(b.cartao.arquivo.find("perdida(s)"), std::string::npos)
+        << "o teste nao derrubou o aviso";
+
+    b.log.info("teste", "depois");
+    b.log.descarrega();
+    EXPECT_NE(b.cartao.arquivo.find("linha(s) perdida(s) por buffer cheio"),
+              std::string::npos)
+        << "o aviso se perdeu, e o buraco voltou a ser silencioso";
 }
 
 TEST(LoggerCartao, sem_perda_nao_ha_aviso_de_perda) {

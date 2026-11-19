@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iterator>
 
+#include "armazenamento/CartaoSd.h"
 #include "f_util.h"
 #include "hw_config.h"
 
@@ -34,6 +35,7 @@ void FatFsFalso::reinicia() {
     queda_apos.clear();
     queda_apos_n = 0;
     sem_energia = false;
+    agora_ms = 0;
     operacoes.clear();
     montagens = 0;
     desmontagens = 0;
@@ -455,3 +457,11 @@ const char* FRESULT_str(FRESULT r) {
 bool sd_init_driver() { return FatFsFalso::instancia().driver_inicia; }
 
 }  // extern "C"
+
+namespace coruja {
+/// O relógio do `CartaoSd` no host: o teste o adianta pelo dublê. No alvo
+/// Pico quem o define é o `hw_config.cpp`, com o relógio do SDK.
+std::uint32_t agora_ms_cartao() {
+    return teste::FatFsFalso::instancia().agora_ms;
+}
+}  // namespace coruja

@@ -59,6 +59,15 @@ FIL   g_leitura;
 }  // namespace
 
 
+bool CartaoSd::em_espera() const {
+    return falhou_ && agora_ms_cartao() - falhou_em_ms_ < kEsperaRemontagemMs;
+}
+
+void CartaoSd::anota_cartao_ausente() {
+    falhou_ = true;
+    falhou_em_ms_ = agora_ms_cartao();
+}
+
 void CartaoSd::inicia(Logger& log) {
     if (iniciado_) {
         return;
@@ -81,6 +90,11 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
     }
     if (!iniciado_) {
         inicia(log);
+    }
+    if (em_espera()) {
+        // A sondagem anterior nao achou cartao nenhum, e nao faz cinco
+        // segundos. Sondar de novo so ocuparia o barramento.
+        return ErroCartao::SemCartaoLegivel;
     }
     char msg[128];
     int  montadas = 0;
@@ -168,12 +182,14 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         // A base tem de acompanhar a configuração que a definiu: guarda o
         // volume para que a escrita vá ao mesmo lugar, sem sondar de novo.
         volume_ativo_ = volume;
+        falhou_ = false;
         return ErroCartao::Nenhum;
     }
 
     if (montadas == 0) {
         // Sem pino de card detect, ausente e ilegível chegam aqui iguais — e
         // é assim que o projeto quer (ADR 0010).
+        anota_cartao_ausente();
         log.error("sd", "nenhuma particao FAT montou: cartao ausente ou ilegivel");
         return ErroCartao::SemCartaoLegivel;
     }
@@ -268,6 +284,9 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
     if (!iniciado_) {
         inicia(log);
     }
+    if (em_espera()) {
+        return ErroCartao::SemCartaoLegivel;
+    }
     // Volume conhecido: vai direto. Desconhecido: sonda, como a leitura faz.
     const int primeiro = volume_ativo_ >= 0 ? volume_ativo_ : 0;
     const int ultimo   = volume_ativo_ >= 0 ? volume_ativo_ : kQuantosVolumes - 1;
@@ -280,12 +299,14 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
             volume_ativo_ = volume;
             std::snprintf(raiz_montada_, sizeof raiz_montada_, "%s", raiz);
             montagens_ = 1;
+            falhou_ = false;
             return ErroCartao::Nenhum;
         }
         std::snprintf(msg, sizeof msg, "volume %d nao montou para escrita: %s",
                       volume, FRESULT_str(montagem));
         log.debug("sd", msg);
     }
+    anota_cartao_ausente();
     log.error("sd", "nenhum volume montou para escrita");
     return ErroCartao::SemCartaoLegivel;
 }
@@ -440,13 +461,36 @@ ErroCartao CartaoSd::acrescenta_arquivo(const char* nome, const char* conteudo,
         desmonta_volume(raiz);
         return ErroCartao::FalhaDeEscrita;
     }
+    // Onde o arquivo terminava. É para cá que ele volta se a escrita não
+    // couber inteira — ver abaixo.
+    const FSIZE_t antes = f_size(&arquivo);
+
     UINT gravados = 0;
     const FRESULT r = f_write(&arquivo, conteudo,
                               static_cast<UINT>(tamanho), &gravados);
-    f_close(&arquivo);
+    // ⚠️ **Gravação curta é falha, e o pedaço TEM de sair.** Cartão cheio
+    // devolve `FR_OK` com menos bytes. Quem chama é o log, que guarda o
+    // buffer e tenta de novo: com o pedaço no arquivo, a tentativa seguinte
+    // o repetia inteiro e o cartão ficava com meia linha colada numa linha
+    // boa. O acréscimo é tudo ou nada.
+    const bool coube = r == FR_OK && gravados == tamanho;
+    if (!coube && f_lseek(&arquivo, antes) == FR_OK) {
+        f_truncate(&arquivo);
+    }
+    // O `f_close` é quem leva o tamanho novo ao diretório: ignorá-lo era
+    // dizer "gravado" sobre uma linha que não entrou.
+    const FRESULT fechamento = f_close(&arquivo);
     desmonta_volume(raiz);
-    return (r == FR_OK && gravados == tamanho) ? ErroCartao::Nenhum
-                                               : ErroCartao::FalhaDeEscrita;
+    if (coube && fechamento == FR_OK) {
+        return ErroCartao::Nenhum;
+    }
+    char msg[96];
+    std::snprintf(msg, sizeof msg, "acrescimo em '%s': %s (%u de %u bytes)",
+                  nome, FRESULT_str(coube ? fechamento : r),
+                  static_cast<unsigned>(gravados),
+                  static_cast<unsigned>(tamanho));
+    log.error("sd", msg);
+    return ErroCartao::FalhaDeEscrita;
 }
 
 ErroCartao CartaoSd::grava_arquivo(const char* nome, const char* conteudo,

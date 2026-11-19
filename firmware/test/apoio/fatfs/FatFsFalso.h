@@ -85,6 +85,10 @@ public:
     /// estava gravado nele. É o boot seguinte.
     void religa();
 
+    /// O relógio que o `CartaoSd` enxerga, em ms. O teste o adianta para
+    /// atravessar a espera de remontagem.
+    std::uint32_t agora_ms = 0;
+
     // --- observação
     /// "mount:2", "open:0:a", "write:a", "close:a", "rename:a->b", "unlink:a"
     std::vector<std::string> operacoes;

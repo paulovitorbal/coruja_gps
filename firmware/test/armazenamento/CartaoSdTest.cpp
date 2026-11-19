@@ -205,6 +205,87 @@ TEST_F(CartaoSdNoHost, descartar_a_escrita_nao_deixa_o_temporario) {
     EXPECT_FALSE(fs.existe(0, "radares.tmp"));
 }
 
+// ---- a escrita curta: o cartao que enche e diz FR_OK ---------------------
+//
+// Cartao cheio devolve `FR_OK` com MENOS bytes. O acrescimo gravava o pedaco
+// e devolvia falha, e quem chama -- o `LoggerCartao` -- guarda o buffer para
+// tentar de novo: a tentativa seguinte repetia o bloco inteiro, com o pedaco
+// ja no arquivo. O log ficava com meia linha colada numa linha inteira.
+
+TEST_F(CartaoSdNoHost, acrescimo_curto_nao_deixa_pedaco_no_arquivo) {
+    poe(0, "coruja.log", "ja estava\n");
+    fs.escrita_curta_apos = 3;        // tres bytes cabem, o resto nao
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\n")
+        << "o pedaco gravado ficou no arquivo";
+}
+
+TEST_F(CartaoSdNoHost, a_tentativa_seguinte_ao_acrescimo_curto_nao_duplica) {
+    poe(0, "coruja.log", "ja estava\n");
+    fs.escrita_curta_apos = 3;
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+
+    fs.escrita_curta_apos = 0;        // o cartao volta a si
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\nlinha nova\n");
+}
+
+TEST_F(CartaoSdNoHost, f_close_que_falha_no_acrescimo_e_falha_de_escrita) {
+    // O tamanho so vai ao diretorio no fechamento: um `f_close` que falha
+    // deixa o arquivo como estava, e dizer "gravado" perderia a linha.
+    poe(0, "coruja.log", "ja estava\n");
+    fs.erro_close = FR_DISK_ERR;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\n");
+}
+
+// ---- cartao ausente: nao se sonda o cartao a cada linha de log -----------
+
+TEST_F(CartaoSdNoHost, sem_cartao_a_sondagem_espera_antes_de_tentar_de_novo) {
+    // Sem cartao, cada linha de log sondava as cinco particoes. O laco corre
+    // centenas de vezes por segundo e o buffer do log descarrega sozinho: era
+    // o barramento ocupado sem parar, para nada.
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::SemCartaoLegivel);
+    const std::size_t sondas = fs.operacoes.size();
+    ASSERT_EQ(sondas, 5u) << "sondou as cinco particoes";
+
+    for (int i = 0; i < 20; ++i) {
+        EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+                  ErroCartao::SemCartaoLegivel);
+    }
+    EXPECT_EQ(fs.operacoes.size(), sondas) << "sondou de novo sem esperar";
+}
+
+TEST_F(CartaoSdNoHost, passada_a_espera_o_cartao_recem_posto_e_achado) {
+    // A espera nao pode virar desistencia: quem poe o cartao com o aparelho
+    // ligado tem de ser atendido.
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::SemCartaoLegivel);
+    poe(0, "coruja.log", "");
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "x\n");
+}
+
+TEST_F(CartaoSdNoHost, a_espera_nao_atrapalha_a_leitura_logo_apos_uma_falha) {
+    // A leitura sonda por conta propria (R-38) e paga a mesma espera: sem
+    // isso o arranque sem cartao sondaria tudo de novo a cada arquivo.
+    char buf[64];
+    std::size_t n = 0;
+    ASSERT_EQ(sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+    const std::size_t sondas = fs.operacoes.size();
+    EXPECT_EQ(sd.le_arquivo("radares.bin", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+    EXPECT_EQ(fs.operacoes.size(), sondas);
+}
+
 TEST_F(CartaoSdNoHost, acrescentar_nao_reescreve_o_arquivo_inteiro) {
     poe(0, "coruja.log", "primeira\n");
     ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "segunda\n", 8, log),
