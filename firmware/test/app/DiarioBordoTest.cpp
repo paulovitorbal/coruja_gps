@@ -76,7 +76,9 @@ public:
 
 Telemetria em(std::uint8_t hora, std::uint8_t minuto, std::uint8_t segundo,
               float velocidade_kmh) {
+    static std::uint32_t sequencia = 0;   // cada chamada e um fix novo
     Telemetria t;
+    t.sequencia = ++sequencia;
     t.lat = -19.8F; t.lon = -44.0F;
     t.velocidade_kmh = velocidade_kmh;
     t.rumo_graus = 90.0F; t.rumo_valido = true;

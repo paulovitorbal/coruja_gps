@@ -104,7 +104,7 @@ void AcumuladorViagem::fecha_amostra() {
     ponto_.lon = ultima_lon_;
     ponto_.v_media_kmh =
         amostras_ > 0 ? soma_vel_ / static_cast<float>(amostras_) : 0.0F;
-    ponto_.dist_km = dist_km_;
+    ponto_.dist_km = dist_km();
     ponto_.rumo_graus = ultimo_rumo_;
     ponto_.rumo_valido = ultimo_rumo_valido_;
     ponto_.radar = radar_da_fatia_;
@@ -160,6 +160,16 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
         return EventoViagem::Nada;
     }
 
+    // 🔴 **Anda por FIX, não por chamada.** O `DiarioBordo` chama a cada volta
+    // do laço, e o laço não dorme: entre duas sentenças são centenas de
+    // chamadas com a mesma telemetria. Integrar a cada uma somava 0,03 m por
+    // milissegundo, abaixo da resolução de um float perto de 512 km -- a
+    // distância travava ali --, e a média da fatia pesava cada fix pelo
+    // número de voltas em que ele foi visto, não pela medida que ele é.
+    if (!fix_novo_.chegou(t)) {
+        return EventoViagem::Nada;
+    }
+
     if (estado_ == EstadoViagem::Aguardando) {
         // Depois de um fechamento por veículo parado, quem reabre é o
         // movimento. Reabrir no fix faria um arquivo a cada cinco minutos
@@ -172,7 +182,7 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
             // e a régua é a mesma da retomada depois do corte de energia —
             // porque é a mesma pergunta.
             if (ponto_.ano != 0 && passou_da_janela(t)) {
-                dist_km_ = 0.0F;
+                dist_km_ = 0.0;
             }
             exige_movimento_ = false;
         }
@@ -195,8 +205,8 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     if (tem_passo_anterior_) {
         const std::uint32_t passo_ms = agora_ms - anterior_ms_;
         if (passo_ms <= kMaxPassoIntegracaoMs) {
-            dist_km_ += t.velocidade_kmh *
-                        (static_cast<float>(passo_ms) / 3600000.0F);
+            dist_km_ += static_cast<double>(t.velocidade_kmh) *
+                        (static_cast<double>(passo_ms) / 3600000.0);
         }
     }
     anterior_ms_ = agora_ms;

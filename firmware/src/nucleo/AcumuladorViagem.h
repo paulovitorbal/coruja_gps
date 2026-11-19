@@ -187,6 +187,8 @@ public:
     EstadoViagem estado() const { return estado_; }
     bool ativa() const { return estado_ != EstadoViagem::Parada; }
 
+    /// Pode ser chamado a cada volta do laço: só anda quando `t` traz um fix
+    /// que ainda não foi contado (`Telemetria::sequencia`).
     EventoViagem alimenta(const Telemetria& t, const RadarDaAmostra& radar,
                           bool tem_fix,
                           std::uint32_t agora_ms);
@@ -196,7 +198,7 @@ public:
     /// Válido depois de `Grava`.
     const PontoViagem& ultimo_ponto() const { return ponto_; }
 
-    float dist_km() const { return dist_km_; }
+    float dist_km() const { return static_cast<float>(dist_km_); }
 
 private:
     void monta_nome(const Telemetria& t);
@@ -214,7 +216,14 @@ private:
     EstadoViagem estado_ = EstadoViagem::Parada;
     char         nome_[24] = {};
 
-    float        dist_km_ = 0.0F;
+    /// Em `double`, e só aqui dentro. Um passo de 250 ms a 30 km/h soma 2 m;
+    /// perto de 512 km o `float` tem 6 cm de resolução, e cada soma
+    /// arredondada é um erro que se acumula pela viagem inteira. Para fora
+    /// (ponto, arquivo de estado) vai `float`, que basta para escrever um
+    /// número que já não acumula nada.
+    double       dist_km_ = 0.0;
+    /// Qual fix já foi contado. Ver `alimenta`.
+    FixNovo      fix_novo_;
     bool         tem_passo_anterior_ = false;
     std::uint32_t anterior_ms_ = 0;
 

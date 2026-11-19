@@ -8,6 +8,9 @@ void PilotoAlerta::define_base(const Ponto* base, std::size_t quantos) {
     // O alvo vigente é guardado por índice, e a base nova tem outros. Sem
     // isto, um radar poderia herdar a retenção de 340 m de outro.
     maquina_.reinicia();
+    // A máquina zerada ainda não viu fix nenhum: o atual tem de ser avaliado
+    // contra a base nova já na próxima volta, sem esperar outra sentença.
+    fix_novo_.esquece();
 }
 
 void PilotoAlerta::passo(std::uint32_t agora_ms) {
@@ -29,8 +32,17 @@ void PilotoAlerta::passo(std::uint32_t agora_ms) {
     // saía `Segura` — o aparelho afirmando "nenhum radar a menos de 300 m"
     // quando o que havia era ausência de base.
     if (gps_.tem_fix(agora_ms) && tem_base()) {
-        veredito_ = maquina_.avalia(gps_.telemetria(), base_, quantos_,
-                                    agora_ms);
+        // 🔴 **Uma avaliação por FIX, não por volta.** A máquina acumula
+        // amostras -- a janela de giro, a média de cruzeiro -- e o laço não
+        // dorme: entre duas sentenças ele passa aqui centenas de vezes com a
+        // mesma telemetria. Avaliar a cada volta enchia a janela de giro com
+        // cópias de um fix só, a proa parecia sempre reta, e numa curva o
+        // filtro de pista vetava o radar à frente. Entre dois fixes o
+        // veredito não muda, porque a entrada não mudou.
+        if (fix_novo_.chegou(gps_.telemetria())) {
+            veredito_ = maquina_.avalia(gps_.telemetria(), base_, quantos_,
+                                        agora_ms);
+        }
     } else {
         // Sem fix **ou sem base**: nos dois casos não há o que afirmar sobre
         // a via. Tratá-los igual é deliberado — o motorista não precisa

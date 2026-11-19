@@ -296,7 +296,10 @@ private:
 /// próximo como estado do sistema esconderia a multa em curso.
 class MaquinaZona {
 public:
-    /// Avalia com um fix válido.
+    /// Avalia com um fix válido. **Uma chamada por fix**: a janela de giro e a
+    /// média de cruzeiro contam amostras, e chamar de novo com a mesma
+    /// telemetria as enche de cópias. Quem tem um laço mais rápido que o
+    /// receptor filtra antes -- ver `PilotoAlerta::passo`.
     Veredito avalia(const Telemetria& t, const Ponto* base, std::size_t n,
                     std::uint32_t agora_ms);
 
