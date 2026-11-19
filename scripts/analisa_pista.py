@@ -67,14 +67,23 @@ def interpreta_linha(linha: str) -> dict | None:
         return None
     try:
         quando = datetime.strptime(c[0], "%Y-%m-%dT%H:%M:%SZ")
+        lat, lon, v = float(c[1]), float(c[2]), float(c[3])
+    except ValueError:
+        return None
+    # `float()` aceita "nan" e "inf", e um nan passa por toda comparação
+    # como falso: a amostra sumiria da conta sem erro nenhum.
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0 and
+            0.0 <= v < math.inf):
+        return None
+    try:
         return {
             "utc": c[0],
             # Em segundos: e o tempo, e nao a posicao na lista, que diz se
             # duas amostras sao vizinhas. Ver `rumo_suavizado`.
             "t": quando.replace(tzinfo=timezone.utc).timestamp(),
-            "lat": float(c[1]),
-            "lon": float(c[2]),
-            "v_kmh": float(c[3]),
+            "lat": lat,
+            "lon": lon,
+            "v_kmh": v,
             "radar_m": float(c[5]) if len(c) > 5 and c[5] else None,
             "radar_kmh": int(c[6]) if len(c) > 6 and c[6] else None,
             "perto_m": float(c[7]) if len(c) > 7 and c[7] else None,

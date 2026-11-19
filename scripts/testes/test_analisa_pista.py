@@ -191,6 +191,18 @@ class LeituraDaViagem(unittest.TestCase):
         self.assertEqual(len(v.pontos), 2)
         self.assertEqual(v.invalidas, 3)
 
+    def test_coordenada_nao_finita_ou_fora_da_faixa_e_invalida(self):
+        # `float()` aceita "nan" e "inf". Um nan na latitude passa por toda
+        # comparacao como falso e some da conta sem erro nenhum.
+        texto = (CABECALHO_V3 + "".join(indo_ao_norte(1))
+                 + "2026-10-07T12:00:30Z;nan;-47.9;80.0;0.0\n"
+                 + "2026-10-07T12:00:36Z;-15.8;inf;80.0;0.0\n"
+                 + "2026-10-07T12:00:42Z;-95.0;-47.9;80.0;0.0\n"
+                 + "2026-10-07T12:00:48Z;-15.8;-47.9;-1.0;0.0\n")
+        v = A.interpreta_viagem(texto)
+        self.assertEqual(len(v.pontos), 1)
+        self.assertEqual(v.invalidas, 4)
+
     def test_main_reporta_as_linhas_invalidas(self):
         import io
         import tempfile
