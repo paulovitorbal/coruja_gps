@@ -93,14 +93,6 @@ public:
     void desenha_rgb565(int x, int y, int largura, int altura,
                         const std::uint16_t* pixels);
 
-    /// Inverte as cores do painel (comando `INVON`/`INVOFF`).
-    ///
-    /// Painel IPS com ST7789 costuma precisar de `INVON`, mas isso
-    /// depende do vidro e nao da para decidir no papel: ou as cores saem
-    /// certas, ou saem todas complementares. Exposto para a bancada
-    /// poder alternar e a pessoa escolher olhando.
-    void define_inversao(bool invertido);
-
 private:
     void escreve(std::uint8_t comando, const std::uint8_t* params,
                  std::size_t n);

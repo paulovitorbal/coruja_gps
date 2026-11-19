@@ -16,7 +16,6 @@ namespace {
 // --- comandos do ST7789V usados aqui ---
 constexpr std::uint8_t kSwreset = 0x01;
 constexpr std::uint8_t kSlpout  = 0x11;
-constexpr std::uint8_t kInvoff  = 0x20;
 constexpr std::uint8_t kInvon   = 0x21;
 constexpr std::uint8_t kDispon  = 0x29;
 constexpr std::uint8_t kCaset   = 0x2A;
@@ -110,10 +109,6 @@ void PainelSt7789::inicia(std::uint32_t baud_hz, bool modo3) {
     limpa(paleta::kFundo);
     escreve(kDispon, nullptr, 0);
     sleep_ms(500);
-}
-
-void PainelSt7789::define_inversao(bool invertido) {
-    escreve(invertido ? kInvon : kInvoff, nullptr, 0);
 }
 
 void PainelSt7789::preenche(int x, int y, int largura, int altura,

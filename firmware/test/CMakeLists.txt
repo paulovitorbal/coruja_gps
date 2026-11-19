@@ -72,14 +72,11 @@ add_executable(testes
     log/CarimboExecucaoTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
     encoder/AntiRepiqueTest.cpp
-    app/ModoTesteEncoderTest.cpp
     placa/PinosTest.cpp
     placa/MedidorPilhaTest.cpp
     placa/TermometroTest.cpp
-    app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     led/LedReguladoTest.cpp
-    app/CicloCoresTest.cpp
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
     app/OtaNaTelaTest.cpp

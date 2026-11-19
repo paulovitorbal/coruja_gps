@@ -71,7 +71,6 @@ FIL   g_leitura;
 
 }  // namespace
 
-
 bool CartaoSd::em_espera() const {
     return falhou_ && agora_ms_cartao() - falhou_em_ms_ < kEsperaRemontagemMs;
 }
@@ -256,7 +255,6 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
     log.debug("sd", msg);
     return ErroCartao::ArquivoAusente;
 }
-
 
 ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
                                  void* contexto, std::size_t* lidos,
@@ -589,22 +587,6 @@ ErroCartao CartaoSd::grava_arquivo(const char* nome, const char* conteudo,
         return ErroCartao::FalhaDeEscrita;
     }
     return fechamento;
-}
-
-bool CartaoSd::existe(const char* nome, Logger& log) {
-    char raiz[4];
-    if (monta_volume(raiz, sizeof raiz, log) != ErroCartao::Nenhum) {
-        return false;
-    }
-    char caminho[64];
-    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
-        desmonta_volume(raiz);
-        return false;
-    }
-    FILINFO info;
-    const bool achou = f_stat(caminho, &info) == FR_OK;
-    desmonta_volume(raiz);
-    return achou;
 }
 
 // ---------------------------------------------------------------------------

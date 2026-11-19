@@ -111,8 +111,6 @@ public:
     ErroCartao promove(const char* temporario, const char* base,
                        const char* reserva, Logger& log) override;
 
-    bool existe(const char* nome, Logger& log);
-
     // -----------------------------------------------------------------------
     // Arquivario -- o que a remessa de dados usa
     // -----------------------------------------------------------------------

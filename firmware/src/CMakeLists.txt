@@ -69,10 +69,6 @@ add_library(coruja_ihm STATIC
     encoder/DecodificadorQuadratura.cpp
     encoder/AntiRepique.cpp
     encoder/EventoEncoder.cpp
-    app/ModoTesteEncoder.cpp
-    app/ItemCalibracao.cpp
-    app/ModoCalibracao.cpp
-    app/CicloCores.cpp
     buzzer/CadenciaBuzzer.cpp
     led/PadraoLed.cpp
     led/PadraoLedOta.cpp
