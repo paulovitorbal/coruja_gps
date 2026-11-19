@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "rede/CaixaVarredura.h"
 
 namespace coruja {
 namespace {
@@ -17,62 +18,28 @@ namespace {
 constexpr std::uint32_t kTempoLimiteVarreduraMs = 12'000;
 constexpr std::uint32_t kTempoLimiteAssociacaoMs = 20'000;
 
-/// O que a varredura encontrou. Passado como `env` ao callback do driver, que
-/// é C e não conhece captura de lambda.
-struct Coleta {
-    const Configuracao* cfg = nullptr;
-    Logger*             log = nullptr;
-    /// Índice, na lista da configuração, da rede visível de MAIOR prioridade.
-    /// `kMaxRedes` significa "nenhuma".
-    std::size_t         escolhida = kMaxRedes;
-    std::size_t         vistas = 0;
-    /// Sinal e canal **da escolhida**, para a linha única do desfecho.
-    ///
-    /// 🔴 **A varredura despejava uma linha por rede** (27/10/2026): 284
-    /// linhas e 17 KB no histórico de 108 partidas, listando o Wi-Fi dos
-    /// vizinhos num arquivo que sobe pela rede. O que a remessa precisa
-    /// responder é "em qual tentou e deu certo?" — e isso é uma linha.
-    int                 rssi_escolhida = 0;
-    unsigned            canal_escolhida = 0;
-};
+/// A caixa desta unidade de tradução, e nada na pilha.
+///
+/// Vive pelo programa inteiro porque **não há como cancelar uma varredura**:
+/// o driver segue chamando enquanto o rádio varre, inclusive depois de o
+/// prazo estourar e de `conecta()` ter voltado. Ver `CaixaVarredura` — e
+/// `CaixaDns`, que resolve a mesma classe de defeito para o DNS.
+CaixaVarredura g_varredura;
 
+/// Casca fina sobre a caixa: o `env` é o NÚMERO da geração, por valor, e não
+/// um ponteiro para onde escrever.
 int ao_ver_rede(void* env, const cyw43_ev_scan_result_t* r) {
-    auto* coleta = static_cast<Coleta*>(env);
     if (r == nullptr || r->ssid_len == 0) {
         return 0;
     }
-
     char ssid[kMaxSsid + 1] = {};
     const std::size_t n = r->ssid_len < kMaxSsid ? r->ssid_len : kMaxSsid;
     std::memcpy(ssid, r->ssid, n);
 
-    ++coleta->vistas;
-
-    // Procura este SSID na lista, e guarda a MENOR posição encontrada: a
-    // varredura devolve os pontos de acesso em ordem arbitrária, então não dá
-    // para parar no primeiro que casar.
-    for (std::size_t i = 0; i < coleta->cfg->n_redes; ++i) {
-        if (std::strcmp(coleta->cfg->redes[i].ssid, ssid) == 0) {
-            if (i < coleta->escolhida) {
-                coleta->escolhida = i;
-                coleta->rssi_escolhida = static_cast<int>(r->rssi);
-                coleta->canal_escolhida = static_cast<unsigned>(r->channel);
-            }
-            char msg[96];
-            std::snprintf(msg, sizeof msg,
-                          "  %-32s canal %2u  %4d dBm  <- da lista (prio %u)",
-                          ssid, static_cast<unsigned>(r->channel),
-                          static_cast<int>(r->rssi),
-                          static_cast<unsigned>(i + 1));
-            coleta->log->debug("wifi", msg);
-            return 0;
-        }
-    }
-
-    char msg[96];
-    std::snprintf(msg, sizeof msg, "  %-32s canal %2u  %4d dBm", ssid,
-                  static_cast<unsigned>(r->channel), static_cast<int>(r->rssi));
-    coleta->log->debug("wifi", msg);
+    const auto geracao =
+        static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(env));
+    g_varredura.viu(geracao, ssid, static_cast<int>(r->rssi),
+                    static_cast<unsigned>(r->channel));
     return 0;
 }
 
@@ -110,13 +77,14 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         return ErroWifi::NenhumaRedeConfigurada;
     }
 
-    Coleta coleta;
-    coleta.cfg = &cfg;
-    coleta.log = &log;
-
     log.debug("wifi", "varrendo redes...");
+    const std::uint32_t geracao = g_varredura.abre(cfg, log);
     cyw43_wifi_scan_options_t opcoes = {};
-    if (cyw43_wifi_scan(&cyw43_state, &opcoes, &coleta, ao_ver_rede) != 0) {
+    if (cyw43_wifi_scan(&cyw43_state, &opcoes,
+                        reinterpret_cast<void*>(
+                            static_cast<std::uintptr_t>(geracao)),
+                        ao_ver_rede) != 0) {
+        g_varredura.abandona();
         return ErroWifi::VarreduraFalhou;
     }
 
@@ -134,12 +102,22 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         sleep_ms(1);
     }
 
+    // O que a varredura disser daqui em diante não interessa mais — e, se o
+    // prazo estourou, ela AINDA ESTÁ RODANDO. Ler os números antes de
+    // abandonar, e abandonar antes de qualquer retorno.
+    const std::size_t escolhida = g_varredura.tem_escolhida()
+                                      ? g_varredura.escolhida() : kMaxRedes;
+    const std::size_t vistas = g_varredura.vistas();
+    const int rssi_escolhida = g_varredura.rssi();
+    const unsigned canal_escolhida = g_varredura.canal();
+    g_varredura.abandona();
+
     char msg[128];
     std::snprintf(msg, sizeof msg, "varredura concluida: %u redes visiveis",
-                  static_cast<unsigned>(coleta.vistas));
+                  static_cast<unsigned>(vistas));
     log.debug("wifi", msg);
 
-    if (coleta.escolhida >= cfg.n_redes) {
+    if (escolhida >= cfg.n_redes) {
         // Uma linha, com os dois números que separam "a rede caiu" de "o
         // rádio não enxerga nada": quantas estavam configuradas e quantas
         // apareceram. Os SSID dos vizinhos não entram — eles não respondem
@@ -147,19 +125,19 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         std::snprintf(msg, sizeof msg,
                       "nenhuma das %u redes da lista entre as %u visiveis",
                       static_cast<unsigned>(cfg.n_redes),
-                      static_cast<unsigned>(coleta.vistas));
+                      static_cast<unsigned>(vistas));
         log.error("wifi", msg);
         return ErroWifi::NenhumaRedeVisivel;
     }
 
     // A partir daqui o prefixo da linha é sempre o mesmo: QUAL rede. O que
     // muda é o desfecho, depois do travessão.
-    const Rede& rede = cfg.redes[coleta.escolhida];
+    const Rede& rede = cfg.redes[escolhida];
     char alvo[80];
     std::snprintf(alvo, sizeof alvo, "'%s' (prio %u de %u, canal %u, %d dBm)",
-                  rede.ssid, static_cast<unsigned>(coleta.escolhida + 1),
-                  static_cast<unsigned>(cfg.n_redes), coleta.canal_escolhida,
-                  coleta.rssi_escolhida);
+                  rede.ssid, static_cast<unsigned>(escolhida + 1),
+                  static_cast<unsigned>(cfg.n_redes), canal_escolhida,
+                  rssi_escolhida);
 
     const std::uint32_t autenticacao =
         rede.aberta() ? CYW43_AUTH_OPEN : CYW43_AUTH_WPA2_AES_PSK;
@@ -167,6 +145,12 @@ ErroWifi RedeWifi::conecta(const Configuracao& cfg, Logger& log) {
         rede.ssid, rede.aberta() ? nullptr : rede.senha, autenticacao,
         kTempoLimiteAssociacaoMs);
     if (resultado != 0) {
+        // Desassociar ANTES de voltar. O `connect_timeout_ms` desiste pelo
+        // relogio dele, e o que ficou para tras -- autenticacao a meio
+        // caminho, tentativa ainda em curso no chip -- nao e desfeito por
+        // ninguem: o `desconecta()` so age quando houve associacao, e aqui
+        // nao houve. O radio ficava consumindo e tentando sozinho.
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
         // Nunca a senha, nem em falha: um log de bancada vira captura de tela.
         std::snprintf(msg, sizeof msg, "%s - associacao falhou (codigo %d)",
                       alvo, resultado);
