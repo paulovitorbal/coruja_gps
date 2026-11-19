@@ -13,6 +13,10 @@ class Logger;
 
 constexpr const char* kArquivoInfracoes = "infracoes.log";
 
+/// De quanto em quanto tempo uma infração que o cartão recusou é tentada de
+/// novo.
+constexpr std::uint32_t kRetentativaInfracaoMs = 5000;
+
 /// O temporario e a reserva do `viagem.est`, na rotacao do `promove()`. Ver
 /// `DiarioBordo::grava_estado`.
 constexpr const char* kArquivoEstadoViagemTmp = "viagem.tmp";
@@ -56,7 +60,9 @@ public:
     float dist_viagem_km() const { return viagem_.dist_km(); }
 
 private:
-    void grava_infracao(const RegistroInfracao& r);
+    void grava_infracao(const RegistroInfracao& r, std::uint32_t agora_ms);
+    bool descarrega_infracoes(std::uint32_t agora_ms);
+    bool garante_cabecalho_infracoes();
     void trata_viagem(const Veredito& v, const Telemetria& t, bool tem_fix,
                       std::uint32_t agora_ms);
     bool escreve_cabecalho_viagem();
@@ -68,7 +74,6 @@ private:
     void grava_estado(const EstadoViagemSalvo& e);
     /// O `viagem.est`, ou a reserva quando ele falta ou nao se le.
     bool le_estado(EstadoViagemSalvo* salvo);
-    bool arquivo_existe(const char* nome);
 
     Armazenamento& cartao_;
     Logger&        log_;
@@ -76,10 +81,19 @@ private:
     DetectorInfracao det_;
     AcumuladorViagem viagem_;
 
-    /// A sondagem de existência do `infracoes.log` é feita uma vez por
-    /// energização: o cabeçalho só vai no arquivo novo, e reler o cartão a
-    /// cada infração para descobrir isso seria leitura por nada.
-    bool sondou_infracoes_ = false;
+    /// O `infracoes.log` já tem cabeçalho — porque existia ou porque acabou
+    /// de recebê-lo. Uma vez verdadeiro, não se sonda mais nesta
+    /// energização: reler o cartão a cada infração seria leitura por nada.
+    /// Só vira verdadeiro com RESPOSTA do cartão; ver
+    /// `garante_cabecalho_infracoes`.
+    bool infracoes_com_cabecalho_ = false;
+
+    /// Infrações que o cartão ainda não aceitou, já formatadas. Cabem
+    /// duas: uma infração é uma por radar, e duas seguidas com o cartão
+    /// recusando já dizem que ele não volta tão cedo.
+    char          pendentes_[2 * 192 + 1] = {};
+    std::size_t   n_pendentes_ = 0;
+    std::uint32_t tentou_infracoes_em_ms_ = 0;
 
     /// Verdadeiro quando a escrita do cabeçalho não entrou e o arquivo de
     /// viagem está sem assinatura.

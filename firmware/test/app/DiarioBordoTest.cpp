@@ -29,6 +29,11 @@ public:
                           std::size_t capacidade, std::size_t* lidos,
                           Logger&) override {
         ++leituras;
+        if (sem_cartao) { return ErroCartao::SemCartaoLegivel; }
+        if (falhar_leituras > 0) {
+            --falhar_leituras;
+            return ErroCartao::FalhaDeLeitura;
+        }
         const auto it = arquivos.find(nome);
         if (it == arquivos.end()) { return ErroCartao::ArquivoAusente; }
         if (it->second.size() >= capacidade) { return ErroCartao::ArquivoGrande; }
@@ -44,6 +49,8 @@ public:
     }
     ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
                                   std::size_t tamanho, Logger&) override {
+        ++acrescimos;
+        if (sem_cartao) { return ErroCartao::SemCartaoLegivel; }
         if (falha_escrita) { return ErroCartao::FalhaDeEscrita; }
         // Falha passageira: o cartao recusa as N primeiras e volta a si. E
         // assim que a falha de verdade apareceu -- uma escrita perdida logo
@@ -76,6 +83,11 @@ public:
     }
 
     int falhar_proximas = 0;
+    /// O cartao fora do soquete: nada monta, nada se le, nada se grava.
+    bool sem_cartao = false;
+    /// Quantas leituras seguidas falham por leitura, com o arquivo la.
+    int falhar_leituras = 0;
+    std::size_t acrescimos = 0;
 
     bool tem(const std::string& nome) const {
         return arquivos.find(nome) != arquivos.end();
@@ -136,6 +148,95 @@ TEST(DiarioBordo, o_cabecalho_nao_se_repete_em_arquivo_que_ja_existe) {
     d.passo(Veredito{}, em(17, 31, 11, 80.0F), true, 2000);
 
     EXPECT_EQ(c.linhas(kArquivoInfracoes), 4u) << "2 + antiga + nova";
+}
+
+/// Uma infracao consumada: passa pelo radar acima do limite e se afasta.
+void comete_infracao(DiarioBordo* d, std::uint32_t t_ms) {
+    d->passo(vendo(10.0F), em(17, 31, 10, 80.0F), true, t_ms);
+    d->passo(Veredito{}, em(17, 31, 11, 80.0F), true, t_ms + 1000);
+}
+
+std::size_t conta(const std::string& texto, const std::string& trecho) {
+    std::size_t n = 0;
+    for (auto p = texto.find(trecho); p != std::string::npos;
+         p = texto.find(trecho, p + 1)) {
+        ++n;
+    }
+    return n;
+}
+
+TEST(DiarioBordo, sem_cartao_o_cabecalho_e_a_infracao_saem_quando_ele_volta) {
+    // A sonda era marcada como feita ANTES do resultado: sem cartao na
+    // primeira infracao, o arquivo nascia depois sem cabecalho -- e o
+    // servidor recusa o arquivo sem assinatura. E a infracao era perdida.
+    CartaoFalso c; LoggerMock l;
+    c.sem_cartao = true;
+    DiarioBordo d(c, l);
+    comete_infracao(&d, 1000);
+    ASSERT_FALSE(c.tem(kArquivoInfracoes));
+
+    c.sem_cartao = false;
+    for (std::uint32_t t = 3000; t <= 20000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+
+    ASSERT_TRUE(c.tem(kArquivoInfracoes));
+    const auto& txt = c.arquivos[kArquivoInfracoes];
+    EXPECT_EQ(txt.rfind("# coruja_gps infracoes v1", 0), 0u)
+        << "o arquivo nasceu sem cabecalho";
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 3u)
+        << "2 de cabecalho + a infracao que esperou o cartao";
+}
+
+TEST(DiarioBordo, falha_passageira_de_leitura_nao_duplica_o_cabecalho) {
+    // "Nao consegui ler" nao e "nao existe": escrever o cabecalho nesse caso
+    // o repetia no meio de um arquivo que ja o tinha.
+    CartaoFalso c; LoggerMock l;
+    c.arquivos[kArquivoInfracoes] = std::string(kCabecalhoInfracoes) +
+                                    "linha antiga\n";
+    DiarioBordo d(c, l);
+    // A primeira volta com fix ja le o cartao (a retomada da viagem); a
+    // falha tem de cair na sondagem do arquivo de infracoes, na segunda.
+    d.passo(vendo(10.0F), em(17, 31, 10, 80.0F), true, 1000);
+    c.falhar_leituras = 1;
+    d.passo(Veredito{}, em(17, 31, 11, 80.0F), true, 2000);
+    for (std::uint32_t t = 3000; t <= 20000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_EQ(conta(c.arquivos[kArquivoInfracoes], "# coruja_gps infracoes"),
+              1u);
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 4u) << "2 + antiga + nova";
+}
+
+TEST(DiarioBordo, infracao_que_nao_gravou_e_retentada_uma_vez_so) {
+    CartaoFalso c; LoggerMock l;
+    c.arquivos[kArquivoInfracoes] = kCabecalhoInfracoes;
+    DiarioBordo d(c, l);
+    c.falhar_proximas = 1;
+    comete_infracao(&d, 1000);
+    ASSERT_EQ(c.linhas(kArquivoInfracoes), 2u);
+    EXPECT_TRUE(l.contem(Nivel::Error, "infracao"));
+
+    for (std::uint32_t t = 3000; t <= 30000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 3u)
+        << "a infracao perdida nao voltou, ou voltou repetida";
+}
+
+TEST(DiarioBordo, a_retentativa_sem_cartao_nao_martela_o_cartao) {
+    // O laco corre centenas de vezes por segundo. Tentar a cada volta com o
+    // cartao fora seria sondar as cinco particoes sem parar.
+    CartaoFalso c; LoggerMock l;
+    c.sem_cartao = true;
+    DiarioBordo d(c, l);
+    comete_infracao(&d, 1000);
+    const std::size_t antes = c.leituras + c.acrescimos;
+    for (std::uint32_t t = 3000; t < 23000; t += 50) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_LE(c.leituras + c.acrescimos - antes, 10u)
+        << "20 s sem cartao viraram tentativas demais";
 }
 
 TEST(DiarioBordo, sem_fix_nao_alimenta_o_detector_de_infracao) {
