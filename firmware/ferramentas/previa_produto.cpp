@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "LeArquivo.h"
 #include "PortesHost.h"
 #include "VisorTerminal.h"
 #include "app/Aplicacao.h"
@@ -49,6 +50,7 @@
 namespace {
 
 using namespace coruja;
+using coruja::host::le_arquivo_inteiro;
 
 volatile std::sig_atomic_t g_parar = 0;
 void ao_interromper(int) { g_parar = 1; }
@@ -63,16 +65,16 @@ std::uint32_t agora_ms(std::chrono::steady_clock::time_point inicio) {
 /// a data dele, e sem isso a prévia não exercitaria essa linha.
 bool carrega(const char* caminho, std::vector<Ponto>* destino,
              CabecalhoBase* cabecalho) {
-    std::FILE* f = std::fopen(caminho, "rb");
-    if (f == nullptr) { return false; }
-    std::fseek(f, 0, SEEK_END);
-    const long tam = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    std::vector<std::uint8_t> bruto(static_cast<std::size_t>(tam));
-    const bool leu =
-        std::fread(bruto.data(), 1, bruto.size(), f) == bruto.size();
-    std::fclose(f);
-    if (!leu || bruto.size() < kTamCabecalhoSemData) { return false; }
+    std::vector<std::uint8_t> bruto;
+    std::string erro;
+    if (!le_arquivo_inteiro(caminho, &bruto, &erro)) {
+        std::fprintf(stderr, "nao li a base: %s\n", erro.c_str());
+        return false;
+    }
+    if (bruto.size() < kTamCabecalhoSemData) {
+        std::fprintf(stderr, "base menor que o cabecalho: %s\n", caminho);
+        return false;
+    }
 
     *cabecalho = le_cabecalho(bruto.data());
     destino->resize(kTetoPontos);

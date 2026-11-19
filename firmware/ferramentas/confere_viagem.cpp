@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "LeArquivo.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/CarregadorFluxo.h"
 #include "app/PilotoAlerta.h"
@@ -83,6 +84,42 @@ Amostra le_linha(char* linha) {
     a.valida = true;
     return a;
 }
+
+/// O relógio das três passadas, tirado do CARIMBO de cada linha.
+///
+/// ⚠️ **As passadas usavam relógios diferentes**: a primeira somava 6 000 ms
+/// por amostra ("a fatia do log é de 6 s") e as outras duas, 250 ms. Elas
+/// existem para serem COMPARADAS entre si — é assim que se separa "o
+/// avaliador erra" de "o elo até o diário erra" —, e com bases de tempo
+/// diferentes a comparação não vale: o que depende de tempo (fix velho,
+/// retenção de alerta, acumulação da viagem) anda 24 vezes mais devagar numa
+/// delas.
+///
+/// Nenhum dos dois números precisava ser inventado: o log traz o UTC de cada
+/// linha. A volta da meia-noite é contada, senão o tempo andaria para trás no
+/// meio de uma viagem noturna.
+class RelogioDoLog {
+public:
+    std::uint32_t ms_de(const coruja::Telemetria& t) {
+        const std::uint32_t s = static_cast<std::uint32_t>(t.hora) * 3600U +
+                                static_cast<std::uint32_t>(t.minuto) * 60U +
+                                static_cast<std::uint32_t>(t.segundo);
+        if (!comecou_) {
+            comecou_ = true;
+            base_s_ = s;
+            anterior_s_ = s;
+        }
+        if (s < anterior_s_) { dias_ += 1U; }  // passou da meia-noite
+        anterior_s_ = s;
+        return (s + dias_ * 86400U - base_s_) * 1000U;
+    }
+
+private:
+    bool comecou_ = false;
+    std::uint32_t base_s_ = 0;
+    std::uint32_t anterior_s_ = 0;
+    std::uint32_t dias_ = 0;
+};
 
 }  // namespace
 
@@ -208,17 +245,12 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::FILE* fb = std::fopen(argv[2], "rb");
-    if (fb == nullptr) { std::perror("radares.bin"); return 2; }
-    std::fseek(fb, 0, SEEK_END);
-    const long tam = std::ftell(fb);
-    std::fseek(fb, 0, SEEK_SET);
-    std::vector<std::uint8_t> bruto(static_cast<std::size_t>(tam));
-    if (std::fread(bruto.data(), 1, bruto.size(), fb) != bruto.size()) {
-        std::fprintf(stderr, "leitura curta da base\n");
+    std::vector<std::uint8_t> bruto;
+    std::string erro_base;
+    if (!coruja::host::le_arquivo_inteiro(argv[2], &bruto, &erro_base)) {
+        std::fprintf(stderr, "nao li a base: %s\n", erro_base.c_str());
         return 2;
     }
-    std::fclose(fb);
 
     std::vector<coruja::Ponto> pontos(40000);
     const auto r = coruja::carrega_base(bruto.data(), bruto.size(),
@@ -261,6 +293,7 @@ int main(int argc, char** argv) {
 
     coruja::MaquinaZona maquina;
     char linha[256];
+    RelogioDoLog relogio;
     std::uint32_t agora_ms = 0;
     unsigned n_amostras = 0, com_candidato = 0, com_alvo = 0;
     unsigned por_zona[6] = {0, 0, 0, 0, 0, 0};
@@ -271,7 +304,7 @@ int main(int argc, char** argv) {
         const Amostra a = le_linha(linha);
         if (!a.valida) { continue; }
         ++n_amostras;
-        agora_ms += 6000;            // a fatia do log é de 6 s
+        agora_ms = relogio.ms_de(a.t);
         const coruja::Veredito v =
             maquina.avalia(a.t, pontos.data(), r.pontos, agora_ms);
         const auto z = static_cast<unsigned>(v.zona);
@@ -318,13 +351,14 @@ int main(int argc, char** argv) {
         coruja::PilotoAlerta piloto(leitor, led, buzzer);
         piloto.define_base(pontos.data(), r.pontos);
 
+        RelogioDoLog relogio2;
         std::uint32_t ms = 0;
         unsigned cheio = 0, com_fix = 0, zona_segura = 0, sem_sinal = 0;
         while (std::fgets(linha, sizeof linha, f2) != nullptr) {
             const Amostra a = le_linha(linha);
             if (!a.valida) { continue; }
             uart.entrega(monta_rmc(a.t));
-            ms += 250;
+            ms = relogio2.ms_de(a.t);
             piloto.passo(ms);
             if (leitor.tem_fix(ms)) { ++com_fix; }
             const auto& v = piloto.veredito();
@@ -359,12 +393,13 @@ int main(int argc, char** argv) {
         // `viagem.est`.
         diario.alterna_viagem();
 
+        RelogioDoLog relogio3;
         std::uint32_t ms = 0;
         while (std::fgets(linha, sizeof linha, f3) != nullptr) {
             const Amostra a = le_linha(linha);
             if (!a.valida) { continue; }
             uart.entrega(monta_rmc(a.t));
-            ms += 250;
+            ms = relogio3.ms_de(a.t);
             piloto.passo(ms);
             diario.passo(piloto.veredito(), leitor.telemetria(),
                          leitor.tem_fix(ms), ms);
