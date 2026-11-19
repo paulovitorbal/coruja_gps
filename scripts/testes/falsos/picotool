@@ -1,0 +1,27 @@
+#!/bin/bash
+# picotool FALSO, para os testes do libera_fw.sh.
+#
+#   info -a <uf2>                 imprime a versao que o cmake falso deixou
+#                                 ao lado do .uf2, e o hash conferido
+#   partition create <json> <out> escreve uma tabela qualquer em <out>
+#
+# Falha se FALSO_PICOTOOL_ACAO, avaliado com os argumentos em `$@`,
+# terminar com erro.
+set -u
+echo "picotool $*" >> "$FALSO_DIARIO"
+if [ -n "${FALSO_PICOTOOL_ACAO:-}" ]; then
+    eval "$FALSO_PICOTOOL_ACAO" || exit 1
+fi
+case "${1:-}" in
+    info)
+        arq="${!#}"
+        versao=$(cat "$arq.versao") || exit 1
+        printf 'File %s:\n\nProgram Information\n name:     coruja_gps\n' "$arq"
+        printf '\nMetadata Block 1\n version:  %s\n hash: verified\n' "$versao"
+        ;;
+    partition)
+        printf 'tabela falsa\n' > "$4" || exit 1
+        ;;
+    *) exit 1 ;;
+esac
+exit 0
