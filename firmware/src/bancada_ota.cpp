@@ -31,7 +31,7 @@
 #include "led/LedRgbAnodoComum.h"
 #include "log/LoggerCartao.h"
 #include "log/LoggerConsole.h"
-#include "nucleo/LeitorConfig.h"
+#include "nucleo/GravadorConfig.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "rede/ClienteTls.h"
@@ -42,7 +42,13 @@ namespace {
 
 /// Espaço para o `coruja.cfg`, em `.bss` como todo o resto: não há heap no
 /// caminho crítico.
-constexpr std::size_t kTamBufferConfig = 2048;
+///
+/// ⚠️ **É o mesmo `kMaxTextoCfg` do produto, e isso não é detalhe.** Aqui
+/// eram 2048 B fixos: o gerador passou dos 2 KB e esta bancada começou a
+/// recusar, com `coruja.cfg: arquivo maior que o buffer`, um arquivo que o
+/// produto lia sem reclamar — e a bancada existe justamente para reproduzir
+/// o produto. Ver o comentário de `kTamBufferConfig` no `main.cpp`.
+constexpr std::size_t kTamBufferConfig = coruja::kMaxTextoCfg;
 char g_texto_config[kTamBufferConfig];
 
 constexpr const char* kArquivoLog = "coruja.log";
@@ -52,26 +58,22 @@ constexpr const char* kArquivoLog = "coruja.log";
 /// O RNF03 é explícito: as credenciais não podem estar embutidas no
 /// firmware. Ler no clique também significa que trocar o cartão passa a
 /// valer sem reiniciar, e que a configuração nunca fica velha em RAM.
+///
+/// A leitura em si é a **mesma** do produto (`coruja::carrega_configuracao`),
+/// com o recuo para o `coruja.bak`: eram duas cópias, e a daqui ficou para
+/// trás na correção do buffer.
 bool carrega_configuracao(coruja::CartaoSd& cartao,
                           coruja::Configuracao* destino,
                           coruja::Logger& log) {
-    std::size_t lidos = 0;
-    const auto erro = cartao.le_arquivo("coruja.cfg", g_texto_config,
-                                        kTamBufferConfig, &lidos, log);
+    const bool ok = coruja::carrega_configuracao(cartao, g_texto_config,
+                                                 kTamBufferConfig, destino,
+                                                 log);
     char msg[128];
-    if (erro != coruja::ErroCartao::Nenhum) {
-        std::snprintf(msg, sizeof msg, "coruja.cfg: %s", descreve(erro));
-        log.error("config", msg);
-        return false;
-    }
-    const auto lido = coruja::le_config(g_texto_config, lidos, &log);
-    *destino = lido.config;
     std::snprintf(msg, sizeof msg, "config: %u rede(s), urls %s, unidade '%s'",
-                  static_cast<unsigned>(lido.config.n_redes),
-                  lido.config.tem_urls() ? "ok" : "AUSENTES",
-                  lido.config.nome);
+                  static_cast<unsigned>(destino->n_redes),
+                  destino->tem_urls() ? "ok" : "AUSENTES", destino->nome);
     log.info("config", msg);
-    return lido.config.ota_possivel();
+    return ok;
 }
 
 }  // namespace
@@ -138,6 +140,13 @@ int main() {
 
             coruja::Configuracao config;
             if (carrega_configuracao(cartao, &config, log)) {
+                // ⚠️ **Sem isto o servidor recusa com 401**, e a bancada
+                // mostrava a tela de falha sem dizer por quê. O produto já
+                // mandava o token; aqui ele ficava para trás.
+                if (!http.define_token(config.token_aparelho)) {
+                    log.error("cfg", "token_aparelho tem caractere invalido: "
+                                     "ignorado");
+                }
                 ota.executa(config, log);
             } else {
                 log.error("ota", "sem configuracao utilizavel: nada a fazer");
