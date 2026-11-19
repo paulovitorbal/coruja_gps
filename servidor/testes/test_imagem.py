@@ -54,14 +54,20 @@ class ImagemLevaTodosOsModulos(unittest.TestCase):
     def test_o_servidor_nao_importa_nada_de_fora_da_imagem(self):
         # Pega o caso inverso: um import novo de módulo que nem existe no
         # diretório. `re` acha os `import x` do topo dos três módulos.
+        #
+        # O Dockerfile é lido SEM comentários: o texto dele cita módulos em
+        # prosa -- `horario.py` aparece na explicação de 13/10/2026 --, e um
+        # módulo citado no comentário e ausente do COPY passaria por aqui.
+        from sem_comentarios import sem_comentarios  # noqa: PLC0415
+        dockerfile = sem_comentarios(
+            (RAIZ / "Dockerfile").read_text(encoding="utf-8"))
         proprios = {p.stem for p in RAIZ.glob("*.py")}
         for modulo in ("servidor.py", "viagem.py", "pagina.py"):
             texto = (RAIZ / modulo).read_text(encoding="utf-8")
             for nome in re.findall(r"^import (\w+)$", texto, re.MULTILINE):
                 if nome in proprios:
                     self.assertIn(
-                        f"{nome}.py",
-                        (RAIZ / "Dockerfile").read_text(encoding="utf-8"),
+                        f"{nome}.py", dockerfile,
                         f"{modulo} importa {nome}, que não vai na imagem")
 
 
