@@ -183,6 +183,21 @@ TEST(AcumuladorViagem, a_virada_do_minuto_fecha_a_fatia) {
     EXPECT_EQ(a.ultimo_ponto().segundo, 54);
 }
 
+TEST(AcumuladorViagem, o_segundo_bissexto_fica_na_ultima_fatia_do_minuto) {
+    // A RMC entrega `:60` no segundo bissexto. Dividido por seis ele daria a
+    // fatia 10 de um minuto que so tem dez (0 a 9), e uma linha carimbada
+    // em `:60` que nenhum leitor de hora espera.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(23, 59, 54, 60.0F), kSemRadar, true, 1000);
+    EXPECT_EQ(a.alimenta(em(23, 59, 60, 60.0F), kSemRadar, true, 7000),
+              EventoViagem::Nada)
+        << ":60 abriu fatia propria";
+    ASSERT_EQ(a.alimenta(em_dia(5, 0, 0, 0, 60.0F), kSemRadar, true, 8000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 54);
+}
+
 TEST(AcumuladorViagem, a_media_e_das_amostras_da_fatia) {
     AcumuladorViagem a;
     a.inicia();

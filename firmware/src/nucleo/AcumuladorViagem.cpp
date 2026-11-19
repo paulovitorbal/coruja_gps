@@ -53,7 +53,10 @@ void AcumuladorViagem::monta_nome(const Telemetria& t) {
 }
 
 std::uint8_t AcumuladorViagem::fatia_de(const Telemetria& t) {
-    return static_cast<std::uint8_t>(t.segundo / kSegundosPorAmostra);
+    // O segundo bissexto (`:60`) fica na última fatia do minuto. Dividido
+    // direto daria uma fatia a mais do que o minuto tem, carimbada em `:60`.
+    const unsigned segundo = t.segundo < 59U ? t.segundo : 59U;
+    return static_cast<std::uint8_t>(segundo / kSegundosPorAmostra);
 }
 
 void AcumuladorViagem::abre_amostra(const Telemetria& t) {

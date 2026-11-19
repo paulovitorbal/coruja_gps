@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <string>
 
 namespace {
@@ -241,15 +242,97 @@ TEST(Nmea, CamposComLixoSaoRecusados) {
 }
 
 TEST(Nmea, NenhumaEntradaCausaLeituraForaDoBuffer) {
-    // Alimenta todo prefixo da sentença de referência. Nenhum pode estourar;
-    // o que importa é não haver leitura fora do buffer — o sanitizador do CI
-    // é que julga isso, aqui basta não travar.
+    // Todo prefixo da sentença de referência, cada um COPIADO para um bloco
+    // do tamanho exato: lido direto da `std::string`, o byte seguinte ainda
+    // seria memória válida e o sanitizador não veria a leitura fora. E cada
+    // prefixo incompleto tem de ser recusado sem tocar no destino -- só a
+    // sentença inteira passa.
     const std::string base = kRmcGn;
     for (std::size_t n = 0; n <= base.size(); ++n) {
+        const std::unique_ptr<char[]> exato(new char[n]);
+        std::memcpy(exato.get(), base.data(), n);
         Telemetria t;
-        analisa_rmc(base.c_str(), n, &t);
+        t.lat = 1.0F;
+        const ErroNmea e = analisa_rmc(exato.get(), n, &t);
+        if (n == base.size()) {
+            EXPECT_EQ(e, ErroNmea::Nenhum);
+        } else {
+            EXPECT_NE(e, ErroNmea::Nenhum) << "aceitou o prefixo de " << n;
+            EXPECT_FLOAT_EQ(t.lat, 1.0F) << "escreveu no destino com " << n;
+        }
     }
-    SUCCEED();
+}
+
+// ----------------------------------------- o que o checksum deixa passar --
+
+TEST(Nmea, VelocidadeAbsurdaERecusadaEmVezDeVirarFloatIndefinido) {
+    // O checksum protege contra ruido, nao contra um campo enorme bem
+    // formado. Estreitar 1e50 nos para `float` e comportamento indefinido.
+    // O NEO-M8N nao reporta acima de 500 m/s (~972 nos).
+    for (const char* nos : {"100000000000000000000000000000000000000000000000000.0",
+                            "1500.0"}) {
+        const std::string s = com_checksum(
+            std::string("$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,") +
+            nos + ",84.4,220926,,,A");
+        Telemetria t;
+        EXPECT_EQ(analisa(s.c_str(), &t), ErroNmea::CampoInvalido) << nos;
+    }
+}
+
+TEST(Nmea, OPontoDaCoordenadaTemDeEstarDepoisDosDoisDigitosDeMinuto) {
+    // Os minutos sao SEMPRE dois digitos antes do ponto. Sem exigir isso,
+    // uma coluna deslocada vira uma posicao plausivel e errada.
+    struct { const char* lat; const char* lon; } casos[] = {
+        {"194.799496", "04401.26264"},   // lat com um digito de minuto
+        {"1947.99496", "4401.26264"},    // lon com grau de dois digitos
+        {"194799496", "04401.26264"},    // sem ponto nenhum
+    };
+    for (const auto& c : casos) {
+        const std::string s = com_checksum(
+            std::string("$GNRMC,123519.00,A,") + c.lat + ",S," + c.lon +
+            ",W,22.4,84.4,220926,,,A");
+        Telemetria t;
+        EXPECT_EQ(analisa(s.c_str(), &t), ErroNmea::CampoInvalido)
+            << c.lat << " " << c.lon;
+    }
+}
+
+TEST(Nmea, NenhumCampoNumericoDaRmcAceitaSinal) {
+    // A RMC diz o hemisferio por letra, e velocidade e rumo nao tem sinal.
+    // Um `+` ou `-` ali so pode ser lixo que passou pelo checksum.
+    const char* corpos[] = {
+        "$GNRMC,123519.00,A,19+7.99496,S,04401.26264,W,22.4,84.4,220926,,,A",
+        "$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,+22.4,84.4,220926,,,A",
+        "$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,22.4,+84.4,220926,,,A",
+        "$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,-0.0,84.4,220926,,,A",
+    };
+    for (const char* c : corpos) {
+        const std::string s = com_checksum(c);
+        Telemetria t;
+        EXPECT_EQ(analisa(s.c_str(), &t), ErroNmea::CampoInvalido) << c;
+    }
+}
+
+TEST(Nmea, RmcQueTerminaNaDataEAceita) {
+    // Variacao magnetica e modo vem DEPOIS da data e nao interessam. Exigir
+    // o campo seguinte recusava uma RMC completa por falta de um opcional.
+    const std::string s = com_checksum(
+        "$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,22.4,84.4,220926");
+    Telemetria t;
+    ASSERT_EQ(analisa(s.c_str(), &t), ErroNmea::Nenhum);
+    EXPECT_TRUE(t.data_valida);
+    EXPECT_EQ(t.ano, 2026);
+}
+
+TEST(Nmea, OSegundoBissextoNaoApagaAData) {
+    // O `TempoUtc` aceita o 60 de proposito; a RMC o recusava e a fix do
+    // segundo bissexto saia sem data nenhuma.
+    const std::string s = com_checksum(
+        "$GNRMC,235960.00,A,1947.99496,S,04401.26264,W,22.4,84.4,311226,,,A");
+    Telemetria t;
+    ASSERT_EQ(analisa(s.c_str(), &t), ErroNmea::Nenhum);
+    EXPECT_TRUE(t.data_valida);
+    EXPECT_EQ(t.segundo, 60);
 }
 
 

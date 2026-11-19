@@ -44,14 +44,24 @@ bool inteiro(const Campo& c, std::uint32_t* destino) {
     std::uint32_t v = 0;
     for (std::size_t i = 0; i < c.n; ++i) {
         if (c.ini[i] < '0' || c.ini[i] > '9') return false;
-        v = v * 10U + static_cast<std::uint32_t>(c.ini[i] - '0');
+        const auto d = static_cast<std::uint32_t>(c.ini[i] - '0');
+        // Sem esta guarda o `uint32_t` dá a volta em silêncio, e 2^32 + 9
+        // satélites viram 9 -- um número plausível.
+        if (v > (UINT32_MAX - d) / 10U) return false;
+        v = v * 10U + d;
     }
     *destino = v;
     return true;
 }
 
-/// Decimal com ponto, em `double`. Sem `strtod`: o campo não é terminado em
-/// `\0` e copiá-lo para um buffer só para isso seria trabalho por nada.
+/// Decimal **sem sinal**, com ponto, em `double`. Sem `strtod`: o campo não é
+/// terminado em `\0` e copiá-lo para um buffer só para isso seria trabalho
+/// por nada.
+///
+/// Sem sinal porque nenhum campo que lê o tem: a RMC diz o hemisfério por
+/// letra, e velocidade, rumo, minutos e HDOP não são negativos. Aceitá-lo
+/// deixava `+` e `-` de lixo passarem, e obrigava cada chamador a repetir o
+/// "e não pode ser negativo".
 // ⚠️ **`double` aqui é deliberado, contra a regra do resto do projeto.**
 //
 // O `Geo.h` documenta que a FPU do RP2350 é de precisão simples e que é por
@@ -74,14 +84,7 @@ bool decimal(const Campo& c, double* destino) {
     double divisor = 1.0;
     bool   depois_do_ponto = false;
     bool   algum_digito = false;
-    std::size_t i = 0;
-    bool negativo = false;
-
-    if (c.ini[0] == '-' || c.ini[0] == '+') {
-        negativo = c.ini[0] == '-';
-        i = 1;
-    }
-    for (; i < c.n; ++i) {
+    for (std::size_t i = 0; i < c.n; ++i) {
         const char ch = c.ini[i];
         if (ch == '.') {
             if (depois_do_ponto) return false;  // dois pontos
@@ -98,7 +101,7 @@ bool decimal(const Campo& c, double* destino) {
         }
     }
     if (!algum_digito) return false;
-    *destino = (inteiro_parte + fracao) * (negativo ? -1.0 : 1.0);
+    *destino = inteiro_parte + fracao;
     return true;
 }
 
@@ -106,9 +109,12 @@ bool decimal(const Campo& c, double* destino) {
 ///
 /// O NMEA junta grau e minuto no mesmo número, e é onde parsers erram: os
 /// minutos são sempre os **dois últimos** dígitos antes do ponto, e o que vem
-/// antes é o grau — não há separador.
+/// antes é o grau — não há separador. Por isso o ponto é exigido exatamente
+/// ali: em qualquer outra posição a coluna está deslocada, e a conta daria
+/// uma posição plausível e errada.
 bool graus_minutos(const Campo& c, std::size_t digitos_de_grau, double* destino) {
-    if (c.n < digitos_de_grau + 2) return false;
+    const std::size_t ponto = digitos_de_grau + 2;
+    if (c.n <= ponto || c.ini[ponto] != '.') return false;
 
     Campo parte_grau{c.ini, digitos_de_grau};
     std::uint32_t g = 0;
@@ -116,15 +122,26 @@ bool graus_minutos(const Campo& c, std::size_t digitos_de_grau, double* destino)
 
     Campo parte_minuto{c.ini + digitos_de_grau, c.n - digitos_de_grau};
     double m = 0.0;
-    if (!decimal(parte_minuto, &m)) return false;
-    if (m < 0.0 || m >= 60.0) return false;
+    if (!decimal(parte_minuto, &m) || m >= 60.0) return false;
 
     *destino = static_cast<double>(g) + m / 60.0;
     return true;
 }
 
 constexpr double kNoParaKmh = 1.852;
-constexpr std::size_t kCamposRmc = 10;  ///< até a data, que é o índice 9
+
+/// Teto da velocidade. O NEO-M8N não reporta acima de 500 m/s (~972 nós);
+/// acima disto é campo enorme e bem formado que passou pelo checksum, e
+/// estreitá-lo para `float` seria comportamento indefinido.
+constexpr double kMaxNos = 1000.0;
+
+/// Teto do HDOP. O u-blox o satura em 99,99; o resto é lixo, e o mesmo
+/// estreitamento para `float` cobra o mesmo teto.
+constexpr double kMaxHdop = 100.0;
+
+/// Até a data, que é o índice 8. Variação magnética e modo vêm depois e são
+/// opcionais: exigi-los recusava uma RMC completa.
+constexpr std::size_t kCamposRmc = 9;
 /// Até o HDOP, que é o índice 7. A altitude e a separação geoidal vêm
 /// depois e não interessam a este aparelho.
 constexpr std::size_t kCamposGga = 8;
@@ -242,13 +259,13 @@ ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
     t.lon = static_cast<float>(lon);
 
     double nos = 0.0;
-    if (!decimal(c_nos, &nos) || nos < 0.0) return ErroNmea::CampoInvalido;
+    if (!decimal(c_nos, &nos) || nos > kMaxNos) return ErroNmea::CampoInvalido;
     t.velocidade_kmh = static_cast<float>(nos * kNoParaKmh);
 
     // Rumo vazio com o veículo parado é normal, não erro.
     double rumo = 0.0;
     if (!c_rumo.vazio()) {
-        if (!decimal(c_rumo, &rumo) || rumo < 0.0 || rumo >= 360.0) {
+        if (!decimal(c_rumo, &rumo) || rumo >= 360.0) {
             return ErroNmea::CampoInvalido;
         }
         t.rumo_graus = static_cast<float>(rumo);
@@ -266,7 +283,9 @@ ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
             inteiro(Campo{c_data.ini, 2}, &dd) &&
             inteiro(Campo{c_data.ini + 2, 2}, &mo) &&
             inteiro(Campo{c_data.ini + 4, 2}, &aa);
-        if (ok && hh < 24 && mm < 60 && ss < 60 &&
+        // `ss <= 60`: o 60 é o segundo bissexto, que o receptor entrega e o
+        // `TempoUtc` aceita. Recusá-lo apagava a data da fix inteira.
+        if (ok && hh < 24 && mm < 60 && ss <= 60 &&
             dd >= 1 && dd <= 31 && mo >= 1 && mo <= 12) {
             t.hora = static_cast<std::uint8_t>(hh);
             t.minuto = static_cast<std::uint8_t>(mm);
@@ -334,10 +353,9 @@ ErroNmea analisa_gga(const char* sentenca, std::size_t tamanho,
     if (satelites > kMaxSatelites) return ErroNmea::CampoInvalido;
 
     double hdop = 0.0;
-    if (!decimal(c_hdop, &hdop)) return ErroNmea::CampoInvalido;
-    // Diluição de precisão negativa não existe. `decimal` aceita o sinal
-    // porque outros campos o usam; aqui ele só pode vir de lixo.
-    if (hdop < 0.0) return ErroNmea::CampoInvalido;
+    if (!decimal(c_hdop, &hdop) || hdop > kMaxHdop) {
+        return ErroNmea::CampoInvalido;
+    }
 
     destino->satelites = static_cast<std::uint8_t>(satelites);
     destino->hdop = static_cast<float>(hdop);
