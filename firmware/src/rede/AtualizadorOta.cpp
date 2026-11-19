@@ -19,16 +19,17 @@ struct ColetaVersao {
     bool        estourou = false;
 };
 
-void ao_receber_versao(void* contexto, const std::uint8_t* bytes,
+bool ao_receber_versao(void* contexto, const std::uint8_t* bytes,
                        std::size_t tamanho) {
     auto* coleta = static_cast<ColetaVersao*>(contexto);
     for (std::size_t i = 0; i < tamanho; ++i) {
         if (coleta->usados >= coleta->capacidade) {
             coleta->estourou = true;
-            return;
+            return true;
         }
         coleta->destino[coleta->usados++] = static_cast<char>(bytes[i]);
     }
+    return true;
 }
 
 /// O download tem dois destinos ao mesmo tempo: o verificador e o cartão. Não
@@ -39,18 +40,43 @@ struct DestinoDownload {
     Armazenamento*       cartao = nullptr;
     ObservadorOta*       observador = nullptr;
     bool                 falhou_a_escrita = false;
+    bool                 passou_do_teto = false;
 };
 
-void ao_receber_base(void* contexto, const std::uint8_t* bytes,
+/// O tamanho que o cabecalho promete, ou zero quando ele promete mais do que
+/// a placa comporta.
+///
+/// A conta e feita so depois de conferir o `n_pontos` contra a capacidade:
+/// com o numero que o servidor quiser, `n_pontos * kTamRegistro` passa de
+/// 32 bits, e no Pico o `size_t` tem 32. A tela recebia um total que tinha
+/// dado a volta. Zero e o "ainda nao se sabe" que quem desenha ja trata.
+std::size_t total_prometido(const CabecalhoBase& c) {
+    if (c.n_pontos > kCapacidadeFirmware) { return 0; }
+    return c.tamanho() + std::size_t{c.n_pontos} * kTamRegistro;
+}
+
+bool ao_receber_base(void* contexto, const std::uint8_t* bytes,
                      std::size_t tamanho) {
     auto* destino = static_cast<DestinoDownload*>(contexto);
-    destino->verificador->alimenta(bytes, tamanho);
+    // Parado e parado, mesmo que o transporte insista.
+    if (destino->falhou_a_escrita || destino->passou_do_teto) { return false; }
 
-    // Depois da primeira falha de escrita, para de tentar: insistir encheria o
-    // log com uma linha por pacote e não mudaria o desfecho.
-    if (!destino->falhou_a_escrita &&
-        !destino->cartao->escreve(bytes, tamanho)) {
+    // O teto ANTES do cartao: nada alem do que a placa comporta e gravado.
+    // `bytes_recebidos` nunca passa de `kTetoBase`, porque o pedaco que o
+    // faria passar nao entra -- entao a subtracao nao da a volta.
+    auto& v = *destino->verificador;
+    if (tamanho > kTetoBase - v.bytes_recebidos()) {
+        destino->passou_do_teto = true;
+        return false;
+    }
+    v.alimenta(bytes, tamanho);
+
+    // Depois da primeira falha de escrita, PARA O DOWNLOAD: continuar era ate
+    // 120 s de aparelho bloqueado, sem GPS e sem alerta, para um arquivo que
+    // ja nao seria gravado.
+    if (!destino->cartao->escreve(bytes, tamanho)) {
         destino->falhou_a_escrita = true;
+        return false;
     }
 
     if (destino->observador != nullptr) {
@@ -60,14 +86,11 @@ void ao_receber_base(void* contexto, const std::uint8_t* bytes,
         // Avisa a CADA pedaco, sem limitar a taxa aqui: quem desenha ja
         // redesenha so quando o pixel da barra muda, e duplicar essa
         // decisao seria dois lugares para ajustar o mesmo compromisso.
-        const auto& v = *destino->verificador;
-        const std::size_t total =
-            v.tem_cabecalho()
-                ? kTamCabecalho + static_cast<std::size_t>(
-                                      v.cabecalho().n_pontos) * kTamRegistro
-                : 0;
-        destino->observador->progresso(v.bytes_recebidos(), total);
+        destino->observador->progresso(
+            v.bytes_recebidos(),
+            v.tem_cabecalho() ? total_prometido(v.cabecalho()) : 0);
     }
+    return true;
 }
 
 /// O resultado de um pedido que falhou, pelo que a falha diz.
@@ -428,6 +451,23 @@ ResultadoOta AtualizadorOta::tenta_baixar(const Url& url, unsigned tentativa,
     const auto download = http_.baixa(url, ao_receber_base, &destino, log,
                                       120'000);
 
+    // Os motivos daqui ANTES do erro do cliente: quando o destino para o
+    // download, o cliente volta com `Interrompida`, e a causa e esta.
+    if (destino.falhou_a_escrita) {
+        log.error("ota", "o cartao recusou a escrita: download interrompido");
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        return ResultadoOta::FalhaAoGravar;
+    }
+    if (destino.passou_do_teto) {
+        std::snprintf(msg, sizeof msg,
+                      "base RECUSADA: passou de %lu B, mais do que a placa "
+                      "comporta", static_cast<unsigned long>(kTetoBase));
+        log.error("ota", msg);
+        cartao_.descarta_escrita(kArquivoTmp, log);
+        // O servidor mandaria o mesmo arquivo grande de novo.
+        *repete = false;
+        return ResultadoOta::BaseRecusada;
+    }
     if (!download.ok()) {
         std::snprintf(msg, sizeof msg, "download: %s (status %u, %lu B chegaram)",
                       descreve(download.erro),
@@ -441,11 +481,6 @@ ResultadoOta AtualizadorOta::tenta_baixar(const Url& url, unsigned tentativa,
             resultado_da_falha(download, ResultadoOta::FalhaAoBaixar);
         *repete = r == ResultadoOta::FalhaAoBaixar;
         return r;
-    }
-    if (destino.falhou_a_escrita) {
-        log.error("ota", "o cartao recusou a escrita no meio do download");
-        cartao_.descarta_escrita(kArquivoTmp, log);
-        return ResultadoOta::FalhaAoGravar;
     }
     return verifica_e_promove(tentativa, log, repete);
 }

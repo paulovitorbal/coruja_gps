@@ -95,7 +95,10 @@ inline FalhaHttp classifica_falha(const ResultadoHttp& r) {
 /// reserva em RAM. Quem recebe decide o que fazer com cada pedaço.
 class Baixador {
 public:
-    using AoReceber = void (*)(void* contexto, const std::uint8_t* bytes,
+    /// Devolve `false` para **parar** o download: o resto do corpo não é
+    /// pedido, a conexão é abortada e `baixa` volta com `Interrompida`.
+    /// Quem pediu para parar sabe por quê; o cliente não precisa saber.
+    using AoReceber = bool (*)(void* contexto, const std::uint8_t* bytes,
                                std::size_t tamanho);
 
     virtual ~Baixador() = default;

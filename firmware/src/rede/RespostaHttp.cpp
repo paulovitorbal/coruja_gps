@@ -101,6 +101,7 @@ bool comeca_com_ic(const char* texto, const char* prefixo) {
 
 void LeitorRespostaHttp::reinicia() {
     fase_ = Fase::Cabecalhos;
+    destino_parou_ = false;
     n_cabecalhos_ = 0;
     cabecalhos_[0] = '\0';
     status_ = 0;
@@ -178,10 +179,22 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
     return true;
 }
 
+bool LeitorRespostaHttp::entrega(AoReceberCorpo ao_receber, void* contexto,
+                                 const std::uint8_t* bytes, std::size_t n) {
+    recebidos_ += n;
+    if (ao_receber == nullptr || n == 0) { return true; }
+    if (!ao_receber(contexto, bytes, n)) {
+        destino_parou_ = true;
+        return false;
+    }
+    return true;
+}
+
 bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                                   std::size_t tamanho,
                                   AoReceberCorpo ao_receber, void* contexto) {
-    if (bytes == nullptr) { return false; }
+    // Parado e parado: nada mais chega a quem pediu para parar.
+    if (bytes == nullptr || destino_parou_) { return false; }
 
     std::size_t i = 0;
     while (i < tamanho) {
@@ -209,9 +222,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
 
             case Fase::CorpoAteFechar: {
                 const std::size_t n = tamanho - i;
-                recebidos_ += n;
-                if (ao_receber != nullptr) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 break;
@@ -222,9 +234,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                                    - recebidos_;
                 const std::size_t n = (tamanho - i) < falta ? (tamanho - i)
                                                             : falta;
-                recebidos_ += n;
-                if (ao_receber != nullptr && n > 0) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 if (recebidos_ >= static_cast<std::size_t>(content_length_)) {
@@ -278,9 +289,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
             case Fase::PedacoDados: {
                 const std::size_t n = (tamanho - i) < falta_no_pedaco_
                                       ? (tamanho - i) : falta_no_pedaco_;
-                recebidos_ += n;
-                if (ao_receber != nullptr && n > 0) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 falta_no_pedaco_ -= n;

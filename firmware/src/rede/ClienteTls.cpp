@@ -210,7 +210,11 @@ err_t ao_receber(void* arg, struct altcp_pcb* pcb, struct pbuf* buf,
     for (struct pbuf* parte = buf; parte != nullptr; parte = parte->next) {
         if (!p->leitor.alimenta(static_cast<const std::uint8_t*>(parte->payload),
                                 parte->len, p->ao_receber, p->ctx_recebe)) {
-            p->malformada = true;
+            // `false` por duas razoes diferentes: a resposta veio
+            // malformada, ou quem recebe pediu para parar. Parar nao e
+            // defeito da resposta -- e quem pediu sabe por que --, mas o
+            // pedido termina aqui do mesmo jeito.
+            p->malformada = !p->leitor.destino_parou();
             pbuf_free(buf);
             return encerra(p, pcb, true) ? ERR_ABRT : ERR_OK;
         }
@@ -723,6 +727,17 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     saida.recebidos = pedido.leitor.recebidos();
     saida.status = pedido.leitor.status();
 
+    if (pedido.leitor.destino_parou()) {
+        // Nao foi a rede: quem recebe os bytes pediu para parar, e so ele
+        // sabe por que -- o teto da base, o cartao que recusou. O motivo sai
+        // no log de la; aqui fica so o que aconteceu com a conexao.
+        std::snprintf(msg, sizeof msg,
+                      "download interrompido a pedido de quem recebe, "
+                      "com %u B", static_cast<unsigned>(saida.recebidos));
+        log.warning(kOrigem, msg);
+        saida.erro = ErroHttp::Interrompida;
+        return saida;
+    }
     if (pedido.malformada) {
         log.error(kOrigem, "resposta malformada");
         saida.erro = ErroHttp::Interrompida;
@@ -826,13 +841,14 @@ struct CorpoCurto {
     char        texto[32] = {};
     std::size_t n = 0;
 
-    static void ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
+    static bool ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
         auto* c = static_cast<CorpoCurto*>(ctx);
         const std::size_t livre = sizeof c->texto - 1 - c->n;
         const std::size_t quanto = n < livre ? n : livre;
         std::memcpy(c->texto + c->n, b, quanto);
         c->n += quanto;
         c->texto[c->n] = '\0';
+        return true;
     }
 };
 

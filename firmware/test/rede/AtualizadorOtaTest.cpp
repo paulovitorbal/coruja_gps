@@ -160,6 +160,9 @@ public:
     /// Os caminhos pedidos, na ordem. É onde o segredo do aparelho aparece.
     std::vector<std::string> caminhos;
     unsigned          pedidos_base = 0;
+    /// Bytes da base que chegaram a quem recebe, somando as tentativas. E
+    /// por aqui que se ve um download que nao parou quando devia.
+    std::size_t       entregues_base = 0;
 
     ResultadoHttp baixa(const Url& url, AoReceber ao_receber, void* contexto,
                         Logger&, std::uint32_t) override {
@@ -179,7 +182,12 @@ public:
         for (std::size_t i = 0; i < corpo_base.size(); i += passo) {
             const std::size_t n = (i + passo <= corpo_base.size())
                                       ? passo : corpo_base.size() - i;
-            ao_receber(contexto, corpo_base.data() + i, n);
+            entregues_base += n;
+            if (!ao_receber(contexto, corpo_base.data() + i, n)) {
+                // O que o `ClienteTls` faz: aborta a conexao e devolve
+                // `Interrompida`, com o status que tinha lido.
+                return ResultadoHttp{ErroHttp::Interrompida, 200, i + n};
+            }
         }
         if (pedidos_base < cura_na_tentativa) { return resposta_base; }
         return ResultadoHttp{};
@@ -497,6 +505,56 @@ TEST(AtualizadorOta, cartao_que_enche_no_meio_do_download) {
     EXPECT_EQ(b.cartao.descartes, kTentativas);
 }
 
+TEST(AtualizadorOta, escrita_que_falha_para_o_download_na_hora) {
+    // Continuar baixando depois de o cartao recusar era ate 120 s de
+    // aparelho bloqueado -- sem GPS, sem alerta -- para nada, a cada
+    // tentativa.
+    Bancada b;
+    b.http.corpo_base = base_valida(200);   // 2420 B, 38 pedacos de 64
+    b.cartao.escrita_falha_em_diante = true;
+    b.cartao.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoGravar);
+    EXPECT_EQ(b.http.entregues_base, kTentativas * 64U)
+        << "seguiu baixando depois de o cartao recusar";
+}
+
+// --- o teto do que vai para o cartao ---
+
+/// Um cabecalho v2 que promete `pontos` registros, sem os registros.
+std::vector<std::uint8_t> cabecalho_que_promete(std::uint32_t pontos) {
+    auto base = base_valida(1);
+    base.resize(kTamCabecalho);
+    base[8] = static_cast<std::uint8_t>(pontos);
+    base[9] = static_cast<std::uint8_t>(pontos >> 8);
+    base[10] = static_cast<std::uint8_t>(pontos >> 16);
+    base[11] = static_cast<std::uint8_t>(pontos >> 24);
+    return base;
+}
+
+TEST(AtualizadorOta, nada_alem_do_que_a_placa_comporta_chega_ao_cartao) {
+    // Um servidor errado -- ou hostil -- que mande mais do que cabe na
+    // placa enchia o cartao ate onde ele deixasse: o teto so era conferido
+    // no fim, pelo verificador, com tudo ja gravado.
+    Bancada b;
+    b.http.corpo_base = cabecalho_que_promete(kCapacidadeFirmware + 1);
+    b.http.corpo_base.resize(kTetoBase + 4096, 0x55);
+    EXPECT_EQ(b.roda(), ResultadoOta::BaseRecusada);
+    EXPECT_LE(b.cartao.escrito.size(), kTetoBase);
+    EXPECT_FALSE(b.chamou("promove"));
+    EXPECT_EQ(b.http.pedidos_base, 1U)
+        << "o servidor mandaria o mesmo arquivo grande de novo";
+    EXPECT_EQ(b.cartao.descartes, 1U);
+}
+
+TEST(AtualizadorOta, a_maior_base_que_a_placa_comporta_passa_pelo_teto) {
+    // O teto e a capacidade, e nao menos: a base cheia tem de caber.
+    Bancada b;
+    b.http.corpo_base = base_valida(kCapacidadeFirmware);
+    ASSERT_EQ(b.http.corpo_base.size(), kTetoBase);
+    EXPECT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.cartao.escrito.size(), kTetoBase);
+}
+
 TEST(AtualizadorOta, falha_ao_concluir_a_escrita_descarta) {
     Bancada b;
     b.cartao.resposta_conclui = ErroCartao::FalhaDeEscrita;
@@ -709,6 +767,38 @@ TEST(AtualizadorOta, o_progresso_chega_com_total_depois_do_cabecalho) {
     EXPECT_GT(obs.ultimo_total, 0U) << "o total ficou desconhecido";
     EXPECT_EQ(obs.ultimos_recebidos, obs.ultimo_total)
         << "o download terminou sem alcancar o total anunciado";
+}
+
+TEST(AtualizadorOta, contagem_absurda_no_cabecalho_nao_estoura_o_total) {
+    // `kTamCabecalho + n_pontos * kTamRegistro` com o `n_pontos` que o
+    // servidor quiser: no Pico, `size_t` tem 32 bits, e 0xFFFFFFFF pontos
+    // davam um total que deu a volta. A tela recebia lixo como denominador.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.http.corpo_base = cabecalho_que_promete(0xFFFFFFFFU);
+    // Um registro depois do cabecalho: o verificador so o da por lido
+    // quando chega o primeiro byte de dados.
+    b.http.corpo_base.resize(kTamCabecalho + kTamRegistro, 0);
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.executa(b.cfg, b.log);
+    ASSERT_GT(obs.avisos_de_progresso, 0U);
+    EXPECT_LE(obs.ultimo_total, kTetoBase);
+}
+
+TEST(AtualizadorOta, o_progresso_de_uma_base_sem_data_chega_ao_fim) {
+    // O formato 1 tem cabecalho de 16 B, e nao 20: com o tamanho fixo, a
+    // barra parava 4 B antes do total e nunca enchia.
+    Bancada b;
+    ObservadorEspiao obs;
+    auto v2 = base_valida(3);
+    std::vector<std::uint8_t> v1(v2.begin(), v2.begin() + kTamCabecalhoSemData);
+    v1[4] = static_cast<std::uint8_t>(kVersaoSemData);
+    v1[5] = static_cast<std::uint8_t>(kVersaoSemData >> 8);
+    v1.insert(v1.end(), v2.begin() + kTamCabecalho, v2.end());
+    b.http.corpo_base = v1;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+    EXPECT_EQ(obs.ultimos_recebidos, obs.ultimo_total);
 }
 
 TEST(AtualizadorOta, a_tentativa_aparece_na_fase_de_download) {

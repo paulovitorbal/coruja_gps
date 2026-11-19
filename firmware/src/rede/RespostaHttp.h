@@ -54,7 +54,11 @@ class LeitorRespostaHttp {
 public:
     /// Chamada com os bytes do CORPO, já sem cabeçalhos nem marcação de
     /// pedaço. Pode ser chamada várias vezes por bloco recebido.
-    using AoReceberCorpo = void (*)(void* contexto, const std::uint8_t* bytes,
+    ///
+    /// `false` pede para parar: nenhum byte mais é entregue, e `alimenta`
+    /// devolve `false` com `destino_parou()` verdadeiro — o que separa "quem
+    /// recebe desistiu" de "a resposta veio malformada".
+    using AoReceberCorpo = bool (*)(void* contexto, const std::uint8_t* bytes,
                                     std::size_t tamanho);
 
     /// Teto dos cabeçalhos. O Cloudflare manda bastante coisa (`cf-ray`,
@@ -103,6 +107,10 @@ public:
 
     std::size_t recebidos() const { return recebidos_; }
 
+    /// Quem recebe o corpo pediu para parar. É o `false` do `alimenta` que
+    /// **não** é resposta malformada: a resposta podia estar boa.
+    bool destino_parou() const { return destino_parou_; }
+
     /// Bytes de corpo anunciados, ou -1 quando o servidor não disse.
     long content_length() const { return content_length_; }
 
@@ -118,8 +126,12 @@ private:
     };
 
     bool processa_cabecalhos(AoReceberCorpo ao_receber, void* contexto);
+    /// Entrega um trecho do corpo. `false` se quem recebe pediu para parar.
+    bool entrega(AoReceberCorpo ao_receber, void* contexto,
+                 const std::uint8_t* bytes, std::size_t n);
 
     Fase          fase_ = Fase::Cabecalhos;
+    bool          destino_parou_ = false;
     char          cabecalhos_[kMaxCabecalhos] = {};
     std::size_t   n_cabecalhos_ = 0;
     std::uint32_t status_ = 0;

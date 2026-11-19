@@ -204,9 +204,16 @@ TEST(LeCrcHex, ponteiro_nulo_nao_quebra) {
 
 struct Coletor {
     std::string corpo;
-    static void ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
-        static_cast<Coletor*>(ctx)->corpo.append(
-            reinterpret_cast<const char*>(b), n);
+    /// Quantos bytes aceitar antes de pedir para parar. O padrao e nunca.
+    std::size_t aceita_ate = static_cast<std::size_t>(-1);
+    bool        pediu_para_parar = false;
+    unsigned    entregas_depois_de_parar = 0;
+    static bool ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
+        auto* c = static_cast<Coletor*>(ctx);
+        if (c->pediu_para_parar) { ++c->entregas_depois_de_parar; }
+        c->corpo.append(reinterpret_cast<const char*>(b), n);
+        c->pediu_para_parar = c->corpo.size() >= c->aceita_ate;
+        return !c->pediu_para_parar;
     }
 };
 
@@ -644,6 +651,46 @@ TEST(LeitorResposta, o_fechamento_so_completa_quem_nao_anunciou_o_fim) {
         leitor.fim_do_fluxo();
         EXPECT_EQ(leitor.completa(), caso.completa) << caso.nome;
     }
+}
+
+// --- quem recebe pode parar -----------------------------------------------
+//
+// O OTA grava o corpo no cartao enquanto ele chega. Quando o cartao recusa,
+// ou o arquivo passa do que a placa comporta, continuar baixando era 120 s
+// de aparelho bloqueado -- sem GPS, sem alerta -- para nada.
+
+TEST(LeitorResposta, quem_recebe_pode_parar_o_corpo) {
+    for (const char* bruto :
+         {"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789",
+          "HTTP/1.1 200 OK\r\n\r\n0123456789",
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+          "a\r\n0123456789\r\n0\r\n\r\n"}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        c.aceita_ate = 4;
+        EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 2, &c)) << bruto;
+        EXPECT_EQ(c.entregas_depois_de_parar, 0U)
+            << "entregou depois do pedido de parar: " << bruto;
+        EXPECT_LT(c.corpo.size(), 10U) << bruto;
+        EXPECT_TRUE(leitor.destino_parou()) << bruto;
+        EXPECT_FALSE(leitor.completa()) << bruto;
+    }
+}
+
+TEST(LeitorResposta, parado_continua_parado_e_nao_e_resposta_malformada) {
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    c.aceita_ate = 1;
+    ASSERT_FALSE(alimenta_em_blocos(
+        leitor, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nab", 64, &c));
+    EXPECT_FALSE(alimenta_em_blocos(leitor, "cd", 64, &c));
+    EXPECT_EQ(c.corpo, "ab");
+    EXPECT_EQ(c.entregas_depois_de_parar, 0U);
+    EXPECT_EQ(leitor.status(), 200u) << "a resposta era boa; quem parou foi o destino";
+
+    // E o proximo pedido comeca do zero.
+    leitor.reinicia();
+    EXPECT_FALSE(leitor.destino_parou());
 }
 
 TEST(LeitorResposta, depois_do_fechamento_nada_mais_e_corpo) {

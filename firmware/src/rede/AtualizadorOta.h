@@ -28,6 +28,16 @@ constexpr const char* kArquivoTmp    = "radares.tmp";
 constexpr const char* kArquivoBak    = "radares.bak";
 constexpr const char* kArquivoVersao = "versao.txt";
 
+/// O maior `radares.bin` que esta placa aceita: o cabeçalho mais a
+/// capacidade inteira, ~281 KB.
+///
+/// **É o teto do que o download grava no cartão**, conferido a cada pedaço.
+/// Antes dele, só o verificador recusava um arquivo grande demais — no fim,
+/// com tudo já gravado: um servidor errado, ou hostil, enchia o cartão até
+/// onde o cartão deixasse.
+constexpr std::size_t kTetoBase =
+    kTamCabecalho + std::size_t{kCapacidadeFirmware} * kTamRegistro;
+
 enum class ResultadoOta {
     Atualizada,        ///< baixou, verificou e aceitou
     JaEstavaEmDia,     ///< a versão do servidor é a que já se tem
