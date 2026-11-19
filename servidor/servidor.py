@@ -299,8 +299,10 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
     por_token: dict[str, str] = {}
     mapa: dict[str, str] = {}
     # `zona` se repete, entao aqui cada chave guarda uma LISTA. Quem valida e
-    # o `privacidade.monta`, que conhece as chaves e as faixas.
+    # o `privacidade.monta`, que conhece as chaves e as faixas. As linhas de
+    # cada valor ficam a parte, para o erro dizer ONDE sem dizer O QUE.
     reservado: dict[str, list[str]] = {}
+    linhas_reservadas: dict[str, list[int]] = {}
     secao = ""   # vazio = a lista de tokens
 
     for n_linha, bruta in enumerate(
@@ -327,6 +329,8 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
                 mapa[chave.lower()] = valor
             else:
                 reservado.setdefault(chave.lower(), []).append(valor)
+                linhas_reservadas.setdefault(chave.lower(), []).append(
+                    n_linha)
             continue
 
         token = linha
@@ -358,7 +362,10 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
         # pedido e o mesmo: **nao subir**. Um servidor que ignorasse a secao
         # com defeito publicaria o endereco de casa no mapa achando que o
         # estava escondendo -- o pior resultado possivel desta funcionalidade.
-        raise ErroDeAparelhos(f"{caminho}: {e}") from e
+        linhas = linhas_reservadas.get(e.chave, [])
+        onde = (f"{caminho}:{linhas[e.ocorrencia]}"
+                if e.ocorrencia < len(linhas) else str(caminho))
+        raise ErroDeAparelhos(f"{onde}: {e}") from e
 
     return ListaDeAparelhos(por_token, mapa, zonas_privadas)
 

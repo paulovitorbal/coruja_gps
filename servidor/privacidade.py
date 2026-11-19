@@ -28,6 +28,7 @@ contra análise dedicada com acesso à página.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 
 import viagem
@@ -57,7 +58,22 @@ CHAVES_UNICAS = frozenset({"raio_m", "folga_m"})
 
 
 class ErroDePrivacidade(Exception):
-    """A seção `[privacidade]` não pode ser usada como está."""
+    """A seção `[privacidade]` não pode ser usada como está.
+
+    ⚠️ **A mensagem diz o motivo e NUNCA o valor.** Ela vai para o stderr,
+    daí para o `docker logs` e para o Loki — e a linha com defeito costuma
+    ser a da casa, escrita quase certa. Quem precisa achar a linha recebe o
+    número dela: `chave` e `ocorrencia` dizem qual das linhas daquela chave
+    foi, e o `le_aparelhos` traduz isso para `arquivo:linha`.
+
+    Pelo mesmo motivo nenhum `raise` daqui encadeia a exceção original: a do
+    `float()` repete o texto que recebeu, e um traceback a imprimiria.
+    """
+
+    def __init__(self, motivo: str, chave: str = "", ocorrencia: int = 0):
+        super().__init__(motivo)
+        self.chave = chave
+        self.ocorrencia = ocorrencia
 
 
 @dataclass(frozen=True)
@@ -125,25 +141,27 @@ def monta(bruto: dict[str, list[str]]) -> Privacidade:
         if chave not in CHAVES:
             raise ErroDePrivacidade(
                 f"em [privacidade], chave '{chave}' desconhecida "
-                f"(conhecidas: {', '.join(sorted(CHAVES))})")
+                f"(conhecidas: {', '.join(sorted(CHAVES))})", chave)
     for chave in CHAVES_UNICAS:
         if len(bruto.get(chave, [])) > 1:
             raise ErroDePrivacidade(
                 f"em [privacidade], '{chave}' aparece mais de uma vez; "
-                "qual delas valeria?")
+                "qual delas valeria?", chave, 1)
 
     raio_m = _numero(bruto, "raio_m", RAIO_PADRAO_M)
     folga_m = _numero(bruto, "folga_m", FOLGA_PADRAO_M)
     if raio_m <= 0:
         raise ErroDePrivacidade(
             "em [privacidade], 'raio_m' tem de ser maior que zero: raio zero "
-            "nao esconde nada, e quem escreveu a secao queria esconder")
+            "nao esconde nada, e quem escreveu a secao queria esconder",
+            "raio_m")
     if folga_m < 0:
         raise ErroDePrivacidade(
             "em [privacidade], 'folga_m' nao pode ser negativa: ela so pode "
-            "AUMENTAR o raio pedido")
+            "AUMENTAR o raio pedido", "folga_m")
 
-    zonas = tuple(_zona(texto) for texto in bruto.get("zona", []))
+    zonas = tuple(_zona(texto, i)
+                  for i, texto in enumerate(bruto.get("zona", [])))
     if not zonas and bruto:
         # Ajustar o raio e esquecer a zona deixa a proteção desligada com
         # cara de ligada. É o pior estado possível, e o único que dá para
@@ -155,41 +173,52 @@ def monta(bruto: dict[str, list[str]]) -> Privacidade:
 
 
 def _numero(bruto: dict[str, list[str]], chave: str, padrao: float) -> float:
+    """O valor de `chave`, que tem de ser número FINITO.
+
+    Finito porque `nan` passa pelo `<= 0` e o `metros_entre(...) <= nan` é
+    falso para todo ponto: a zona ficava ligada no papel e desligada no
+    mapa, com a casa no meio e aviso nenhum.
+    """
     valores = bruto.get(chave, [])
     if not valores:
         return padrao
     try:
-        return float(valores[-1])
-    except ValueError as e:
+        valor = float(valores[-1])
+    except ValueError:
+        valor = math.nan
+    if not math.isfinite(valor):
         raise ErroDePrivacidade(
-            f"em [privacidade], '{chave}={valores[-1]}' nao e numero") from e
+            f"em [privacidade], '{chave}' tem de ser um numero finito, em "
+            "metros", chave, len(valores) - 1) from None
+    return valor
 
 
-def _zona(texto: str) -> ZonaPrivada:
+def _zona(texto: str, ocorrencia: int = 0) -> ZonaPrivada:
     """`lat,lon` em graus decimais.
 
     Graus decimais, e não um endereço escrito: traduzir endereço em
     coordenada exigiria mandar o endereço residencial para um serviço de
     geocodificação de terceiro — publicando, para resolver, justamente o dado
     que se quer esconder. O número sai do próprio mapa, com um clique.
+
+    As mensagens não repetem o texto — ver `ErroDePrivacidade`.
     """
+    def erro(motivo: str) -> ErroDePrivacidade:
+        return ErroDePrivacidade(f"em [privacidade], 'zona': {motivo}",
+                                 "zona", ocorrencia)
+
     partes = [p.strip() for p in texto.split(",")]
     if len(partes) != 2:
-        raise ErroDePrivacidade(
-            f"em [privacidade], 'zona={texto}': esperava 'lat,lon' em graus "
-            "decimais, dois numeros separados por virgula")
+        raise erro("esperava 'lat,lon' em graus decimais, dois numeros "
+                   "separados por virgula")
     try:
         lat, lon = float(partes[0]), float(partes[1])
-    except ValueError as e:
-        raise ErroDePrivacidade(
-            f"em [privacidade], 'zona={texto}': lat e lon tem de ser "
-            "numeros") from e
+    except ValueError:
+        raise erro("lat e lon tem de ser numeros") from None
     if not -90.0 <= lat <= 90.0:
-        raise ErroDePrivacidade(
-            f"em [privacidade], latitude {lat} fora de [-90, 90]")
+        raise erro("latitude fora de [-90, 90]")
     if not -180.0 <= lon <= 180.0:
-        raise ErroDePrivacidade(
-            f"em [privacidade], longitude {lon} fora de [-180, 180]")
+        raise erro("longitude fora de [-180, 180]")
     return ZonaPrivada(lat=lat, lon=lon)
 
 

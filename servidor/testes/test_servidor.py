@@ -1109,6 +1109,63 @@ class LeAparelhos(unittest.TestCase):
             self.le("abc\ndef\ncarro=ghi\n")
         self.assertIn(":3", str(e.exception))
 
+    # -- o erro da [privacidade] nao pode publicar a casa --
+    #
+    # A mensagem vai para o stderr, dali para o `docker logs` e para o Loki.
+    # Ecoar a linha com defeito publicava, no log, a coordenada que a secao
+    # existe para esconder -- e a linha com defeito costuma ser a da casa,
+    # escrita quase certa. Coordenadas sinteticas, como em todo teste.
+
+    LAT, LON = "-10.12345", "-40.98765"
+
+    def linhas_que_vazariam(self):
+        return [
+            f"zona=-91.12345,{self.LON}",            # latitude fora
+            f"zona={self.LAT},-181.98765",           # longitude fora
+            f"zona={self.LAT},abc",                   # nao e numero
+            f"zona={self.LAT};{self.LON}",            # sem virgula
+            f"zona={self.LAT},{self.LON},300",        # tres partes
+            f"zona={self.LAT},{self.LON}\nraio_m={self.LAT},{self.LON}",
+        ]
+
+    def test_erro_de_privacidade_diz_a_linha_e_nao_o_valor(self):
+        import traceback
+        for linha in self.linhas_que_vazariam():
+            with self.subTest(linha=linha):
+                texto = f"abc\n\n[privacidade]\n{linha}\n"
+                with self.assertRaises(s.ErroDeAparelhos) as e:
+                    self.le_tudo(texto)
+                # O traceback inteiro, e nao so a mensagem: uma excecao
+                # encadeada com `from` leva a original junto, e a do
+                # `float()` repete o texto que recebeu.
+                tudo = "".join(traceback.format_exception(e.exception))
+                for valor in ("12345", "98765"):
+                    self.assertNotIn(valor, tudo)
+                n = texto.count("\n", 0, texto.rindex(linha.split("\n")[-1]))
+                self.assertIn(f":{n + 1}:", str(e.exception))
+
+    def test_main_nao_escreve_a_coordenada_no_stderr(self):
+        # O caminho que de fato chega ao Loki: o `main` recusa subir e diz
+        # por que no stderr.
+        import contextlib
+        import io
+        import logging
+        raiz = logging.getLogger()
+        antes = (list(raiz.handlers), raiz.level)
+        self.addCleanup(lambda: (setattr(raiz, "handlers", antes[0]),
+                                 raiz.setLevel(antes[1])))
+        self.caminho.write_text(
+            f"abc\n[privacidade]\nzona=-91.12345,{self.LON}\n",
+            encoding="utf-8")
+        saida = io.StringIO()
+        with contextlib.redirect_stderr(saida):
+            codigo = s.main(["--aparelhos", str(self.caminho),
+                             "--dados", self.tmp.name, "--quiet"])
+        self.assertEqual(codigo, 1)
+        self.assertIn("latitude", saida.getvalue())
+        self.assertNotIn("12345", saida.getvalue())
+        self.assertNotIn("98765", saida.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

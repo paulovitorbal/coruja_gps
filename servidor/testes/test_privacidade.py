@@ -343,6 +343,16 @@ class Configuracao(unittest.TestCase):
         with self.assertRaises(p.ErroDePrivacidade):
             p.monta({"zona": ["-10,-40"], "raio_m": ["0"]})
 
+    def test_raio_ou_folga_que_nao_e_numero_finito_e_recusado(self):
+        # `float("nan")` passa pelo `<= 0`, e o `metros_entre(...) <= nan` e
+        # falso para todo ponto: a zona ficava ligada no papel e desligada no
+        # mapa -- a casa no meio, sem aviso nenhum.
+        for chave in ("raio_m", "folga_m"):
+            for valor in ("nan", "inf", "-nan"):
+                with self.subTest(chave=chave, valor=valor):
+                    with self.assertRaises(p.ErroDePrivacidade):
+                        p.monta({"zona": ["-10,-40"], chave: [valor]})
+
     def test_folga_negativa_e_recusada(self):
         with self.assertRaises(p.ErroDePrivacidade):
             p.monta({"zona": ["-10,-40"], "folga_m": ["-1"]})
