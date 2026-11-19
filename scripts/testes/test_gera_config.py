@@ -13,10 +13,16 @@ lado, em `firmware/test/nucleo/LeitorConfigTest.cpp`, que lê o
 diferentes, e é esse par de testes que impede que divirjam.
 """
 
+import io
+import os
 import re
+import stat
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RAIZ / "scripts"))
@@ -24,6 +30,126 @@ sys.path.insert(0, str(RAIZ / "scripts"))
 import gera_config as g  # noqa: E402
 
 
+class OQueOFirmwareLe(unittest.TestCase):
+    """O valor tem de chegar ao aparelho como foi digitado.
+
+    O firmware mede em BYTES (`copia` no LeitorConfig.cpp) e apara espaco,
+    tabulacao e quebra de linha nas duas pontas do valor (`apara` no
+    LinhaConfig.cpp). Um valor que passa aqui e muda la e uma rede que
+    nunca conecta, com o arquivo parecendo certo.
+    """
+
+    def test_ssid_com_acento_e_medido_em_bytes(self):
+        # 32 caracteres, 33 bytes: o firmware recusa.
+        erro = g.valida_rede("ç" + "a" * (g.MAX_SSID - 1), "12345678")
+        self.assertTrue(erro)
+        self.assertIn("bytes", erro)
+
+    def test_senha_com_acento_e_medida_em_bytes(self):
+        erro = g.valida_rede("casa", "é" * 32)       # 32 caracteres, 64 bytes
+        self.assertTrue(erro)
+        self.assertIn("senha", erro)
+
+    def test_url_e_medida_em_bytes(self):
+        url = "https://" + "ã" * ((g.MAX_URL - 8) // 2 + 1)
+        self.assertLessEqual(len(url), g.MAX_URL)
+        self.assertIsNotNone(g.valida_url(url))
+
+    def test_nome_e_medido_em_bytes(self):
+        nome = "ã" * (g.MAX_NOME // 2 + 1)
+        self.assertLessEqual(len(nome), g.MAX_NOME)
+        self.assertIsNotNone(g.valida_ajustes(g.Ajustes(nome=nome)))
+
+    def test_senha_com_espaco_nas_pontas_e_recusada(self):
+        # getpass nao apara; o firmware apara. "minha senha " viraria
+        # "minha senha" no aparelho, e a rede recusaria.
+        for senha in (" 12345678", "12345678 ", "12345678\t"):
+            erro = g.valida_rede("casa", senha)
+            self.assertTrue(erro, repr(senha))
+            self.assertIn("pontas", erro)
+
+    def test_espaco_no_meio_da_senha_vale(self):
+        self.assertIsNone(g.valida_rede("casa", "minha senha boa"))
+
+    def test_nome_com_quebra_de_linha_e_recusado(self):
+        # "--nome $'fusca\\nled=false'" escreveria uma chave a mais no
+        # arquivo, e o aparelho a obedeceria.
+        erro = g.valida_ajustes(g.Ajustes(nome="fusca\nled=false"))
+        self.assertTrue(erro)
+        self.assertIn("nome", erro)
+
+    def test_main_recusa_nome_com_quebra_de_linha_antes_de_perguntar(self):
+        def nao_pergunte(_rotulo=""):
+            raise AssertionError("perguntou a rede antes de recusar o nome")
+        with redirect_stderr(io.StringIO()) as erro, \
+                mock.patch("builtins.input", nao_pergunte):
+            self.assertEqual(1, g.main(["--nome", "a\nb"]))
+        self.assertIn("nome", erro.getvalue())
+
+
+class Grava(unittest.TestCase):
+    def test_grava_o_conteudo_com_permissao_600(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                redirect_stdout(io.StringIO()):
+            alvo = Path(tmp) / "cartao" / g.CFG
+            g.grava(alvo, "wifi_senha_1=S3nh4Secreta\n", modo=0o600)
+            self.assertEqual(alvo.read_text(encoding="utf-8"),
+                             "wifi_senha_1=S3nh4Secreta\n")
+            self.assertEqual(stat.S_IMODE(alvo.stat().st_mode), 0o600)
+
+    def test_regravar_um_arquivo_aberto_a_todos_fecha_a_permissao(self):
+        # `os.open` com modo so vale na CRIACAO. Um coruja.cfg que ja
+        # existia com 644 continuaria legivel por todos com a senha nova.
+        with tempfile.TemporaryDirectory() as tmp, \
+                redirect_stdout(io.StringIO()):
+            alvo = Path(tmp) / g.CFG
+            alvo.write_text("velho, e bem mais comprido que o novo\n")
+            os.chmod(alvo, 0o644)
+            g.grava(alvo, "novo\n", modo=0o600)
+            self.assertEqual(alvo.read_text(encoding="utf-8"), "novo\n")
+            self.assertEqual(stat.S_IMODE(alvo.stat().st_mode), 0o600)
+
+    def test_o_segredo_nunca_existe_com_permissao_aberta(self):
+        # Escrever e DEPOIS dar chmod deixava uma janela em que a senha
+        # estava no disco legivel por todos. Confere-se a permissao no
+        # instante em que o conteudo e escrito.
+        vistos = []
+        escreve_de_verdade = os.write
+
+        def espia(fd, dados):
+            vistos.append(stat.S_IMODE(os.fstat(fd).st_mode))
+            return escreve_de_verdade(fd, dados)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                redirect_stdout(io.StringIO()), \
+                mock.patch.object(g.os, "write", espia):
+            g.grava(Path(tmp) / g.CFG, "wifi_senha_1=S3nh4Secreta\n",
+                    modo=0o600)
+        self.assertTrue(vistos, "a gravacao nao passou por os.write")
+        self.assertEqual(set(vistos), {0o600})
+
+    def test_main_grava_o_cartao_enxuto_e_o_exemplo(self):
+        # O caminho feliz inteiro, como quem roda: uma rede, duas URLs.
+        respostas = iter(["casa", "", "https://x/v", "https://x/b"])
+        with tempfile.TemporaryDirectory() as raiz, \
+                tempfile.TemporaryDirectory() as cartao, \
+                mock.patch.object(g, "RAIZ", Path(raiz)), \
+                mock.patch("builtins.input", lambda _r="": next(respostas)), \
+                mock.patch.object(g.getpass, "getpass",
+                                  lambda _r="": "S3nh4Secreta"), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(0, g.main(["--destino", cartao]))
+            cfg = Path(cartao) / g.CFG
+            texto = cfg.read_text(encoding="utf-8")
+            modo = stat.S_IMODE(cfg.stat().st_mode)
+            exemplo = (Path(raiz) / g.EXEMPLO).read_text(encoding="utf-8")
+        self.assertEqual(modo, 0o600)
+        self.assertIn("wifi_ssid_1=casa\n", texto)
+        self.assertIn("wifi_senha_1=S3nh4Secreta\n", texto)
+        self.assertIn("url_versao=https://x/v\n", texto)
+        self.assertNotIn("#", texto)
+        self.assertNotIn("S3nh4Secreta", exemplo)
+        self.assertEqual(exemplo, g.corpo_cfg([], "", "", com_segredo=False))
 
 
 class GeraConfig(unittest.TestCase):
@@ -174,15 +300,27 @@ class GeraConfig(unittest.TestCase):
         self.assertEqual(1, g.main(["--so-exemplo", "--nome", "fusca"]))
 
     def test_so_exemplo_sem_ajustes_funciona(self):
-        # Restaura o arquivo: se este teste o deixasse regerado, ele
-        # esconderia uma defasagem que test_o_exemplo_versionado_esta_em_dia
-        # deveria pegar -- hoje so a ordem alfabetica evita isso.
-        alvo = RAIZ / "coruja.cfg.exemplo"
-        antes = alvo.read_text(encoding="utf-8")
-        try:
+        # Num diretorio temporario, e nao no repositorio: regravar o
+        # exemplo versionado esconderia uma defasagem que
+        # test_o_exemplo_versionado_esta_em_dia deveria pegar -- antes, so
+        # a ordem alfabetica dos testes evitava isso.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(g, "RAIZ", Path(tmp)), \
+                redirect_stdout(io.StringIO()):
             self.assertEqual(0, g.main(["--so-exemplo"]))
-        finally:
-            alvo.write_text(antes, encoding="utf-8")
+            escrito = (Path(tmp) / g.EXEMPLO).read_text(encoding="utf-8")
+        self.assertEqual(escrito, g.corpo_cfg([], "", "", com_segredo=False))
+
+    def test_so_exemplo_respeita_o_destino(self):
+        # Antes o --destino era ignorado em silencio e o exemplo ia para o
+        # repositorio, por cima do versionado.
+        with tempfile.TemporaryDirectory() as raiz, \
+                tempfile.TemporaryDirectory() as cartao, \
+                mock.patch.object(g, "RAIZ", Path(raiz)), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(0, g.main(["--so-exemplo", "--destino", cartao]))
+            self.assertTrue((Path(cartao) / g.EXEMPLO).exists())
+            self.assertFalse((Path(raiz) / g.EXEMPLO).exists())
 
     def test_o_volume_do_buzzer_nao_volta(self):
         """Saiu do firmware em 19/10/2026; o gerador escreveu por mais 23 dias.
