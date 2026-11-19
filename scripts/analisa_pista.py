@@ -38,8 +38,11 @@ import formato_radares as F  # noqa: E402
 RAIO_M = 300.0
 
 #: Metros por grau de latitude. A longitude encolhe por cos(lat).
+#:
+#: O mesmo numero do `kMetrosPorGrauLat` do firmware (nucleo/Geo.h): medir a
+#: separacao das pistas com outra regua daria um limiar que o aparelho nao
+#: reproduz.
 M_POR_GRAU = 111_320.0
-
 
 #: A primeira linha de todo log de viagem. Ver formato_logs.md, §1.
 ASSINATURA = "# coruja_gps viagem "
