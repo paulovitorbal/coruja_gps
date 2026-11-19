@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "apoio/LoggerMock.h"
+#include "apoio/fatfs/FatFsFalso.h"
+#include "armazenamento/CartaoSd.h"
 #include "nucleo/LeitorConfig.h"
 
 namespace {
@@ -202,6 +204,100 @@ TEST(GravadorConfig, GravarDuasVezesDaOMesmoArquivo) {
     c.grava(ajustada());
     EXPECT_EQ(c.cartao.tmp_escrito, primeira)
         << "gravar o mesmo ajuste duas vezes mudou o arquivo";
+}
+
+// ===========================================================================
+// A queda entre os dois renomeios, no cartao de verdade (CartaoSd + duble)
+// ===========================================================================
+//
+// O `promove()` faz cfg -> bak e depois tmp -> cfg. Entre os dois o cartao
+// fica SEM `coruja.cfg`, e quem lia so o cfg perdia as redes e as URLs para
+// sempre: sem elas o aparelho nao consegue nem se atualizar para se
+// consertar. A base de radares ja caia para a reserva; a configuracao nao.
+
+/// O original mais a URL de versao: com ela a configuracao serve ao OTA, e
+/// `carrega_configuracao` diz verdadeiro quando a acha.
+const std::string kCfgCompleto =
+    std::string(kCfgOriginal) + "url_versao=https://ex/versao.txt\n";
+
+struct CartaoQueCai : public ::testing::Test {
+    teste::FatFsFalso& fs = teste::FatFsFalso::instancia();
+    LoggerMock         log;
+    char               trabalho[kMaxTextoCfg] = {};
+    char               texto[kMaxTextoCfg] = {};
+
+    void SetUp() override {
+        fs.reinicia();
+        fs.volumes[0].monta = true;
+        fs.volumes[0].arquivos[kArquivoCfg] = kCfgCompleto;
+    }
+
+    /// Grava `brilho_dia` e deixa a energia cair entre os dois renomeios.
+    void grava_e_cai_no_meio_da_troca(std::uint8_t brilho) {
+        CartaoSd sd;
+        Configuracao c = le_config(kCfgCompleto.data(), kCfgCompleto.size()).config;
+        c.brilho_dia = brilho;
+        fs.queda_apos = "rename:coruja.cfg->coruja.bak";
+        EXPECT_NE(grava_ajustes(sd, c, trabalho, sizeof trabalho, log),
+                  ResultadoGravacao::Gravado);
+        fs.religa();
+        ASSERT_FALSE(fs.existe(0, kArquivoCfg))
+            << "o teste nao reproduziu a janela entre os renomeios";
+    }
+};
+
+TEST_F(CartaoQueCai, sem_o_cfg_o_boot_seguinte_le_a_reserva) {
+    grava_e_cai_no_meio_da_troca(40);
+
+    CartaoSd     depois;
+    Configuracao lida;
+    EXPECT_TRUE(carrega_configuracao(depois, texto, sizeof texto, &lida, log))
+        << "o aparelho ficou sem configuracao utilizavel";
+    ASSERT_EQ(lida.n_redes, 1U);
+    EXPECT_STREQ(lida.redes[0].ssid, "casa");
+    EXPECT_EQ(lida.brilho_dia, 100) << "a reserva e o arquivo de ANTES";
+    EXPECT_TRUE(log.contem(Nivel::Warning, "coruja.bak"))
+        << "operar pela reserva tem de ficar no log";
+}
+
+TEST_F(CartaoQueCai, a_gravacao_seguinte_parte_da_reserva_e_devolve_o_cfg) {
+    grava_e_cai_no_meio_da_troca(40);
+
+    CartaoSd     depois;
+    Configuracao c = le_config(kCfgCompleto.data(), kCfgCompleto.size()).config;
+    c.brilho_dia = 55;
+    ASSERT_EQ(grava_ajustes(depois, c, trabalho, sizeof trabalho, log),
+              ResultadoGravacao::Gravado);
+
+    ASSERT_TRUE(fs.existe(0, kArquivoCfg));
+    const std::string cfg = fs.conteudo(0, kArquivoCfg);
+    EXPECT_NE(cfg.find("brilho_dia=55"), std::string::npos);
+    EXPECT_NE(cfg.find("# comentario que precisa sobreviver"),
+              std::string::npos)
+        << "a reserva tinha o arquivo inteiro, e ele tinha de voltar inteiro";
+
+    Configuracao lida;
+    EXPECT_TRUE(carrega_configuracao(depois, texto, sizeof texto, &lida, log));
+    EXPECT_EQ(lida.brilho_dia, 55);
+}
+
+TEST_F(CartaoQueCai, com_o_cfg_no_lugar_a_reserva_nem_e_lida) {
+    // A reserva e o arquivo de ANTES. Preferi-la ao cfg presente desfaria o
+    // ultimo ajuste a cada boot.
+    fs.volumes[0].arquivos[kArquivoCfgBak] = "brilho_dia=10\n";
+    CartaoSd     sd;
+    Configuracao lida;
+    carrega_configuracao(sd, texto, sizeof texto, &lida, log);
+    EXPECT_EQ(lida.brilho_dia, 100);
+    EXPECT_FALSE(log.contem(Nivel::Warning, "coruja.bak"));
+}
+
+TEST_F(CartaoQueCai, sem_cfg_e_sem_reserva_continua_sem_configuracao) {
+    fs.volumes[0].arquivos.clear();
+    CartaoSd     sd;
+    Configuracao lida;
+    EXPECT_FALSE(carrega_configuracao(sd, texto, sizeof texto, &lida, log));
+    EXPECT_TRUE(log.contem(Nivel::Error, "coruja.cfg"));
 }
 
 }  // namespace

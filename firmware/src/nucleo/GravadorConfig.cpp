@@ -1,12 +1,52 @@
 #include "nucleo/GravadorConfig.h"
 
+#include <cstdio>
+
 #include "log/Logger.h"
 #include "nucleo/EscritorConfig.h"
+#include "nucleo/LeitorConfig.h"
 
 namespace coruja {
 
 namespace {
 constexpr const char* kOrigem = "config";
+}
+
+ErroCartao le_texto_config(Armazenamento& cartao, char* destino,
+                           std::size_t capacidade, std::size_t* lidos,
+                           Logger& log) {
+    const ErroCartao erro =
+        cartao.le_arquivo(kArquivoCfg, destino, capacidade, lidos, log);
+    if (erro != ErroCartao::ArquivoAusente) {
+        return erro;
+    }
+    const ErroCartao da_reserva =
+        cartao.le_arquivo(kArquivoCfgBak, destino, capacidade, lidos, log);
+    if (da_reserva == ErroCartao::Nenhum) {
+        // WARN, e nao INFO: e o rastro de uma queda no meio da troca, e o
+        // cartao segue sem `coruja.cfg` ate a proxima gravacao de ajuste.
+        log.warning(kOrigem, "sem coruja.cfg: operando pela reserva coruja.bak");
+        return da_reserva;
+    }
+    // Sem as duas, quem chama ouve falar do cfg, que e o arquivo que se
+    // espera achar. "A reserva tambem nao estava" nao muda o que fazer.
+    return erro;
+}
+
+bool carrega_configuracao(Armazenamento& cartao, char* buffer,
+                          std::size_t capacidade, Configuracao* destino,
+                          Logger& log) {
+    std::size_t lidos = 0;
+    const ErroCartao erro =
+        le_texto_config(cartao, buffer, capacidade, &lidos, log);
+    if (erro != ErroCartao::Nenhum) {
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "%s: %s", kArquivoCfg, descreve(erro));
+        log.error(kOrigem, msg);
+        return false;
+    }
+    *destino = le_config(buffer, lidos, &log).config;
+    return destino->ota_possivel();
 }
 
 const char* descreve(ResultadoGravacao r) {
@@ -34,9 +74,11 @@ ResultadoGravacao grava_ajustes(Armazenamento& cartao, const Configuracao& cfg,
     char* origem = trabalho;
     char* saida = trabalho + metade;
 
+    // Da reserva tambem: depois de uma queda entre os dois renomeios ela e
+    // o unico arquivo inteiro, e e gravando que o `coruja.cfg` volta.
     std::size_t lidos = 0;
     const ErroCartao erro =
-        cartao.le_arquivo(kArquivoCfg, origem, metade, &lidos, log);
+        le_texto_config(cartao, origem, metade, &lidos, log);
     if (erro == ErroCartao::ArquivoAusente) {
         log.error(kOrigem, "sem coruja.cfg no cartao; ajuste nao gravado");
         return ResultadoGravacao::ArquivoAusente;

@@ -330,6 +330,14 @@ Brilho, fuso, tolerâncias e calibração do LED ficam **no código**. O critér
 `docs/adr/0002`: se mudar o valor muda o comportamento de segurança, é especificação e
 não configuração.
 
+**O `coruja.bak` é a reserva do `coruja.cfg`.** Gravar um ajuste pelo menu
+escreve o `coruja.tmp` inteiro e o promove: cfg → bak, tmp → cfg. Uma queda
+de energia entre os dois renomeios deixa o cartão sem `coruja.cfg`; o
+aparelho então lê o `coruja.bak` (e diz no log que está operando pela
+reserva), e o próximo ajuste gravado devolve o `coruja.cfg` ao cartão. A
+reserva só é lida quando o cfg **não está lá**: um cfg presente, mesmo
+grande demais ou ilegível, é o que vale.
+
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.

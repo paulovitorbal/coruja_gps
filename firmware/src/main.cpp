@@ -54,7 +54,7 @@
 #include "nucleo/BaseRadares.h"
 #include "nucleo/CarimboDeLog.h"
 #include "nucleo/CarregadorFluxo.h"
-#include "nucleo/LeitorConfig.h"
+#include "nucleo/GravadorConfig.h"
 #include "nucleo/LinhaVigia.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
@@ -169,20 +169,13 @@ BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
     return {};
 }
 
+/// A leitura do `coruja.cfg` de todo alvo, com o recuo para o `coruja.bak`
+/// (ver `coruja::carrega_configuracao`), presa ao buffer daqui.
 bool carrega_configuracao(coruja::CartaoSd& cartao,
                           coruja::Configuracao* destino,
                           coruja::Logger& log) {
-    std::size_t lidos = 0;
-    const auto erro = cartao.le_arquivo("coruja.cfg", g_texto_config,
-                                        kTamBufferConfig, &lidos, log);
-    if (erro != coruja::ErroCartao::Nenhum) {
-        char msg[96];
-        std::snprintf(msg, sizeof msg, "coruja.cfg: %s", descreve(erro));
-        log.error("config", msg);
-        return false;
-    }
-    *destino = coruja::le_config(g_texto_config, lidos, &log).config;
-    return destino->ota_possivel();
+    return coruja::carrega_configuracao(cartao, g_texto_config,
+                                        kTamBufferConfig, destino, log);
 }
 
 /// O que a `Aplicacao` manda fazer e não sabe como (regra 2).
