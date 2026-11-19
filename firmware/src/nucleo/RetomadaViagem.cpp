@@ -12,9 +12,27 @@ namespace {
 // dentro, privado; a sincronizacao de hora precisou do mesmo algoritmo e
 // copia-lo seria garantir que as duas versoes divergissem.
 
+/// Teto da distância retomada. Nenhuma viagem emendada de duas em duas horas
+/// chega perto, e acima de 2^17 km o `float` do estado já não guarda o
+/// centésimo que o arquivo escreve.
+constexpr double kDistMaximaKm = 100000.0;
+
+/// Recebe os campos ANTES de estreitá-los: validar depois do `static_cast`
+/// deixaria 65536 + 2026 passar por 2026.
+bool data_plausivel(unsigned ano, unsigned mes, unsigned dia, unsigned hora,
+                    unsigned minuto) {
+    return ano >= 2020 && ano <= 2099 && mes >= 1 && mes <= 12 && dia >= 1 &&
+           dia <= 31 && hora <= 23 && minuto <= 59;
+}
+
 bool data_plausivel(const EstadoViagemSalvo& e) {
-    return e.ano >= 2020 && e.ano <= 2099 && e.mes >= 1 && e.mes <= 12 &&
-           e.dia >= 1 && e.dia <= 31 && e.hora <= 23 && e.minuto <= 59;
+    return data_plausivel(e.ano, e.mes, e.dia, e.hora, e.minuto);
+}
+
+/// Escrito como faixa fechada, e não como "negativo ou grande demais", para
+/// que `nan` -- que falha toda comparação -- caia fora junto.
+bool distancia_plausivel(double km) {
+    return km >= 0.0 && km <= kDistMaximaKm;
 }
 
 }  // namespace
@@ -77,7 +95,12 @@ bool analisa_estado(const char* texto, std::size_t tamanho,
     const int campos = std::sscanf(
         buf, "ativa=%u utc=%u-%u-%uT%u:%uZ dist_km=%lf",
         &ativa, &ano, &mes, &dia, &hora, &minuto, &dist);
-    if (campos != 7) { return false; }
+    // Tudo validado no tamanho em que foi lido; só depois se estreita.
+    if (campos != 7 || ativa > 1 ||
+        !data_plausivel(ano, mes, dia, hora, minuto) ||
+        !distancia_plausivel(dist)) {
+        return false;
+    }
 
     EstadoViagemSalvo lido;
     lido.ativa = ativa != 0;
@@ -87,8 +110,6 @@ bool analisa_estado(const char* texto, std::size_t tamanho,
     lido.hora = static_cast<std::uint8_t>(hora);
     lido.minuto = static_cast<std::uint8_t>(minuto);
     lido.dist_km = static_cast<float>(dist);
-    if (!data_plausivel(lido)) { return false; }
-
     *destino = lido;
     return true;
 }
