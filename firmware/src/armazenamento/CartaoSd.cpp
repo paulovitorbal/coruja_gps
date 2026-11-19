@@ -43,6 +43,19 @@ namespace {
 
 constexpr int kQuantosVolumes = 5;
 
+/// Monta "<raiz>/<nome>" em `destino`. **Falso quando não cabe.**
+///
+/// ⚠️ O `snprintf` trunca em silêncio, e caminho truncado endereça OUTRO
+/// arquivo: ler um e gravar por cima de outro é o tipo de defeito que não se
+/// parece com a causa. O limite é do buffer, não do FAT -- o maior nome que o
+/// firmware gera tem 19 caracteres.
+bool monta_caminho(char* destino, std::size_t capacidade, const char* raiz,
+                   const char* nome) {
+    const int n = std::snprintf(destino, capacidade, "%s/%s", raiz,
+                                nome != nullptr ? nome : "");
+    return n > 0 && static_cast<std::size_t>(n) < capacidade;
+}
+
 /// Um objeto só, reaproveitado entre as tentativas. Cada `FATFS` carrega um
 /// setor de 512 B, e cinco deles custariam 2,5 KiB para nada: as tentativas
 /// são sequenciais e só uma fica montada por vez.
@@ -82,20 +95,90 @@ void CartaoSd::inicia(Logger& log) {
     log.debug("sd", "driver do cartao iniciado");
 }
 
+ErroCartao CartaoSd::le_do_volume(const char* raiz, const char* nome,
+                                  char* destino, std::size_t capacidade,
+                                  std::size_t* lidos, Logger& log) {
+    char caminho[64], msg[128];
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        return ErroCartao::FalhaDeLeitura;
+    }
+
+    if (f_open(&g_arquivo, caminho, FA_READ) != FR_OK) {
+        std::snprintf(msg, sizeof msg, "'%s' montou, sem '%s'", raiz, nome);
+        log.debug("sd", msg);
+        return ErroCartao::ArquivoAusente;
+    }
+
+    const FSIZE_t tamanho = f_size(&g_arquivo);
+    std::snprintf(msg, sizeof msg, "'%s' achado em '%s', %lu bytes", nome,
+                  raiz, static_cast<unsigned long>(tamanho));
+    // DEBUG: abrir um arquivo que existe nao e noticia. Eram 203 linhas
+    // no historico de 108 partidas, uma por `open`.
+    log.debug("sd", msg);
+
+    if (tamanho >= capacidade) {
+        f_close(&g_arquivo);
+        return ErroCartao::ArquivoGrande;
+    }
+
+    UINT          obtidos = 0;
+    const FRESULT leitura = f_read(&g_arquivo, destino,
+                                   static_cast<UINT>(tamanho), &obtidos);
+    f_close(&g_arquivo);
+
+    if (leitura != FR_OK || obtidos != tamanho) {
+        std::snprintf(msg, sizeof msg, "f_read: %s (%u de %lu bytes)",
+                      FRESULT_str(leitura), static_cast<unsigned>(obtidos),
+                      static_cast<unsigned long>(tamanho));
+        log.error("sd", msg);
+        return ErroCartao::FalhaDeLeitura;
+    }
+
+    destino[obtidos] = '\0';
+    if (lidos != nullptr) {
+        *lidos = obtidos;
+    }
+    return ErroCartao::Nenhum;
+}
+
 ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
                                 std::size_t capacidade, std::size_t* lidos,
                                 Logger& log) {
     if (lidos != nullptr) {
         *lidos = 0;
     }
+    if (escrevendo_) {
+        // A escrita em fluxo -- o download da base -- usa o MESMO descritor.
+        // Abrir outro arquivo nele corromperia os dois.
+        log.error("sd", "leitura pedida durante uma escrita em fluxo");
+        return ErroCartao::FalhaDeLeitura;
+    }
     if (!iniciado_) {
         inicia(log);
     }
+
+    if (montagens_ > 0) {
+        // ⚠️ **Já há operação segurando um volume.** Sondar daqui chamaria
+        // `f_mount` por cima dela: o FatFs reinicia a área de trabalho e todo
+        // `FIL` aberto no volume morre -- e a remessa mantém um aberto
+        // durante o envio inteiro. Usa o volume de quem está por fora.
+        char raiz[4];
+        if (monta_volume(raiz, sizeof raiz, log) != ErroCartao::Nenhum) {
+            return ErroCartao::SemCartaoLegivel;
+        }
+        const auto r = le_do_volume(raiz, nome, destino, capacidade, lidos,
+                                    log);
+        desmonta_volume(raiz);
+        return r;
+    }
+
     if (em_espera()) {
         // A sondagem anterior nao achou cartao nenhum, e nao faz cinco
         // segundos. Sondar de novo so ocuparia o barramento.
         return ErroCartao::SemCartaoLegivel;
     }
+
     char msg[128];
     int  montadas = 0;
 
@@ -135,55 +218,19 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         }
         ++montadas;
 
-        char caminho[64];
-        std::snprintf(caminho, sizeof caminho, "%d:/%s", volume, nome);
-
-        const FRESULT abertura = f_open(&g_arquivo, caminho, FA_READ);
-        if (abertura != FR_OK) {
-            std::snprintf(msg, sizeof msg,
-                          "volume %d montou (%s), sem '%s'", volume,
-                          volume == 0 ? "automatico" : "particao forcada", nome);
-            log.debug("sd", msg);
-            desmonta_volume(raiz);
+        const auto r = le_do_volume(raiz, nome, destino, capacidade, lidos,
+                                    log);
+        desmonta_volume(raiz);
+        if (r == ErroCartao::ArquivoAusente) {
             continue;
         }
-
-        const FSIZE_t tamanho = f_size(&g_arquivo);
-        std::snprintf(msg, sizeof msg, "'%s' achado no volume %d, %lu bytes",
-                      nome, volume, static_cast<unsigned long>(tamanho));
-        // DEBUG: abrir um arquivo que existe nao e noticia. Eram 203 linhas
-        // no historico de 108 partidas, uma por `open`.
-        log.debug("sd", msg);
-
-        if (tamanho >= capacidade) {
-            f_close(&g_arquivo);
-            desmonta_volume(raiz);
-            return ErroCartao::ArquivoGrande;
+        if (r == ErroCartao::Nenhum) {
+            // A base tem de acompanhar a configuração que a definiu: guarda o
+            // volume para que a escrita vá ao mesmo lugar, sem sondar de novo.
+            volume_ativo_ = volume;
+            falhou_ = false;
         }
-
-        UINT          obtidos = 0;
-        const FRESULT leitura = f_read(&g_arquivo, destino,
-                                       static_cast<UINT>(tamanho), &obtidos);
-        f_close(&g_arquivo);
-        desmonta_volume(raiz);
-
-        if (leitura != FR_OK || obtidos != tamanho) {
-            std::snprintf(msg, sizeof msg, "f_read: %s (%u de %lu bytes)",
-                          FRESULT_str(leitura), static_cast<unsigned>(obtidos),
-                          static_cast<unsigned long>(tamanho));
-            log.error("sd", msg);
-            return ErroCartao::FalhaDeLeitura;
-        }
-
-        destino[obtidos] = '\0';
-        if (lidos != nullptr) {
-            *lidos = obtidos;
-        }
-        // A base tem de acompanhar a configuração que a definiu: guarda o
-        // volume para que a escrita vá ao mesmo lugar, sem sondar de novo.
-        volume_ativo_ = volume;
-        falhou_ = false;
-        return ErroCartao::Nenhum;
+        return r;
     }
 
     if (montadas == 0) {
@@ -228,7 +275,11 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
     }
 
     char caminho[64], msg[128];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz);
+        return ErroCartao::FalhaDeLeitura;
+    }
     const FRESULT abertura = f_open(&g_arquivo, caminho, FA_READ);
     if (abertura != FR_OK) {
         desmonta_volume(raiz);
@@ -287,12 +338,17 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
     if (em_espera()) {
         return ErroCartao::SemCartaoLegivel;
     }
-    // Volume conhecido: vai direto. Desconhecido: sonda, como a leitura faz.
-    const int primeiro = volume_ativo_ >= 0 ? volume_ativo_ : 0;
-    const int ultimo   = volume_ativo_ >= 0 ? volume_ativo_ : kQuantosVolumes - 1;
+    // Volume conhecido: tenta ele primeiro. Não montando, **sonda os
+    // outros** -- trocar o cartão por um em que tudo mora noutra partição
+    // deixava a escrita presa na que sumiu, até religar o aparelho.
+    const int preferido = volume_ativo_;
 
     char msg[96];
-    for (int volume = primeiro; volume <= ultimo; ++volume) {
+    for (int i = -1; i < kQuantosVolumes; ++i) {
+        const int volume = i < 0 ? preferido : i;
+        if (volume < 0 || (i >= 0 && volume == preferido)) {
+            continue;  // sem preferido, ou já tentado acima
+        }
         std::snprintf(raiz, tam_raiz, "%d:", volume);
         const FRESULT montagem = f_mount(&g_fs, raiz, 1);
         if (montagem == FR_OK) {
@@ -331,7 +387,11 @@ ErroCartao CartaoSd::abre_para_escrita(const char* nome, Logger& log) {
     }
 
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_aberta_, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz_aberta_, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz_aberta_);
+        return ErroCartao::FalhaDeEscrita;
+    }
     const FRESULT r = f_open(&g_arquivo, caminho, FA_WRITE | FA_CREATE_ALWAYS);
     if (r != FR_OK) {
         char msg[96];
@@ -392,7 +452,11 @@ void CartaoSd::descarta_escrita(const char* nome, Logger& log) {
     }
 
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz);
+        return;
+    }
     const FRESULT r = f_unlink(caminho);
     desmonta_volume(raiz);
 
@@ -411,9 +475,13 @@ ErroCartao CartaoSd::promove(const char* temporario, const char* base,
     }
 
     char p_tmp[64], p_base[64], p_bak[64], msg[128];
-    std::snprintf(p_tmp,  sizeof p_tmp,  "%s/%s", raiz, temporario);
-    std::snprintf(p_base, sizeof p_base, "%s/%s", raiz, base);
-    std::snprintf(p_bak,  sizeof p_bak,  "%s/%s", raiz, reserva);
+    if (!monta_caminho(p_tmp,  sizeof p_tmp,  raiz, temporario) ||
+        !monta_caminho(p_base, sizeof p_base, raiz, base) ||
+        !monta_caminho(p_bak,  sizeof p_bak,  raiz, reserva)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz);
+        return ErroCartao::FalhaDeRenomeacao;
+    }
 
     // Passo 3 do RF05.2. Só faz sentido se já houver base; na primeira
     // atualização não há, e a ausência não é erro.
@@ -464,7 +532,11 @@ ErroCartao CartaoSd::acrescenta_arquivo(const char* nome, const char* conteudo,
     }
 
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz);
+        return ErroCartao::FalhaDeEscrita;
+    }
     FIL arquivo;
     const FRESULT abertura = f_open(&arquivo, caminho,
                                     FA_WRITE | FA_OPEN_APPEND);
@@ -525,7 +597,10 @@ bool CartaoSd::existe(const char* nome, Logger& log) {
         return false;
     }
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        desmonta_volume(raiz);
+        return false;
+    }
     FILINFO info;
     const bool achou = f_stat(caminho, &info) == FR_OK;
     desmonta_volume(raiz);
@@ -598,7 +673,11 @@ ErroCartao CartaoSd::abre_para_leitura(const char* nome, std::size_t* tamanho,
     }
 
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz_leitura_, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz_leitura_, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz_leitura_);
+        return ErroCartao::FalhaDeLeitura;
+    }
     const FRESULT r = f_open(&g_leitura, caminho, FA_READ);
     if (r != FR_OK) {
         desmonta_volume(raiz_leitura_);
@@ -650,7 +729,11 @@ ErroCartao CartaoSd::remove(const char* nome, Logger& log) {
         return erro;
     }
     char caminho[64];
-    std::snprintf(caminho, sizeof caminho, "%s/%s", raiz, nome);
+    if (!monta_caminho(caminho, sizeof caminho, raiz, nome)) {
+        log.error("sd", "o caminho do arquivo nao cabe no buffer");
+        desmonta_volume(raiz);
+        return ErroCartao::FalhaDeEscrita;
+    }
     const FRESULT r = f_unlink(caminho);
     desmonta_volume(raiz);
     if (r == FR_OK) {

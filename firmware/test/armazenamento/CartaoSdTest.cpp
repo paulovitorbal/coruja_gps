@@ -336,6 +336,69 @@ TEST_F(CartaoSdNoHost, a_escrita_vai_ao_MESMO_volume_onde_a_leitura_achou) {
 }
 
 
+// ---- o volume lembrado pode sumir ---------------------------------------
+
+TEST_F(CartaoSdNoHost, o_volume_lembrado_que_nao_monta_mais_e_ressondado) {
+    // Trocar o cartao por outro, com o aparelho ligado, mudava a particao
+    // onde tudo mora. O volume ficava lembrado para sempre e a escrita
+    // tentava so ele: o aparelho parava de gravar ate religar.
+    fs.volumes[0].monta = true;                  // monta, vazia
+    poe(3, "coruja.cfg", "config aqui");
+    ASSERT_EQ(le("coruja.cfg"), "config aqui");
+
+    fs.volumes[3].monta = false;                 // o cartao foi trocado
+    fs.volumes[3].arquivos.clear();
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha\n", 6, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "linha\n")
+        << "ficou preso na particao que sumiu";
+}
+
+// ---- a leitura no meio de outra operacao --------------------------------
+
+TEST_F(CartaoSdNoHost, le_arquivo_durante_um_fluxo_aberto_nao_mata_o_fluxo) {
+    // O `le_arquivo` sondava com `f_mount` sem olhar a contagem de
+    // montagens. Montar de novo reinicia a area de trabalho do volume, e
+    // todo `FIL` aberto nele morre -- e a remessa mantem um aberto durante o
+    // envio inteiro.
+    poe(0, "20261006_143000.log", "viagem inteira aqui");
+    poe(0, "coruja.cfg", "nome=fusca");
+    std::size_t tamanho = 0;
+    ASSERT_EQ(sd.abre_para_leitura("20261006_143000.log", &tamanho, log),
+              ErroCartao::Nenhum);
+
+    EXPECT_EQ(le("coruja.cfg"), "nome=fusca");
+
+    std::string tudo;
+    std::uint8_t buf[8];
+    for (;;) {
+        std::size_t n = 0;
+        if (!sd.le(buf, sizeof buf, &n) || n == 0) { break; }
+        tudo.append(reinterpret_cast<char*>(buf), n);
+    }
+    sd.fecha_leitura();
+    EXPECT_EQ(tudo, "viagem inteira aqui") << "a leitura em curso morreu";
+    EXPECT_EQ(fs.montagens, fs.desmontagens) << "o cartao ficou montado";
+}
+
+// ---- nome que nao cabe no caminho ---------------------------------------
+
+TEST_F(CartaoSdNoHost, nome_que_nao_cabe_no_caminho_e_recusado_e_nao_truncado) {
+    // Truncar em silencio enderecaria OUTRO arquivo: ler um, gravar por cima
+    // de outro. O limite e do buffer de caminho, nao do FAT.
+    const std::string gigante(120, 'n');
+    fs.volumes[0].monta = true;
+    char buf[64];
+    std::size_t n = 0;
+    EXPECT_EQ(sd.le_arquivo(gigante.c_str(), buf, sizeof buf, &n, log),
+              ErroCartao::FalhaDeLeitura);
+    EXPECT_EQ(sd.acrescenta_arquivo(gigante.c_str(), "x", 1, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(sd.remove(gigante.c_str(), log), ErroCartao::FalhaDeEscrita);
+    EXPECT_TRUE(fs.volumes[0].arquivos.empty()) << "gravou num nome truncado";
+}
+
 // ===========================================================================
 // Arquivario -- o que a remessa de dados usa
 // ===========================================================================

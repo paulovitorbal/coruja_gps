@@ -137,6 +137,12 @@ private:
     /// Monta o volume de trabalho e devolve seu prefixo em `raiz`.
     ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log);
 
+    /// Lê `nome` de um volume **já montado**. Não monta nem desmonta: é a
+    /// parte que a sondagem do R-38 repete por partição.
+    ErroCartao le_do_volume(const char* raiz, const char* nome, char* destino,
+                            std::size_t capacidade, std::size_t* lidos,
+                            Logger& log);
+
     /// A última sondagem não achou nada e a espera ainda não passou?
     bool em_espera() const;
     /// Anota que nenhuma partição montou agora.
