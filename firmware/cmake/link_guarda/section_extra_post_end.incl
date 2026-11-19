@@ -1,0 +1,22 @@
+/* A guarda da pilha de 24 KiB. Sobrepoe o arquivo vazio de mesmo nome do
+   SDK, que existe para isto (ver pico_standard_link/script_include).
+
+   O firmware estica SCRATCH_Y de 4 para 24 KiB, e a regiao esticada passa
+   POR CIMA de SCRATCH_X -- ver o bloco da pilha no firmware/CMakeLists.txt.
+   Isso so e valido porque nada mora em SCRATCH_X: `.scratch_x` sai com zero
+   bytes e o nucleo 1 nunca liga, entao a pilha dele (`.stack1_dummy`) nao
+   existe.
+
+   No dia em que alguem puser um `__scratch_x` numa variavel, ou chamar o
+   `multicore_launch_core1`, os bytes cairiam DENTRO da pilha do nucleo 0.
+   Nao da erro legivel em execucao: vira falta grave no guarda de pilha do
+   RP2350, e o sintoma e o aparelho travado, sem uma linha de log.
+
+   O ligador tambem acusa o caso dos DADOS, logo depois desta mensagem, com
+   um `.scratch_x VMA [...] overlaps section .stack_dummy`. A mensagem daqui
+   vem antes e diz o que aquilo quer dizer e onde esta a decisao que criou a
+   sobreposicao -- sem isso, o caminho mais curto para "resolver" o erro do
+   ligador e mexer no lugar errado. */
+ASSERT(SCRATCH_Y_ORIGIN + SCRATCH_Y_LENGTH <= SCRATCH_X_ORIGIN ||
+       (SIZEOF(.scratch_x) == 0 && SIZEOF(.stack1_dummy) == 0),
+       "SCRATCH_Y passa por cima de SCRATCH_X e alguem usou SCRATCH_X: ou a pilha do nucleo 1, ou uma variavel __scratch_x. Os dois cairiam dentro da pilha do nucleo 0. Ver o bloco PICO_STACK_SIZE no firmware/CMakeLists.txt.")

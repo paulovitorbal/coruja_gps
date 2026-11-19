@@ -1,6 +1,9 @@
 # Alvo duplo: -DCORUJA_TESTES=ON compila a suite no host (sem Pico SDK);
 # sem a opcao, compila o firmware para o RP2350. Ver docs/adr/0001.
-cmake_minimum_required(VERSION 3.13)
+#
+# 3.14 e o minimo de verdade: e onde nasceu o `FetchContent_MakeAvailable`,
+# que o alvo do Pico usa.
+cmake_minimum_required(VERSION 3.14)
 
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
@@ -52,11 +55,14 @@ else()
     # FAT32 no cartao. Biblioteca adotada em vez de escrita: e a implementacao
     # de referencia para SD por SPI no Pico, Apache-2.0, com suporte a RP2350.
     # Ver docs/adr/0007.
+    #
+    # Pelo hash do commit da tag v3.6.2, e nao pelo nome: tag se move, e o
+    # que entra no binario publicado tem de ser o mesmo a cada build. Sem
+    # GIT_SHALLOW, que so busca por nome de ref, e nao por hash.
     include(FetchContent)
     FetchContent_Declare(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
         GIT_REPOSITORY https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico.git
-        GIT_TAG        v3.6.2
-        GIT_SHALLOW    TRUE
+        GIT_TAG        6c644cfc3ab03c161fee2dd7be4877e5b832fa71  # v3.6.2
         # O repositorio nao tem CMakeLists na raiz: o alvo vive em src/.
         SOURCE_SUBDIR  src)
     FetchContent_MakeAvailable(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico)
@@ -166,6 +172,13 @@ else()
         -Wl,--defsym=RAM_LENGTH=0x7C000
         -Wl,--defsym=SCRATCH_Y_ORIGIN=0x2007C000
         -Wl,--defsym=SCRATCH_Y_LENGTH=0x6000)
+    # E a guarda do que o bloco acima diz em prosa: a pilha esticada passa
+    # por cima de SCRATCH_X, e isso so vale enquanto NADA mora la. O
+    # `ASSERT` quebra o link no dia em que alguem puser, em vez de deixar o
+    # aparelho travar sem log. Ver cmake/link_guarda/.
+    pico_add_linker_script_override_path(coruja_gps
+        ${CMAKE_CURRENT_LIST_DIR}/cmake/link_guarda
+        FILES section_extra_post_end.incl)
 
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
