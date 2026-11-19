@@ -208,6 +208,9 @@ struct Bancada {
     PausaFalsa         pausa;
     teste::LoggerMock  log;
     Configuracao       cfg;
+    /// O que o boot diria: a base em uso veio do `radares.bin`. E o caso
+    /// sao, e e o de quase toda a suite; os testes do F3 o desligam.
+    bool               vigente_em_uso = true;
 
     Bancada() {
         std::snprintf(cfg.url_versao, sizeof cfg.url_versao,
@@ -222,6 +225,7 @@ struct Bancada {
 
     ResultadoOta roda() {
         AtualizadorOta ota(cartao, rede, http, pausa);
+        ota.informa_vigente_em_uso(vigente_em_uso);
         return ota.executa(cfg, log);
     }
 
@@ -256,14 +260,81 @@ TEST(AtualizadorOta, falha_de_rede_encerra_sem_tentar_baixar) {
 
 // ================================================================== versão
 
-TEST(AtualizadorOta, versao_igual_nao_baixa_a_base) {
+TEST(AtualizadorOta, versao_igual_com_a_vigente_em_uso_nao_baixa_a_base) {
+    // O caso sao: o boot carregou o `radares.bin`, e a versao do servidor e
+    // a que ele descreve. Baixar de novo seriam 214 KB a toa.
     Bancada b;
+    b.vigente_em_uso = true;
     b.cartao.resposta_le_versao = ErroCartao::Nenhum;
     b.cartao.versao_no_cartao = "2026-09-28";
     b.http.corpo_versao = "2026-09-28";
     EXPECT_EQ(b.roda(), ResultadoOta::JaEstavaEmDia);
     EXPECT_EQ(b.http.pedidos_base, 0U) << "baixou 214 KB a toa";
     EXPECT_EQ(b.rede.desconexoes, 1U);
+}
+
+// --- F3: a versao local so vale se descreve a base em uso ---
+//
+// O `versao.txt` descreve o `radares.bin`. Quando o boot recusa o `.bin` e
+// cai na reserva -- ou nao acha base nenhuma --, a versao continua la,
+// igual a do servidor, e o OTA respondia JA ESTA EM DIA para sempre: o menu
+// nao tinha como consertar o aparelho.
+
+TEST(AtualizadorOta, versao_igual_rodando_pela_reserva_baixa_de_novo) {
+    Bancada b;
+    b.vigente_em_uso = false;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    EXPECT_EQ(b.roda(), ResultadoOta::Atualizada)
+        << "o aparelho segue pela reserva e o menu nao conserta";
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+    EXPECT_EQ(b.cartao.promoveu_para, kArquivoBase);
+}
+
+TEST(AtualizadorOta, sem_saber_de_onde_veio_a_base_versao_igual_baixa) {
+    // Quem nao informa nada nao ganha a economia: na duvida, o desperdicio
+    // de rede e o modo de falha certo -- o mesmo da versao gravada por
+    // ultimo.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(AtualizadorOta, depois_de_atualizar_a_versao_igual_volta_a_bastar) {
+    // A base que o OTA acabou de promover e a vigente: o clique seguinte
+    // nao pode rebaixa-la so porque o boot tinha caido na reserva.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    ota.informa_vigente_em_uso(false);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+
+    b.cartao.versao_no_cartao = b.cartao.versao_gravada;
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::JaEstavaEmDia);
+    EXPECT_EQ(b.http.pedidos_base, 1U) << "rebaixou a base que acabou de gravar";
+}
+
+TEST(AtualizadorOta, falha_ao_rebaixar_pela_reserva_nao_finge_em_dia) {
+    // Se o download que conserta falhar, a proxima tentativa tem de
+    // insistir: a base em uso continua sendo a reserva.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    b.http.resposta_base = ResultadoHttp{ErroHttp::Interrompida, 0, 0};
+    b.http.cura_na_tentativa = kTentativas + 1;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    ota.informa_vigente_em_uso(false);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::FalhaAoBaixar);
+
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
 }
 
 TEST(AtualizadorOta, espaco_em_volta_da_versao_nao_conta_como_diferenca) {
@@ -534,6 +605,7 @@ TEST(AtualizadorOta, ja_em_dia_nao_anuncia_download) {
     b.cartao.resposta_le_versao = ErroCartao::Nenhum;
     b.http.corpo_versao = "v9";
     AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.informa_vigente_em_uso(true);
     ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::JaEstavaEmDia);
 
     EXPECT_TRUE(obs.tem(FaseOta::JaEmDia));

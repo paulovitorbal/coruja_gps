@@ -474,6 +474,19 @@ do arquivo, porque é ela que pede conserto; entre iguais, a mais recente.
 | `CARTAO ILEGIVEL` | o cartão não entregou os arquivos | cartão |
 | `SEM CONFIGURACAO` | `url_envio`, `token_aparelho` ou rede faltando ou inválidos | `coruja.cfg` |
 
+### Atualizar a base
+
+O item **atualizar base** do menu pergunta a `url_versao` e compara a linha
+com o `versao.txt` do cartão. **Versão igual não basta:** o `versao.txt`
+descreve o `radares.bin`, e se o boot recusou esse arquivo e caiu no
+`radares.bak` — ou não achou base nenhuma —, o aparelho baixa de novo mesmo
+com a versão igual. Até a revisão de 17/11/2026 ele respondia `JA ESTA EM
+DIA`, e o menu não tinha como tirar o aparelho da reserva.
+
+Quem sabe de onde a base veio é a carga do boot, e não o OTA relendo o
+arquivo: reler custaria 214 KB de cartão a cada clique, e a carga confere
+mais (ordem e domínio) do que a verificação do download.
+
 ### Testes do gerador
 
 ```sh

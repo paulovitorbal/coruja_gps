@@ -120,6 +120,26 @@ public:
 
     ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
+    /// A base em uso veio do `radares.bin`? Quem sabe é a carga do boot.
+    ///
+    /// O `versao.txt` descreve o `radares.bin`, e só ele. Quando a carga
+    /// recusa esse arquivo e cai na reserva — ou não acha base nenhuma —, a
+    /// versão gravada continua igual à do servidor, e comparar só as duas
+    /// respondia "já está em dia" para sempre: o menu não tinha como
+    /// consertar o aparelho (F3, revisão de 17/11/2026).
+    ///
+    /// **É a carga que responde, e não o OTA relendo o arquivo.** Reler
+    /// custaria 214 KB de cartão a cada clique em dia, e ainda responderia
+    /// menos: o `VerificadorDownload` confere cabeçalho, contagem e CRC, e a
+    /// carga confere também ordem e domínio — é ela que decide se o `.bin`
+    /// vale ou se o aparelho cai na reserva.
+    ///
+    /// Sem ninguém informar, vale `false`: na dúvida o OTA rebaixa, que é o
+    /// modo de falha que o resto deste fluxo já escolheu. Depois de promover
+    /// uma base, o próprio OTA passa a `true` — a que ele acabou de pôr no
+    /// lugar é a vigente.
+    void informa_vigente_em_uso(bool sim) { vigente_em_uso_ = sim; }
+
     const char* versao_local() const { return versao_local_; }
 
 private:
@@ -133,6 +153,7 @@ private:
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};
     std::size_t         versao_remota_tam_ = 0;
+    bool                vigente_em_uso_ = false;
 };
 
 }  // namespace coruja

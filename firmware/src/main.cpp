@@ -123,6 +123,10 @@ void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
 struct BaseCarregada {
     std::size_t          pontos = 0;
     coruja::CabecalhoBase cabecalho{};
+    /// Veio do `radares.bin`, e nao da reserva nem de lugar nenhum. E o que
+    /// diz ao OTA se o `versao.txt` descreve a base em uso -- ver
+    /// `AtualizadorOta::informa_vigente_em_uso`.
+    bool                 da_vigente = false;
 };
 
 BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
@@ -161,7 +165,7 @@ BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
         if (nome == coruja::kArquivoBak) {
             log.warning("base", "operando pela RESERVA: atualize quando puder");
         }
-        return {carregador.pontos(), cab};
+        return {carregador.pontos(), cab, nome == coruja::kArquivoBase};
     }
     // RF07: sem base o aparelho opera, e precisa deixar isso evidente. Quem
     // avisa é a tela, com "BASE INDISPONIVEL".
@@ -693,6 +697,10 @@ int main() {
 
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
+    // Sem isto, um boot que caiu na reserva -- ou sem base -- ouvia JA ESTA
+    // EM DIA a cada clique, porque o `versao.txt` continua igual ao do
+    // servidor. A carga e quem sabe de onde a base veio.
+    ota.informa_vigente_em_uso(base.da_vigente);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
     // `static` pelo mesmo motivo do `http`: sao 2,3 KiB.
     static coruja::RemessaDados remessa(cartao, rede, http, pausa,

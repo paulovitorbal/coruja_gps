@@ -311,7 +311,13 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     log.info("ota", msg);
 
     if (std::strcmp(versao_local_, versao_remota_) == 0) {
-        return encerra(ResultadoOta::JaEstavaEmDia);
+        if (vigente_em_uso_) {
+            return encerra(ResultadoOta::JaEstavaEmDia);
+        }
+        // A versao descreve o `radares.bin`, e nao e ele que esta em uso.
+        // Ver `informa_vigente_em_uso`.
+        log.warning("ota", "mesma versao, mas a base em uso nao e o "
+                           "radares.bin: baixando de novo");
     }
 
     // ---- 2. baixar, gravando e verificando ao mesmo tempo ----------------
@@ -391,6 +397,8 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
             log.error("ota", msg);
             return encerra(ResultadoOta::FalhaAoGravar);
         }
+        // O que esta no lugar agora e o que acabou de passar na verificacao.
+        vigente_em_uso_ = true;
 
         // ---- 5. a versão, por último -------------------------------------
         //
