@@ -178,8 +178,24 @@ Ele exige que se digite `ENTENDI`, avisa a cada URL sem TLS e grava um bloco de
 aviso dentro do próprio `coruja.cfg` — de modo que um arquivo de teste não se
 disfarce de definitivo meses depois.
 
-Ao sair da rede local: proxy reverso com TLS na frente e a porta de volta para
-`127.0.0.1:8081`.
+Ao sair da rede local: proxy reverso com TLS na frente e a porta publicada só
+no próprio hospedeiro. Isso é um `.env` ao lado do `docker-compose.yml`, e não
+uma edição do arquivo versionado:
+
+```sh
+echo "CORUJA_ENDERECO_HOST=127.0.0.1" >> .env
+docker compose up -d
+```
+
+| Variável | Padrão | Para que |
+| :--- | :--- | :--- |
+| `CORUJA_ENDERECO_HOST` | `0.0.0.0` | rede local, para o Pico alcançar pelo Wi-Fi |
+| `CORUJA_PORTA_HOST` | `8081` | a porta publicada |
+
+⚠️ **O padrão é `0.0.0.0` de propósito** — é o caso de uso primário, o
+aparelho chegando pela rede de casa. Atrás da borda, `127.0.0.1`: o proxy
+fala com o serviço pelo próprio hospedeiro, e mais ninguém na rede alcança a
+porta.
 
 ## Quem pode falar com o servidor
 

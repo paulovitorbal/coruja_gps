@@ -80,6 +80,15 @@ class ComposeDaApi(unittest.TestCase):
         # tempo empurram a maquina inteira para a troca.
         self.assertRegex(self.compose(), r"(?m)^\s+mem_limit:\s*\d+[mg]\s*$")
 
+    def test_o_endereco_publicado_sai_do_ambiente(self):
+        # O padrao continua sendo a rede local: e dela que o Pico alcanca o
+        # servico. Atras da borda o certo e 127.0.0.1, e isso tem de ser
+        # ajustavel pelo `.env` -- este arquivo vive no repositorio publico,
+        # incluido como submodulo, e edita-lo deixa o submodulo sujo.
+        self.assertIn(
+            '"${CORUJA_ENDERECO_HOST:-0.0.0.0}:${CORUJA_PORTA_HOST:-8081}'
+            ':8080"', self.compose())
+
 
 if __name__ == "__main__":
     unittest.main()
