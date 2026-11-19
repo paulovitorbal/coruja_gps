@@ -10,9 +10,13 @@ namespace coruja::sprite {
 
 constexpr int kLado = 40;
 
-/// RGB565, linha por linha de cima para baixo. O transparente
-/// do PNG ja vem composto sobre PRETO: desenhar sobre outro
-/// fundo deixaria uma moldura escura em volta do icone.
+/// RGB565, linha por linha de cima para baixo.
+///
+/// O transparente do PNG ja vem composto sobre o
+/// `paleta::kFundoAlerta` (0xF75C), que e o fundo da faixa
+/// de alerta: sem canal alfa o sprite carrega o proprio fundo, e
+/// desenha-lo sobre outra cor poria uma moldura de 40x40 em volta
+/// do icone.
 
 /// U+1F3CE 🏎, de radar_1f3ce.png.
 constexpr std::uint16_t kRadar[kLado * kLado] = {

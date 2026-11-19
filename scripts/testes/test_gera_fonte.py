@@ -12,9 +12,11 @@ glifo pela propria tinta. O ponto final flutuava no meio da celula, e nada
 acusava.
 """
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
@@ -101,7 +103,8 @@ class Cabecalho(unittest.TestCase):
     def test_o_rotulo_de_aspas_e_barra_sai_escrito(self):
         conj = G.Conjunto("Rotulos", 8, 8, "'\"\\a", 1.0)
         glifos = [(g, [0] * 8) for g in conj.glifos]
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, \
+                redirect_stdout(io.StringIO()):
             destino = Path(tmp) / "FonteRotulos.h"
             G.escreve(conj, 8, 1, glifos, destino)
             texto = destino.read_text(encoding="utf-8")
