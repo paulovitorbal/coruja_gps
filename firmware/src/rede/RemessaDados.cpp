@@ -101,6 +101,12 @@ bool RemessaDados::url_do_arquivo(const char* base, const char* nome,
                                   Url* destino) {
     if (analisa_url(base, destino) != ErroUrl::Nenhum) { return false; }
 
+    // `url_envio` com consulta nao forma URL com o nome no fim: ele cairia
+    // DENTRO da consulta -- "/envio?t=1/coruja.log" --, o servidor nao
+    // acharia a rota, e o arquivo ficaria tentando a cada remessa. Recusar
+    // aqui aponta o coruja.cfg, que e onde se conserta.
+    if (std::strchr(destino->caminho, '?') != nullptr) { return false; }
+
     const std::size_t n = std::strlen(destino->caminho);
     // A URL configurada pode ou nao terminar em barra. Normalizar aqui, e nao
     // exigir uma das duas formas no cfg, evita o erro mais provavel de quem
@@ -446,19 +452,44 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
 
     ++entregues_;
 
-    // --- o arquivo cresceu desde a soma do CRC? ---
+    // --- o que esta no cartao ainda e o que subiu? ---
+    //
+    // Pelo TAMANHO so, isto deixava passar o arquivo trocado por outro do
+    // mesmo tamanho -- e "so apaga o que o servidor confirmou" vale pelo
+    // CONTEUDO, nao pelo numero de bytes. A conferencia custa uma terceira
+    // leitura do arquivo; ela paga por nao destruir o unico exemplar de
+    // algo que o servidor nunca viu.
     std::size_t agora = 0;
     const bool releu = cartao_.abre_para_leitura(nome, &agora, log)
                        == ErroCartao::Nenhum;
+    Crc32 confere;
+    bool  igual = releu && agora == tamanho;
+    if (igual) {
+        std::size_t relidos = 0;
+        while (relidos < tamanho) {
+            std::size_t n = 0;
+            if (!cartao_.le(bomba_.pedaco, sizeof bomba_.pedaco, &n)
+                    || n == 0) {
+                igual = false;
+                break;
+            }
+            confere.alimenta(bomba_.pedaco, n);
+            relidos += n;
+        }
+        igual = igual && relidos == tamanho && confere.valor() == crc_local;
+    }
     cartao_.fecha_leitura();
-    if (!releu || agora != tamanho) {
+    if (!igual) {
         // Nao e falha: o conteudo esta a salvo no servidor. Apagar e que
-        // destruiria os bytes escritos durante o envio.
+        // destruiria os bytes escritos durante o envio -- ou um arquivo
+        // que nunca subiu.
         ++retidos_;
         std::snprintf(msg, sizeof msg,
                       "%s guardado no servidor, mantido aqui (era %u B, "
-                      "agora %u)", nome, static_cast<unsigned>(tamanho),
-                      static_cast<unsigned>(agora));
+                      "agora %u; crc %s)", nome,
+                      static_cast<unsigned>(tamanho),
+                      static_cast<unsigned>(agora),
+                      agora == tamanho ? "DIFERE" : "nao conferido");
         log.info(kOrigem, msg);
         return Desfecho::Entregue;
     }

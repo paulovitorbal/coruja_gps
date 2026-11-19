@@ -80,6 +80,10 @@ public:
     /// o log crescendo durante a remessa.
     std::string cresce_depois_de_ler;
     std::string cresce_em;
+    /// Trocado por outro conteúdo **do mesmo tamanho** assim que o envio
+    /// acaba. É o caso que a conferência de tamanho não enxerga.
+    std::string troca_depois_de_enviar;
+    std::string troca_em;
 
     ErroCartao lista(AoListar ao_listar, void* ctx, Logger&) override {
         if (falha_ao_listar) { return ErroCartao::SemCartaoLegivel; }
@@ -142,7 +146,15 @@ public:
         return true;
     }
 
-    void fecha_leitura() override { aberto_.clear(); }
+    void fecha_leitura() override {
+        if (!troca_em.empty() && troca_em == aberto_ && rebobinou_) {
+            // Ao fim da segunda passada: o arquivo subiu, e o que esta no
+            // cartao agora e outro conteudo, do mesmo tamanho.
+            arquivos[troca_em] = troca_depois_de_enviar;
+            troca_em.clear();
+        }
+        aberto_.clear();
+    }
 
     /// Ficou alguma leitura aberta? Conferido ao fim de todo `Cenario`.
     bool aberto() const { return !aberto_.empty(); }
@@ -549,6 +561,20 @@ TEST(Remessa, url_sem_barra_no_fim_nao_cola_o_nome_no_caminho) {
     EXPECT_EQ(c.servidor.caminhos[0], "/envio/coruja.log");
 }
 
+TEST(Remessa, url_envio_com_consulta_nao_forma_url_e_nao_apaga) {
+    // `?` na url_envio: o nome do arquivo cairia DENTRO da consulta --
+    // "/envio?t=1/coruja.log" --, o servidor nao acharia a rota e o arquivo
+    // ficaria tentando para sempre, a cada remessa. Recusar aqui diz onde
+    // consertar: no coruja.cfg.
+    Cenario c;
+    std::snprintf(c.cfg.url_envio, sizeof c.cfg.url_envio,
+                  "http://servidor.exemplo/envio?t=1");
+    c.cartao.arquivos["coruja.log"] = "dado";
+    EXPECT_EQ(c.roda(), ResultadoRemessa::SemConfiguracao);
+    EXPECT_TRUE(c.cartao.apagados.empty());
+    EXPECT_TRUE(c.servidor.caminhos.empty()) << "mandou para a URL torta";
+}
+
 TEST(Remessa, url_invalida_nao_apaga_nada) {
     // O desfecho era `FalhaAoEnviar`, que a tela diz como SERVIDOR NAO
     // ACEITOU -- de um servidor que nem foi procurado. Quem conserta isto é o
@@ -669,6 +695,23 @@ TEST(Remessa, arquivo_que_cresceu_fica_no_cartao_mas_conta_como_entregue) {
     // O que cresceu continua lá, inteiro, para a próxima remessa.
     EXPECT_EQ(c.cartao.arquivos["20261006_143000.log"],
               "trecho ja gravado\nmais um ponto depois");
+}
+
+TEST(Remessa, arquivo_trocado_por_outro_do_mesmo_tamanho_nao_e_apagado) {
+    // "So apaga o que o servidor confirmou" valia pelo TAMANHO, e tamanho
+    // igual nao prova conteudo igual: o que seria apagado nao e o que subiu.
+    // O CRC ja foi somado na primeira passada -- conferi-lo custa uma
+    // releitura e nao deixa duvida.
+    Cenario c;
+    c.cartao.arquivos["coruja.log"] = "dado original";
+    c.cartao.troca_em = "coruja.log";
+    c.cartao.troca_depois_de_enviar = "DADO alterado";  // mesmo tamanho
+    ASSERT_EQ(c.cartao.arquivos["coruja.log"].size(),
+              c.cartao.troca_depois_de_enviar.size());
+
+    EXPECT_EQ(c.roda(), ResultadoRemessa::NaoApagou);
+    EXPECT_TRUE(c.cartao.apagados.empty()) << "apagou o que nao subiu";
+    EXPECT_EQ(c.cartao.arquivos.count("coruja.log"), 1u);
 }
 
 TEST(Remessa, falha_ao_apagar_nao_derruba_a_remessa) {
@@ -1195,7 +1238,7 @@ TEST(Desfecho, uma_falha_pesa_mais_que_nao_apagar) {
 
 TEST(Reuso, duas_remessas_no_MESMO_objeto_nao_se_misturam) {
     // A `Colheita` era local de `executa()` e nascia zerada a cada chamada.
-    // Virou membro para sair da pilha de 8 KiB -- e aí passou a depender de
+    // Virou membro para sair da pilha -- e aí passou a depender de
     // alguém zerá-la. No aparelho o `RemessaDados` é UM só, construído na
     // composição e reusado a cada ida ao menu: sem o zeramento, a segunda
     // remessa listaria por cima da primeira e remandaria o que já foi.
