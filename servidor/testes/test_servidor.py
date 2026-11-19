@@ -924,6 +924,51 @@ class Recepcao(unittest.TestCase):
         self.assertNotIn(PASTA.encode(), corpo)
 
 
+class EncerramentoLimpo(unittest.TestCase):
+    """O PID 1 do container tem de sair no `docker stop`.
+
+    Sem tratar SIGTERM, o Python so morre no SIGKILL que vem dez segundos
+    depois -- e nesses dez segundos as conexoes em curso ficam penduradas e
+    cada reinicio custa a espera inteira.
+    """
+
+    def test_sigterm_encerra_o_processo(self):
+        import os
+        import signal
+        import subprocess
+        import time
+        import urllib.request
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        (Path(tmp.name) / s.NOME_BASE).write_bytes(base_valida())
+        porta = 18099
+        processo = subprocess.Popen(
+            [sys.executable, str(RAIZ / "servidor.py"),
+             "--dados", tmp.name, "--porta", str(porta),
+             "--endereco", "127.0.0.1", "--quiet"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(processo.kill)
+
+        prazo = time.monotonic() + 15
+        while True:
+            try:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{porta}{s.ROTA_SAUDE}", timeout=1)
+                break
+            except OSError:
+                if time.monotonic() > prazo:
+                    self.fail("o servidor nao subiu")
+                time.sleep(0.05)
+
+        os.kill(processo.pid, signal.SIGTERM)
+        try:
+            codigo = processo.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail("SIGTERM ignorado: so o SIGKILL encerraria")
+        self.assertEqual(codigo, 0, "saiu com erro no encerramento limpo")
+
+
 class ConexoesLentasEDemais(unittest.TestCase):
     """Quem manda devagar, e quem abre conexao demais.
 
@@ -1583,6 +1628,83 @@ class HistoricoAppendOnly(Recepcao):
         # lado de ca, um envio que o aparelho ainda considera vivo.
         self.assertIsNotNone(s.Manipulador.timeout)
         self.assertGreater(s.Manipulador.timeout, 15)
+
+    def test_duas_remessas_iguais_ao_mesmo_tempo_nao_duplicam(self):
+        """A trava da gravacao, vista de fora.
+
+        ⚠️ Trocar `_TRAVA_DA_GRAVACAO` por um no-op deixava a suite inteira
+        verde: nenhum teste punha duas gravacoes do mesmo arquivo em curso
+        ao mesmo tempo.
+
+        E o cenario real desde 16/11/2026: o firmware tenta de novo 2 s
+        depois de uma falha, e a conexao velha pode continuar viva aqui. As
+        duas mandam os MESMOS bytes. Sem trava, as duas leem a marca antes
+        de qualquer uma escreve-la, as duas acrescentam o trecho inteiro, e
+        a mesma infracao aparece duas vezes no historico -- que foi o
+        defeito de 11/11/2026 voltando por outra porta.
+
+        O trecho e grande de proposito: a janela entre ler a marca e
+        escreve-la e o tempo de copiar o arquivo, e com 4 MB ela e larga o
+        bastante para as duas threads se cruzarem sem depender de sorte.
+        """
+        import threading as _t
+        trecho = (b"20261116;101010;EPTG;81;60\n" * 150_000)[:4 * 1024 * 1024]
+        partida = _t.Barrier(2)
+        respostas = []
+
+        def manda():
+            partida.wait()
+            respostas.append(self.envia("infracoes.log", trecho)[0])
+
+        fios = [_t.Thread(target=manda) for _ in range(2)]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(timeout=60)
+        self.assertEqual(respostas, [201, 201])
+        guardado = self.historico("infracoes.log")
+        self.assertEqual(len(guardado), len(trecho),
+                         "o trecho repetido entrou duas vezes no historico")
+
+    def test_parcial_orfao_e_varrido(self):
+        """Um `.parcial` de conexao morta nao pode ficar no disco para sempre.
+
+        Ele sobra quando o processo e morto no meio de um envio -- um
+        `docker stop` enquanto o aparelho manda --, e ninguem o apaga: o
+        nome tem o acaso da conexao que o criou, e a conexao nao existe
+        mais. Em um ano de remessas isso e lixo que so cresce.
+        """
+        import os
+        import time
+        self.envia("coruja.log", b"primeiro envio\n")
+        pasta = self.dados / s.SUBDIR_ENVIO / PASTA
+        orfao = pasta / "coruja.log.deadbeef.parcial"
+        orfao.write_bytes(b"metade de um envio")
+        velho = time.time() - 4 * s.PRAZO_DO_PEDIDO_S
+        os.utime(orfao, (velho, velho))
+        recente = pasta / "coruja.log.cafe1234.parcial"
+        recente.write_bytes(b"envio de outra conexao, em curso")
+
+        self.envia("coruja.log", b"segundo envio\n")
+
+        self.assertFalse(orfao.exists(), "o parcial orfao ficou no disco")
+        self.assertTrue(recente.exists(),
+                        "a varredura levou o parcial de uma conexao viva")
+
+    def test_a_marca_e_trocada_de_uma_vez(self):
+        # Gravar a marca no lugar, sem temporario, deixa um arquivo pela
+        # metade quando o processo morre no meio. Uma marca truncada ainda
+        # pode ser LIDA -- "123 abc" converte -- e aponta um CRC que nunca
+        # existiu: o trecho seguinte seria acrescentado errado.
+        self.envia("infracoes.log", b"primeira\n")
+        marca = self.marca("infracoes.log")
+        bruto = marca.read_text(encoding="ascii")
+        marca.write_text(bruto[:len(bruto) // 2], encoding="ascii")
+        # Com a marca truncada o servidor nao deduplica -- acrescenta tudo,
+        # que e o lado seguro da duvida -- mas nao se perde.
+        self.envia("infracoes.log", b"primeira\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nprimeira\n")
 
     def test_conexao_que_para_de_mandar_nao_prende_o_servidor_para_sempre(self):
         # Sem prazo, a thread de um PUT cujo aparelho sumiu ficava presa na

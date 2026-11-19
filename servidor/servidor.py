@@ -31,6 +31,7 @@ import hmac
 import re
 import secrets
 import shutil
+import signal
 import socket
 import threading
 import time
@@ -306,6 +307,42 @@ ARQUIVO_APARELHOS = "aparelhos.cfg"
 #: confere e recusa, porque "desprezivel" nao e "impossivel" e a consequencia
 #: seria dois carros gravando um por cima do outro.
 DIGITOS_IMPRESSAO = 16
+
+
+#: Quanto um `.parcial` pode ficar parado antes de ser lixo.
+#:
+#: Nenhum pedido vivo passa de `PRAZO_DO_PEDIDO_S`, então o dobro já é
+#: certeza com folga para relógio de arquivo arredondado.
+IDADE_DO_PARCIAL_S = 2 * PRAZO_DO_PEDIDO_S
+
+
+def _varre_parciais(pasta: Path) -> None:
+    """Apaga os `.parcial` que nenhuma conexão viva pode estar escrevendo.
+
+    ⚠️ **Eles não sumiam nunca.** Sobram quando o processo é morto no meio
+    de um envio -- um `docker stop` enquanto o aparelho manda --, e o nome
+    carrega o acaso da conexão que o criou: não há quem os reconheça depois.
+    Em um ano de remessas é lixo que só cresce, no mesmo volume onde cabem
+    as viagens.
+
+    Na pasta do aparelho que está enviando, e não no volume inteiro: é
+    trabalho proporcional ao que já se vai fazer, e não precisa de tarefa de
+    fundo nem de varredura na subida.
+
+    Falha de leitura ou remoção não derruba o envio: o arquivo que ela não
+    conseguiu apagar continua lá para a próxima.
+    """
+    limite = time.time() - IDADE_DO_PARCIAL_S
+    try:
+        for antigo in pasta.glob("*.parcial"):
+            try:
+                if antigo.stat().st_mtime < limite:
+                    antigo.unlink(missing_ok=True)
+                    log.info("parcial orfao removido: %s", antigo.name)
+            except OSError:
+                continue
+    except OSError as e:
+        log.warning("nao consegui varrer %s: %s", pasta, e)
 
 
 def _enxuga(guardados: dict, teto: int, poupe: str) -> None:
@@ -943,6 +980,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # recebido herdaria a permissão. O volume `recebidos/` é montado
         # também pelo Alloy, com outro usuário, e mudar a permissão do que
         # chega não era o assunto aqui.
+        _varre_parciais(destino)
         temporario = destino / f"{nome}.{secrets.token_hex(4)}.parcial"
         recebido = 0
         crc = 0
@@ -1100,8 +1138,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             # Por último, e de propósito: uma marca gravada antes de o
             # acréscimo dar certo faria o trecho seguinte pular um prefixo que
             # não está no histórico.
-            cls._caminho_da_marca(pasta, nome).write_text(
-                f"{tamanho} {crc:08x}\n", encoding="ascii")
+            #
+            # ⚠️ Em temporário e `replace`, como o arquivo recebido. Escrita
+            # no lugar deixa a marca pela metade quando o processo morre no
+            # meio dela -- e uma marca truncada ainda CONVERTE, apontando um
+            # tamanho e um CRC que nunca existiram juntos. O `replace` é
+            # atômico no mesmo sistema de arquivos: ou a marca velha, ou a
+            # nova.
+            alvo = cls._caminho_da_marca(pasta, nome)
+            provisoria = alvo.with_suffix(alvo.suffix + ".nova")
+            provisoria.write_text(f"{tamanho} {crc:08x}\n", encoding="ascii")
+            provisoria.replace(alvo)
         except OSError as e:
             log.error("falha acrescentando %s ao historico: %s", nome, e)
 
@@ -1582,6 +1629,21 @@ def main(argv: list[str] | None = None) -> int:
 
     servidor = cria_servidor(args.dados, args.porta, args.endereco,
                              aparelhos, args.recebidos, mapa, zonas)
+
+    # ⚠️ **O processo é o PID 1 do container.** Sem tratar o SIGTERM, o
+    # `docker stop` espera dez segundos e manda SIGKILL -- e nesses dez
+    # segundos as conexões em curso ficam penduradas, cada reinício custa a
+    # espera inteira e o `.parcial` de quem estava enviando fica para trás.
+    #
+    # O `shutdown` sai numa thread porque ele espera o `serve_forever`
+    # terminar, e `serve_forever` está rodando nesta thread: chamá-lo aqui
+    # dentro travaria o encerramento que ele existe para fazer.
+    def encerra(_sinal, _quadro):
+        log.info("sinal recebido; encerrando")
+        threading.Thread(target=servidor.shutdown, daemon=True).start()
+
+    for sinal in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sinal, encerra)
     log.info("escutando em %s:%d", args.endereco or "0.0.0.0", args.porta)
     log.warning("HTTP puro. O RF05.2 exige HTTPS: ponha um proxy reverso na "
                 "frente antes de usar fora da rede local.")
