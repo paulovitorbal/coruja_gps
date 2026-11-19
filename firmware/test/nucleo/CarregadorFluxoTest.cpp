@@ -4,7 +4,12 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
+#include <map>
+#include <string>
 #include <vector>
+
+#include "apoio/LoggerMock.h"
 
 namespace {
 
@@ -139,6 +144,180 @@ TEST(CarregadorFluxo, ReiniciaPermiteUsarOMesmoObjetoNaSegundaTentativa) {
     c.alimenta(bytes.data(), bytes.size());
     EXPECT_EQ(c.conclui(), ErroBase::Nenhum);
     EXPECT_EQ(c.pontos(), 100u);
+}
+
+TEST(CarregadorFluxo, SemDestinoValidaSemEscreverNada) {
+    // O primeiro estagio da troca da base: o mesmo veredito, sem um byte no
+    // vetor que o alerta esta usando.
+    const auto bytes = le_fixture();
+    ASSERT_FALSE(bytes.empty());
+    CarregadorFluxo c(nullptr, kCapacidadeFirmware);
+    c.alimenta(bytes.data(), bytes.size());
+    EXPECT_EQ(c.conclui(), ErroBase::Nenhum);
+    EXPECT_EQ(c.pontos(), 100u);
+
+    auto corrompido = bytes;
+    corrompido[100] ^= 0x01U;
+    c.reinicia();
+    c.alimenta(corrompido.data(), corrompido.size());
+    EXPECT_EQ(c.conclui(), ErroBase::CrcInvalido);
+}
+
+// ===========================================================================
+// A troca da base em uso: so inteira, e so depois de validada
+// ===========================================================================
+//
+// Depois de um OTA a base e relida do cartao para o MESMO vetor que o alerta
+// usa -- nao ha RAM para dois. A versao anterior escrevia no vetor enquanto
+// lia: se a leitura falhava no meio, a contagem antiga passava a apontar para
+// um vetor misturado, metade base nova e metade velha, e o piloto alertava
+// sobre ele sem que nada denunciasse.
+
+/// Cartao de bases em memoria, com falha escolhida por passada.
+struct CartaoDeBases {
+    std::map<std::string, std::vector<std::uint8_t>> arquivos;
+    unsigned leituras = 0;
+    /// A leitura de numero N (1, 2, ...) para no meio e devolve falha.
+    unsigned falha_na_leitura = 0;
+
+    static ErroCartao le(void* fonte, const char* nome, AoLerPedacoBase ao_ler,
+                         void* contexto, Logger&) {
+        auto* c = static_cast<CartaoDeBases*>(fonte);
+        ++c->leituras;
+        const auto it = c->arquivos.find(nome);
+        if (it == c->arquivos.end()) { return ErroCartao::ArquivoAusente; }
+        const auto& b = it->second;
+        const bool falha = c->leituras == c->falha_na_leitura;
+        const std::size_t ate = falha ? b.size() / 2 : b.size();
+        for (std::size_t i = 0; i < ate; i += 4096) {
+            ao_ler(contexto, b.data() + i, std::min<std::size_t>(4096, ate - i));
+        }
+        return falha ? ErroCartao::FalhaDeLeitura : ErroCartao::Nenhum;
+    }
+};
+
+struct TrocaDaBase : public ::testing::Test {
+    CartaoDeBases      cartao;
+    teste::LoggerMock  log;
+    std::vector<Ponto> vetor = std::vector<Ponto>(kCapacidadeFirmware, Ponto{});
+    std::vector<std::uint8_t> fixture = le_fixture();
+
+    /// Uma base "em uso" que nao e a fixture: tres pontos reconheciveis.
+    BaseCarregada poe_base_em_uso() {
+        for (std::size_t i = 0; i < 3; ++i) {
+            vetor[i] = Ponto{-1.0F * static_cast<float>(i + 1), -2.0F, 77, 0,
+                             TipoPonto::RadarFixo, Sentido::Omnidirecional};
+        }
+        BaseCarregada b;
+        b.pontos = 3;
+        b.cabecalho.ano = 1999;
+        return b;
+    }
+
+    BaseCarregada troca(const BaseCarregada& em_uso) {
+        return troca_base(&CartaoDeBases::le, &cartao, "radares.bin",
+                          "radares.bak", vetor.data(), vetor.size(), em_uso,
+                          log);
+    }
+
+    bool vetor_igual(const std::vector<Ponto>& outro) const {
+        return std::memcmp(vetor.data(), outro.data(),
+                           vetor.size() * sizeof(Ponto)) == 0;
+    }
+};
+
+TEST_F(TrocaDaBase, base_nova_que_nao_valida_nao_toca_na_base_em_uso) {
+    ASSERT_FALSE(fixture.empty());
+    const BaseCarregada em_uso = poe_base_em_uso();
+    const auto antes = vetor;
+
+    auto corrompida = fixture;
+    corrompida[corrompida.size() - 5] ^= 0x01U;   // CRC so falha no fim
+    cartao.arquivos["radares.bin"] = corrompida;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    EXPECT_EQ(depois.pontos, em_uso.pontos);
+    EXPECT_EQ(depois.cabecalho.ano, 1999);
+    EXPECT_TRUE(vetor_igual(antes)) << "a base em uso foi misturada com a nova";
+}
+
+TEST_F(TrocaDaBase, leitura_que_falha_no_meio_nao_toca_na_base_em_uso) {
+    ASSERT_FALSE(fixture.empty());
+    const BaseCarregada em_uso = poe_base_em_uso();
+    const auto antes = vetor;
+    cartao.arquivos["radares.bin"] = fixture;
+    cartao.falha_na_leitura = 1;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    EXPECT_EQ(depois.pontos, em_uso.pontos);
+    EXPECT_TRUE(vetor_igual(antes)) << "a base em uso foi misturada com a nova";
+}
+
+TEST_F(TrocaDaBase, base_nova_valida_substitui_a_em_uso_inteira) {
+    ASSERT_FALSE(fixture.empty());
+    const BaseCarregada em_uso = poe_base_em_uso();
+    cartao.arquivos["radares.bin"] = fixture;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    std::vector<Ponto> esperado(kCapacidadeFirmware);
+    const auto r = carrega_base(fixture.data(), fixture.size(),
+                                esperado.data(), esperado.size());
+    ASSERT_EQ(r.erro, ErroBase::Nenhum);
+    ASSERT_EQ(depois.pontos, r.pontos);
+    for (std::size_t i = 0; i < r.pontos; ++i) {
+        ASSERT_EQ(vetor[i].lat, esperado[i].lat) << "ponto " << i;
+        ASSERT_EQ(vetor[i].limite, esperado[i].limite) << "ponto " << i;
+    }
+}
+
+TEST_F(TrocaDaBase, copia_que_falha_depois_de_validar_nao_deixa_a_contagem_velha) {
+    // O unico caso em que o vetor se perde: o arquivo validou, e a SEGUNDA
+    // leitura -- a que escreve -- falhou. O vetor esta misturado; a contagem
+    // antiga sobre ele seria alertar com coordenadas de duas bases. Zero
+    // pontos e "BASE INDISPONIVEL" na tela, que e o lado certo.
+    ASSERT_FALSE(fixture.empty());
+    const BaseCarregada em_uso = poe_base_em_uso();
+    cartao.arquivos["radares.bin"] = fixture;
+    cartao.falha_na_leitura = 2;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    EXPECT_EQ(depois.pontos, 0u);
+    EXPECT_TRUE(log.contem(Nivel::Error, "NENHUMA base"));
+}
+
+TEST_F(TrocaDaBase, copia_que_falha_cai_para_a_reserva) {
+    ASSERT_FALSE(fixture.empty());
+    const BaseCarregada em_uso = poe_base_em_uso();
+    cartao.arquivos["radares.bin"] = fixture;
+    cartao.arquivos["radares.bak"] = fixture;
+    cartao.falha_na_leitura = 2;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    EXPECT_EQ(depois.pontos, 100u);
+    EXPECT_TRUE(log.contem(Nivel::Warning, "RESERVA"));
+}
+
+TEST_F(TrocaDaBase, sem_base_em_uso_le_o_arquivo_uma_vez_so) {
+    // No boot nao ha o que proteger: o vetor esta vazio, e validar antes
+    // custaria uma segunda leitura de 214 KB no arranque por nada.
+    ASSERT_FALSE(fixture.empty());
+    cartao.arquivos["radares.bin"] = fixture;
+
+    const BaseCarregada depois = troca(BaseCarregada{});
+
+    EXPECT_EQ(depois.pontos, 100u);
+    EXPECT_EQ(cartao.leituras, 1u);
+}
+
+TEST_F(TrocaDaBase, sem_base_em_uso_e_sem_arquivo_fica_sem_base) {
+    const BaseCarregada depois = troca(BaseCarregada{});
+    EXPECT_EQ(depois.pontos, 0u);
+    EXPECT_TRUE(log.contem(Nivel::Error, "NENHUMA base"));
 }
 
 }  // namespace
