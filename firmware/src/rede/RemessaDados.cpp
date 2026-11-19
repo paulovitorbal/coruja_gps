@@ -159,24 +159,16 @@ void RemessaDados::avisa(FaseRemessa fase, const char* nome, unsigned indice,
 }
 
 RemessaDados::Desfecho RemessaDados::classifica(const ResultadoHttp& r) {
-    if (r.erro == ErroHttp::CertificadoRecusado) { return Desfecho::Certificado; }
-    // O cliente nem montou o pedido: host vazio, ou cabecalho que nao coube.
-    // E configuracao, como a URL que nao forma.
-    if (r.erro == ErroHttp::UrlInvalida) { return Desfecho::Url; }
-    // Vale o STATUS, e nao o erro. O servidor recusa sem ler o corpo e fecha
-    // (`_descarta_corpo`), e o RST pode chegar logo atras da resposta: o
-    // cliente devolve `Interrompida`, mas com o 401 que chegou a ler.
-    //
-    // Abaixo de 300 nao houve resposta que servisse: nenhuma linha de status,
-    // ou uma que caiu antes de terminar, ou que veio sem o CRC.
-    if (r.status < 300) { return Desfecho::SemResposta; }
-    if (r.status == 413) { return Desfecho::GrandeDemais; }
-    // Os dois 4xx que pedem, eles mesmos, outra tentativa.
-    if (r.status == 408 || r.status == 429) { return Desfecho::ErroNoServidor; }
-    // 3xx junto com 4xx: o aparelho nao segue redirecionamento, e o 301 de um
-    // `http://` que o proxy manda para `https://` volta a cada tentativa.
-    if (r.status < 500) { return Desfecho::Recusado; }
-    return Desfecho::ErroNoServidor;
+    // A leitura do resultado e a do OTA tambem: mora em `classifica_falha`.
+    switch (classifica_falha(r)) {
+        case FalhaHttp::Url:            return Desfecho::Url;
+        case FalhaHttp::SemResposta:    return Desfecho::SemResposta;
+        case FalhaHttp::ErroNoServidor: return Desfecho::ErroNoServidor;
+        case FalhaHttp::GrandeDemais:   return Desfecho::GrandeDemais;
+        case FalhaHttp::Recusado:       return Desfecho::Recusado;
+        case FalhaHttp::Certificado:    return Desfecho::Certificado;
+    }
+    return Desfecho::SemResposta;  // fora de faixa: o lado que insiste
 }
 
 bool RemessaDados::vale_repetir(Desfecho d) {

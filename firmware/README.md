@@ -437,7 +437,7 @@ parava no teto. Um token errado, uma `url_envio` errada ou um relógio sem hora
 — que faz todo certificado ser recusado — voltam iguais dois segundos depois:
 com 40 arquivos e um 401, eram 59 `PUT` e os dez minutos inteiros de aparelho
 preso. Desde a v0.2.25 cada tentativa termina num desfecho, e só é repetido o
-que pode mudar (`RemessaDados::classifica`):
+que pode mudar (`classifica_falha`, em `rede/Baixador.h`):
 
 | desfecho | repete? | na conta da parada |
 | :--- | :--- | :--- |
