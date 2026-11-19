@@ -378,6 +378,19 @@ bool AtualizadorOta::consulta_versao(const Url& url, Logger& log,
         *motivo = ResultadoOta::FalhaAoConsultar;
         return false;
     }
+    // Parseada UMA VEZ, aqui na entrada: dado de fora so vira versao depois
+    // de passar. Ela e registrada no log -- que e lido linha a linha para
+    // saber o que aconteceu, e uma quebra de linha nela escreveria linhas
+    // que ninguem registrou -- e gravada no `versao.txt`, de onde volta na
+    // comparacao do clique seguinte. A mesma regra do token e da URL.
+    if (!seguro_para_cabecalho(versao_remota_)) {
+        log.error("ota", "a versao do servidor tem caractere que nao se "
+                         "registra; recusada");
+        versao_remota_[0] = '\0';
+        versao_remota_tam_ = 0;
+        *motivo = ResultadoOta::FalhaAoConsultar;
+        return false;
+    }
     return true;
 }
 

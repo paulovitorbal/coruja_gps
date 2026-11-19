@@ -362,6 +362,37 @@ TEST(AtualizadorOta, versao_vazia_do_servidor_e_falha_e_nao_atualizacao) {
     EXPECT_EQ(b.http.pedidos_base, 0U);
 }
 
+TEST(AtualizadorOta, versao_com_quebra_de_linha_nao_injeta_no_log) {
+    // A versao vem do servidor e vai para o log -- e o log e lido depois,
+    // linha a linha, para saber o que aconteceu. Uma quebra de linha nela
+    // escreve linhas inteiras que ninguem registrou. Ela tambem vai para o
+    // `versao.txt` e volta na comparacao do clique seguinte.
+    Bancada b;
+    b.http.corpo_versao = "2026-09-28\nota: base gravada em 'radares.bin'";
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+    for (const auto& e : b.log.entradas()) {
+        EXPECT_EQ(e.mensagem.find('\n'), std::string::npos) << e.mensagem;
+    }
+}
+
+TEST(AtualizadorOta, versao_com_caractere_de_controle_e_recusada) {
+    Bancada b;
+    b.http.corpo_versao = "2026-09-\x1b[2J28";
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(AtualizadorOta, versao_comum_do_servidor_continua_passando) {
+    // O par do teste acima: uma guarda que recusasse tudo passaria nele.
+    for (const char* v : {"2026-09-28", "v1.2.3", "a7f3c9e",
+                          "2026-09-28T12:00:00Z"}) {
+        Bancada b;
+        b.http.corpo_versao = v;
+        EXPECT_EQ(b.roda(), ResultadoOta::Atualizada) << v;
+    }
+}
+
 TEST(AtualizadorOta, consulta_que_falha_nao_baixa) {
     Bancada b;
     b.http.resposta_versao = ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0};

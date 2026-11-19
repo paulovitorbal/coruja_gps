@@ -30,4 +30,26 @@ void apara_branco(char* texto, std::size_t* tamanho);
 /// fazer com ele não é esta função. `nullptr` recusa.
 bool seguro_para_cabecalho(const char* texto);
 
+/// Qual token acompanha uma requisição: o `da_chamada`, quando há um e ele
+/// pode entrar num cabeçalho, ou o `guardado`, quando não há.
+///
+/// **O token de fora é dado externo**, como todo o resto do `coruja.cfg`: o
+/// cartão é removível e relido a cada ação (RNF03). Um `\r\n` nele vira
+/// cabeçalho a mais na requisição que o aparelho manda, montado por quem
+/// escreveu no cartão. O `ClienteTls::define_token` já recusava o token que
+/// o cliente guarda; o que vem por chamada passava direto.
+///
+/// Token torto devolve vazio — e **não** o guardado: cair no guardado
+/// mascararia o erro do `coruja.cfg` com o segredo certo, e o aparelho
+/// funcionaria com uma configuração quebrada. Sem token o servidor responde
+/// 401, que é visível.
+///
+/// Mora aqui, e não dentro do cliente, porque o cliente só compila para o
+/// RP2350 — e esta é decisão sobre texto vindo de fora, que é exatamente o
+/// que precisa de teste.
+///
+/// Nunca devolve nulo: o resultado vai direto para o `%s` que monta a
+/// requisição.
+const char* token_para_cabecalho(const char* da_chamada, const char* guardado);
+
 }  // namespace coruja

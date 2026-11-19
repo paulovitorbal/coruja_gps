@@ -48,4 +48,11 @@ bool seguro_para_cabecalho(const char* texto) {
     return true;
 }
 
+const char* token_para_cabecalho(const char* da_chamada,
+                                 const char* guardado) {
+    if (guardado == nullptr) { guardado = ""; }
+    if (da_chamada == nullptr || da_chamada[0] == '\0') { return guardado; }
+    return seguro_para_cabecalho(da_chamada) ? da_chamada : "";
+}
+
 }  // namespace coruja

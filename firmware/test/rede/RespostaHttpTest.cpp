@@ -653,6 +653,84 @@ TEST(LeitorResposta, o_fechamento_so_completa_quem_nao_anunciou_o_fim) {
     }
 }
 
+// --- o corpo nao e cabecalho -----------------------------------------------
+
+TEST(LeitorResposta, content_length_dentro_do_corpo_nao_vale) {
+    // O corpo que vem colado fica no MESMO buffer dos cabecalhos, e a
+    // varredura ia ate o fim dele: um corpo que comece com uma linha
+    // `content-length:` reescrevia o valor de verdade. Com 3 em vez de 42, o
+    // resto do radares.bin seria descartado como lixo de depois do corpo.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 42\r\n\r\n"
+        "content-length: 3\n" + std::string(24, 'x');
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(leitor.content_length(), 42);
+    EXPECT_EQ(c.corpo.size(), 42u);
+    EXPECT_TRUE(leitor.completa());
+}
+
+TEST(LeitorResposta, transfer_encoding_dentro_do_corpo_nao_vale) {
+    // O mesmo pela outra porta: um corpo que mencione `transfer-encoding:
+    // chunked` poria o leitor a ler tamanhos de pedaco dentro dos dados.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\n"
+        "transfer-encoding: chunked\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(c.corpo, "transfer-encoding: chunked\r\nabc");
+    EXPECT_TRUE(leitor.completa());
+}
+
+// --- a resposta provisoria -------------------------------------------------
+
+TEST(LeitorResposta, cem_continue_nao_e_a_resposta_final) {
+    // Um proxy no caminho pode mandar `100 Continue` sem ninguem ter pedido.
+    // Tomar o 100 como final deixava o status em 100 -- que quem chama le
+    // como "sem resposta" -- e o corpo de verdade virava lixo depois do
+    // corpo.
+    const std::string bruto =
+        "HTTP/1.1 100 Continue\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\noi";
+    for (std::size_t passo : {1U, 3U, 999U}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, passo, &c)) << passo;
+        EXPECT_EQ(leitor.status(), 200u) << passo;
+        EXPECT_EQ(c.corpo, "oi") << passo;
+        EXPECT_TRUE(leitor.completa()) << passo;
+    }
+}
+
+TEST(LeitorResposta, cem_continue_sozinho_ainda_nao_tem_status) {
+    // So a provisoria chegou: nao ha resposta final, e dizer 100 seria pior
+    // do que dizer nada -- quem chama trata zero como "sem resposta".
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "HTTP/1.1 100 Continue\r\n\r\n",
+                                   4, &c));
+    EXPECT_EQ(leitor.status(), 0u);
+    EXPECT_FALSE(leitor.cabecalhos_prontos());
+}
+
+TEST(LeitorResposta, o_content_length_da_provisoria_nao_vale_para_a_final) {
+    const std::string bruto =
+        "HTTP/1.1 102 Processing\r\nContent-Length: 999\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 7, &c));
+    EXPECT_EQ(leitor.status(), 200u);
+    EXPECT_EQ(leitor.content_length(), 3);
+    EXPECT_EQ(c.corpo, "abc");
+}
+
 // --- quem recebe pode parar -----------------------------------------------
 //
 // O OTA grava o corpo no cartao enquanto ele chega. Quando o cartao recusa,

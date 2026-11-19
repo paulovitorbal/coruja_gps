@@ -129,4 +129,36 @@ TEST(SeguroParaCabecalho, ByteAltoRecusa) {
     EXPECT_FALSE(seguro_para_cabecalho(acentuado));
 }
 
+// --- token_para_cabecalho --------------------------------------------------
+//
+// O token por chamada vem do `coruja.cfg` como todo o resto, e o cartao e
+// removivel e relido a cada acao (RNF03). O `ClienteTls::define_token` ja
+// recusava o token que o cliente guarda; o que ia por chamada passava
+// direto -- e um `\r\n` nele vira cabecalho a mais na requisicao que o
+// aparelho manda.
+
+TEST(TokenParaCabecalho, o_da_chamada_vence_o_guardado) {
+    EXPECT_STREQ(token_para_cabecalho("daremessa", "doboot"), "daremessa");
+}
+
+TEST(TokenParaCabecalho, sem_token_de_chamada_vale_o_guardado) {
+    EXPECT_STREQ(token_para_cabecalho(nullptr, "doboot"), "doboot");
+    EXPECT_STREQ(token_para_cabecalho("", "doboot"), "doboot");
+}
+
+TEST(TokenParaCabecalho, token_torto_nao_vai_e_nao_cai_no_guardado) {
+    // Vazio, e nao o guardado: cair nele mascararia o erro do coruja.cfg
+    // com o segredo certo, e o aparelho funcionaria com uma configuracao
+    // quebrada. Sem token o servidor responde 401, que e visivel.
+    EXPECT_STREQ(token_para_cabecalho("bom\r\nX-Outro: 1", "doboot"), "");
+    EXPECT_STREQ(token_para_cabecalho("com espaco", "doboot"), "");
+    EXPECT_STREQ(token_para_cabecalho("com\ttab", "doboot"), "");
+}
+
+TEST(TokenParaCabecalho, nunca_devolve_nulo) {
+    // Vai direto para um `%s` do `snprintf` que monta a requisicao.
+    EXPECT_NE(token_para_cabecalho(nullptr, nullptr), nullptr);
+    EXPECT_STREQ(token_para_cabecalho(nullptr, nullptr), "");
+}
+
 }  // namespace

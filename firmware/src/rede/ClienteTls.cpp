@@ -827,8 +827,7 @@ ResultadoHttp ClienteTls::envia(const Url& url, const char* token,
         saida.erro = ErroHttp::NaoIniciou;
         return saida;
     }
-    return conversa(&configuracao_,
-                    token != nullptr && token[0] != '\0' ? token : token_,
+    return conversa(&configuracao_, token_para_cabecalho(token, token_),
                     &cache_host_, endereco_guardado_,
                     url, "PUT", fonte, contexto, tamanho, nullptr, nullptr,
                     log, tempo_limite_ms);
@@ -858,8 +857,7 @@ ResultadoHttp ClienteTls::consulta_crc(const Url& url, const char* token,
                                        std::uint32_t* crc, Logger& log,
                                        std::uint32_t tempo_limite_ms) {
     CorpoCurto corpo;
-    auto saida = conversa(&configuracao_,
-                          token != nullptr && token[0] != '\0' ? token : token_,
+    auto saida = conversa(&configuracao_, token_para_cabecalho(token, token_),
                           &cache_host_, endereco_guardado_,
                           url, "GET", nullptr, nullptr, 0,
                           CorpoCurto::ao_receber, &corpo, log,
