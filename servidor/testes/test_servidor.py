@@ -878,6 +878,124 @@ class Recepcao(unittest.TestCase):
         self.assertNotIn(PASTA.encode(), corpo)
 
 
+class ConexoesLentasEDemais(unittest.TestCase):
+    """Quem manda devagar, e quem abre conexao demais.
+
+    O prazo do soquete e POR OPERACAO: um byte a cada 59 s mantinha a thread
+    viva para sempre. E o servidor abria uma thread por conexao, sem teto --
+    um punhado desses cliente bastava para tirar o servico do ar.
+
+    Os prazos sao trocados na CLASSE, como o teste de prazo da `Recepcao`
+    faz: 1 s de prazo total, e o de operacao intocado nos 60 s de producao,
+    que e justamente o que nao basta.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dados = Path(self.tmp.name)
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        antes = getattr(s.Manipulador, "prazo_do_pedido", None)
+        s.Manipulador.prazo_do_pedido = 1.0
+        self.addCleanup(setattr, s.Manipulador, "prazo_do_pedido", antes)
+        vagas = getattr(s.Servidor, "maximo_de_conexoes", None)
+        s.Servidor.maximo_de_conexoes = 2
+        self.addCleanup(setattr, s.Servidor, "maximo_de_conexoes", vagas)
+        self.srv = s.cria_servidor(self.dados, 0, "127.0.0.1", APARELHOS)
+        self.porta = self.srv.server_address[1]
+        self.t = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.t.start()
+        self.addCleanup(self.t.join, 5)
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def abre(self):
+        import socket
+        c = socket.create_connection(("127.0.0.1", self.porta), timeout=5)
+        self.addCleanup(c.close)
+        return c
+
+    def conta_gotas(self, c, gota: bytes, limite_s: float = 6.0) -> float:
+        """Manda `gota` a cada 0,2 s ate o servidor responder ou fechar.
+
+        Devolve quanto tempo levou. Nunca fica 0,2 s sem mandar nada: o
+        prazo por operacao, sozinho, nao pega este cliente.
+        """
+        import select
+        import time
+        inicio = time.monotonic()
+        while time.monotonic() - inicio < limite_s:
+            try:
+                c.sendall(gota)
+            except OSError:
+                return time.monotonic() - inicio
+            prontos, _, _ = select.select([c], [], [], 0.2)
+            if prontos:
+                return time.monotonic() - inicio
+        self.fail(f"o servidor aguentou {limite_s} s de conta-gotas")
+
+    def test_cabecalho_a_conta_gotas_tem_prazo_total(self):
+        c = self.abre()
+        c.sendall(b"GET /saude HTTP/1.1\r\nX-Lento: ")
+        self.assertLess(self.conta_gotas(c, b"a"), 4.0)
+
+    def test_corpo_a_conta_gotas_tem_prazo_total_e_nao_deixa_parcial(self):
+        c = self.abre()
+        c.sendall((f"PUT {s.ROTA_ENVIO}coruja.log HTTP/1.1\r\n"
+                   f"Host: 127.0.0.1\r\n{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+                   f"Content-Length: 100000\r\n\r\n").encode())
+        self.assertLess(self.conta_gotas(c, b"x"), 4.0)
+        pasta = self.dados / s.SUBDIR_ENVIO / PASTA
+        import time
+        prazo = time.monotonic() + 5
+        while list(pasta.glob("*.parcial")) and time.monotonic() < prazo:
+            time.sleep(0.01)
+        self.assertEqual(list(pasta.glob("*")), [])
+
+    def test_o_prazo_total_cobre_o_envio_mais_lento_do_aparelho(self):
+        # O firmware desiste de um envio em 180 s (`kTempoLimiteEnvioMs`).
+        # Cortar antes, daqui, mataria um envio que o aparelho ainda espera.
+        self.assertGreater(s.PRAZO_DO_PEDIDO_S, 180)
+        self.assertGreater(s.PRAZO_DO_PEDIDO_S, s.TEMPO_LIMITE_S)
+
+    def test_conexao_alem_do_teto_e_recusada_com_503(self):
+        # Duas conexoes paradas no meio do cabecalho ocupam as duas vagas.
+        for _ in range(2):
+            self.abre().sendall(b"GET /saude HTTP/1.1\r\n")
+        terceira = self.abre()
+        resposta = b""
+        while pedaco := terceira.recv(4096):
+            resposta += pedaco
+        self.assertTrue(resposta.startswith(b"HTTP/1.1 503"), resposta[:40])
+
+    def test_a_vaga_volta_quando_a_conexao_termina(self):
+        import time
+        ocupadas = [self.abre() for _ in range(2)]
+        for c in ocupadas:
+            c.sendall(b"GET /saude HTTP/1.1\r\n")
+        ocupadas[0].close()
+        # Espera deterministica: pergunta ate a vaga voltar.
+        prazo = time.monotonic() + 5
+        while True:
+            c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=5)
+            try:
+                c.request("GET", s.ROTA_SAUDE)
+                r = c.getresponse()
+                # Le o corpo antes de fechar: abandonar a resposta pela
+                # metade faz o servidor escrever num soquete ja fechado, e o
+                # rastro disso polui a saida de todo mundo.
+                r.read()
+                status = r.status
+            except OSError:
+                status = None
+            finally:
+                c.close()
+            if status == 200 or time.monotonic() > prazo:
+                break
+            time.sleep(0.02)
+        self.assertEqual(status, 200)
+
+
 class AparelhoDeTokenVazio(unittest.TestCase):
     """Uma entrada de token vazio não pode virar um passe para todos.
 

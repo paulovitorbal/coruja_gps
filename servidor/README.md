@@ -60,6 +60,25 @@ arquivo ruim some da listagem e o mapa dele explica o motivo, sem derrubar a
 página do aparelho. A animação inventa no máximo `TETO_DE_PASSOS` pontos por
 trecho, por longo que ele seja.
 
+### Prazos e teto de conexões
+
+| Limite | Valor | O que ele corta |
+| :--- | ---: | :--- |
+| `TEMPO_LIMITE_S` | 60 s | silêncio no soquete, por operação |
+| `PRAZO_DO_PEDIDO_S` | 300 s | a DURAÇÃO do pedido inteiro |
+| `MAXIMO_DE_CONEXOES` | 32 | conexões simultâneas; além disso, `503` |
+
+⚠️ **O prazo por operação sozinho não limita nada.** Ele mede o silêncio: um
+cliente que manda um byte a cada 59 s nunca fica em silêncio, e segurava a
+thread, o `.parcial` e a vaga para sempre. O prazo total é conferido **entre**
+as leituras, e não só na entrada de cada uma — um `readline` fica girando lá
+dentro até a quebra de linha, e era por aí que o conta-gotas passava.
+
+Os 300 s ficam acima dos 180 s em que o **firmware** desiste de um envio
+(`kTempoLimiteEnvioMs`): quem decide que um envio morreu continua sendo o
+aparelho. O teto de conexões troca "a máquina inteira para" por "esta conexão
+recebe `503` e tenta de novo" — e o aparelho tenta de novo.
+
 ## A versão sai do próprio arquivo
 
 Nada de incrementar número à mão. O `radares.bin` já carrega um **CRC-32 do

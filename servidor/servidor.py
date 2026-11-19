@@ -31,6 +31,7 @@ import hmac
 import re
 import secrets
 import shutil
+import socket
 import threading
 import time
 import urllib.parse
@@ -143,6 +144,30 @@ SUFIXO_MARCA = ".marca"
 #: Bem acima dos 15 s de inatividade do firmware (`kInatividadeHttpMs`): quem
 #: decide que um envio morreu é o aparelho, que sabe se ele ainda vale.
 TEMPO_LIMITE_S = 60
+
+#: Prazo TOTAL de um pedido: linha, cabeçalhos e corpo somados.
+#:
+#: ⚠️ **O `TEMPO_LIMITE_S` sozinho não limita nada**, porque ele vale por
+#: OPERAÇÃO de soquete: quem manda um byte a cada 59 s reinicia a contagem a
+#: cada byte e fica com a thread para sempre. É o ataque clássico de conexão
+#: lenta, e aqui ele não precisa de má intenção -- bastava um enlace ruim.
+#:
+#: Maior que os 180 s do `kTempoLimiteEnvioMs` do firmware: quem decide que
+#: um envio morreu continua sendo o aparelho, que sabe se ele ainda vale.
+#: Este prazo é o teto de paciência, e não o de operação normal -- quem o
+#: alcança já não está mandando dado, está ocupando uma vaga.
+PRAZO_DO_PEDIDO_S = 300
+
+#: Quantas conexões o servidor atende ao mesmo tempo.
+#:
+#: Uma thread por conexão, sem teto, é uma thread por conexão que alguém
+#: queira abrir: cada uma com pilha própria, e uma delas podendo estar
+#: desenhando um mapa. O teto troca "a máquina inteira para" por "esta
+#: conexão recebe 503 e tenta de novo" -- e o aparelho tenta de novo.
+#:
+#: 32 é folga larga para um punhado de aparelhos e uma pessoa olhando a
+#: página: o firmware abre no máximo duas conexões por arquivo, em série.
+MAXIMO_DE_CONEXOES = 32
 
 #: Uma gravação de cada vez: trocar o arquivo recebido e juntar o trecho ao
 #: histórico. O corpo é recebido FORA dela, então um envio lento não segura
@@ -432,6 +457,96 @@ def versao_de(caminho: Path) -> str | None:
     return f"sha256:{hashlib.sha256(bruto).hexdigest()[:16]}"
 
 
+class _LeitorComPrazo:
+    """O `rfile` do pedido, com o prazo TOTAL de `PRAZO_DO_PEDIDO_S`.
+
+    ⚠️ **Por que não basta `settimeout`.** O prazo do soquete vale por
+    operação: ele mede o silêncio, não a duração. Um cliente que manda um
+    byte a cada 0,2 s nunca fica em silêncio e nunca é cortado -- e segura a
+    thread, o arquivo `.parcial` e a vaga.
+
+    Aqui cada leitura confere quanto resta do prazo do pedido e encurta o do
+    soquete para o que for MENOR dos dois. Assim o silêncio continua sendo
+    cortado pelo prazo de sempre, e a duração passa a ter teto.
+
+    `TimeoutError` é o que o `handle_one_request` da biblioteca já trata:
+    ele fecha a conexão sem responder, que é o certo para um cliente que
+    parou de falar.
+
+    ⚠️ **Conferir o prazo só na entrada de cada chamada não resolve**, e foi
+    a primeira versão disto: um `readline` do `BufferedReader` só volta na
+    quebra de linha, e um `read(n)` só com os `n` bytes -- os dois ficam
+    girando lá dentro enquanto o cliente pinga. Por isso aqui cada leitura é
+    desmontada em leituras curtas, com o prazo conferido ENTRE elas.
+    """
+
+    def __init__(self, fonte, soquete, limite_por_operacao: float | None):
+        # `peek` é o que permite olhar sem consumir, e é o que torna o
+        # `readline` em pedaços possível sem devolver byte ao buffer. O
+        # `BaseHTTPRequestHandler` sempre usa `rbufsize = -1`, que é
+        # bufferizado; se um dia não for, é melhor saber aqui.
+        assert hasattr(fonte, "peek"), "o rfile precisa ser bufferizado"
+        self._fonte = fonte
+        self._soquete = soquete
+        self._por_operacao = limite_por_operacao
+        self._fim = None
+
+    def comeca(self, prazo: float | None) -> None:
+        """Zera o cronômetro. Um pedido novo na mesma conexão recomeça."""
+        self._fim = None if prazo is None else time.monotonic() + prazo
+
+    def _ajusta(self) -> None:
+        """Confere o prazo do pedido e encurta o do soquete ao que resta."""
+        if self._fim is None:
+            return
+        resta = self._fim - time.monotonic()
+        if resta <= 0:
+            raise TimeoutError("prazo do pedido esgotado")
+        if self._por_operacao is not None:
+            resta = min(resta, self._por_operacao)
+        self._soquete.settimeout(resta)
+
+    def read(self, quanto=-1):
+        if quanto is None or quanto < 0:
+            # Ninguém neste servidor lê "até o fim": o corpo tem tamanho
+            # declarado e os cabeçalhos vão por linha. Sem teto não haveria
+            # prazo que valesse.
+            raise ValueError("leitura sem tamanho nao e aceita aqui")
+        pedacos = []
+        falta = quanto
+        while falta > 0:
+            self._ajusta()
+            # `read1`: no máximo UMA leitura do soquete, com o que já
+            # estiver lá. É o que devolve o controle a cada pingo.
+            pedaco = self._fonte.read1(falta)
+            if not pedaco:
+                break                      # o outro lado fechou
+            pedacos.append(pedaco)
+            falta -= len(pedaco)
+        return b"".join(pedacos)
+
+    def readline(self, limite=-1):
+        pedacos = []
+        lidos = 0
+        while True:
+            self._ajusta()
+            espiado = self._fonte.peek(1)
+            if not espiado:
+                break                      # o outro lado fechou
+            corte = espiado.find(b"\n")
+            quanto = corte + 1 if corte >= 0 else len(espiado)
+            if limite >= 0:
+                quanto = min(quanto, limite - lidos)
+            pedacos.append(self._fonte.read(quanto))
+            lidos += quanto
+            if corte >= 0 or (limite >= 0 and lidos >= limite):
+                break
+        return b"".join(pedacos)
+
+    def __getattr__(self, nome):
+        return getattr(self._fonte, nome)
+
+
 class Manipulador(http.server.BaseHTTPRequestHandler):
     """Só duas rotas. Qualquer outra coisa é 404.
 
@@ -444,6 +559,8 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     # O `StreamRequestHandler` aplica no soquete. Ver `TEMPO_LIMITE_S`.
     timeout = TEMPO_LIMITE_S
+    #: Prazo total de cada pedido. Ver `PRAZO_DO_PEDIDO_S`.
+    prazo_do_pedido: float | None = PRAZO_DO_PEDIDO_S
 
     # Injetado pelo `cria_servidor`.
     dados: Path = Path(".")
@@ -478,6 +595,19 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     sessoes: dict = {}
     #: {endereco: instante ate o qual novas tentativas esperam}
     castigo: dict = {}
+
+    def setup(self) -> None:
+        super().setup()
+        # O prazo total precisa valer para a linha de pedido e para os
+        # cabeçalhos também, e quem os lê é a biblioteca -- direto do
+        # `rfile`. Envolver o `rfile` é o que alcança os três.
+        self.rfile = _LeitorComPrazo(self.rfile, self.connection, self.timeout)
+
+    def handle_one_request(self) -> None:
+        # Cada pedido da conexão ganha o prazo inteiro: numa conexão
+        # reaproveitada, o que o pedido anterior gastou não é dívida deste.
+        self.rfile.comeca(self.prazo_do_pedido)
+        super().handle_one_request()
 
     #: Quantos bytes do corpo deste pedido ainda estão no soquete. `None`
     #: quando não dá para saber: `Content-Length` malformado ou repetido com
@@ -721,6 +851,12 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
                     f.write(pedaco)
                     crc = zlib.crc32(pedaco, crc)
                     recebido += len(pedaco)
+        except TimeoutError:
+            # Quem parou de mandar não tem resposta a receber. Limpa o que
+            # era desta conexão e deixa subir: o `handle_one_request` da
+            # biblioteca fecha a conexão e registra.
+            temporario.unlink(missing_ok=True)
+            raise
         except OSError as e:
             temporario.unlink(missing_ok=True)
             log.error("falha gravando %s: %s", nome, e)
@@ -1157,6 +1293,62 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 class Servidor(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+    #: Conexões simultâneas. Ver `MAXIMO_DE_CONEXOES`.
+    maximo_de_conexoes = MAXIMO_DE_CONEXOES
+
+    def __init__(self, *args, **kwargs):
+        # Lido do atributo de CLASSE, e não de um parâmetro: é assim que os
+        # testes o baixam para dois, e é um número de implantação.
+        self._vagas = threading.BoundedSemaphore(self.maximo_de_conexoes)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address) -> None:
+        """Só abre thread se houver vaga. Sem vaga, 503 e fecha.
+
+        ⚠️ A recusa acontece ANTES da thread, na própria linha de aceitação:
+        abrir a thread para dizer que não há vaga seria gastar exatamente o
+        recurso que falta.
+        """
+        if not self._vagas.acquire(blocking=False):
+            self._recusa_lotado(request, client_address)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._vagas.release()
+            raise
+
+    def shutdown_request(self, request) -> None:
+        # Uma vaga por conexão atendida, devolvida quando ela termina. O
+        # `ThreadingMixIn` chama isto no `finally` da thread, inclusive
+        # quando o manipulador levanta.
+        try:
+            super().shutdown_request(request)
+        finally:
+            self._vagas.release()
+
+    def _recusa_lotado(self, request, client_address) -> None:
+        log.warning("%s recusado: %d conexoes em curso", client_address[0],
+                    self.maximo_de_conexoes)
+        corpo = b"servidor ocupado, tente de novo\n"
+        try:
+            # Prazo curto e próprio: a recusa não pode ser a próxima coisa a
+            # prender a linha de aceitação.
+            request.settimeout(2.0)
+            request.sendall(
+                b"HTTP/1.1 503 Service Unavailable\r\n"
+                b"Content-Type: text/plain; charset=utf-8\r\n"
+                b"Content-Length: " + str(len(corpo)).encode() + b"\r\n"
+                b"Connection: close\r\n\r\n" + corpo)
+        except OSError:
+            pass
+        # `close_request`, e não `shutdown_request`: esta conexão nunca teve
+        # vaga, e devolver uma que não se tomou estouraria o semáforo.
+        try:
+            request.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        self.close_request(request)
 
 
 def cria_servidor(dados: Path, porta: int, endereco: str = "",
