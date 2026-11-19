@@ -24,6 +24,11 @@ struct VolumeFalso {
     /// Que erro devolver quando não monta. FatFs distingue três causas, e o
     /// `CartaoSd` as registra separadamente de propósito — ver R-38.
     FRESULT erro_montagem = FR_NO_FILESYSTEM;
+    /// Quantas vezes o volume foi montado. Um `FIL` aberto numa montagem
+    /// morre na seguinte: o `f_mount` do FatFs dá à área de trabalho um
+    /// identificador novo, e o `validate()` de todo objeto antigo passa a
+    /// devolver `FR_INVALID_OBJECT`.
+    unsigned geracao = 0;
     std::map<std::string, std::string> arquivos;
 };
 
@@ -44,17 +49,41 @@ public:
     FRESULT erro_unlink = FR_OK;
     FRESULT erro_opendir = FR_OK;
     FRESULT erro_readdir = FR_OK;
+    /// O `f_close` de um arquivo ESCRITO falha com este erro, e o que foi
+    /// escrito não entra. É o que o FatFs faz: o tamanho só vai ao diretório
+    /// no `f_sync` de dentro do `f_close`, e se ele falha o arquivo continua
+    /// com o tamanho de antes.
+    FRESULT erro_close = FR_OK;
     /// Nomes que a enumeração deve apresentar como diretório, e não arquivo.
     std::set<std::string> diretorios;
     /// A escrita falha a partir deste byte acumulado (0 = nunca falha).
     std::size_t escrita_falha_apos = 0;
+    /// A escrita fica CURTA a partir deste byte acumulado no arquivo aberto
+    /// (0 = nunca): grava o que cabe e devolve `FR_OK` com menos bytes. É o
+    /// cartão cheio, e é o caso traiçoeiro -- o retorno diz que deu certo.
+    std::size_t escrita_curta_apos = 0;
     /// A leitura falha a partir deste byte acumulado (0 = nunca falha). Sem
     /// isto, o caminho de erro do `le_em_fluxo` -- por onde a base entra no
     /// boot -- nao tem como ser exercitado.
     std::size_t leitura_falha_apos = 0;
 
+    /// A energia cai logo DEPOIS da operação com este registro em
+    /// `operacoes` (vazio = nunca cai), como "rename:a->b".
+    ///
+    /// Daí em diante toda chamada devolve `FR_NOT_READY`, e o que estava
+    /// aberto para escrita sem ter sido fechado se perde. O que já foi
+    /// feito fica: um `f_open` com `FA_CREATE_ALWAYS` já truncou o arquivo,
+    /// um `f_rename` já trocou o nome. É assim que se prova que uma
+    /// sequência de escrita sobrevive a uma queda no meio.
+    std::string queda_apos;
+    bool        sem_energia = false;
+    /// A energia volta: nada montado, nada aberto, e o cartão com o que já
+    /// estava gravado nele. É o boot seguinte.
+    void religa();
+
     // --- observação
-    std::vector<std::string> operacoes;   ///< "mount:2", "rename:0:/a->0:/b"
+    /// "mount:2", "open:0:a", "write:a", "close:a", "rename:a->b", "unlink:a"
+    std::vector<std::string> operacoes;
     int montagens = 0;
     int desmontagens = 0;
 

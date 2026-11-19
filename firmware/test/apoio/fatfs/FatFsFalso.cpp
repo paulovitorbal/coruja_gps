@@ -1,14 +1,17 @@
 #include "apoio/fatfs/FatFsFalso.h"
 
+#include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "f_util.h"
 #include "hw_config.h"
 
 namespace coruja::teste {
 namespace {
-/// Definida adiante, junto do estado interno que ela limpa.
+/// Definidas adiante, junto do estado interno que elas limpam.
 void limpa_abertos();
+void limpa_donos();
 }  // namespace
 
 FatFsFalso& FatFsFalso::instancia() {
@@ -23,15 +26,28 @@ void FatFsFalso::reinicia() {
     erro_unlink = FR_OK;
     erro_opendir = FR_OK;
     erro_readdir = FR_OK;
+    erro_close = FR_OK;
     diretorios.clear();
     escrita_falha_apos = 0;
+    escrita_curta_apos = 0;
     leitura_falha_apos = 0;
+    queda_apos.clear();
+    sem_energia = false;
     operacoes.clear();
     montagens = 0;
     desmontagens = 0;
     // Descritores de uma rodada anterior nao podem vazar para a proxima: um
     // teste que esquece de fechar faria o seguinte falhar por motivo alheio.
     limpa_abertos();
+    limpa_donos();
+}
+
+void FatFsFalso::religa() {
+    queda_apos.clear();
+    sem_energia = false;
+    for (auto& v : volumes) { v.montado = false; }
+    limpa_abertos();
+    limpa_donos();
 }
 
 bool FatFsFalso::existe(int volume, const std::string& nome) const {
@@ -62,6 +78,8 @@ namespace {
 struct Aberto {
     bool        usado = false;
     int         volume = 0;
+    /// A montagem em que foi aberto. Ver `VolumeFalso::geracao`.
+    unsigned    geracao = 0;
     std::string nome;
     std::string dados;
     std::size_t posicao = 0;
@@ -70,7 +88,17 @@ struct Aberto {
 };
 std::map<FIL*, Aberto> g_abertos;
 
+/// Para que volume cada `FATFS` foi registrado por ultimo.
+///
+/// O `CartaoSd` tem UMA area de trabalho e a reaproveita entre volumes. No
+/// FatFs de verdade, `f_mount` de uma area ja registrada noutro volume a
+/// reinicia por baixo dele: o volume antigo perde a area e tudo que estava
+/// aberto nele morre. O duble tem de saber disso para pegar quem monta por
+/// cima de uma operacao em curso.
+std::map<const FATFS*, int> g_dono;
+
 void limpa_abertos() { g_abertos.clear(); }
+void limpa_donos() { g_dono.clear(); }
 
 /// O aberto de `fp`, ou nulo. Nunca cria: pedir leitura num descritor que
 /// ninguém abriu é erro de quem chama, e inventar um esconderia isso.
@@ -95,19 +123,38 @@ bool separa(const char* caminho, int* volume, std::string* nome) {
 }
 
 void anota(const std::string& o) {
-    FatFsFalso::instancia().operacoes.push_back(o);
+    auto& f = FatFsFalso::instancia();
+    f.operacoes.push_back(o);
+    if (!f.queda_apos.empty() && o == f.queda_apos) {
+        // A operacao anotada termina; a energia cai antes da SEGUINTE.
+        f.queda_apos.clear();
+        f.sem_energia = true;
+    }
 }
 
-/// O FIL aberto ainda vive num volume montado?
+/// Sem energia, nada responde -- e o que estava aberto e nao foi fechado
+/// se perdeu, porque o tamanho de um arquivo FAT so vai ao diretorio no
+/// fechamento.
+bool sem_energia() {
+    auto& f = FatFsFalso::instancia();
+    if (!f.sem_energia) { return false; }
+    limpa_abertos();
+    for (auto& v : f.volumes) { v.montado = false; }
+    return true;
+}
+
+/// O FIL aberto ainda vive num volume montado, na MESMA montagem?
 ///
 /// O `f_mount(NULL, ...)` do FatFs zera o `fs_type` da area de trabalho, e o
 /// `validate()` de toda operacao sobre um FIL ja aberto passa a devolver
 /// `FR_INVALID_OBJECT`. E por este caminho que o ENVIO morria: o fluxo de
 /// leitura ficava aberto e uma descarga de log desmontava o volume debaixo
-/// dele.
+/// dele. Remontar por cima da-lhe o mesmo fim.
 bool objeto_vivo(FIL* fp) {
     const Aberto* a = aberto_de(fp);
-    return a != nullptr && FatFsFalso::instancia().volumes[a->volume].montado;
+    if (a == nullptr) { return false; }
+    const auto& v = FatFsFalso::instancia().volumes[a->volume];
+    return v.montado && v.geracao == a->geracao;
 }
 
 }  // namespace
@@ -136,14 +183,23 @@ bool montado_de(const TCHAR* caminho) {
 // o compilador concorda e o ligador nao.
 extern "C" {
 
-FRESULT f_mount(FATFS*, const TCHAR* caminho, BYTE) {
+FRESULT f_mount(FATFS* fs, const TCHAR* caminho, BYTE) {
     auto& f = FatFsFalso::instancia();
     int v = 0;
     std::string nome;
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_DRIVE; }
     coruja::teste::anota("mount:" + std::to_string(v));
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
+    // A area de trabalho e reiniciada ANTES de tentar montar, como no FatFs:
+    // o volume que a usava fica sem ela, monte este ou nao.
+    const auto dono = coruja::teste::g_dono.find(fs);
+    if (dono != coruja::teste::g_dono.end() && dono->second != v) {
+        f.volumes[dono->second].montado = false;
+    }
+    coruja::teste::g_dono[fs] = v;
     if (!f.volumes[v].monta) { return f.volumes[v].erro_montagem; }
     f.volumes[v].montado = true;
+    ++f.volumes[v].geracao;
     ++f.montagens;
     return FR_OK;
 }
@@ -155,14 +211,18 @@ FRESULT f_unmount(const TCHAR* caminho) {
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_DRIVE; }
     coruja::teste::anota("unmount:" + std::to_string(v));
     f.volumes[v].montado = false;
+    for (auto it = coruja::teste::g_dono.begin();
+         it != coruja::teste::g_dono.end();) {
+        it = it->second == v ? coruja::teste::g_dono.erase(it) : std::next(it);
+    }
     ++f.desmontagens;
     return FR_OK;
 }
 
 FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
-    auto& a = coruja::teste::g_abertos[fp];
     int v = 0;
     std::string nome;
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_NAME; }
@@ -170,13 +230,20 @@ FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
     const bool tem = f.existe(v, nome);
     if ((modo & FA_READ) != 0 && !tem) { return FR_NO_FILE; }
 
+    auto& a = coruja::teste::g_abertos[fp];
     a = coruja::teste::Aberto{};
     a.usado = true;
     a.volume = v;
+    a.geracao = f.volumes[v].geracao;
     a.nome = nome;
     a.escrita = (modo & FA_WRITE) != 0;
     if ((modo & FA_CREATE_ALWAYS) != 0) {
+        // Truncar vai ao cartao NA HORA, e nao no fechamento: o FatFs zera o
+        // tamanho no diretorio e solta a cadeia de clusters dentro do
+        // proprio `f_open`. Uma queda logo depois deixa o arquivo vazio -- e
+        // e exatamente por isso que reescrever no lugar nao e atomico.
         a.dados.clear();
+        f.volumes[v].arquivos[nome].clear();
     } else if (tem) {
         a.dados = f.conteudo(v, nome);
     }
@@ -189,16 +256,27 @@ FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo) {
 }
 
 FRESULT f_close(FIL* fp) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     auto& f = FatFsFalso::instancia();
     auto* a = coruja::teste::aberto_de(fp);
     if (a == nullptr || !a->usado) { return FR_INVALID_OBJECT; }
-    if (a->escrita) { f.volumes[a->volume].arquivos[a->nome] = a->dados; }
+    const std::string nome = a->nome;
+    FRESULT r = FR_OK;
+    if (a->escrita) {
+        if (f.erro_close != FR_OK) {
+            r = f.erro_close;
+        } else {
+            f.volumes[a->volume].arquivos[a->nome] = a->dados;
+        }
+    }
     coruja::teste::g_abertos.erase(fp);
     fp->descritor = -1;
-    return FR_OK;
+    coruja::teste::anota("close:" + nome);
+    return r;
 }
 
 FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto& f = FatFsFalso::instancia();
     auto* ap = coruja::teste::aberto_de(fp);
@@ -217,6 +295,7 @@ FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos) {
 }
 
 FRESULT f_lseek(FIL* fp, FSIZE_t posicao) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto* ap = coruja::teste::aberto_de(fp);
     if (ap == nullptr || !ap->usado) { return FR_INVALID_OBJECT; }
@@ -225,7 +304,19 @@ FRESULT f_lseek(FIL* fp, FSIZE_t posicao) {
     return FR_OK;
 }
 
+FRESULT f_truncate(FIL* fp) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
+    if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
+    auto* ap = coruja::teste::aberto_de(fp);
+    if (ap == nullptr || !ap->usado || !ap->escrita) { return FR_DENIED; }
+    ap->dados.resize(ap->posicao);
+    fp->obj.objsize = static_cast<FSIZE_t>(ap->dados.size());
+    coruja::teste::anota("truncate:" + ap->nome);
+    return FR_OK;
+}
+
 FRESULT f_opendir(DIR* dp, const TCHAR* caminho) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
@@ -240,6 +331,7 @@ FRESULT f_opendir(DIR* dp, const TCHAR* caminho) {
 }
 
 FRESULT f_readdir(DIR* dp, FILINFO* info) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     auto& f = FatFsFalso::instancia();
     if (f.erro_readdir != FR_OK) { return f.erro_readdir; }
     const auto& arquivos = f.volumes[dp->volume].arquivos;
@@ -262,6 +354,7 @@ FRESULT f_readdir(DIR* dp, FILINFO* info) {
 FRESULT f_closedir(DIR*) { return FR_OK; }
 
 FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::objeto_vivo(fp)) { return FR_INVALID_OBJECT; }
     auto& f = FatFsFalso::instancia();
     auto* ap = coruja::teste::aberto_de(fp);
@@ -272,13 +365,25 @@ FRESULT f_write(FIL* fp, const void* origem, UINT quantos, UINT* escritos) {
         *escritos = 0;
         return FR_DISK_ERR;
     }
-    a.dados.append(static_cast<const char*>(origem), quantos);
-    a.escritos += quantos;
-    *escritos = quantos;
+    std::size_t cabe = quantos;
+    if (f.escrita_curta_apos != 0) {
+        const std::size_t resta = a.escritos < f.escrita_curta_apos
+                                      ? f.escrita_curta_apos - a.escritos : 0;
+        cabe = resta < quantos ? resta : quantos;
+    }
+    // Escreve na POSICAO, como o FatFs: depois de um `f_lseek` para tras, o
+    // que vem por cima substitui, e nao se acrescenta ao fim.
+    a.dados.replace(a.posicao, cabe, static_cast<const char*>(origem), cabe);
+    a.posicao += cabe;
+    a.escritos += cabe;
+    fp->obj.objsize = static_cast<FSIZE_t>(a.dados.size());
+    *escritos = static_cast<UINT>(cabe);
+    coruja::teste::anota("write:" + a.nome);
     return FR_OK;
 }
 
 FRESULT f_stat(const TCHAR* caminho, FILINFO* info) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
@@ -293,31 +398,39 @@ FRESULT f_stat(const TCHAR* caminho, FILINFO* info) {
 }
 
 FRESULT f_rename(const TCHAR* de, const TCHAR* para) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::montado_de(de)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int vd = 0, vp = 0;
     std::string nd, np;
     if (!coruja::teste::separa(de, &vd, &nd) ||
         !coruja::teste::separa(para, &vp, &np)) { return FR_INVALID_NAME; }
-    coruja::teste::anota("rename:" + nd + "->" + np);
-    if (f.erro_rename != FR_OK) { return f.erro_rename; }
+    if (f.erro_rename != FR_OK) {
+        coruja::teste::anota("rename:" + nd + "->" + np);
+        return f.erro_rename;
+    }
     if (!f.existe(vd, nd)) { return FR_NO_FILE; }
     if (f.existe(vp, np)) { return FR_EXIST; }
     f.volumes[vp].arquivos[np] = f.conteudo(vd, nd);
     f.volumes[vd].arquivos.erase(nd);
+    coruja::teste::anota("rename:" + nd + "->" + np);
     return FR_OK;
 }
 
 FRESULT f_unlink(const TCHAR* caminho) {
+    if (coruja::teste::sem_energia()) { return FR_NOT_READY; }
     if (!coruja::teste::montado_de(caminho)) { return FR_NOT_ENABLED; }
     auto& f = FatFsFalso::instancia();
     int v = 0;
     std::string nome;
     if (!coruja::teste::separa(caminho, &v, &nome)) { return FR_INVALID_NAME; }
-    coruja::teste::anota("unlink:" + nome);
-    if (f.erro_unlink != FR_OK) { return f.erro_unlink; }
+    if (f.erro_unlink != FR_OK) {
+        coruja::teste::anota("unlink:" + nome);
+        return f.erro_unlink;
+    }
     if (!f.existe(v, nome)) { return FR_NO_FILE; }
     f.volumes[v].arquivos.erase(nome);
+    coruja::teste::anota("unlink:" + nome);
     return FR_OK;
 }
 
