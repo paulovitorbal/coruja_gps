@@ -481,6 +481,34 @@ TEST(Aplicacao, AtualizarBaseChegaAQuemSabeFazer) {
     EXPECT_EQ(b.acoes.testes, 0U);
 }
 
+TEST(Aplicacao, ajuste_feito_antes_de_atualizar_vai_ao_cartao_e_atualiza) {
+    // O fechamento pela acao descartava a gravacao: o brilho mexido no
+    // menu valia ate o proximo boot e voltava ao do cartao.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    ASSERT_NE(b.cartao.cfg.find("brilho_dia=100"), std::string::npos);
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre no brilho
+    b.encoder.enfileira(EventoEncoder::Clique);        // edita
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);  // 100 -> 95
+    b.encoder.enfileira(EventoEncoder::Clique);        // confirma
+    app.passo(4050);
+    std::uint32_t t = 4100;
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::AtualizarBase;
+         ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(t);
+        t += 50;
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::AtualizarBase);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(t);
+
+    EXPECT_NE(b.cartao.cfg.find("brilho_dia=95"), std::string::npos)
+        << "o ajuste nao chegou ao cartao";
+    EXPECT_EQ(b.acoes.bases, 1U) << "gravar custou a atualizacao";
+}
+
 // --- a fila do encoder ---
 
 TEST(Aplicacao, NenhumDetenteSePerdeNumaVolta) {
