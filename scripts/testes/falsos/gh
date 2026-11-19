@@ -1,0 +1,14 @@
+#!/bin/bash
+# gh FALSO, para os testes do libera_fw.sh: nunca toca na rede.
+#
+# Anota a chamada em $FALSO_DIARIO. Falha se FALSO_GH_ACAO, avaliado com os
+# argumentos em `$@`, terminar com erro.
+set -u
+echo "gh $*" >> "$FALSO_DIARIO"
+if [ -n "${FALSO_GH_ACAO:-}" ]; then
+    eval "$FALSO_GH_ACAO" || exit 1
+fi
+if [ "${1:-} ${2:-}" = "release view" ]; then
+    echo "https://exemplo.invalido/releases/tag/${3:-}"
+fi
+exit 0

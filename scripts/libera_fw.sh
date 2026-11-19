@@ -11,13 +11,15 @@
 #  ## As dez etapas, e por que cada uma existe
 #
 #   1. árvore limpa      — tag aponta para commit; com pendências, o que foi
-#                          tagueado não é o que está em disco. O commit
+#      na main             tagueado não é o que está em disco. O commit
 #                          conferido aqui é ANOTADO, e é ele que a tag marca:
 #                          árvore e HEAD são conferidos de novo depois de
 #                          cada compilação, porque um commit feito noutro
 #                          terminal durante os minutos de build levaria a tag
 #                          para um commit que nenhuma suíte viu
-#   2. tag inédita       — mover tag publicada quebra quem já baixou
+#   2. tag inédita       — mover tag publicada quebra quem já baixou. Com
+#                          `--publicar`, olha também o remoto, antes de gastar
+#                          os minutos de build
 #   3. suíte no host     — a verificação de sempre
 #   4. suíte no sanitizer— pega o que o host não pega: UB, leitura inválida.
 #                          A receita é a opção `CORUJA_SANITIZER` do CMake.
@@ -40,7 +42,7 @@
 #                          que o firmware carrega a versão, é verificação.
 #                          Confere também a versão NUMÉRICA do bloco da
 #                          imagem, que é a que o bootrom usa para escolher
-#                          a partição (ADR 0012)
+#                          a partição (ADR 0012), e o teto da partição
 #  10. nomeia e soma     — `coruja_gps-vX.Y.Z.uf2` mais SHA-256; um
 #                          `coruja_gps.uf2` solto na pasta de downloads não
 #                          diz qual versão é. Junto vai a tabela de
@@ -48,8 +50,9 @@
 #                          a primeira instalação grava uma vez
 #
 #  Com `--publicar`, acrescenta a décima primeira: empurra o commit e a tag e
-#  cria a release no GitHub com o binário anexado. **Sem a opção, não toca na
-#  rede.**
+#  cria a release no GitHub com o binário anexado, e com ele os avisos de
+#  licença do que vai dentro (`THIRD_PARTY_NOTICES.md`). **Sem a opção, não
+#  toca na rede.**
 #
 #  Qualquer saída antes do fim, por erro ou Ctrl-C, desfaz a tag local: a
 #  próxima execução começa do mesmo lugar. Depois do push a tag já está no
@@ -77,10 +80,9 @@ PICOTOOL="${CORUJA_PICOTOOL:-$BUILD_PICO/_deps/picotool/picotool}"
 # Fora da arvore: um log dentro dela sujaria o que a etapa 1 conferiu.
 LOGS="${CORUJA_LOGS:-/tmp}"
 
-# Teto de uma imagem: o tamanho de cada particao em `firmware/particoes.json`.
-# Uma imagem maior liga e passa nas outras conferencias, mas o bootrom recusa
-# o que passa do fim da particao e a gravacao por cabo nao pega.
-TETO_IMAGEM=$((1536 * 1024))
+# O que vai anexo a release junto com o binario: as licencas do que esta
+# dentro dele. Nomes relativos a raiz, sem espaco.
+AVISOS=""
 
 # A versão numérica que a imagem de uma tag TEM de carregar: vA.B.C vira
 # A*100+B . C*100, a conta do `firmware/cmake/versao_imagem.cmake` com zero
@@ -92,6 +94,27 @@ versao_esperada() {
         return 1
     fi
     echo "$((10#${BASH_REMATCH[1]} * 100 + 10#${BASH_REMATCH[2]})).$((10#${BASH_REMATCH[3]} * 100))"
+}
+
+# Teto de uma imagem: a MENOR particao do `firmware/particoes.json`, lida de
+# la para nao haver um segundo numero a manter. Uma imagem maior liga e passa
+# nas outras conferencias, mas o bootrom recusa o que passa do fim da
+# particao e a gravacao por cabo nao pega. So `K` e `M`, que e o que o
+# arquivo usa; outra forma para aqui em vez de ser adivinhada.
+teto_da_particao() {
+    python3 - "$1" <<'PY'
+import json, re, sys
+UNIDADE = {"K": 1024, "M": 1024 * 1024}
+tetos = []
+for p in json.load(open(sys.argv[1]))["partitions"]:
+    m = re.fullmatch(r"([0-9]+)([KM])", str(p["size"]))
+    if not m:
+        sys.exit(f"tamanho de particao que nao sei ler: {p['size']!r}")
+    tetos.append(int(m.group(1)) * UNIDADE[m.group(2)])
+if not tetos:
+    sys.exit("nenhuma particao")
+print(min(tetos))
+PY
 }
 
 PUBLICAR=0
@@ -131,9 +154,14 @@ trap 'exit 143' TERM
 # `versao_imagem.cmake` pararia a configuracao de qualquer jeito.
 VERSAO_IMAGEM=$(versao_esperada "$TAG") \
     || falhou "a tag '$TAG' nao e vA.B.C; a versao da imagem sai dela."
+TETO_IMAGEM=$(teto_da_particao "$DIR/firmware/particoes.json") \
+    || falhou "nao li o teto da imagem em firmware/particoes.json."
 
-# --- 1. árvore limpa ---------------------------------------------------------
-etapa "1/10 arvore limpa"
+# --- 1. árvore limpa, na main ------------------------------------------------
+etapa "1/10 arvore limpa, na main"
+RAMO=$(git symbolic-ref --short -q HEAD) || RAMO=""
+[ "$RAMO" = "main" ] \
+    || falhou "o ramo e '${RAMO:-HEAD solto}'; a liberacao sai da main."
 SHA=$(git rev-parse --verify -q HEAD) || falhou "nao achei o HEAD."
 # Chamada de novo depois de cada compilacao. O argumento diz quando.
 confere_arvore() {
@@ -147,11 +175,23 @@ confere_arvore() {
         || falhou "o HEAD andou$1: era $SHA, agora ${agora:-nenhum}. A tag marcaria um commit que nenhuma suite viu."
 }
 confere_arvore ""
+for aviso in $AVISOS; do
+    [ -f "$DIR/$aviso" ] || falhou "falta o $aviso, que vai anexo a release."
+done
 
 # --- 2. tag inédita ----------------------------------------------------------
 etapa "2/10 tag inedita"
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
     falhou "a tag '$TAG' ja existe."
+fi
+if [ "$PUBLICAR" -eq 1 ]; then
+    git ls-remote --exit-code --tags origin "refs/tags/$TAG" \
+        > /dev/null 2> "$LOGS/libera-remoto.log"
+    case $? in
+        0) falhou "a tag '$TAG' ja existe no remoto. Se foi uma liberacao interrompida, traga-a com: git fetch origin tag $TAG" ;;
+        2) ;;
+        *) falhou "nao consegui consultar o remoto. Ver $LOGS/libera-remoto.log" ;;
+    esac
 fi
 
 # --- 3. suíte no host --------------------------------------------------------
@@ -262,7 +302,11 @@ else
 fi
 printf '%s\n' "$INFO" | grep -qE '^ *hash: *verified$' \
     || falhou "o hash da imagem nao confere."
-TAMANHO_IMAGEM=$(wc -c < "$BUILD_PICO/coruja_gps.bin" | tr -d ' ')
+# Sem o .bin, o `wc` nao dava numero, o teste do teto errava e passava.
+BIN="$BUILD_PICO/coruja_gps.bin"
+[ -f "$BIN" ] || falhou "nao achei $BIN para conferir o teto da particao."
+TAMANHO_IMAGEM=$(wc -c < "$BIN" | tr -d ' ')
+[[ "$TAMANHO_IMAGEM" =~ ^[0-9]+$ ]] || falhou "nao consegui medir $BIN."
 if [ "$TAMANHO_IMAGEM" -gt "$TETO_IMAGEM" ]; then
     falhou "a imagem tem $TAMANHO_IMAGEM bytes e a particao, $TETO_IMAGEM."
 fi
@@ -270,10 +314,21 @@ echo "     versao da imagem $LIDA, hash conferido, $TAMANHO_IMAGEM de $TETO_IMAG
 
 # --- 10. nomeia e soma --------------------------------------------------------
 etapa "10/10 nomeando e somando"
+# Deixa a soma em SOMA e grava o `.sha256` ao lado. O status do pipe era o do
+# `cut`: com o shasum falhando, ia para a release uma soma vazia.
+grava_soma() {
+    SOMA=$(shasum -a 256 "$1") \
+        || falhou "o shasum falhou em $1; sem SHA-256 nao ha o que publicar."
+    SOMA=${SOMA%% *}
+    [[ "$SOMA" =~ ^[0-9a-f]{64}$ ]] \
+        || falhou "o shasum devolveu '$SOMA', que nao e um SHA-256."
+    printf '%s  %s\n' "$SOMA" "$(basename "$1")" > "$1.sha256" \
+        || falhou "nao gravou $1.sha256."
+}
 ARTEFATO="$BUILD_PICO/coruja_gps-$TAG.uf2"
 cp "$UF2" "$ARTEFATO" || falhou "nao copiou o artefato."
-SOMA=$(shasum -a 256 "$ARTEFATO" | cut -d' ' -f1)
-printf '%s  coruja_gps-%s.uf2\n' "$SOMA" "$TAG" > "$ARTEFATO.sha256"
+grava_soma "$ARTEFATO"
+SOMA_FW="$SOMA"
 
 # A tabela de particoes vai em toda release, mesmo sem mudar: quem instala
 # do zero a partir da release nao tem o picotool do build para gera-la.
@@ -281,14 +336,13 @@ TABELA="$BUILD_PICO/coruja_gps-$TAG-particoes.uf2"
 "$PICOTOOL" partition create "$DIR/firmware/particoes.json" "$TABELA" \
     > "$LOGS/libera-particoes.log" 2>&1 \
     || falhou "nao gerou a tabela de particoes. Ver $LOGS/libera-particoes.log"
-SOMA_TABELA=$(shasum -a 256 "$TABELA" | cut -d' ' -f1)
-printf '%s  coruja_gps-%s-particoes.uf2\n' "$SOMA_TABELA" "$TAG" > "$TABELA.sha256"
+grava_soma "$TABELA"
 
 echo
 echo "OK — $TAG liberada e verificada"
 echo "   $ARTEFATO"
 echo "   $(ls -l "$ARTEFATO" | awk '{print $5}') bytes"
-echo "   sha256 $SOMA"
+echo "   sha256 $SOMA_FW"
 echo "   versao da imagem $LIDA"
 echo "   tabela: $TABELA"
 echo "   a tela vai mostrar:  fw: $TAG"
@@ -316,14 +370,36 @@ git push --atomic origin "$SHA:refs/heads/main" "refs/tags/$TAG" \
 CONCLUIDO=1
 echo "     commit e tag empurrados"
 
+ANEXOS=("$ARTEFATO" "$ARTEFATO.sha256" "$TABELA" "$TABELA.sha256")
+for aviso in $AVISOS; do
+    ANEXOS+=("$DIR/$aviso")
+done
 NOTAS="$MSG
 
 Instalação do zero, ou aparelho ainda sem partições A/B: grave **uma vez** o \`coruja_gps-$TAG-particoes.uf2\` e depois o firmware. Roteiro
 em \`firmware/README.md\`, seção \"Migração para partições A/B\".
 
 ⚠️ Com as partições A/B, gravar por cabo uma versão **mais velha** apaga a mais nova que estava no aparelho."
-gh release create "$TAG" "$ARTEFATO" "$ARTEFATO.sha256" \
-    "$TABELA" "$TABELA.sha256" \
-    --title "$TAG" --notes "$NOTAS" > "$LOGS/libera-release.log" 2>&1 \
-    || { cat "$LOGS/libera-release.log" >&2; falhou "a release falhou, mas a tag e os commits JA estao no remoto. Termine a mao: gh release create $TAG $ARTEFATO $ARTEFATO.sha256 $TABELA $TABELA.sha256 --title $TAG"; }
-echo "     release criada: $(gh release view "$TAG" --json url --jq .url)"
+# Rascunho, anexos e so entao publica: a release nunca aparece sem o
+# binario, e cada falha diz o comando exato que falta. Um `create` so, com os
+# anexos, falhava igual no upload e na criacao, e a mensagem mandava criar de
+# novo uma release que ja existia.
+gh release create "$TAG" --verify-tag --draft --title "$TAG" --notes "$NOTAS" \
+    > "$LOGS/libera-release.log" 2>&1 || {
+    cat "$LOGS/libera-release.log" >&2
+    falhou "a release nao foi criada, mas a tag e o commit JA estao no remoto. Termine a mao:
+   gh release create $TAG --verify-tag --draft --title $TAG --notes '<mensagem>'
+   gh release upload $TAG ${ANEXOS[*]}
+   gh release edit $TAG --draft=false"
+}
+gh release upload "$TAG" "${ANEXOS[@]}" > "$LOGS/libera-release.log" 2>&1 || {
+    cat "$LOGS/libera-release.log" >&2
+    falhou "a release $TAG existe como rascunho, mas os anexos nao subiram. Termine a mao:
+   gh release upload $TAG --clobber ${ANEXOS[*]}
+   gh release edit $TAG --draft=false"
+}
+gh release edit "$TAG" --draft=false > "$LOGS/libera-release.log" 2>&1 || {
+    cat "$LOGS/libera-release.log" >&2
+    falhou "a release $TAG esta completa, mas ainda e rascunho. Termine a mao: gh release edit $TAG --draft=false"
+}
+echo "     release publicada: $(gh release view "$TAG" --json url --jq .url)"

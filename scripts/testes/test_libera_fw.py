@@ -175,6 +175,24 @@ class Liberacao(unittest.TestCase):
         self.assertIn("arvore suja", r.stderr)
         self.assertEqual(len(self.compilacoes_do_pico()), 1)
 
+    # --- recusas de começo ---------------------------------------------------
+
+    def test_ramo_que_nao_e_a_main_e_recusado_antes_de_compilar(self):
+        self.git("checkout", "-q", "-b", "experimento")
+        r = self.libera(TAG, "primeira")
+        self.assertSemTag(r)
+        self.assertIn("main", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [])
+
+    def test_publicar_recusa_cedo_tag_que_ja_esta_no_remoto(self):
+        self.git("tag", TAG)
+        self.git("push", "-q", "origin", TAG)
+        self.git("tag", "-d", TAG)
+        r = self.libera("--publicar", TAG, "primeira")
+        self.assertSemTag(r)
+        self.assertIn("remoto", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [])
+
     # --- B2: o sanitizer --------------------------------------------------
 
     def test_sanitizer_configurado_pela_receita_e_parando_no_primeiro_ub(self):
@@ -197,7 +215,33 @@ class Liberacao(unittest.TestCase):
         self.assertSemTag(r)
         self.assertIn("sanitizer", r.stderr)
 
+    # --- o teto da partição --------------------------------------------------
+
+    def test_sem_o_bin_o_teto_nao_passa_em_silencio(self):
+        r = self.libera(TAG, "primeira", FALSO_SEM_BIN="1")
+        self.assertSemTag(r)
+        self.assertIn("coruja_gps.bin", r.stderr)
+
+    def test_o_teto_e_o_tamanho_da_particao_no_json(self):
+        json = self.repo / "firmware" / "particoes.json"
+        json.write_text(json.read_text().replace('"1536K"', '"4K"'))
+        self.git("commit", "-q", "-am", "particoes de 4K")
+        r = self.libera(TAG, "primeira", FALSO_TAM_BIN="4097")
+        self.assertSemTag(r)
+        self.assertIn("4097 bytes e a particao, 4096", r.stderr)
+
     # --- a tag não fica para trás ------------------------------------------
+
+    def test_falha_do_shasum_nao_deixa_soma_vazia_nem_tag(self):
+        quebrados = self.repo.parent / "quebrados"
+        quebrados.mkdir()
+        shasum = quebrados / "shasum"
+        shasum.write_text("#!/bin/bash\nexit 1\n")
+        shasum.chmod(0o755)
+        r = self.libera(TAG, "primeira",
+                        PATH=f"{quebrados}{os.pathsep}{self.env['PATH']}")
+        self.assertSemTag(r)
+        self.assertIn("SHA-256", r.stderr)
 
     def test_ctrl_c_na_reconstrucao_remove_a_tag(self):
         r = self.libera(TAG, "primeira",
@@ -213,7 +257,36 @@ class Liberacao(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.tags_locais(), [TAG])
 
+    # --- publicação ----------------------------------------------------------
 
+    def test_publicar_empurra_o_commit_conferido_e_anexa_os_avisos(self):
+        sha = self.git("rev-parse", "HEAD")
+        r = self.libera("--publicar", TAG, "primeira")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        remoto = self.git("ls-remote", "origin")
+        self.assertIn(f"{sha}\trefs/heads/main", remoto)
+        self.assertIn(f"refs/tags/{TAG}^{{}}", remoto)
+        self.assertEqual(
+            self.git("rev-parse", f"{TAG}^{{commit}}", cwd=self.remoto), sha)
+        cria = self.chamadas("gh release create")
+        self.assertEqual(len(cria), 1)
+        self.assertIn("--verify-tag", cria[0])
+        sobe = self.chamadas("gh release upload")
+        self.assertEqual(len(sobe), 1)
+        for anexo in (f"coruja_gps-{TAG}.uf2", f"coruja_gps-{TAG}.uf2.sha256",
+                      f"coruja_gps-{TAG}-particoes.uf2", *AVISOS):
+            if anexo in AVISOS and not (DISPOSITIVO / anexo).exists():
+                continue
+            self.assertIn(f"/{anexo}", sobe[0])
+
+    def test_upload_que_falha_manda_terminar_com_upload_e_nao_create(self):
+        r = self.libera("--publicar", TAG, "primeira",
+                        FALSO_GH_ACAO='[ "$2" != upload ]')
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(f"gh release upload {TAG}", r.stderr)
+        self.assertNotIn("gh release create", r.stderr)
+        # A tag ja esta no remoto: a local fica, para bater com ela.
+        self.assertEqual(self.tags_locais(), [TAG])
 
 
 if __name__ == "__main__":
