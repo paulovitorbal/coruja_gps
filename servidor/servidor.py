@@ -95,11 +95,16 @@ PADRAO_TAMANHO = re.compile(r"[0-9]{1,12}", re.ASCII)
 #:
 #: ⚠️ A lista branca e a defesa contra travessia de caminho. Rejeitar "../" e
 #: jogo de gato e rato; aceitar so o que casa com o padrao nao e.
-PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
+#: ⚠️ `fullmatch` com `re.ASCII`, e não `match` com `$`. O `$` casa ANTES
+#: de uma quebra de linha final, então "infracoes.log\n" passava -- e o nome
+#: vira caminho em disco e `href` na listagem. O `re.ASCII` é pelo `\d`, que
+#: sem ele aceita dígito de qualquer alfabeto.
+PADRAO_NOME = re.compile(r"coruja\.log|infracoes\.log|\d{8}_\d{6}\.log",
+                         re.ASCII)
 
 #: So os registros de viagem, para a pagina. O `coruja.log` e o
 #: `infracoes.log` nao sao trajetos e nao tem o que desenhar.
-PADRAO_VIAGEM = re.compile(r"^\d{8}_\d{6}\.log$")
+PADRAO_VIAGEM = re.compile(r"\d{8}_\d{6}\.log", re.ASCII)
 
 #: Onde fica o histórico **append-only** dos arquivos de nome fixo.
 #:
@@ -256,6 +261,34 @@ CSP_SEM_SCRIPT = "default-src 'none'; form-action 'none'; " + CSP_MINIMA
 #: Quanto tempo uma sessao dura sem uso.
 VALIDADE_SESSAO_S = 8 * 3600
 
+#: Quantas sessoes cabem na memoria do processo.
+#:
+#: Cada entrada vale ate oito horas, e abrir sessao custa um POST com o
+#: token certo. Sem teto, quem tem o token enche a memoria em laco -- e nem
+#: precisa ser mal-intencionado: basta um script que refaz o login a cada
+#: pagina.
+#:
+#: 64 e folga larga para um punhado de aparelhos e as abas de uma pessoa.
+#: Passando disso, a sessao que vence primeiro sai; a recem-aberta nunca,
+#: senao o teto viraria uma porta fechada na cara de quem acabou de digitar
+#: o token.
+MAXIMO_DE_SESSOES = 64
+
+#: Quantos enderecos de castigo cabem na memoria.
+#:
+#: A chave e o endereco de quem errou o token, e atras da borda ele e o que
+#: o proxy disser -- ou seja, nao e um conjunto pequeno por natureza.
+MAXIMO_DE_CASTIGOS = 256
+
+#: Protege `sessoes` e `castigo`, dicionarios compartilhados por TODAS as
+#: threads de conexao.
+#:
+#: ⚠️ A varredura do `_sessao` percorre o dicionario e apaga enquanto
+#: percorre; uma entrada criada por outra thread no meio disso levanta
+#: `dictionary changed size during iteration` -- e o sintoma e uma pagina
+#: que falha sem explicacao, so quando ha gente olhando ao mesmo tempo.
+_TRAVA_DAS_SESSOES = threading.Lock()
+
 #: Espera imposta a cada tentativa de token errado, por endereco.
 #:
 #: Nao e defesa seria -- quem tem banda abre varias conexoes. E para que um
@@ -273,6 +306,28 @@ ARQUIVO_APARELHOS = "aparelhos.cfg"
 #: confere e recusa, porque "desprezivel" nao e "impossivel" e a consequencia
 #: seria dois carros gravando um por cima do outro.
 DIGITOS_IMPRESSAO = 16
+
+
+def _enxuga(guardados: dict, teto: int, poupe: str) -> None:
+    """Deixa no máximo `teto` entradas, tirando as que vencem primeiro.
+
+    `poupe` nunca sai: é a entrada que acabou de ser criada, e descartá-la
+    faria o teto virar uma porta fechada na cara de quem chegou agora.
+
+    Os valores são `(nome, vencimento)` nas sessões e o vencimento puro no
+    castigo; o `_quando` lê os dois.
+    """
+    def _quando(valor):
+        return valor[1] if isinstance(valor, tuple) else valor
+
+    if len(guardados) <= teto:
+        return
+    for chave, _valor in sorted(guardados.items(),
+                                key=lambda par: _quando(par[1])):
+        if len(guardados) <= teto:
+            return
+        if chave != poupe:
+            del guardados[chave]
 
 
 def impressao_do_token(token: str) -> str:
@@ -646,7 +701,14 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     _corpo_pendente: int | None = 0
 
     def log_message(self, formato: str, *args) -> None:
-        log.info("%s %s", self.address_string(), formato % args)
+        # ⚠️ `translate` com a tabela da biblioteca: ela troca caractere de
+        # controle por `\xNN`. A linha do pedido vem de quem chama e vai
+        # para o stderr, para o `docker logs` e para o Loki -- um `ESC[2J`
+        # no meio dela limpa a tela de quem estiver lendo com `tail`, e um
+        # `\n` forja uma linha de log inteira. O `log_message` da biblioteca
+        # faz isso; sobrescrevê-lo tinha jogado a proteção fora.
+        log.info("%s %s", self.address_string(),
+                 (formato % args).translate(self._control_char_table))
 
     def parse_request(self) -> bool:
         """O da biblioteca, mais a conta do corpo, que vale para toda rota.
@@ -768,7 +830,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         if not caminho.startswith(ROTA_ENVIO):
             return None
         nome = caminho[len(ROTA_ENVIO):]
-        return nome if PADRAO_NOME.match(nome) else None
+        return nome if PADRAO_NOME.fullmatch(nome) else None
 
     def _token_enviado(self) -> str:
         """O segredo da requisição. **Só o cabeçalho.**
@@ -783,14 +845,16 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         """
         return self.headers.get(CABECALHO_TOKEN, "")
 
-    def _aparelho(self) -> str | None:
-        """Qual aparelho mandou esta requisição, ou `None` se não se sabe.
+    def _aparelho_de(self, enviado: str) -> str | None:
+        """De quem é este segredo, ou `None`. **A única comparação de token.**
+
+        Era duas, uma aqui e outra na abertura de sessão, e as duas tinham
+        de manter a mesma propriedade de tempo. Uma delas envelheceria.
 
         Sem lista o laço não tem o que percorrer e a resposta já é `None` —
         não há atalho antes dele. Houve um, e uma campanha de mutação mostrou
         que nenhum teste conseguia distingui-lo: era peso, não guarda.
         """
-        enviado = self._token_enviado()
         if not enviado:
             # Requisição sem segredo nenhum para de imediato, e isto não é
             # só atalho: uma entrada de token vazio na lista casaria com
@@ -799,6 +863,11 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             # lista também chega por código -- é assim que os testes montam
             # servidores -- e aí ninguém a validou.
             return None
+        # ⚠️ Em BYTES dos dois lados. `compare_digest` com `str` fora do
+        # ASCII levanta `TypeError` -- e um token com acento, que qualquer um
+        # manda no cabeçalho ou digita no formulário, derrubava a conexão em
+        # vez de receber 401.
+        bruto = enviado.encode("utf-8")
         # Percorre a lista INTEIRA, sempre, e compara cada token em tempo
         # constante. Sair no primeiro acerto -- ou usar `dict.get`, que é o
         # mesmo -- faria o tempo de resposta depender de quantos tokens há
@@ -806,9 +875,13 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # caractere para quem tivesse muitas tentativas.
         achado = None
         for token, nome in self.aparelhos.items():
-            if hmac.compare_digest(enviado, token):
+            if hmac.compare_digest(bruto, token.encode("utf-8")):
                 achado = nome
         return achado
+
+    def _aparelho(self) -> str | None:
+        """Qual aparelho mandou esta requisição, ou `None` se não se sabe."""
+        return self._aparelho_de(self._token_enviado())
 
     def _autorizado(self) -> bool:
         return self._aparelho() is not None
@@ -908,7 +981,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             except OSError as e:
                 falha = e
             else:
-                if not PADRAO_VIAGEM.match(nome):
+                if not PADRAO_VIAGEM.fullmatch(nome):
                     self._acrescenta_ao_historico(destino, nome, crc, recebido)
         if falha is not None:
             temporario.unlink(missing_ok=True)
@@ -1062,28 +1135,39 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     # ------------------------------------------------------ pagina de viagens
 
-    def _sessao(self) -> str | None:
-        """O aparelho desta sessao, ou `None`. Renova o prazo a cada acesso."""
-        bruto = self.headers.get("Cookie", "")
+    def _cookie_da_sessao(self) -> str:
+        """O identificador que veio no cookie, ou vazio. **Um lugar só.**
+
+        A leitura morava aqui e na saída, e as duas tinham de concordar
+        sobre o que é o cookie da sessão -- inclusive quando vem mais de um
+        com o mesmo nome, caso em que vale o último.
+        """
         sid = ""
-        for parte in bruto.split(";"):
+        for parte in self.headers.get("Cookie", "").split(";"):
             chave, _, valor = parte.strip().partition("=")
             if chave == COOKIE_SESSAO:
                 sid = valor
+        return sid
+
+    def _sessao(self) -> str | None:
+        """O aparelho desta sessao, ou `None`. Renova o prazo a cada acesso."""
+        sid = self._cookie_da_sessao()
         if not sid:
             return None
 
         agora = time.monotonic()
-        # Varre e descarta as vencidas na passagem. Sem isto o dicionario
-        # cresceria para sempre num servidor que fica meses no ar.
-        for chave in [k for k, (_n, exp) in self.sessoes.items() if exp < agora]:
-            del self.sessoes[chave]
+        with _TRAVA_DAS_SESSOES:
+            # Varre e descarta as vencidas na passagem. Sem isto o dicionario
+            # cresceria para sempre num servidor que fica meses no ar.
+            for chave in [k for k, (_n, exp) in self.sessoes.items()
+                          if exp < agora]:
+                del self.sessoes[chave]
 
-        achado = self.sessoes.get(sid)
-        if achado is None:
-            return None
-        nome, _exp = achado
-        self.sessoes[sid] = (nome, agora + VALIDADE_SESSAO_S)
+            achado = self.sessoes.get(sid)
+            if achado is None:
+                return None
+            nome, _exp = achado
+            self.sessoes[sid] = (nome, agora + VALIDADE_SESSAO_S)
         return nome
 
     def _pasta_do_aparelho(self, nome: str) -> Path:
@@ -1091,18 +1175,14 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     def _abre_sessao(self, token: str) -> str | None:
         """Valida o token e devolve o identificador de sessao, ou `None`."""
-        aparelho = None
-        # Percorre a lista inteira e compara em tempo constante, como o
-        # `_aparelho()` faz: sair no primeiro acerto vazaria o prefixo certo
-        # pelo tempo de resposta.
-        if token:
-            for esperado, nome in self.aparelhos.items():
-                if hmac.compare_digest(token, esperado):
-                    aparelho = nome
+        aparelho = self._aparelho_de(token)
         if aparelho is None:
             return None
         sid = secrets.token_urlsafe(32)
-        self.sessoes[sid] = (aparelho, time.monotonic() + VALIDADE_SESSAO_S)
+        with _TRAVA_DAS_SESSOES:
+            self.sessoes[sid] = (aparelho,
+                                 time.monotonic() + VALIDADE_SESSAO_S)
+            _enxuga(self.sessoes, MAXIMO_DE_SESSOES, poupe=sid)
         return sid
 
     def _html(self, codigo: int, corpo: str,
@@ -1163,7 +1243,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             return []
         trechos = []
         for arquivo in sorted(pasta.iterdir()):
-            if not arquivo.is_file() or not PADRAO_VIAGEM.match(arquivo.name):
+            if not arquivo.is_file() or not PADRAO_VIAGEM.fullmatch(arquivo.name):
                 continue
             try:
                 trechos.append(viagem.le_viagem(arquivo))
@@ -1229,7 +1309,8 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     def _entra(self) -> None:
         agora = time.monotonic()
         de_onde = self.client_address[0]
-        espera = self.castigo.get(de_onde, 0.0)
+        with _TRAVA_DAS_SESSOES:
+            espera = self.castigo.get(de_onde, 0.0)
         if espera > agora:
             time.sleep(min(espera - agora, ESPERA_APOS_ERRO_S))
 
@@ -1243,20 +1324,21 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
         sid = self._abre_sessao(token)
         if sid is None:
-            self.castigo[de_onde] = time.monotonic() + ESPERA_APOS_ERRO_S
+            with _TRAVA_DAS_SESSOES:
+                self.castigo[de_onde] = (time.monotonic()
+                                         + ESPERA_APOS_ERRO_S)
+                _enxuga(self.castigo, MAXIMO_DE_CASTIGOS, poupe=de_onde)
             log.warning("token recusado na pagina, de %s", de_onde)
             self._html(401, pagina.formulario("token desconhecido"))
             return
-        self.castigo.pop(de_onde, None)
+        with _TRAVA_DAS_SESSOES:
+            self.castigo.pop(de_onde, None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
                    cookie=(COOKIE_SESSAO, sid), csp=CSP_SEM_SCRIPT)
 
     def _sai(self) -> None:
-        bruto = self.headers.get("Cookie", "")
-        for parte in bruto.split(";"):
-            chave, _, valor = parte.strip().partition("=")
-            if chave == COOKIE_SESSAO:
-                self.sessoes.pop(valor, None)
+        with _TRAVA_DAS_SESSOES:
+            self.sessoes.pop(self._cookie_da_sessao(), None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
                    cookie=(COOKIE_SESSAO, ""), csp=CSP_SEM_SCRIPT)
 
@@ -1275,7 +1357,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             nome = caminho[len(ROTA_VIAGENS) + 1:]
             # Mesma lista branca do envio: o nome vira caminho em disco, e
             # recusar o que nao casa com o padrao e a defesa contra travessia.
-            if not PADRAO_VIAGEM.match(nome):
+            if not PADRAO_VIAGEM.fullmatch(nome):
                 self._html(404, pagina.aviso("viagem nao encontrada"))
                 return True
             self._pagina_mapa(nome)

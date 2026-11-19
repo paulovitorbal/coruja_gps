@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -207,6 +208,114 @@ class PaginaEmTeste(unittest.TestCase):
             cookie=f"{s.COOKIE_SESSAO}=inventado-na-mao")
         self.assertIn('name="token"', corpo)
 
+    # ===================================================== sessao e castigo
+
+    def sessoes(self) -> dict:
+        """O dicionario de sessoes DESTE servidor."""
+        return self.srv.RequestHandlerClass.sessoes
+
+    def test_sessao_vencida_nao_vale_mais(self):
+        # Oito horas sem uso. O prazo so e renovado a cada acesso, e um
+        # cookie velho num computador compartilhado nao pode continuar
+        # abrindo a listagem de onde o carro esteve.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, _venc = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, time.monotonic() - 1.0)
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn('name="token"', corpo, "a sessao vencida ainda abria")
+
+    def test_sessao_vencida_e_varrida_da_memoria(self):
+        # Sem a varredura o dicionario cresce para sempre num servidor que
+        # fica meses no ar.
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, _venc = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, time.monotonic() - 1.0)
+        self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertNotIn(sid, self.sessoes())
+
+    def test_o_uso_renova_o_prazo(self):
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, antes = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, antes - 3600)
+        self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertGreater(self.sessoes()[sid][1], antes - 3600)
+
+    def test_as_sessoes_tem_teto(self):
+        # Em memoria e sem teto, cada entrada vale ate oito horas: quem tem
+        # o token pode abrir sessao em laco e encher a memoria do processo.
+        antes = s.MAXIMO_DE_SESSOES
+        s.MAXIMO_DE_SESSOES = 4
+        self.addCleanup(setattr, s, "MAXIMO_DE_SESSOES", antes)
+        for _ in range(12):
+            st, _ = self.entra()
+            self.assertEqual(st, 200)
+        self.assertLessEqual(len(self.sessoes()), 4)
+
+    def test_a_sessao_mais_nova_sobrevive_ao_teto(self):
+        # Descartar a que acabou de entrar deixaria quem acabou de digitar o
+        # token de fora -- o teto viraria uma porta fechada.
+        antes = s.MAXIMO_DE_SESSOES
+        s.MAXIMO_DE_SESSOES = 3
+        self.addCleanup(setattr, s, "MAXIMO_DE_SESSOES", antes)
+        for _ in range(8):
+            _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertNotIn('name="token"', corpo, "a sessao recem-aberta caiu")
+
+    def test_token_errado_poe_o_endereco_de_castigo(self):
+        st, _cookie = self.entra("nao-esta-na-lista")
+        self.assertEqual(st, 401)
+        castigo = self.srv.RequestHandlerClass.castigo
+        self.assertEqual(list(castigo), ["127.0.0.1"])
+
+    def test_a_entrada_certa_tira_o_castigo(self):
+        self.entra("nao-esta-na-lista")
+        self.entra()
+        self.assertEqual(self.srv.RequestHandlerClass.castigo, {})
+
+    def test_o_castigo_tem_teto(self):
+        # A chave e o endereco de quem tentou, e atras da borda ele e o que
+        # o proxy disser: sem teto, um dicionario que so cresce.
+        antes = s.MAXIMO_DE_CASTIGOS
+        s.MAXIMO_DE_CASTIGOS = 3
+        self.addCleanup(setattr, s, "MAXIMO_DE_CASTIGOS", antes)
+        castigo = self.srv.RequestHandlerClass.castigo
+        for i in range(10):
+            castigo[f"10.0.0.{i}"] = time.monotonic() + 600
+        self.entra("nao-esta-na-lista")
+        self.assertLessEqual(len(castigo), 3)
+
+    def test_token_nao_ascii_na_pagina_e_recusado(self):
+        # `hmac.compare_digest` com `str` fora do ASCII levanta TypeError, e
+        # a excecao derrubava a conexao em vez de responder 401.
+        st, cookie = self.entra("segredo-com-acento-çãé")
+        self.assertEqual(st, 401)
+        self.assertEqual(cookie, "")
+
+    def test_cookie_secure_so_quando_a_borda_diz_https(self):
+        # O Cloudflare termina o TLS e fala HTTP com este servidor: olhar o
+        # proprio soquete diria "nao e seguro" sempre, e o cookie nunca
+        # voltaria. Quem sabe e o cabecalho da borda.
+        c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=10)
+        try:
+            c.request("POST", s.ROTA_VIAGENS, body=f"token={TOKEN}",
+                      headers={"Content-Type":
+                               "application/x-www-form-urlencoded",
+                               "X-Forwarded-Proto": "https"})
+            r = c.getresponse()
+            r.read()
+            com_borda = r.getheader("Set-Cookie", "")
+        finally:
+            c.close()
+        self.assertIn("Secure", com_borda)
+        _st, _c, cab = self.pede("POST", s.ROTA_VIAGENS, f"token={TOKEN}")
+        self.assertNotIn("Secure", cab.get("Set-Cookie", ""))
+
     # ===================================================== nomes e caminhos
 
     def test_travessia_de_caminho_e_recusada(self):
@@ -219,6 +328,19 @@ class PaginaEmTeste(unittest.TestCase):
             st, _corpo, _ = self.pede(
                 "GET", f"{s.ROTA_VIAGENS}/{nome}", cookie=cookie)
             self.assertEqual(st, 404, nome)
+
+    def test_nome_com_quebra_de_linha_nao_e_viagem(self):
+        # O `$` de uma expressao casa ANTES da quebra final, entao
+        # "20261006_123858.log\n" passava pela lista branca -- e o nome ia
+        # inteiro para o `href` da listagem. `fullmatch` nao tem essa
+        # gentileza.
+        alvo = self.recebidos / PASTA / "20261006_123858.log\n"
+        alvo.write_text(viagem_sintetica())
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertNotIn("20261006_123858.log\n", corpo)
+        self.assertIn("Nenhuma viagem", corpo)
 
     def test_coruja_log_e_infracoes_nao_sao_viagens(self):
         # Eles chegam na mesma pasta, pelo envio, e não são trajetos.

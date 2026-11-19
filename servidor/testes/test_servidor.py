@@ -714,6 +714,52 @@ class Recepcao(unittest.TestCase):
                     c.close()
         self.assertEqual(self.recebidos(), [])
 
+    def test_token_nao_ascii_no_cabecalho_e_recusado(self):
+        # `hmac.compare_digest` com `str` fora do ASCII levanta TypeError, e
+        # a excecao derrubava a conexao em vez de responder 401. O cabecalho
+        # viaja em latin-1, entao o acento chega como byte alto.
+        st, _ = self.envia("coruja.log", b"dado",
+                           token="segredo-com-acento-\u00e7\u00e3\u00e9")
+        self.assertEqual(st, 401)
+        self.assertEqual(self.recebidos(), [])
+
+    def test_a_linha_do_pedido_nao_leva_escape_de_terminal_para_o_log(self):
+        """Caractere de controle no log e injecao de terminal.
+
+        O `log_message` da biblioteca troca os caracteres de controle por
+        `\\xNN`; o nosso, sobrescrito, tinha perdido essa troca. A linha do
+        pedido vem de quem chama, vai para o stderr, para o `docker logs` e
+        para o Loki -- e um `ESC[2J` no meio dela limpa a tela de quem
+        estiver lendo com `tail`.
+        """
+        import logging
+        import socket
+        registradas = []
+
+        class Pega(logging.Handler):
+            def emit(self, registro):
+                registradas.append(registro.getMessage())
+
+        pega = Pega()
+        diario = logging.getLogger("coruja.servidor")
+        diario.addHandler(pega)
+        # Sem isto o nivel efetivo vem do raiz, em WARNING, e o `info` do
+        # `log_message` nem chega ao manipulador: o teste passaria por nao
+        # haver log nenhum, que e o jeito mais bobo de um teste mentir.
+        antes = diario.level
+        diario.setLevel(logging.INFO)
+        self.addCleanup(diario.setLevel, antes)
+        self.addCleanup(diario.removeHandler, pega)
+        with socket.create_connection(("127.0.0.1", self.porta),
+                                      timeout=5) as c:
+            c.sendall(b"GET /\x1b[2Kfalso HTTP/1.1\r\n"
+                      b"Host: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            while c.recv(4096):
+                pass
+        tudo = "\n".join(registradas)
+        self.assertNotIn("\x1b", tudo, "escape de terminal foi para o log")
+        self.assertIn("\\x1b", tudo, "o caractere de controle sumiu do log")
+
     # -- a rota de saude, a UNICA sem token --
 
     def test_saude_responde_sem_token(self):
