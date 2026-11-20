@@ -659,6 +659,30 @@ class LeituraDeViagem(unittest.TestCase):
             "2026-10-06T12:00:30Z;-10.001;-40.0;20.0;0.05")))
         self.assertEqual([p.quando.second for p in v.pontos], [0, 30])
 
+    def test_a_recusa_nunca_repete_o_valor_do_campo(self):
+        """O motivo da recusa vai para a pagina 422 e para o log -- e o log
+        vai para o Loki. Um campo quase numerico ("-15.7912ab") ou uma data
+        torta traz a coordenada ou o horario no texto da excecao do
+        `float()` e do `strptime`; a mensagem diz O QUE falhou, e nunca o
+        valor, como o resto do servidor ja faz com a zona privada.
+        """
+        for dados in (
+            ("2026-10-06T12:00:00Z;-15.7912ab;-47.8828;20.0;0.00",
+             "2026-10-06T12:00:06Z;-15.7912zz;-47.8828;20.0;0.01"),
+            ("2026-10-06T12:00:00Z;-15.7912;-47.8828zz;20.0;0.00",
+             "2026-10-06T12:00:06Z;-15.7912;-47.8828zz;20.0;0.01"),
+            ("2026-10-06X12:00:00Z;-15.7912;-47.8828;20.0;0.00",
+             "2026-10-06X12:00:06Z;-15.7912;-47.8828;20.0;0.01"),
+        ):
+            with self.subTest(dados=dados[0][:30]):
+                with self.assertRaises(viagem.ErroDeViagem) as e:
+                    viagem.le_viagem(self.escreve(self.linhas(*dados)))
+                msg = str(e.exception)
+                for pedaco in ("15.7912", "47.8828", "10-06X"):
+                    self.assertNotIn(pedaco, msg, msg)
+                # E o motivo continua util: diz a linha e o que falhou.
+                self.assertIn("linha", msg)
+
     def test_coordenada_fora_da_faixa_nao_vira_ponto(self):
         v = viagem.le_viagem(self.escreve(self.linhas(
             "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
