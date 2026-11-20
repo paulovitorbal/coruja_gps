@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "apoio/CaoDeGuardaFalso.h"
 #include "apoio/LoggerMock.h"
 
 namespace {
@@ -192,10 +193,12 @@ struct Bancada {
     SimuladorUart         uart;
     PausaFalsa        pausa;
     teste::LoggerMock log;
+    teste::CaoCronometrado cao{pausa};
     ResultadoConfigGps roda() {
-        ConfiguradorGps c(uart, pausa);
+        ConfiguradorGps c(uart, pausa, &cao);
         const auto r = c.executa(log);
         baud_final = c.baud_final();
+        cao.fecha();
         return r;
     }
     std::uint32_t baud_final = 0;
@@ -1007,6 +1010,59 @@ TEST(ConfiguradorGps, o_resumo_sai_mesmo_quando_o_modulo_nao_responde) {
     b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
     ASSERT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
     EXPECT_TRUE(b.log.contem(Nivel::Error, "nao respondeu"));
+}
+
+// ================================================= o cao de guarda (19/11)
+
+TEST(ConfiguradorGps, alimenta_o_cao_uma_vez_por_quadro_enviado) {
+    // **A regra, e o que ela exclui.** Cada refeicao corresponde a um quadro
+    // que saiu pela porta -- ou seja, a um passo que de fato andou. A espera
+    // do ACK gira ate 50 vezes por comando chamando `le()` e `espera_ms()`:
+    // se alguma dessas voltas alimentasse, a contagem passaria MUITO da de
+    // quadros, e um modulo travado no meio de um ACK manteria o cao saciado
+    // para sempre.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::Configurado);
+    ASSERT_FALSE(b.uart.comandos.empty());
+    EXPECT_EQ(b.cao.alimentacoes, b.uart.comandos.size())
+        << "o cao foi alimentado fora do envio de um quadro";
+}
+
+TEST(ConfiguradorGps, o_modulo_calado_nao_faz_o_cao_passar_fome) {
+    // 🔴 **O GPS pode nao estar montado, e isso e um estado suportado.** A
+    // sequencia inteira contra um modulo mudo gasta dezenas de segundos de
+    // espera de ACK -- bem mais que o prazo do cao. Se ela nao alimentasse
+    // durante esse tempo, o aparelho reiniciaria em toda partida sem GPS, e a
+    // reconfiguracao em voo (RF01.5) o reiniciaria dentro do carro.
+    //
+    // Alimentar aqui nao e enfeite: a lista de comandos e FINITA, entao as
+    // refeicoes acabam. O que nao acaba -- um `le()` que nunca volta -- nao
+    // produz refeicao nenhuma.
+    // Medido aqui: a sequencia inteira contra um modulo mudo gasta 4,96 s --
+    // bem abaixo dos 16,5 s do prazo, mas so porque ela e alimentada por
+    // dentro. Sem isso o silencio seria um bloco unico de quase cinco
+    // segundos, e bastaria subir `kEsperasPorAck` para passar do prazo.
+    constexpr std::uint32_t kMaiorEsperaPorComandoMs =
+        kTentativasPorComando * kEsperasPorAck * kEsperaEntreLeiturasMs;
+
+    Bancada b;
+    b.uart.muda = {ubx::kCfgRate, ubx::kCfgMsg, ubx::kCfgPrt, ubx::kCfgCfg};
+    ASSERT_EQ(b.roda(), ResultadoConfigGps::SemResposta);
+    EXPECT_GT(b.pausa.agora, kMaiorEsperaPorComandoMs)
+        << "o teste nem chega a esperar: ele nao prova nada";
+    EXPECT_LE(b.cao.maior_intervalo_ms, kMaiorEsperaPorComandoMs)
+        << "houve um silencio maior que a espera de UM comando: o cao esta "
+           "sendo alimentado so nas pontas";
+}
+
+TEST(ConfiguradorGps, sem_cao_a_configuracao_roda_igual) {
+    // O ponteiro nulo e o caso da bancada e de boa parte da suite. Ele nao
+    // pode mudar o desfecho nem derrubar nada.
+    SimuladorUart uart;
+    PausaFalsa pausa;
+    teste::LoggerMock log;
+    ConfiguradorGps c(uart, pausa);
+    EXPECT_EQ(c.executa(log), ResultadoConfigGps::Configurado);
 }
 
 }  // namespace

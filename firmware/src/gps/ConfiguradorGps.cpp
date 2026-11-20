@@ -55,6 +55,7 @@ ConfiguradorGps::Passo ConfiguradorGps::comanda(const std::uint8_t* quadro,
     for (unsigned tentativa = 1; tentativa <= kTentativasPorComando;
          ++tentativa) {
         uart_.escreve(quadro, tamanho);
+        alimenta_o_cao();
         bool recusou = false;
         if (espera_ack(id, log, &recusou)) {
             // **DEBUG, e nao INFO.** O passo que funcionou nao e noticia: ele
@@ -104,6 +105,7 @@ ConfiguradorGps::Passo ConfiguradorGps::sonda(const std::uint8_t* quadro,
     // arranque quando nao responde.
     for (unsigned tentativa = 1; tentativa <= kSondagensPorBaud; ++tentativa) {
         uart_.escreve(quadro, tamanho);
+        alimenta_o_cao();
         bool recusou = false;
         if (espera_ack(id, log, &recusou, kEsperasDaSondagem)) {
             return Passo::Ok;
@@ -358,6 +360,7 @@ ResultadoConfigGps ConfiguradorGps::aplica(Logger& log) {
 
     n = ubx::monta_cfg_prt_uart(kBaudDesejado, q, sizeof q);
     uart_.escreve(q, n);
+    alimenta_o_cao();
     uart_.define_baud(kBaudDesejado);
     baud_final_ = kBaudDesejado;
     resumo_.passo = "CFG-PRT";

@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "gps/Uart.h"
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Pausa.h"
 #include "nucleo/Ubx.h"
 
@@ -75,7 +76,10 @@ constexpr std::uint16_t kPeriodoNavegacaoMs = 250;   // 4 Hz, RF01.4
 /// o módulo que recusa, o que não responde, e a troca de baud no meio.
 class ConfiguradorGps {
 public:
-    ConfiguradorGps(Uart& uart, Pausa& pausa) : uart_(uart), pausa_(pausa) {}
+    /// `cao` e opcional: nulo significa "ninguem esta vigiando", que e o
+    /// caso da bancada e da suite de host que nao mede alimentacao.
+    ConfiguradorGps(Uart& uart, Pausa& pausa, CaoDeGuarda* cao = nullptr)
+        : uart_(uart), pausa_(pausa), cao_(cao) {}
 
     ResultadoConfigGps executa(Logger& log);
 
@@ -166,8 +170,22 @@ private:
     /// o receptor funcionando do outro lado (08/10/2026).
     void volta_ao_baud(std::uint32_t baud, Logger& log);
 
+    /// Avisa o cao de guarda de que a sequencia ANDOU.
+    ///
+    /// ⚠️ **Chamada so depois de um quadro sair pela porta**, e nunca de
+    /// dentro da espera do ACK. A espera gira ate cinquenta vezes por
+    /// comando sem que nada aconteca; alimentar ali deixaria o cao saciado
+    /// por um modulo travado no meio de uma resposta.
+    ///
+    /// O que torna esta refeicao legitima e a lista de comandos ser FINITA:
+    /// mesmo contra um modulo mudo, as refeicoes acabam e a sequencia
+    /// retorna. E o que mantem o aparelho de pe quando o GPS nao esta
+    /// montado -- um estado suportado, nao um travamento.
+    void alimenta_o_cao() { if (cao_ != nullptr) { cao_->alimenta(); } }
+
     Uart&            uart_;
     Pausa&           pausa_;
+    CaoDeGuarda*     cao_ = nullptr;
     ubx::LeitorUbx   leitor_;
     std::uint32_t    baud_final_ = kBaudFabrica;
     Resumo           resumo_;
