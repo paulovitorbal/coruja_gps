@@ -247,8 +247,12 @@ TEST(LoggerCartao, o_cartao_logando_a_propria_falha_nao_recursiona) {
     Bancada b;
     b.cartao.realimenta = &b.log;   // cada acréscimo dispara um error()
     b.log.warning("teste", "dispara");
-    SUCCEED() << "nao entrou em recursao infinita";
+    // Uma gravação, e não uma cadeia delas: é a contagem que separa "a
+    // guarda segurou" de "a recursão terminou por acaso".
+    EXPECT_EQ(b.cartao.chamadas, 1);
     EXPECT_GE(b.console.entradas().size(), 2U);
+    // A mensagem do cartão foi para o console e NÃO voltou ao buffer.
+    EXPECT_EQ(b.cartao.arquivo.find("falhei ao gravar"), std::string::npos);
 }
 
 TEST(LoggerCartao, descarregar_de_dentro_de_uma_descarga_nao_recursiona) {

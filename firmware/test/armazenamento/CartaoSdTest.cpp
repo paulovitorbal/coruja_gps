@@ -117,12 +117,13 @@ TEST_F(CartaoSdNoHost, arquivo_maior_que_o_buffer_e_recusado_sem_estourar) {
 }
 
 TEST_F(CartaoSdNoHost, driver_que_nao_inicia_nao_derruba_a_leitura) {
+    // `sd_init_driver()` falhando nao e motivo para desistir: o barramento
+    // pode ja estar de pe de uma tentativa anterior. O que NAO pode e a
+    // falha passar calada -- e onde se procura quando o cartao nao responde.
     fs.driver_inicia = false;
     poe(0, "coruja.cfg", "x");
-    char buf[64];
-    std::size_t n = 0;
-    sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log);
-    SUCCEED() << "nao travou nem estourou";
+    EXPECT_EQ(le("coruja.cfg"), "x") << "desistiu da leitura por causa do driver";
+    EXPECT_TRUE(log.contem(Nivel::Error, "sd_init_driver"));
 }
 
 // ================================================ RF05.2: troca atômica
@@ -305,9 +306,17 @@ TEST_F(CartaoSdNoHost, descartar_apaga_o_temporario_mesmo_depois_de_concluir) {
     EXPECT_EQ(fs.montagens, fs.desmontagens) << "o cartao ficou montado";
 }
 
-TEST_F(CartaoSdNoHost, descartar_sem_cartao_nao_quebra) {
+TEST_F(CartaoSdNoHost, descartar_sem_cartao_nao_deixa_o_volume_preso) {
+    // Sem cartao nao ha o que apagar -- e nao pode sobrar montagem pendurada
+    // nem bandeira de escrita: a tentativa seguinte do OTA usa as duas.
     sd.descarta_escrita("radares.tmp", log);
-    SUCCEED();
+    EXPECT_EQ(fs.montagens, fs.desmontagens);
+
+    fs.volumes[0].monta = true;
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.abre_para_escrita("radares.tmp", log), ErroCartao::Nenhum)
+        << "a escrita seguinte nao abriu";
+    EXPECT_EQ(sd.conclui_escrita(log), ErroCartao::Nenhum);
 }
 
 TEST_F(CartaoSdNoHost, acrescentar_nao_reescreve_o_arquivo_inteiro) {
