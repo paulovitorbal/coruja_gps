@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "armazenamento/Arquivario.h"
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Configuracao.h"
 #include "nucleo/Pausa.h"
 #include "rede/Conexao.h"
@@ -290,11 +291,13 @@ public:
     ///
     /// `observador` é opcional: nulo significa "ninguém está olhando", que é o
     /// caso de quase toda a suíte de host.
+    /// `cao` também é opcional, pelo mesmo motivo.
     RemessaDados(Arquivario& cartao, Conexao& rede, Enviador& http,
                  Pausa& pausa, ObservadorRemessa* observador = nullptr,
-                 PreparoDeSessao* preparo = nullptr)
+                 PreparoDeSessao* preparo = nullptr,
+                 CaoDeGuarda* cao = nullptr)
         : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa),
-          observador_(observador), preparo_(preparo) {}
+          observador_(observador), preparo_(preparo), cao_(cao) {}
 
     ResultadoRemessa executa(const Configuracao& cfg, Logger& log);
 
@@ -320,11 +323,18 @@ private:
     struct Bomba {
         Arquivario*       cartao = nullptr;
         ObservadorRemessa* observador = nullptr;
+        CaoDeGuarda*      cao = nullptr;
         std::size_t       entregues = 0;
         std::size_t       total = 0;
         bool              falhou = false;
         std::uint8_t      pedaco[kPedacoRemessa] = {};
     };
+
+    /// Avisa o cão de que a remessa ANDOU.
+    ///
+    /// ⚠️ Só onde houve progresso: um pedaço que saiu do cartão, um pedido
+    /// que voltou, um arquivo que terminou. Nunca por tempo decorrido.
+    void alimenta_o_cao() { if (cao_ != nullptr) { cao_->alimenta(); } }
 
     static void ao_listar(void* contexto, const char* nome,
                           std::size_t tamanho);
@@ -407,6 +417,7 @@ private:
     Pausa&             pausa_;
     ObservadorRemessa* observador_ = nullptr;
     PreparoDeSessao*   preparo_ = nullptr;
+    CaoDeGuarda*       cao_ = nullptr;
     /// Membro, e não local de `despacha()`: 1 KB de pilha num caminho que
     /// desce até o handshake do mbedTLS é folga que não existe — a pilha tem
     /// 24 KiB e o pico medido no carro foi de 21 172 B. Em `.bss` ele aparece

@@ -43,11 +43,28 @@ public:
 /// ele mede é o tempo que a operação de fato gastaria.
 class CaoCronometrado : public CaoDeGuardaFalso {
 public:
-    explicit CaoCronometrado(Pausa& pausa) : pausa_(pausa) {}
+    /// O cronometro parte da hora ATUAL do relogio falso, e nao de zero:
+    /// alguns relogios de teste comecam longe da origem de proposito, e a
+    /// distancia ate a origem nao e silencio de ninguem.
+    explicit CaoCronometrado(Pausa& pausa)
+        : pausa_(pausa), ultima_ms_(pausa.agora_ms()) {}
 
     void alimenta() override {
         CaoDeGuardaFalso::alimenta();
         marca();
+        ultima_ms_ = pausa_.agora_ms();
+    }
+
+    /// ⚠️ **A janela de suspensao NAO conta.** Com o cao solto ele nao pode
+    /// morder, e somar esse tempo ao silencio acusaria um defeito que nao
+    /// existe -- seria medir a associacao do Wi-Fi, que roda solta de
+    /// proposito.
+    void suspende() override {
+        CaoDeGuardaFalso::suspende();
+        marca();
+    }
+    void retoma() override {
+        CaoDeGuardaFalso::retoma();
         ultima_ms_ = pausa_.agora_ms();
     }
 
