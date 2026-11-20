@@ -72,8 +72,17 @@ loki.process "aparelho" {
   // alfabeto do `idexec` inclui dígitos de 2 a 9, então um identificador
   // como `4EGMHMD4` seria confundido com um carimbo por qualquer expressão
   // que só olhasse a posição.
+  // ⚠️ A `origem` e limitada a 12 minusculas, digitos e `_`, e isto NAO e
+  // esmero: ela vira rotulo, e rotulo e indice -- cada valor distinto abre
+  // um fluxo proprio no Loki. Com `[^:\\s]+` qualquer coisa antes dos dois
+  // pontos virava um valor, e uma linha truncada no cartao (metade de uma,
+  // metade de outra) produz texto arbitrario. As origens do firmware sao
+  // uma duzia, todas curtas: `sd`, `gps`, `vigia`, `http`, `ota`.
+  //
+  // Linha que nao casa continua guardada INTEIRA, so que sem rotulo -- e o
+  // que o comentario do fim deste bloco ja dizia.
   stage.regex {
-    expression = "^(?:(?P<carimbo>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z|\\+\\d+) )?(?:(?P<idexec>[2-9A-HJ-NP-Z]{8}) )?\\[(?P<nivel>DEBUG|INFO|WARN|ERRO)\\] (?P<origem>[^:\\s]+): (?P<mensagem>.*)$"
+    expression = "^(?:(?P<carimbo>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z|\\+\\d+) )?(?:(?P<idexec>[2-9A-HJ-NP-Z]{8}) )?\\[(?P<nivel>DEBUG|INFO|WARN|ERRO)\\] (?P<origem>[a-z0-9_]{1,12}): (?P<mensagem>.*)$"
   }
 
   // Poucos valores possíveis cada um: quatro níveis e uma dúzia de origens.
@@ -116,10 +125,14 @@ loki.process "aparelho" {
 
 // ====================================================== logs dos containers
 
-// ⚠️ **Isto exige o soquete do Docker**, montado somente-leitura no compose.
-// Quem tem o soquete tem, na prática, raiz no hospedeiro. Se você não quiser
-// isso, comente o volume no `docker-compose.yml` e estes dois blocos: o
-// diário do aparelho, que é o motivo desta pilha existir, continua inteiro.
+// ⚠️ **Isto exige o soquete do Docker, e isso é raiz no hospedeiro.** Quem
+// fala com a API dele sobe um container privilegiado com o disco inteiro
+// montado. O `:ro` do compose deixa somente-leitura o ARQUIVO do soquete, e
+// não a API que atende nele -- não existe "só consultar" do outro lado.
+//
+// Se você não quiser isso, comente o volume no `docker-compose.yml` e estes
+// dois blocos: o diário do aparelho, que é o motivo desta pilha existir,
+// continua inteiro.
 discovery.docker "local" {
   host = "unix:///var/run/docker.sock"
 }

@@ -45,6 +45,40 @@ Sem Docker, funciona igual:
 python3 servidor.py --dados ./dados --porta 8080
 ```
 
+### Teto de memória: `mem_limit: 512m`
+
+Medido em 19/11/2026, dentro da imagem: parado com o folium carregado, ~50 MB;
+o mapa de uma viagem de 10 h, 72 MB no pico; o de um arquivo de 8 MB — o
+maior que a recepção aceita —, 319 MB. O teto cabe o maior mapa legítimo, e
+quem passar dele é morto e reiniciado pelo `restart` em vez de empurrar a
+máquina inteira para a troca.
+
+O arquivo de viagem é validado **na entrada** (`viagem.le_viagem`): byte que
+não é UTF-8, coordenada impossível ou que não é número finito, ano fora de
+2020–2100 e salto de mais de 24 h entre amostras. Linha ruim é pulada;
+arquivo ruim some da listagem e o mapa dele explica o motivo, sem derrubar a
+página do aparelho. A animação inventa no máximo `TETO_DE_PASSOS` pontos por
+trecho, por longo que ele seja.
+
+### Prazos e teto de conexões
+
+| Limite | Valor | O que ele corta |
+| :--- | ---: | :--- |
+| `TEMPO_LIMITE_S` | 60 s | silêncio no soquete, por operação |
+| `PRAZO_DO_PEDIDO_S` | 300 s | a DURAÇÃO do pedido inteiro |
+| `MAXIMO_DE_CONEXOES` | 32 | conexões simultâneas; além disso, `503` |
+
+⚠️ **O prazo por operação sozinho não limita nada.** Ele mede o silêncio: um
+cliente que manda um byte a cada 59 s nunca fica em silêncio, e segurava a
+thread, o `.parcial` e a vaga para sempre. O prazo total é conferido **entre**
+as leituras, e não só na entrada de cada uma — um `readline` fica girando lá
+dentro até a quebra de linha, e era por aí que o conta-gotas passava.
+
+Os 300 s ficam acima dos 180 s em que o **firmware** desiste de um envio
+(`kTempoLimiteEnvioMs`): quem decide que um envio morreu continua sendo o
+aparelho. O teto de conexões troca "a máquina inteira para" por "esta conexão
+recebe `503` e tenta de novo" — e o aparelho tenta de novo.
+
 ## A versão sai do próprio arquivo
 
 Nada de incrementar número à mão. O `radares.bin` já carrega um **CRC-32 do
@@ -144,8 +178,24 @@ Ele exige que se digite `ENTENDI`, avisa a cada URL sem TLS e grava um bloco de
 aviso dentro do próprio `coruja.cfg` — de modo que um arquivo de teste não se
 disfarce de definitivo meses depois.
 
-Ao sair da rede local: proxy reverso com TLS na frente e a porta de volta para
-`127.0.0.1:8081`.
+Ao sair da rede local: proxy reverso com TLS na frente e a porta publicada só
+no próprio hospedeiro. Isso é um `.env` ao lado do `docker-compose.yml`, e não
+uma edição do arquivo versionado:
+
+```sh
+echo "CORUJA_ENDERECO_HOST=127.0.0.1" >> .env
+docker compose up -d
+```
+
+| Variável | Padrão | Para que |
+| :--- | :--- | :--- |
+| `CORUJA_ENDERECO_HOST` | `0.0.0.0` | rede local, para o Pico alcançar pelo Wi-Fi |
+| `CORUJA_PORTA_HOST` | `8081` | a porta publicada |
+
+⚠️ **O padrão é `0.0.0.0` de propósito** — é o caso de uso primário, o
+aparelho chegando pela rede de casa. Atrás da borda, `127.0.0.1`: o proxy
+fala com o serviço pelo próprio hospedeiro, e mais ninguém na rede alcança a
+porta.
 
 ## Quem pode falar com o servidor
 
@@ -402,6 +452,11 @@ O cookie é `HttpOnly`, `SameSite=Strict`, escopo `/viagens`, e ganha `Secure`
 quando a borda manda `X-Forwarded-Proto: https`. As sessões vivem em memória e
 morrem com o processo.
 
+Elas duram **8 h sem uso** e são no máximo **64** (`MAXIMO_DE_SESSOES`), com a
+mesma ideia para os endereços em castigo por token errado (**256**). Os tetos
+existem porque os dois dicionários só cresciam: cada entrada vale horas, e
+abrir sessão custa um POST com o token certo.
+
 ### O tema Atlas precisa de chave
 
 No `aparelhos.cfg`:
@@ -527,8 +582,14 @@ histórico inteiro e pode medir a coisa certa — a distância de cada radar at�
 **linha** que o carro percorreu.
 
 ```sh
+cd servidor
 python3 pista.py recebidos/<id> dados/radares.bin --minimo 3
 ```
+
+⚠️ **Ferramenta de bancada, e não parte do serviço.** Ela roda no
+hospedeiro, sobre o `recebidos/` que o compose monta, e por isso **não vai
+na imagem** — nada lá dentro a importa. Só a biblioteca padrão: o `folium`
+não é preciso aqui.
 
 Sai uma linha por radar com 3+ passagens, da maior mediana para a menor:
 

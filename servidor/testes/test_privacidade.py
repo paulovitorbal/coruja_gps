@@ -217,6 +217,115 @@ class Recorte(unittest.TestCase):
                          [2000, 5000])
 
 
+class SegmentoQueAtravessa(unittest.TestCase):
+    """Duas amostras VISIVEIS, e a reta entre elas passando por casa.
+
+    ⚠️ Acontece sozinho num arquivo v1, de uma amostra por minuto: a
+    120 km/h sao 2 km entre amostras, e uma zona de 1 km de raio cabe
+    inteira entre duas delas. Filtrar PONTO a ponto nao ve isso -- nenhum
+    ponto esta dentro --, e a trilha sai desenhada por cima da casa,
+    apontando para o meio dela.
+    """
+
+    def ida_e_volta(self, nome: str = "20261015_080000.log",
+                    passo_m: float = 10.0) -> viagem.Viagem:
+        """Desce do norte, cruza casa, vai ao sul e volta. Duas travessias."""
+        descida = [3000.0 - k * passo_m
+                   for k in range(int(6000 / passo_m) + 1)]
+        subida = [-3000.0 + k * passo_m
+                  for k in range(1, int(6000 / passo_m) + 1)]
+        return trecho(descida + subida, nome=nome)
+
+    def test_a_reta_entre_duas_amostras_visiveis_nao_cruza_a_zona(self):
+        j = viagem.Jornada([trecho([3000, 1100, -1100, -3000])])
+        saida = p.esconde_jornada(j, so_casa())
+        self.assertTrue(saida.cortada, "nada foi escondido")
+        self.assertEqual(len(saida.trechos), 2,
+                         "a trilha continua atravessando a zona numa reta")
+        self.assertTrue(saida.trechos[0].fim_oculto)
+        self.assertTrue(saida.trechos[1].inicio_oculto)
+
+    def ao_lado_da_casa(self, distancias_m: list[float]) -> viagem.Viagem:
+        """A mesma reta, deslocada `_DESVIO` para leste.
+
+        ⚠️ Sem o desvio a rota corre no meridiano EXATO do centro, a
+        longitude sai do HTML como `-40.0` e a varredura, que exige quatro
+        casas decimais, nao enxerga par nenhum -- o teste passaria sem
+        olhar nada.
+        """
+        return viagem.Viagem(nome="20261015_080000.log", pontos=[
+            viagem.PontoViagem(
+                quando=INICIO + datetime.timedelta(seconds=i * 60),
+                lat=ao_norte(d), lon=CASA.lon + _DESVIO,
+                v_media_kmh=110.0, dist_km=i * 2.0)
+            for i, d in enumerate(distancias_m)])
+
+    def test_a_travessia_sem_amostra_dentro_some_do_mapa(self):
+        # O produto, e nao a regra: o que importa e que nenhuma coordenada
+        # desenhada -- inclusive as INVENTADAS pelo adensamento, que e por
+        # onde a reta passa -- caia dentro da zona.
+        try:
+            import folium  # noqa: F401,PLC0415
+        except ImportError:
+            raise unittest.SkipTest("sem folium")
+        j = viagem.Jornada([self.ao_lado_da_casa([3000, 1100, -1100, -3000])])
+        html = viagem.desenha(p.esconde_jornada(j, so_casa()))
+        dentro = [par for par in _pares_de_coordenadas(html)
+                  if _dentro(par, 1000.0)]
+        self.assertEqual(dentro, [])
+
+    def test_cada_travessia_tem_o_proprio_raio(self):
+        """A ida e a volta nao podem cair na MESMA circunferencia.
+
+        ⚠️ Com um raio por viagem, as duas pontas de cada travessia ficam
+        no mesmo circulo: sao quatro pontos, dois raios e um centro -- e
+        duas jornadas ja dao equacoes suficientes para resolver o centro,
+        que e a casa. Com um raio por travessia os raios viram incognitas
+        novas a cada corte, e a conta deixa de fechar.
+
+        Amostragem de 10 em 10 m: a borda de cada corte fica a menos de
+        10 m do raio sorteado, entao a distancia medida AQUI e o raio.
+        """
+        conf = so_casa(folga_m=400.0)
+        bordas = set()
+        for d in range(8):
+            nome = f"2026101{d}_080000.log"
+            saida = p.esconde_jornada(
+                viagem.Jornada([self.ida_e_volta(nome)]), conf)
+            for t in saida.trechos:
+                for ponta in (t.pontos[0], t.pontos[-1]):
+                    distancia = _metros_da_casa(ponta)
+                    if distancia < 2000:        # ponta de corte, nao do fim
+                        bordas.add(round(distancia / 5))
+        # Oito jornadas, duas travessias cada. Com um raio por jornada as 16
+        # bordas colapsam em 8 valores; com um raio por travessia ficam 16,
+        # e o teto de 12 deixa folga para duas coincidencias de sorteio.
+        self.assertGreater(len(bordas), 12,
+                           f"as travessias dividem raio: {sorted(bordas)}")
+
+    def test_a_mesma_jornada_recorta_sempre_igual(self):
+        # O sorteio por travessia nao pode custar a estabilidade: duas
+        # renderizacoes com bordas diferentes dariam duas amostras do mesmo
+        # trajeto, que e o que o sorteio existe para negar.
+        conf = so_casa(folga_m=400.0)
+        def bordas():
+            saida = p.esconde_jornada(
+                viagem.Jornada([self.ida_e_volta()]), conf)
+            return [(round(_metros_da_casa(t.pontos[0]), 6),
+                     round(_metros_da_casa(t.pontos[-1]), 6))
+                    for t in saida.trechos]
+        self.assertEqual(bordas(), bordas())
+
+    def test_nenhuma_travessia_esconde_menos_que_o_raio_pedido(self):
+        # A folga so pode AUMENTAR o que se esconde -- vale para cada
+        # travessia, e nao so para a primeira.
+        conf = so_casa(folga_m=400.0)
+        saida = p.esconde_jornada(
+            viagem.Jornada([self.ida_e_volta()]), conf)
+        for q in saida.pontos:
+            self.assertGreater(_metros_da_casa(q), 1000.0 - 1e-6)
+
+
 class Totais(unittest.TestCase):
     """Os números do painel continuam sendo os da viagem gravada."""
 
@@ -342,6 +451,16 @@ class Configuracao(unittest.TestCase):
         # Raio zero não esconde nada, e quem o escreveu queria esconder.
         with self.assertRaises(p.ErroDePrivacidade):
             p.monta({"zona": ["-10,-40"], "raio_m": ["0"]})
+
+    def test_raio_ou_folga_que_nao_e_numero_finito_e_recusado(self):
+        # `float("nan")` passa pelo `<= 0`, e o `metros_entre(...) <= nan` e
+        # falso para todo ponto: a zona ficava ligada no papel e desligada no
+        # mapa -- a casa no meio, sem aviso nenhum.
+        for chave in ("raio_m", "folga_m"):
+            for valor in ("nan", "inf", "-nan"):
+                with self.subTest(chave=chave, valor=valor):
+                    with self.assertRaises(p.ErroDePrivacidade):
+                        p.monta({"zona": ["-10,-40"], chave: [valor]})
 
     def test_folga_negativa_e_recusada(self):
         with self.assertRaises(p.ErroDePrivacidade):

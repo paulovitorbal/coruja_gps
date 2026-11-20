@@ -84,6 +84,33 @@ PASSO_S = 2
 #: de 22 minutos leva 22 minutos em 1x, e 1,4 minuto em 16x.
 VELOCIDADES = (1, 2, 4, 8, 16)
 
+#: Os anos que um carimbo pode ter.
+#:
+#: O formato nasceu em 2026, então nada legítimo é mais antigo; o piso tem
+#: folga porque o que ele existe para recusar está bem longe dele: a época do
+#: GPS (1980-01-06), que é o que um receptor sem hora válida costuma
+#: informar, e a virada do contador de semanas, que joga a data quase vinte
+#: anos para trás. O teto é o mesmo raciocínio do outro lado.
+ANO_MINIMO = 2020
+ANO_MAXIMO = 2100
+
+#: O maior intervalo entre duas amostras do MESMO arquivo.
+#:
+#: Pausa de verdade não fica dentro de um arquivo: o firmware fecha o arquivo
+#: depois de 5 min parado e abre outro quando o carro volta a andar
+#: (`formato_logs.md` §4). Um dia inteiro sem amostra é relógio que pulou, e
+#: a animação tentaria preencher o salto de `PASSO_S` em `PASSO_S`.
+SALTO_MAXIMO = datetime.timedelta(hours=24)
+
+#: Quantos pontos INVENTADOS um trecho pode ganhar na animação.
+#:
+#: Uma viagem de 10 h dá ~18 mil: 6 000 intervalos de 6 s, três passos cada.
+#: O teto fica bem acima disso e serve para o que não é viagem — sem ele, o
+#: número de pontos era proporcional à DURAÇÃO e não ao arquivo, e um arquivo
+#: de duas linhas pedia memória sem fim. Acima dele os passos ficam mais
+#: largos, e o marcador anda aos saltos: degrada, não cai.
+TETO_DE_PASSOS = 50_000
+
 
 class ErroDeViagem(Exception):
     """O arquivo não é um registro de viagem utilizável."""
@@ -514,16 +541,45 @@ def le_radares(caminho: Path) -> list[RadarNoMapa]:
     return saida
 
 
-def metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
-    """Distância aproximada, equirretangular. Erro de centímetros nesta escala.
+def deslocamento_m(lat0: float, lon0: float,
+                   lat1: float, lon1: float) -> tuple[float, float]:
+    """(leste, norte) em metros, equirretangular em torno de `lat0`.
 
-    Pública porque o `privacidade.py` mede com ela. Duas implementações da
-    mesma conta divergiriam com o tempo, e aqui a divergência apareceria
-    como ponto exibido a 999 m de casa.
+    **A única projeção do servidor.** O `privacidade.py` mede distância com
+    ela e o `pista.py` monta geometria plana com ela; duas implementações da
+    mesma conta divergiriam com o tempo, e aqui a divergência apareceria como
+    ponto exibido a 999 m de casa.
     """
     leste = (lon1 - lon0) * _M_POR_GRAU * math.cos(math.radians(lat0))
     norte = (lat1 - lat0) * _M_POR_GRAU
-    return math.hypot(leste, norte)
+    return leste, norte
+
+
+def metros_entre(lat0: float, lon0: float, lat1: float, lon1: float) -> float:
+    """Distância aproximada, equirretangular. Erro de centímetros nesta escala."""
+    return math.hypot(*deslocamento_m(lat0, lon0, lat1, lon1))
+
+
+def metros_ate_segmento(lat: float, lon: float,
+                        lat_a: float, lon_a: float,
+                        lat_b: float, lon_b: float) -> float:
+    """Distância de um ponto ao SEGMENTO `ab` — não à reta que o contém.
+
+    O `privacidade.py` mede com ela a aproximação de um TRECHO percorrido, e
+    não só a das amostras: entre duas amostras de um arquivo v1 cabem 2 km, e
+    uma zona de 1 km de raio cabe inteira entre elas.
+
+    Projetar na reta infinita atribuiria ao segmento a aproximação de um
+    trecho que ninguém percorreu — e esconderia pedaço de trajeto por causa
+    de uma curva do outro lado da cidade.
+    """
+    px, py = deslocamento_m(lat_a, lon_a, lat, lon)
+    bx, by = deslocamento_m(lat_a, lon_a, lat_b, lon_b)
+    comprimento2 = bx * bx + by * by
+    if comprimento2 == 0.0:
+        return math.hypot(px, py)
+    t = max(0.0, min(1.0, (px * bx + py * by) / comprimento2))
+    return math.hypot(px - t * bx, py - t * by)
 
 
 def radares_na_rota(v: Viagem, radares: list[RadarNoMapa],
@@ -554,6 +610,18 @@ def radares_na_rota(v: Viagem, radares: list[RadarNoMapa],
     return perto
 
 
+def _finito(texto: str) -> float:
+    """`float`, mas recusando `nan` e `inf` — que o `float` aceita calado.
+
+    Um NaN passa por toda comparação como falso: chegava ao GeoJSON como
+    `NaN`, que não é JSON, e escapava do `<=` da zona privada.
+    """
+    valor = float(texto)
+    if not math.isfinite(valor):
+        raise ValueError(f"'{texto}' nao e numero finito")
+    return valor
+
+
 def _numero(campos: list[str], i: int, conversao):
     """O campo `i`, convertido, ou `None` quando vazio ou ausente.
 
@@ -575,20 +643,55 @@ def _numero(campos: list[str], i: int, conversao):
 def _radar_de(campos: list[str]) -> dict:
     """As quatro colunas de radar da v3, se existirem."""
     return {
-        "radar_m": _numero(campos, 5, float),
+        "radar_m": _numero(campos, 5, _finito),
         "radar_kmh": _numero(campos, 6, int),
-        "perto_m": _numero(campos, 7, float),
+        "perto_m": _numero(campos, 7, _finito),
         "perto_kmh": _numero(campos, 8, int),
-        "rumo": _numero(campos, 9, float),
+        "rumo": _numero(campos, 9, _finito),
         "zona": _numero(campos, 10, int),
         "n_radares": _numero(campos, 11, int),
     }
 
 
+def _ponto_de(campos: list[str]) -> PontoViagem:
+    """Uma linha de dados, já validada. Levanta `ValueError` se não servir.
+
+    ⚠️ **É a única porta.** Tudo o que vem depois — listagem, recorte de
+    privacidade, adensamento, mapa — usa o ponto sem desconfiar dele. Uma
+    regra a mais aqui vale para todos; uma regra espalhada lá adiante
+    esqueceria um caminho.
+    """
+    quando = datetime.datetime.strptime(
+        campos[0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    if not ANO_MINIMO <= quando.year <= ANO_MAXIMO:
+        raise ValueError(f"ano {quando.year} fora de "
+                         f"{ANO_MINIMO}..{ANO_MAXIMO}")
+    lat, lon = _finito(campos[1]), _finito(campos[2])
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        raise ValueError("coordenada fora da faixa")
+    return PontoViagem(
+        quando=quando, lat=lat, lon=lon,
+        v_media_kmh=_finito(campos[3]),
+        dist_km=_finito(campos[4]),
+        **_radar_de(campos),
+    )
+
+
 def le_viagem(caminho: Path) -> Viagem:
-    """Lê o arquivo e devolve a viagem. Levanta `ErroDeViagem`."""
+    """Lê o arquivo e devolve a viagem. Levanta `ErroDeViagem`, e só ela.
+
+    "Só ela" é o contrato com a listagem: um arquivo ruim some da lista, e
+    não leva a página do aparelho junto. Uma exceção de outro tipo escapava
+    do `except` de lá e derrubava a conexão sem resposta.
+    """
     try:
         linhas = caminho.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as e:
+        # `from None`: o texto da exceção original não acrescenta nada à
+        # posição, e pedaços de bytes arbitrários não têm o que fazer no log.
+        raise ErroDeViagem(
+            f"o byte {e.start} nao e UTF-8: nao foi o firmware que gravou "
+            "isto") from None
     except OSError as e:
         raise ErroDeViagem(f"nao consegui ler: {e}") from e
 
@@ -597,6 +700,7 @@ def le_viagem(caminho: Path) -> Viagem:
                            f"conhecida ({' ou '.join(ASSINATURAS)})")
 
     pontos: list[PontoViagem] = []
+    primeira_recusa = ""
     for n, bruta in enumerate(linhas[1:], start=2):
         linha = bruta.strip()
         if (not linha or linha.startswith("#")
@@ -613,41 +717,30 @@ def le_viagem(caminho: Path) -> Viagem:
             # continuam valendo.
             continue
         try:
-            quando = datetime.datetime.strptime(
-                campos[0], "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=datetime.timezone.utc)
-            pontos.append(PontoViagem(
-                quando=quando,
-                lat=float(campos[1]),
-                lon=float(campos[2]),
-                v_media_kmh=float(campos[3]),
-                dist_km=float(campos[4]),
-                **_radar_de(campos),
-            ))
-        except ValueError:
+            pontos.append(_ponto_de(campos))
+        except ValueError as e:
+            # A mesma regra da linha torta: uma amostra com relogio errado
+            # ou coordenada impossivel nao condena as vizinhas.
+            primeira_recusa = primeira_recusa or f"linha {n}: {e}"
             continue
 
     if len(pontos) < 2:
+        motivo = f" ({primeira_recusa})" if primeira_recusa else ""
         raise ErroDeViagem(
             f"so {len(pontos)} ponto(s) utilizavel(eis): nao da para desenhar "
-            "um trajeto")
+            f"um trajeto{motivo}")
 
     # Ordena pelo carimbo. O firmware grava em ordem, mas um arquivo
     # concatenado a mao -- ou uma retomada de viagem -- pode nao estar.
-    return Viagem(nome=caminho.name, pontos=sorted(pontos, key=lambda p: p.quando))
-
-
-def resumo(caminho: Path) -> dict | None:
-    """Os números da viagem, para a listagem. `None` se não der para ler.
-
-    Lê o arquivo inteiro, e isso é aceitável: um registro de viagem de duas
-    horas tem 120 linhas.
-    """
-    try:
-        v = le_viagem(caminho)
-    except ErroDeViagem:
-        return None
-    return resumo_da_jornada(Jornada([v]))
+    pontos.sort(key=lambda p: p.quando)
+    for a, b in zip(pontos, pontos[1:]):
+        if b.quando - a.quando > SALTO_MAXIMO:
+            raise ErroDeViagem(
+                f"salto de {b.quando - a.quando} entre duas amostras "
+                f"({a.quando:%Y-%m-%dT%H:%M:%SZ} e "
+                f"{b.quando:%Y-%m-%dT%H:%M:%SZ}): relogio errado, ou dois "
+                "arquivos emendados a mao")
+    return Viagem(nome=caminho.name, pontos=pontos)
 
 
 def resumo_da_jornada(j: Jornada) -> dict:
@@ -716,13 +809,21 @@ def _densifica(v: Viagem, passo_s: int = PASSO_S) -> list[PontoViagem]:
     Interpolação linear em lat/lon direto, sem geodésica: entre dois pontos a
     algumas centenas de metros a diferença é de centímetros, bem abaixo do
     erro do próprio GPS.
+
+    Com mais passos que `TETO_DE_PASSOS`, cada intervalo perde passos na
+    mesma proporção, e nenhum fica com menos de um — que é o ponto real.
     """
+    pares = list(zip(v.pontos, v.pontos[1:]))
+    intervalos = [(b.quando - a.quando).total_seconds() for a, b in pares]
+    pedidos = [max(1, int(s // passo_s)) if s > 0 else 0 for s in intervalos]
+    total = sum(pedidos)
+    if total > TETO_DE_PASSOS:
+        pedidos = [max(1, n * TETO_DE_PASSOS // total) if n else 0
+                   for n in pedidos]
+
     denso: list[PontoViagem] = []
-    for atual, proximo in zip(v.pontos, v.pontos[1:]):
-        intervalo = (proximo.quando - atual.quando).total_seconds()
-        if intervalo <= 0:
-            continue
-        passos = max(1, int(intervalo // passo_s))
+    for (atual, proximo), intervalo, passos in zip(pares, intervalos,
+                                                   pedidos):
         for k in range(passos):
             f = k / passos
             denso.append(PontoViagem(

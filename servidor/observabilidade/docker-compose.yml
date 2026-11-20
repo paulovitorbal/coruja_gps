@@ -1,7 +1,7 @@
 # Observabilidade do Coruja: Loki guarda, Alloy coleta, Grafana mostra.
 #
 #   cd servidor/observabilidade
-#   cp .env.exemplo .env && $EDITOR .env      # a senha do Grafana
+#   cp env.exemplo .env && $EDITOR .env       # a senha do Grafana
 #   docker compose up -d
 #   xdg-open http://localhost:3000
 #
@@ -46,11 +46,18 @@ services:
       # nada a escrever ali, e esses arquivos são o original de que o
       # histórico do Loki é apenas uma cópia indexada.
       - ../recebidos:/recebidos:ro
-      # ⚠️ **Soquete do Docker.** Quem o tem tem, na prática, raiz no
-      # hospedeiro — somente-leitura reduz, não elimina. Serve só para os
-      # logs dos containers. Para dispensá-lo, comente esta linha e os dois
-      # blocos marcados no `alloy.alloy`: o diário dos aparelhos, que é o
-      # motivo desta pilha existir, continua funcionando inteiro.
+      # ⚠️ **Soquete do Docker: isto é raiz no hospedeiro.** Quem fala com
+      # a API dele sobe um container privilegiado com o disco inteiro
+      # montado.
+      #
+      # O `:ro` NÃO reduz isso, e dizer que reduzia era o pior do texto
+      # antigo: ele deixa somente-leitura o ARQUIVO do soquete, e não a API
+      # que atende nele — não existe "só consultar" do outro lado.
+      #
+      # O que ele serve é só os logs dos containers. Para dispensá-lo,
+      # comente esta linha e os dois blocos marcados no `alloy.alloy`: o
+      # diário dos aparelhos, que é o motivo desta pilha existir, continua
+      # funcionando inteiro.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Onde ele guarda a posição de leitura de cada arquivo. Sem volume, uma
       # reinicialização releria o histórico inteiro e duplicaria tudo.

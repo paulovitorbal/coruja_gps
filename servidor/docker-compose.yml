@@ -23,16 +23,22 @@ services:
       # aceitável em rede aberta nem exposto à internet.
       #
       # Para sair da rede local, ponha um proxy reverso com TLS na frente e
-      # volte esta linha para "127.0.0.1:${CORUJA_PORTA_HOST:-8081}:8080".
-      # Ver o README.
+      # escreva no `.env` ao lado:
       #
-      # A porta de FORA e variavel, e a de dentro nao. Porta publicada e
-      # valor de implantacao: fixa-la aqui obrigava a editar este arquivo em
+      #     CORUJA_ENDERECO_HOST=127.0.0.1
+      #
+      # Atras da borda (Cloudflare, Caddy, tunel) e esse o valor certo: o
+      # proxy fala com o servico pelo proprio hospedeiro, e ninguem mais na
+      # rede alcanca a porta. O padrao continua 0.0.0.0 porque o caso de uso
+      # primario e o Pico chegando pelo Wi-Fi da casa.
+      #
+      # O endereco e a porta de FORA sao variaveis, e a porta de dentro nao.
+      # Valor de implantacao: fixa-lo aqui obrigava a editar este arquivo em
       # cada servidor -- e como ele vive no repositorio PUBLICO, incluido
       # como submodulo, isso deixava o submodulo sujo para sempre. Com a
       # variavel, cada maquina ajusta pelo ambiente ou por um `.env` ao lado,
       # sem tocar no versionado.
-      - "${CORUJA_PORTA_HOST:-8081}:8080"
+      - "${CORUJA_ENDERECO_HOST:-0.0.0.0}:${CORUJA_PORTA_HOST:-8081}:8080"
 
     volumes:
       # Somente leitura: o serviço nunca escreve AQUI. Se ele for
@@ -88,6 +94,16 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+
+    # Teto de memória. **Medido, não estimado** (19/11/2026): parado, o
+    # processo tem ~50 MB com o folium carregado; o mapa de uma viagem de
+    # 10 h chega a 72 MB no pico, e o de um arquivo de 8 MB — o maior que a
+    # recepção aceita — a 319 MB. Cabe o maior mapa legítimo com folga.
+    #
+    # Quem estoura é morto e reiniciado pelo `restart`, e isso é o ponto: o
+    # que sai do ar é este container, e não a máquina inteira indo para a
+    # troca — ela hospeda a pilha de observabilidade e outros serviços.
+    mem_limit: 512m
 
     logging:
       driver: json-file
