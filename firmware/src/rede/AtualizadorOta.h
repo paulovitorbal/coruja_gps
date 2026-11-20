@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "armazenamento/Armazenamento.h"
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Configuracao.h"
 #include "nucleo/VerificadorDownload.h"
 #include "rede/ObservadorOta.h"
@@ -131,11 +132,14 @@ public:
     /// teste para acrescentar um duble que elas nao usariam.
     /// `preparo` e opcional: nulo significa "nada a fazer depois de
     /// conectar", que e o caso da suite de host inteira.
+    /// `cao` e opcional pelo mesmo motivo: nulo significa "ninguem esta
+    /// vigiando", o caso da bancada e da suite que nao mede alimentacao.
     AtualizadorOta(Armazenamento& cartao, Conexao& rede, Baixador& http,
                    Pausa& pausa, ObservadorOta* observador = nullptr,
-                   PreparoDeSessao* preparo = nullptr)
+                   PreparoDeSessao* preparo = nullptr,
+                   CaoDeGuarda* cao = nullptr)
         : cartao_(cartao), rede_(rede), http_(http), pausa_(pausa),
-          observador_(observador), preparo_(preparo) {}
+          observador_(observador), preparo_(preparo), cao_(cao) {}
 
     ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
@@ -166,6 +170,13 @@ private:
     // resultado em vez de encerrar: quem desconecta é só o `encerra`, e um
     // retorno adiantado lá dentro não tem como esquecer o rádio.
     void avisa(FaseOta fase, unsigned tentativa = 1);
+
+    /// Avisa o cao de que a atualizacao ANDOU.
+    ///
+    /// ⚠️ So nos pontos em que algo de fato progrediu: um pedaco gravado no
+    /// cartao, um pedido que voltou, uma etapa concluida. Nunca por tempo
+    /// decorrido, e nunca de dentro de uma espera.
+    void alimenta_o_cao() { if (cao_ != nullptr) { cao_->alimenta(); } }
     void le_versao_local(Logger& log);
     ResultadoOta encerra(ResultadoOta r, Logger& log);
     ResultadoOta fala_com_o_servidor(const Url& url_versao,
@@ -188,6 +199,7 @@ private:
     Pausa&              pausa_;
     ObservadorOta*      observador_ = nullptr;
     PreparoDeSessao*    preparo_ = nullptr;
+    CaoDeGuarda*        cao_ = nullptr;
     VerificadorDownload verificador_;
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};
