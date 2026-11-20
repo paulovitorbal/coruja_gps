@@ -89,10 +89,24 @@ class VersaoNoUf2(unittest.TestCase):
         self.assertIn("nenhuma string de versao", r.stderr)
 
     def test_versao_mais_longa_nao_casa_com_prefixo(self):
-        # `v0.2.1` não pode dar por boa uma release `v0.2.16`: o inverso é que
-        # seria aceitável, e nem isso interessa aqui.
+        # Binário `v0.2.1`, release `v0.2.16`: a tag não cabe no que há.
         self.escreve(b"v0.2.1\x00" + b"\x00" * 400)
         self.assertEqual(roda(self.arq, "v0.2.16").returncode, 1)
+
+    def test_tag_que_e_PREFIXO_da_versao_do_binario_e_recusada(self):
+        # O outro sentido, e o que passava: binário `v0.2.16`, release
+        # `v0.2.1`. A tag está contida no texto, mas não é o texto.
+        self.escreve(b"\x00" * 50 + b"v0.2.16\x00" + b"\x00" * 400)
+        self.assertEqual(roda(self.arq, "v0.2.1").returncode, 1)
+
+    def test_build_de_trabalho_depois_da_tag_e_recusado(self):
+        # O caso de verdade do prefixo: o `git describe` de um build três
+        # commits depois da tag, ou com alteração local, COMEÇA pela tag.
+        for descricao in (b"v0.2.1-3-ga996cb1", b"v0.2.1*",
+                          b"v0.2.1-3-ga996cb1*"):
+            with self.subTest(descricao=descricao):
+                self.escreve(b"\x00" * 50 + descricao + b"\x00" + b"\x00" * 400)
+                self.assertEqual(roda(self.arq, "v0.2.1").returncode, 1)
 
     def test_arquivo_sem_o_magic_do_uf2_e_recusado(self):
         # Um `.elf` renomeado passaria pelo `strings` e daria por verificada

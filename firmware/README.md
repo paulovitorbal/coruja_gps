@@ -7,7 +7,7 @@ hardware está no `bom_schematic.md` e os requisitos no `requirements.md`.
 
 | Ferramenta | Para quê | Instalação no macOS |
 | :--- | :--- | :--- |
-| CMake ≥ 3.13 | build dos dois alvos | `brew install cmake` |
+| CMake ≥ 3.14 | build dos dois alvos | `brew install cmake` |
 | Ninja | gerador | `brew install ninja` |
 | GoogleTest | suíte de testes | `brew install googletest` |
 | Arm GNU Toolchain | compilar para o RP2350 | ver o aviso abaixo |
@@ -31,6 +31,11 @@ export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 ```
 
 Ocupa ~1,0 GB. É o que está em uso aqui: **Arm GNU Toolchain 14.2.Rel1**.
+
+> O mínimo é **3.14**, e não 3.13: é onde nasceu o `FetchContent_MakeAvailable`,
+> que o alvo do Pico usa para trazer a biblioteca de cartão SD. Ela vem fixada
+> pelo **hash do commit** da tag `v3.6.2`, e não pelo nome da tag — tag se move,
+> e o que entra no binário publicado tem de ser o mesmo a cada build.
 
 O Pico SDK precisa do submódulo `lib/tinyusb` inicializado:
 
@@ -111,6 +116,22 @@ cmake -S firmware -B firmware/build-cov -G Ninja \
 cmake --build firmware/build-cov && ./firmware/build-cov/test/testes
 cd firmware/build-cov && xcrun gcov -b src/CMakeFiles/coruja_nucleo.dir/nucleo/*.gcda
 ```
+
+### Sanitizer
+
+A mesma suíte com ASan e UBSan. É a etapa 4 do `scripts/libera_fw.sh`, que
+configura o `build-san` assim quando ele não existe:
+
+```sh
+cmake -S firmware -B firmware/build-san -DCORUJA_TESTES=ON -DCORUJA_SANITIZER=ON
+cmake --build firmware/build-san
+UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir firmware/build-san --output-on-failure
+```
+
+> ⚠️ A receita era feita à mão, com `-fsanitize=address,undefined` e sem
+> `-fno-sanitize-recover`. Assim o UBSan **imprime o erro e segue**: o teste
+> termina verde e a etapa passava por cima de UB. Conferido em 19/11/2026 com
+> um estouro de inteiro proposital: verde na receita antiga, abortado na nova.
 
 ## Firmware para o Pico 2 W
 

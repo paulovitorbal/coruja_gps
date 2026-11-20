@@ -24,8 +24,14 @@
 # tela tem 26 caracteres, e seis deles custam caro. Sem a marca, um build com
 # alterações locais se apresentaria como a tag limpa — mentira justo na hora
 # de diagnosticar.
+#
+# `--match "v[0-9]*"` como no `versao_imagem.cmake`, e pelo mesmo motivo:
+# sem ele, uma tag qualquer (`bancada-ok`, `antes-do-tls`) vira a identidade
+# do firmware. Pior, os dois arquivos passariam a discordar — a tela diria
+# uma coisa e a versão numérica da imagem, que só olha `v[0-9]*`, outra. Sem
+# tag que case, o `--always` ainda devolve o hash.
 execute_process(
-    COMMAND git -C "${FONTE}" describe --tags --always --dirty=*
+    COMMAND git -C "${FONTE}" describe --tags --always --dirty=* --match "v[0-9]*"
     OUTPUT_VARIABLE DESCRICAO OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET RESULT_VARIABLE RC)
 if(NOT RC EQUAL 0 OR DESCRICAO STREQUAL "")

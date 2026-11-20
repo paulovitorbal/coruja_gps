@@ -8,6 +8,11 @@ _fzz_tmp/
 firmware/build*/
 coruja.cfg
 
+# Backup e temporario do scripts/mutante.sh. O .mut-bak so sobra se uma
+# execucao caiu no meio, e entao guarda o ORIGINAL: nunca comitar o mutante.
+*.mut-bak
+*.mut-novo
+
 # .fzz de comparação, gerados por gera_fritzing.py --saida
 coruja_gps_v*.fzz
 
