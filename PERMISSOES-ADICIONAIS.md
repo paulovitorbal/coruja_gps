@@ -5,7 +5,7 @@ Os autores do coruja_gps, como licenciantes, concedem as permissões abaixo
 
 - a PolyForm Noncommercial License 1.0.0 (`LICENSE.md`), para o código;
 - a Creative Commons Atribuição-NãoComercial 4.0 Internacional
-  (`LICENSES/CC-BY-NC-4.0.txt`), para a documentação e o projeto de hardware.
+  (`docs/licencas/CC-BY-NC-4.0.txt`), para a documentação e o projeto de hardware.
 
 Estas permissões não restringem nada do que as licenças já permitem. Quem as usa
 continua obrigado às demais condições das licenças, inclusive a de manter os
