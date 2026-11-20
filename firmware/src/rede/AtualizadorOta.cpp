@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "nucleo/CaoSuspenso.h"
 #include "nucleo/Texto.h"
 #include "nucleo/Url.h"
 
@@ -281,6 +282,10 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
 
     log.debug("ota", "==== atualizacao solicitada ====");
     le_versao_local(log);
+    // Leitura so de cartao, sem gancho, logo antes de soltar o cao para a
+    // associacao: fechada com uma refeicao, como os trechos de cartao que a
+    // precedem em `AcoesDoAparelho` (main.cpp).
+    alimenta_o_cao();
 
     avisa(FaseOta::Conectando);
     // ⚠️ **O cao sai solto para a associacao, e volta logo depois.** A
@@ -293,9 +298,12 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     //
     // E o unico buraco da vigilancia, e ele e consciente: um cyw43 que
     // travar na associacao continua deixando o aparelho mudo.
-    if (cao_ != nullptr) { cao_->suspende(); }
-    const auto erro_rede = rede_.conecta(cfg, log);
-    if (cao_ != nullptr) { cao_->retoma(); }
+    ErroWifi erro_rede;
+    {
+        // RAII: a devolucao do cao nao depende de ninguem lembrar do retoma.
+        const CaoSuspenso solto(cao_);
+        erro_rede = rede_.conecta(cfg, log);
+    }
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[64];
         std::snprintf(msg, sizeof msg, "rede: %s", descreve(erro_rede));

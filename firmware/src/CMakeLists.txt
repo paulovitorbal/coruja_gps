@@ -43,6 +43,7 @@ add_library(coruja_nucleo STATIC
     nucleo/Ubx.cpp
     nucleo/PeriodoDoDia.cpp
     nucleo/LinhaVigia.cpp
+    nucleo/PoliticaDoCao.cpp
 )
 target_include_directories(coruja_nucleo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # A configuracao carrega um Nivel de log, e o parser usa nivel_de_texto().

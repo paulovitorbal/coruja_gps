@@ -58,6 +58,8 @@
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
+#include "nucleo/PoliticaDoCao.h"
+#include "placa/ArmazemScratchPico.h"
 #include "placa/CaoDeGuardaPico.h"
 #include "placa/MedidorPilha.h"
 #include "placa/Termometro.h"
@@ -125,10 +127,13 @@ coruja::ErroCartao le_base_do_cartao(void* fonte, const char* nome,
 /// No boot não há nenhuma, e o arquivo é lido uma vez só.
 coruja::BaseCarregada carrega_base(coruja::CartaoSd& cartao,
                                    const coruja::BaseCarregada& em_uso,
-                                   coruja::Logger& log) {
+                                   coruja::Logger& log,
+                                   coruja::CaoDeGuarda* cao) {
+    // `cao` e alimentado a cada pedaco lido: sao 2 passadas (4 se cair na
+    // reserva) sobre 214 KB sem nenhum gancho por dentro do `le_em_fluxo`.
     return coruja::troca_base(le_base_do_cartao, &cartao, coruja::kArquivoBase,
                               coruja::kArquivoBak, g_pontos,
-                              coruja::kCapacidadeFirmware, em_uso, log);
+                              coruja::kCapacidadeFirmware, em_uso, log, cao);
 }
 
 /// A leitura do `coruja.cfg` de todo alvo, com o recuo para o `coruja.bak`
@@ -195,7 +200,7 @@ public:
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa),
-          espera_(encoder, pausa, &cao),
+          espera_(encoder, pausa, &cao), cao_(cao),
           log_(log), http_(http), sincronizador_(sincronizador),
           gps_(gps), preparo_(preparo) {}
 
@@ -300,11 +305,17 @@ public:
         // Descarrega o log antes: o OTA mexe no cartão por bastante tempo, e
         // se algo travar no meio o que já aconteceu fica gravado.
         log_.descarrega();
+        // Cada trecho so de cartao, entre a ultima volta do laco e a
+        // associacao Wi-Fi, e fechado com uma refeicao: somados passavam do
+        // prazo num cartao lento, e nenhum deles tem gancho por dentro.
+        cao_.alimenta();
 
         // A configuração é relida AQUI e não guardada do boot: trocar o
         // cartão passa a valer sem reiniciar (RNF03).
         coruja::Configuracao config;
-        if (!carrega_configuracao(cartao_, &config, log_)) {
+        const bool config_ok = carrega_configuracao(cartao_, &config, log_);
+        cao_.alimenta();
+        if (!config_ok) {
             log_.error("ota", "sem configuracao utilizavel");
             mostra_falha(coruja::ResultadoOta::SemConfiguracao);
             return;
@@ -316,6 +327,7 @@ public:
             resultado = ota_.executa(config, log_);
         }
         log_.descarrega();
+        cao_.alimenta();
 
         // **Recarrega a base so quando ela mudou.** Voltou a ser economia:
         // o emprestimo da memoria foi aposentado -- o lwIP sobrescrevia o
@@ -329,7 +341,7 @@ public:
         // vetor misturado. `carrega_base` devolve a base que passa a valer --
         // a de antes, a nova, ou nenhuma --, e e ela que o piloto recebe.
         if (resultado == coruja::ResultadoOta::Atualizada) {
-            base_ = carrega_base(cartao_, base_, log_);
+            base_ = carrega_base(cartao_, base_, log_, &cao_);
             piloto_.define_base(g_pontos, base_.pontos);
             // O OTA acabou de gravar o `versao.txt` e supoe que a base nova
             // entrou. Quem sabe se ela de fato foi aceita e a carga: se o
@@ -364,11 +376,14 @@ public:
         // que ja aconteceu nesta sessao precisa estar no arquivo para subir
         // junto. Sem isto o que o servidor recebe para na ultima descarga.
         log_.descarrega();
+        cao_.alimenta();
 
         // Releida aqui como no OTA: trocar o cartao passa a valer sem
         // reiniciar (RNF03), e a URL de envio mora no mesmo arquivo.
         coruja::Configuracao config;
-        if (!carrega_configuracao(cartao_, &config, log_)) {
+        const bool config_ok = carrega_configuracao(cartao_, &config, log_);
+        cao_.alimenta();
+        if (!config_ok) {
             log_.error("remessa", "sem configuracao utilizavel");
             mostra_falha_remessa(coruja::ResultadoRemessa::SemConfiguracao);
             return;
@@ -397,6 +412,7 @@ public:
 
         log_.usa_arquivo(kArquivoLog);
         log_.descarrega();
+        cao_.alimenta();
 
         // Mesma regra do OTA: fim feliz passa, falha espera. Quem perdeu a
         // frase nao tem como pedir de novo.
@@ -443,6 +459,7 @@ private:
     coruja::Buzzer&         buzzer_;
     coruja::Pausa&          pausa_;
     coruja::EsperaDispensa  espera_;
+    coruja::CaoDeGuarda&    cao_;
     coruja::LoggerCartao&   log_;
     coruja::ClienteTls&     http_;
     coruja::SincronizadorHora& sincronizador_;
@@ -467,6 +484,13 @@ int main() {
     // ele iria para o console, que no carro nao existe.
     coruja::CaoDeGuardaPico cao;
     const bool veio_de_travamento = cao.reiniciou_por_travamento();
+    // A politica decide, ja aqui, se este boot arma o cao: o contador mora no
+    // registrador de rascunho do watchdog e sobrevive a mordida. O aviso so
+    // sai no log mais adiante, quando o cartao ja estiver ligado.
+    coruja::ArmazemScratchPico armazem_de_mordidas;
+    coruja::PoliticaDoCao      politica_do_cao(armazem_de_mordidas);
+    const auto decisao_do_cao =
+        politica_do_cao.decide_no_boot(veio_de_travamento);
 
     stdio_init_all();
     // Ver `CORUJA_ESPERA_CONSOLE_MS` no CMakeLists: zero no firmware do
@@ -536,6 +560,9 @@ int main() {
     // em cima de um pico medido de 21 172 B. `main()` nunca retorna, entao a
     // vida dos dois nao muda.
     static coruja::ClienteTls http;
+    // O cliente alimenta o cao dentro dos seus lacos de espera. Ver
+    // `espera_vigiada` e `CaoDeGuarda.h`.
+    http.define_cao(&cao);
     coruja::ClienteSntp      ntp;
     coruja::RelogioAon       relogio;
 
@@ -595,6 +622,19 @@ int main() {
                           "registrou na ligacao passada");
     }
 
+    if (!decisao_do_cao.arma) {
+        // WARNING (e nao info): forca a descarga, e o motivo de o aparelho
+        // estar sem protecao nao pode ficar num buffer que um novo travamento
+        // perderia.
+        char msg[200];
+        std::snprintf(msg, sizeof msg,
+                      "o cao NAO foi armado neste boot: %u mordidas seguidas. "
+                      "O aparelho esta sem protecao contra travamento ate a "
+                      "proxima ignicao; investigue o cartao",
+                      decisao_do_cao.mordidas_seguidas);
+        log.warning("boot", msg);
+    }
+
     brilho.define_presets(config.brilho_dia, config.brilho_noite);
     luz.define_duty(brilho.duty());
 
@@ -627,7 +667,7 @@ int main() {
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
     const coruja::BaseCarregada base =
-        carrega_base(cartao, coruja::BaseCarregada{}, log);
+        carrega_base(cartao, coruja::BaseCarregada{}, log, nullptr);
     piloto.define_base(g_pontos, base.pontos);
     // A linha de `carrega_base` diz quantos pontos o ARQUIVO tinha; esta diz
     // quantos chegaram a quem alerta. Eram a mesma coisa em todo log que
@@ -859,8 +899,10 @@ int main() {
     // que e a janela de inatividade do cliente HTTP.
     static_assert(coruja::kPrazoCaoMs > coruja::kInatividadeHttpMs,
                   "o cao morderia durante um pedido HTTP lento, mas vivo");
-    cao.arma(coruja::kPrazoCaoMs);
-    log.info("boot", "cao de guarda armado");
+    if (decisao_do_cao.arma) {
+        cao.arma(coruja::kPrazoCaoMs);
+        log.info("boot", "cao de guarda armado");
+    }
 
     std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
@@ -869,6 +911,7 @@ int main() {
         // do GPS voltaram. As operacoes longas alimentam por dentro, cada
         // uma nos seus pontos de progresso.
         cao.alimenta();
+        politica_do_cao.passo(pausa.agora_ms());
 
         // Medido no TOPO da volta seguinte: assim a conta inclui tudo o que
         // a volta fez, inclusive o desenho, que é justamente o suspeito.

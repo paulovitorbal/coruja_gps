@@ -4,6 +4,7 @@
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 
+#include "nucleo/CaoDeGuarda.h"
 #include "rede/CaixaDns.h"
 
 namespace coruja {
@@ -37,6 +38,9 @@ struct PedidoDns {
     const ip_addr_t* endereco = nullptr;
     /// Etiqueta de origem no log: "http" ou "ntp".
     const char* origem = nullptr;
+    /// Quem alimentar a cada volta da espera. Nulo e "ninguem vigia" (o NTP,
+    /// que tem 5 s de teto proprio). Ver `espera_vigiada`.
+    CaoDeGuarda* cao = nullptr;
 };
 
 /// `true` com `destino` preenchido. Em qualquer saída, a caixa fica

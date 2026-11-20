@@ -26,18 +26,45 @@ constexpr std::uint32_t kPrazoMaximoCaoMs = 16'777;
 /// da faixa do número (`formato_logs.md`). Contra isso, qualquer prazo acima
 /// de um segundo já teria trezentas vezes de folga.
 ///
-/// **Quem decide é a operação longa com a maior espera LEGÍTIMA**, e ela é o
-/// `kInatividadeHttpMs` do `ClienteTls`: 15 s sem um byte andar. Esse silêncio
-/// não é travamento — é o enlace fraco de 09/10/2026, e o próprio cliente
-/// desiste dele e devolve o controle. Um prazo menor que 15 s reiniciaria o
-/// aparelho em toda rede ruim, que é o erro caro: perde a viagem em andamento
-/// para consertar algo que já tinha conserto.
+/// **Quem decide é o maior trecho SEM REFEIÇÃO de uma operação longa**, e a
+/// conta de cada operação está na tabela "O maior tempo sem refeição, por
+/// operação" da seção do cão no `firmware/README.md`. Quem mexer numa espera
+/// ou num prazo de rede refaz aquela conta.
 ///
-/// Sobra pouca escolha, então: acima de 15 s e abaixo dos 16,777 s que o
-/// hardware aceita. 16,5 s deixa 1,5 s para o `ClienteTls` registrar a
-/// desistência e voltar — e é a prova de que o teto do RP2350 cobre este
-/// firmware **por pouco**. Encompridar qualquer espera de rede acima de 15 s
-/// passa a exigir alimentar o cão por dentro dela.
+/// ## A regra de alimentar, e o que ela proíbe de verdade
+///
+/// O cão existe para pegar um travamento **dentro de uma chamada do SDK**
+/// (`cyw43_arch_poll`, mbedTLS, lwIP, o driver do cartão) — situação em que o
+/// nosso código nem chega a testar os próprios prazos. Por isso a refeição é
+/// honesta em dois lugares, e só neles:
+///
+///  1. **Depois de uma chamada capaz de travar ter voltado.** Se ela trava, a
+///     refeição não acontece e o cão morde. É o caso de cada volta dos laços
+///     de espera do `ClienteTls` e do DNS (`espera_vigiada`): alimenta-se
+///     DEPOIS de `cyw43_arch_poll()`.
+///  2. **Num laço que tem prazo próprio e limitado.** Se o laço gira por
+///     lógica — nada chega, nada anda —, o prazo dele o encerra: os 15 s de
+///     inatividade e o teto do `PrazoDeProgresso`, os 5 s do NTP, o teto de
+///     60 s da tela de falha. O cão não precisa cobrir a estagnação lógica,
+///     que o código já cobre, e limitada.
+///
+/// O que fica proibido é alimentar **por tempo decorrido**, ou num laço que
+/// não passa por nenhuma chamada capaz de travar, ou que não tem limite
+/// próprio. Esse laço manteria o cão saciado para sempre sobre um aparelho
+/// mudo.
+///
+/// ## Por que a versão anterior estava errada
+///
+/// Este comentário afirmava que "15 s é a maior espera legítima" e que os
+/// 1,5 s restantes bastavam. **É falso:** 15 s é a maior espera de CADA FASE
+/// (DNS, conexão e handshake, resposta), e as fases se somam. Num Wi-Fi a
+/// -88 dBm — DNS 2 s, handshake 9 s, resposta 6 s — são 17 s, mais que os
+/// 16,5 s, sem nenhum travamento: o cão mordia um aparelho vivo. Hoje o
+/// `ClienteTls` alimenta a cada volta, e o prazo precisa cobrir só o trecho
+/// entre duas refeições, que é uma volta do laço (ver a tabela do README).
+///
+/// Mantém-se 16,5 s: acima de qualquer chamada única de cartão ou de rede que
+/// seja legítima, e abaixo do teto do hardware.
 constexpr std::uint32_t kPrazoCaoMs = 16'500;
 
 static_assert(kPrazoCaoMs <= kPrazoMaximoCaoMs,

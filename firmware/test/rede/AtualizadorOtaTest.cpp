@@ -78,6 +78,16 @@ public:
     unsigned aberturas = 0;
     unsigned descartes = 0;
 
+    /// Quanto cada operacao do cartao gasta do relogio falso (aponta para o
+    /// `agora` da `PausaFalsa`). Zero e o cartao instantaneo de quase toda a
+    /// suite; um cartao lento ou degradado leva segundos por operacao.
+    std::uint32_t* relogio = nullptr;
+    std::uint32_t  custo_abre_ms = 0;
+    std::uint32_t  custo_conclui_ms = 0;
+    std::uint32_t  custo_promove_ms = 0;
+    std::uint32_t  custo_grava_ms = 0;
+    void cobra(std::uint32_t ms) { if (relogio != nullptr) { *relogio += ms; } }
+
     ErroCartao le_arquivo(const char* nome, char* destino, std::size_t cap,
                           std::size_t* lidos, Logger&) override {
         chamadas.push_back(std::string("le:") + nome);
@@ -93,6 +103,7 @@ public:
     ErroCartao grava_arquivo(const char* nome, const char* conteudo,
                              std::size_t tamanho, Logger&) override {
         chamadas.push_back(std::string("grava:") + nome);
+        cobra(custo_grava_ms);
         versao_gravada.assign(conteudo, tamanho);
         return resposta_grava;
     }
@@ -105,6 +116,7 @@ public:
 
     ErroCartao abre_para_escrita(const char* nome, Logger&) override {
         ++aberturas;
+        cobra(custo_abre_ms);
         chamadas.push_back(std::string("abre:") + nome);
         escrito.clear();
         return (aberturas >= cura_na_tentativa) ? ErroCartao::Nenhum
@@ -121,6 +133,7 @@ public:
 
     ErroCartao conclui_escrita(Logger&) override {
         chamadas.emplace_back("conclui");
+        cobra(custo_conclui_ms);
         return resposta_conclui;
     }
 
@@ -132,6 +145,7 @@ public:
     ErroCartao promove(const char* tmp, const char* base, const char* reserva,
                        Logger&) override {
         chamadas.emplace_back("promove");
+        cobra(custo_promove_ms);
         promoveu_de = tmp; promoveu_para = base; promoveu_reserva = reserva;
         return resposta_promove;
     }
@@ -161,10 +175,12 @@ public:
     const teste::CaoDeGuardaFalso* espia = nullptr;
     unsigned suspensoes_ao_conectar = 0;
     unsigned retomadas_ao_conectar = 0;
+    unsigned alimentacoes_ao_conectar = 0;
 
     ErroWifi conecta(const Configuracao&, Logger&) override {
         ++conexoes;
         if (espia != nullptr) {
+            alimentacoes_ao_conectar = espia->alimentacoes;
             suspensoes_ao_conectar = espia->suspensoes;
             retomadas_ao_conectar = espia->retomadas;
         }
@@ -243,6 +259,16 @@ private:
     }
 };
 
+/// O preparo da sessao (SNTP no aparelho): custa tempo, como la.
+class PreparoFalso : public PreparoDeSessao {
+public:
+    std::uint32_t* relogio = nullptr;
+    std::uint32_t  custo_ms = 0;
+    void apos_conectar(Logger&) override {
+        if (relogio != nullptr) { *relogio += custo_ms; }
+    }
+};
+
 // ================================================================== cenário
 
 struct Bancada {
@@ -256,6 +282,7 @@ struct Bancada {
     /// sao, e e o de quase toda a suite; os testes do F3 o desligam.
     bool               vigente_em_uso = true;
     teste::CaoCronometrado cao{pausa};
+    PreparoFalso       preparo;
 
     Bancada() {
         http.espia = &cao;
@@ -272,7 +299,9 @@ struct Bancada {
     }
 
     ResultadoOta roda() {
-        AtualizadorOta ota(cartao, rede, http, pausa, nullptr, nullptr, &cao);
+        cartao.relogio = &pausa.agora;
+        preparo.relogio = &pausa.agora;
+        AtualizadorOta ota(cartao, rede, http, pausa, nullptr, &preparo, &cao);
         ota.informa_vigente_em_uso(vigente_em_uso);
         const auto r = ota.executa(cfg, log);
         cao.fecha();
@@ -1065,6 +1094,53 @@ TEST(AtualizadorOta, a_associacao_do_radio_roda_com_o_cao_solto) {
         << "o cao estava armado durante a associacao";
     EXPECT_EQ(b.rede.retomadas_ao_conectar, 0U);
     EXPECT_EQ(b.cao.retomadas, 1U) << "o cao ficou solto depois de conectar";
+}
+
+TEST(AtualizadorOta, a_leitura_da_versao_local_fecha_o_trecho_antes_de_soltar_o_cao) {
+    // `le_versao_local` e cartao puro, sem gancho, e vem depois do que
+    // `AcoesDoAparelho` ja leu do cartao (log, configuracao) sem refeicao
+    // entre a ultima volta do laco e a associacao. Sem uma refeicao aqui os
+    // trechos de cartao se somariam ate o `suspende`.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_GE(b.rede.alimentacoes_ao_conectar, 1U)
+        << "nenhuma refeicao entre a leitura da versao e a associacao";
+}
+
+TEST(AtualizadorOta, cartao_degradado_nao_deixa_o_cao_sem_comer_do_retoma_ao_fim) {
+    // **Cada etapa de cartao ou de rede custa 9 s**, o que um cartao
+    // degradado faz (2 s de timeout por comando, tres tentativas) e o SNTP
+    // quase faz (5 s + 5 s). Dois trechos adjacentes passam de 16,5 s:
+    // so ha prazo se CADA etapa fecha o seu trecho com uma refeicao.
+    //
+    //  retoma -> preparo -> [388] -> consulta -> [391] -> abre -> [501]
+    //  -> baixa (por pedaco) -> conclui -> [566] -> promove -> [580]
+    //  -> grava a versao -> fim
+    Bancada b;
+    b.preparo.custo_ms = 9000;
+    b.http.gasta_ms = 9000;
+    b.cartao.custo_abre_ms = 9000;
+    b.cartao.custo_conclui_ms = 9000;
+    b.cartao.custo_promove_ms = 9000;
+    b.cartao.custo_grava_ms = 9000;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_LE(b.cao.maior_intervalo_ms, 9000u)
+        << "um trecho ficou " << b.cao.maior_intervalo_ms
+        << " ms sem refeicao";
+}
+
+TEST(AtualizadorOta, a_espera_entre_tentativas_nao_soma_com_a_abertura_do_cartao) {
+    // Um download que falha, 5 s de espera e a abertura lenta do arquivo
+    // temporario: sem a refeicao DEPOIS da espera, 5 + 12 passam de 16,5 s.
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0};
+    b.http.cura_na_tentativa = 2;
+    b.cartao.custo_abre_ms = 12000;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    ASSERT_EQ(b.http.pedidos_base, 2U);
+    EXPECT_LE(b.cao.maior_intervalo_ms, 12000u)
+        << "um trecho ficou " << b.cao.maior_intervalo_ms
+        << " ms sem refeicao";
 }
 
 TEST(AtualizadorOta, a_rede_que_falha_tambem_devolve_o_cao) {
