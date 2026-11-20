@@ -635,6 +635,131 @@ class Recepcao(unittest.TestCase):
         finally:
             c.close()
 
+    def na_mesma_conexao(self, *pedidos):
+        """`(metodo, rota, corpo, cabecalhos)` em sequencia, numa conexao so.
+
+        Como o Cloudflare faz. Se o servidor avisar `Connection: close`, o
+        `http.client` abre outra para o pedido seguinte -- que e o
+        comportamento certo de um cliente, e o que os testes querem ver.
+        """
+        c = self.conexao()
+        respostas = []
+        try:
+            for metodo, rota, corpo, cab in pedidos:
+                c.request(metodo, rota, body=corpo, headers=cab)
+                r = c.getresponse()
+                respostas.append((r.status, r.read(),
+                                  r.getheader("Connection", "").lower()))
+        finally:
+            c.close()
+        return respostas
+
+    def test_get_com_corpo_nao_contamina_o_pedido_seguinte(self):
+        # Toda resposta que sai com corpo por ler, e nao so a de erro.
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        cab = {s.CABECALHO_TOKEN: TOKEN}
+        (st1, _, _), (st2, corpo2, _) = self.na_mesma_conexao(
+            ("GET", s.ROTA_VERSAO, b"corpo que ninguem le", cab),
+            ("GET", s.ROTA_VERSAO, None, cab))
+        self.assertEqual((st1, st2), (200, 200))
+        self.assertIn(b"crc32:", corpo2)
+
+    def test_envio_em_pedacos_e_recusado_e_fecha_a_conexao(self):
+        """`Transfer-Encoding: chunked` nao tem Content-Length.
+
+        O servidor via "corpo vazio", respondia 400 e deixava os pedacos na
+        conexao. Com os dois cabecalhos juntos e a receita de contrabando de
+        pedido.
+
+        Soquete cru, so com o cabecalho: o `http.client` manda os pedacos
+        enquanto a recusa ja voltou, e o teste ficaria entre um `EPIPE` e
+        outro. O que se confere e o que um cliente ve: UMA resposta, 411, e
+        a conexao fechada logo depois -- `recv` chegando ao fim.
+        """
+        import socket
+        with socket.create_connection(("127.0.0.1", self.porta),
+                                      timeout=5) as c:
+            c.sendall((f"PUT {s.ROTA_ENVIO}coruja.log HTTP/1.1\r\n"
+                       f"Host: 127.0.0.1\r\n"
+                       f"{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+                       f"Transfer-Encoding: chunked\r\n\r\n").encode())
+            resposta = b""
+            while pedaco := c.recv(4096):
+                resposta += pedaco
+        self.assertTrue(resposta.startswith(b"HTTP/1.1 411"), resposta[:40])
+        self.assertIn(b"\r\nConnection: close\r\n", resposta)
+        self.assertEqual(resposta.count(b"HTTP/1.1 "), 1)
+        self.assertEqual(self.recebidos(), [])
+
+    def test_content_length_so_aceita_digitos(self):
+        # O `int()` aceita "+5" e "1_0". A borda pode ler o mesmo cabecalho
+        # de outro jeito, e duas contas diferentes do mesmo corpo sao o
+        # comeco de um pedido contrabandeado.
+        for declarado in ("+5", "1_0", "5 5", "0x5"):
+            with self.subTest(declarado=declarado):
+                c = self.conexao()
+                try:
+                    c.putrequest("PUT", s.ROTA_ENVIO + "coruja.log",
+                                 skip_accept_encoding=True)
+                    c.putheader(s.CABECALHO_TOKEN, TOKEN)
+                    c.putheader("Content-Length", declarado)
+                    c.endheaders()
+                    c.send(b"12345")
+                    r = c.getresponse()
+                    r.read()
+                    self.assertEqual(r.status, 400)
+                    self.assertEqual(r.getheader("Connection", "").lower(),
+                                     "close")
+                finally:
+                    c.close()
+        self.assertEqual(self.recebidos(), [])
+
+    def test_token_nao_ascii_no_cabecalho_e_recusado(self):
+        # `hmac.compare_digest` com `str` fora do ASCII levanta TypeError, e
+        # a excecao derrubava a conexao em vez de responder 401. O cabecalho
+        # viaja em latin-1, entao o acento chega como byte alto.
+        st, _ = self.envia("coruja.log", b"dado",
+                           token="segredo-com-acento-\u00e7\u00e3\u00e9")
+        self.assertEqual(st, 401)
+        self.assertEqual(self.recebidos(), [])
+
+    def test_a_linha_do_pedido_nao_leva_escape_de_terminal_para_o_log(self):
+        """Caractere de controle no log e injecao de terminal.
+
+        O `log_message` da biblioteca troca os caracteres de controle por
+        `\\xNN`; o nosso, sobrescrito, tinha perdido essa troca. A linha do
+        pedido vem de quem chama, vai para o stderr, para o `docker logs` e
+        para o Loki -- e um `ESC[2J` no meio dela limpa a tela de quem
+        estiver lendo com `tail`.
+        """
+        import logging
+        import socket
+        registradas = []
+
+        class Pega(logging.Handler):
+            def emit(self, registro):
+                registradas.append(registro.getMessage())
+
+        pega = Pega()
+        diario = logging.getLogger("coruja.servidor")
+        diario.addHandler(pega)
+        # Sem isto o nivel efetivo vem do raiz, em WARNING, e o `info` do
+        # `log_message` nem chega ao manipulador: o teste passaria por nao
+        # haver log nenhum, que e o jeito mais bobo de um teste mentir.
+        antes = diario.level
+        diario.setLevel(logging.INFO)
+        self.addCleanup(diario.setLevel, antes)
+        self.addCleanup(diario.removeHandler, pega)
+        with socket.create_connection(("127.0.0.1", self.porta),
+                                      timeout=5) as c:
+            c.sendall(b"GET /\x1b[2Kfalso HTTP/1.1\r\n"
+                      b"Host: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            while c.recv(4096):
+                pass
+        tudo = "\n".join(registradas)
+        self.assertNotIn("\x1b", tudo, "escape de terminal foi para o log")
+        self.assertIn("\\x1b", tudo, "o caractere de controle sumiu do log")
+
     # -- a rota de saude, a UNICA sem token --
 
     def test_saude_responde_sem_token(self):
@@ -797,6 +922,212 @@ class Recepcao(unittest.TestCase):
         # contaria a quem tem UM token quantos aparelhos existem.
         _, corpo = self.envia("coruja.log", b"dado")
         self.assertNotIn(PASTA.encode(), corpo)
+
+
+class RegraDeDeduplicacao(unittest.TestCase):
+    """A decisao de quanto do trecho novo ja esta no historico.
+
+    Ela morava no meio do `_acrescenta_ao_historico`, entre abrir arquivo,
+    copiar e gravar marca, e so dava para exercita-la subindo o servidor e
+    mandando duas remessas. Como funcao pura, cada caso e uma linha -- e os
+    quatro casos sao o que o aparelho de fato produz.
+    """
+
+    def test_sem_marca_o_trecho_entra_inteiro(self):
+        # Primeira remessa deste nome, ou marca ilegivel: o lado seguro da
+        # duvida e duplicar, nunca perder.
+        self.assertEqual(s.bytes_ja_no_historico(None, 100, 0x1234), 0)
+
+    def test_remessa_identica_e_pulada_inteira(self):
+        # O aparelho nao conseguiu apagar e mandou os MESMOS bytes.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 100, 0x1234), 100)
+
+    def test_arquivo_que_cresceu_pula_so_o_prefixo(self):
+        # Nao apagou, e ainda registrou mais: entra so o rabo.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 160, 0x1234), 100)
+
+    def test_prefixo_diferente_entra_inteiro(self):
+        # Trecho inedito que por acaso e maior que o anterior. Sem conferir
+        # o CRC, "maior" bastaria para pular bytes e o trecho sairia
+        # mutilado no historico.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 160, 0x9999), 0)
+
+    def test_trecho_menor_que_o_anterior_entra_inteiro(self):
+        # O cartao foi apagado e a gravacao recomecou: o trecho novo e
+        # menor, e nao tem relacao nenhuma com o anterior.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 60, 0x1234), 0)
+
+    def test_arquivo_curto_demais_nunca_casa(self):
+        # `_crc_do_prefixo` devolve -1 quando o arquivo acaba antes, e
+        # nenhum CRC32 assume esse valor.
+        self.assertEqual(s.bytes_ja_no_historico((100, 0x1234), 160, -1), 0)
+
+
+class EncerramentoLimpo(unittest.TestCase):
+    """O PID 1 do container tem de sair no `docker stop`.
+
+    Sem tratar SIGTERM, o Python so morre no SIGKILL que vem dez segundos
+    depois -- e nesses dez segundos as conexoes em curso ficam penduradas e
+    cada reinicio custa a espera inteira.
+    """
+
+    def test_sigterm_encerra_o_processo(self):
+        import os
+        import signal
+        import subprocess
+        import time
+        import urllib.request
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        (Path(tmp.name) / s.NOME_BASE).write_bytes(base_valida())
+        porta = 18099
+        processo = subprocess.Popen(
+            [sys.executable, str(RAIZ / "servidor.py"),
+             "--dados", tmp.name, "--porta", str(porta),
+             "--endereco", "127.0.0.1", "--quiet"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(processo.kill)
+
+        prazo = time.monotonic() + 15
+        while True:
+            try:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{porta}{s.ROTA_SAUDE}", timeout=1)
+                break
+            except OSError:
+                if time.monotonic() > prazo:
+                    self.fail("o servidor nao subiu")
+                time.sleep(0.05)
+
+        os.kill(processo.pid, signal.SIGTERM)
+        try:
+            codigo = processo.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.fail("SIGTERM ignorado: so o SIGKILL encerraria")
+        self.assertEqual(codigo, 0, "saiu com erro no encerramento limpo")
+
+
+class ConexoesLentasEDemais(unittest.TestCase):
+    """Quem manda devagar, e quem abre conexao demais.
+
+    O prazo do soquete e POR OPERACAO: um byte a cada 59 s mantinha a thread
+    viva para sempre. E o servidor abria uma thread por conexao, sem teto --
+    um punhado desses cliente bastava para tirar o servico do ar.
+
+    Os prazos sao trocados na CLASSE, como o teste de prazo da `Recepcao`
+    faz: 1 s de prazo total, e o de operacao intocado nos 60 s de producao,
+    que e justamente o que nao basta.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dados = Path(self.tmp.name)
+        (self.dados / s.NOME_BASE).write_bytes(base_valida())
+        antes = getattr(s.Manipulador, "prazo_do_pedido", None)
+        s.Manipulador.prazo_do_pedido = 1.0
+        self.addCleanup(setattr, s.Manipulador, "prazo_do_pedido", antes)
+        vagas = getattr(s.Servidor, "maximo_de_conexoes", None)
+        s.Servidor.maximo_de_conexoes = 2
+        self.addCleanup(setattr, s.Servidor, "maximo_de_conexoes", vagas)
+        self.srv = s.cria_servidor(self.dados, 0, "127.0.0.1", APARELHOS)
+        self.porta = self.srv.server_address[1]
+        self.t = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.t.start()
+        self.addCleanup(self.t.join, 5)
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def abre(self):
+        import socket
+        c = socket.create_connection(("127.0.0.1", self.porta), timeout=5)
+        self.addCleanup(c.close)
+        return c
+
+    def conta_gotas(self, c, gota: bytes, limite_s: float = 6.0) -> float:
+        """Manda `gota` a cada 0,2 s ate o servidor responder ou fechar.
+
+        Devolve quanto tempo levou. Nunca fica 0,2 s sem mandar nada: o
+        prazo por operacao, sozinho, nao pega este cliente.
+        """
+        import select
+        import time
+        inicio = time.monotonic()
+        while time.monotonic() - inicio < limite_s:
+            try:
+                c.sendall(gota)
+            except OSError:
+                return time.monotonic() - inicio
+            prontos, _, _ = select.select([c], [], [], 0.2)
+            if prontos:
+                return time.monotonic() - inicio
+        self.fail(f"o servidor aguentou {limite_s} s de conta-gotas")
+
+    def test_cabecalho_a_conta_gotas_tem_prazo_total(self):
+        c = self.abre()
+        c.sendall(b"GET /saude HTTP/1.1\r\nX-Lento: ")
+        self.assertLess(self.conta_gotas(c, b"a"), 4.0)
+
+    def test_corpo_a_conta_gotas_tem_prazo_total_e_nao_deixa_parcial(self):
+        c = self.abre()
+        c.sendall((f"PUT {s.ROTA_ENVIO}coruja.log HTTP/1.1\r\n"
+                   f"Host: 127.0.0.1\r\n{s.CABECALHO_TOKEN}: {TOKEN}\r\n"
+                   f"Content-Length: 100000\r\n\r\n").encode())
+        self.assertLess(self.conta_gotas(c, b"x"), 4.0)
+        pasta = self.dados / s.SUBDIR_ENVIO / PASTA
+        import time
+        prazo = time.monotonic() + 5
+        while list(pasta.glob("*.parcial")) and time.monotonic() < prazo:
+            time.sleep(0.01)
+        self.assertEqual(list(pasta.glob("*")), [])
+
+    def test_o_prazo_total_cobre_o_envio_mais_lento_do_aparelho(self):
+        # O firmware desiste de um envio em 180 s (`kTempoLimiteEnvioMs`).
+        # Cortar antes, daqui, mataria um envio que o aparelho ainda espera.
+        self.assertGreater(s.PRAZO_DO_PEDIDO_S, 180)
+        self.assertGreater(s.PRAZO_DO_PEDIDO_S, s.TEMPO_LIMITE_S)
+
+    def test_conexao_alem_do_teto_e_recusada_com_503(self):
+        # Duas conexoes paradas no meio do cabecalho ocupam as duas vagas.
+        for _ in range(2):
+            self.abre().sendall(b"GET /saude HTTP/1.1\r\n")
+        terceira = self.abre()
+        resposta = b""
+        while pedaco := terceira.recv(4096):
+            resposta += pedaco
+        self.assertTrue(resposta.startswith(b"HTTP/1.1 503"), resposta[:40])
+
+    def test_a_vaga_volta_quando_a_conexao_termina(self):
+        import time
+        ocupadas = [self.abre() for _ in range(2)]
+        for c in ocupadas:
+            c.sendall(b"GET /saude HTTP/1.1\r\n")
+        ocupadas[0].close()
+        # Espera deterministica: pergunta ate a vaga voltar.
+        prazo = time.monotonic() + 5
+        while True:
+            c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=5)
+            try:
+                c.request("GET", s.ROTA_SAUDE)
+                r = c.getresponse()
+                # Le o corpo antes de fechar: abandonar a resposta pela
+                # metade faz o servidor escrever num soquete ja fechado, e o
+                # rastro disso polui a saida de todo mundo.
+                r.read()
+                status = r.status
+            except OSError:
+                status = None
+            finally:
+                c.close()
+            if status == 200 or time.monotonic() > prazo:
+                break
+            time.sleep(0.02)
+        self.assertEqual(status, 200)
 
 
 class AparelhoDeTokenVazio(unittest.TestCase):
@@ -1029,6 +1360,63 @@ class LeAparelhos(unittest.TestCase):
         with self.assertRaises(s.ErroDeAparelhos) as e:
             self.le("abc\ndef\ncarro=ghi\n")
         self.assertIn(":3", str(e.exception))
+
+    # -- o erro da [privacidade] nao pode publicar a casa --
+    #
+    # A mensagem vai para o stderr, dali para o `docker logs` e para o Loki.
+    # Ecoar a linha com defeito publicava, no log, a coordenada que a secao
+    # existe para esconder -- e a linha com defeito costuma ser a da casa,
+    # escrita quase certa. Coordenadas sinteticas, como em todo teste.
+
+    LAT, LON = "-10.12345", "-40.98765"
+
+    def linhas_que_vazariam(self):
+        return [
+            f"zona=-91.12345,{self.LON}",            # latitude fora
+            f"zona={self.LAT},-181.98765",           # longitude fora
+            f"zona={self.LAT},abc",                   # nao e numero
+            f"zona={self.LAT};{self.LON}",            # sem virgula
+            f"zona={self.LAT},{self.LON},300",        # tres partes
+            f"zona={self.LAT},{self.LON}\nraio_m={self.LAT},{self.LON}",
+        ]
+
+    def test_erro_de_privacidade_diz_a_linha_e_nao_o_valor(self):
+        import traceback
+        for linha in self.linhas_que_vazariam():
+            with self.subTest(linha=linha):
+                texto = f"abc\n\n[privacidade]\n{linha}\n"
+                with self.assertRaises(s.ErroDeAparelhos) as e:
+                    self.le_tudo(texto)
+                # O traceback inteiro, e nao so a mensagem: uma excecao
+                # encadeada com `from` leva a original junto, e a do
+                # `float()` repete o texto que recebeu.
+                tudo = "".join(traceback.format_exception(e.exception))
+                for valor in ("12345", "98765"):
+                    self.assertNotIn(valor, tudo)
+                n = texto.count("\n", 0, texto.rindex(linha.split("\n")[-1]))
+                self.assertIn(f":{n + 1}:", str(e.exception))
+
+    def test_main_nao_escreve_a_coordenada_no_stderr(self):
+        # O caminho que de fato chega ao Loki: o `main` recusa subir e diz
+        # por que no stderr.
+        import contextlib
+        import io
+        import logging
+        raiz = logging.getLogger()
+        antes = (list(raiz.handlers), raiz.level)
+        self.addCleanup(lambda: (setattr(raiz, "handlers", antes[0]),
+                                 raiz.setLevel(antes[1])))
+        self.caminho.write_text(
+            f"abc\n[privacidade]\nzona=-91.12345,{self.LON}\n",
+            encoding="utf-8")
+        saida = io.StringIO()
+        with contextlib.redirect_stderr(saida):
+            codigo = s.main(["--aparelhos", str(self.caminho),
+                             "--dados", self.tmp.name, "--quiet"])
+        self.assertEqual(codigo, 1)
+        self.assertIn("latitude", saida.getvalue())
+        self.assertNotIn("12345", saida.getvalue())
+        self.assertNotIn("98765", saida.getvalue())
 
 
 if __name__ == "__main__":
@@ -1283,6 +1671,83 @@ class HistoricoAppendOnly(Recepcao):
         # lado de ca, um envio que o aparelho ainda considera vivo.
         self.assertIsNotNone(s.Manipulador.timeout)
         self.assertGreater(s.Manipulador.timeout, 15)
+
+    def test_duas_remessas_iguais_ao_mesmo_tempo_nao_duplicam(self):
+        """A trava da gravacao, vista de fora.
+
+        ⚠️ Trocar `_TRAVA_DA_GRAVACAO` por um no-op deixava a suite inteira
+        verde: nenhum teste punha duas gravacoes do mesmo arquivo em curso
+        ao mesmo tempo.
+
+        E o cenario real desde 16/11/2026: o firmware tenta de novo 2 s
+        depois de uma falha, e a conexao velha pode continuar viva aqui. As
+        duas mandam os MESMOS bytes. Sem trava, as duas leem a marca antes
+        de qualquer uma escreve-la, as duas acrescentam o trecho inteiro, e
+        a mesma infracao aparece duas vezes no historico -- que foi o
+        defeito de 11/11/2026 voltando por outra porta.
+
+        O trecho e grande de proposito: a janela entre ler a marca e
+        escreve-la e o tempo de copiar o arquivo, e com 4 MB ela e larga o
+        bastante para as duas threads se cruzarem sem depender de sorte.
+        """
+        import threading as _t
+        trecho = (b"20261116;101010;EPTG;81;60\n" * 150_000)[:4 * 1024 * 1024]
+        partida = _t.Barrier(2)
+        respostas = []
+
+        def manda():
+            partida.wait()
+            respostas.append(self.envia("infracoes.log", trecho)[0])
+
+        fios = [_t.Thread(target=manda) for _ in range(2)]
+        for f in fios:
+            f.start()
+        for f in fios:
+            f.join(timeout=60)
+        self.assertEqual(respostas, [201, 201])
+        guardado = self.historico("infracoes.log")
+        self.assertEqual(len(guardado), len(trecho),
+                         "o trecho repetido entrou duas vezes no historico")
+
+    def test_parcial_orfao_e_varrido(self):
+        """Um `.parcial` de conexao morta nao pode ficar no disco para sempre.
+
+        Ele sobra quando o processo e morto no meio de um envio -- um
+        `docker stop` enquanto o aparelho manda --, e ninguem o apaga: o
+        nome tem o acaso da conexao que o criou, e a conexao nao existe
+        mais. Em um ano de remessas isso e lixo que so cresce.
+        """
+        import os
+        import time
+        self.envia("coruja.log", b"primeiro envio\n")
+        pasta = self.dados / s.SUBDIR_ENVIO / PASTA
+        orfao = pasta / "coruja.log.deadbeef.parcial"
+        orfao.write_bytes(b"metade de um envio")
+        velho = time.time() - 4 * s.PRAZO_DO_PEDIDO_S
+        os.utime(orfao, (velho, velho))
+        recente = pasta / "coruja.log.cafe1234.parcial"
+        recente.write_bytes(b"envio de outra conexao, em curso")
+
+        self.envia("coruja.log", b"segundo envio\n")
+
+        self.assertFalse(orfao.exists(), "o parcial orfao ficou no disco")
+        self.assertTrue(recente.exists(),
+                        "a varredura levou o parcial de uma conexao viva")
+
+    def test_a_marca_e_trocada_de_uma_vez(self):
+        # Gravar a marca no lugar, sem temporario, deixa um arquivo pela
+        # metade quando o processo morre no meio. Uma marca truncada ainda
+        # pode ser LIDA -- "123 abc" converte -- e aponta um CRC que nunca
+        # existiu: o trecho seguinte seria acrescentado errado.
+        self.envia("infracoes.log", b"primeira\n")
+        marca = self.marca("infracoes.log")
+        bruto = marca.read_text(encoding="ascii")
+        marca.write_text(bruto[:len(bruto) // 2], encoding="ascii")
+        # Com a marca truncada o servidor nao deduplica -- acrescenta tudo,
+        # que e o lado seguro da duvida -- mas nao se perde.
+        self.envia("infracoes.log", b"primeira\n")
+        self.assertEqual(self.historico("infracoes.log"),
+                         b"primeira\nprimeira\n")
 
     def test_conexao_que_para_de_mandar_nao_prende_o_servidor_para_sempre(self):
         # Sem prazo, a thread de um PUT cujo aparelho sumiu ficava presa na

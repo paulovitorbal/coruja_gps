@@ -238,4 +238,46 @@ TEST(VerificadorDownload, ConcordaComOCarregaBaseNoMesmoArquivo) {
     }
 }
 
+
+// --- o pedaco que termina EM CIMA do fim do cabecalho ---
+
+TEST(VerificadorDownload, OCabecalhoVALEQuandoOPedacoTerminaNoFimDele) {
+    // ⚠️ A conexao cair logo depois do cabecalho e a falha mais provavel num
+    // carro em movimento, e ela caia no ramo errado: o cabecalho so era
+    // marcado como lido se SOBRASSE byte no pedaco, entao um pedaco que
+    // termina exatamente nele deixava `tem_cabecalho()` falso. A barra de
+    // progresso ficava sem total, e `conclui` respondia TamanhoInvalido --
+    // um diagnostico que manda procurar arquivo corrompido quando o que
+    // houve foi download truncado.
+    for (const std::uint16_t versao : {kVersao, kVersaoSemData}) {
+        const auto bytes = tres_pontos_validos().constroi(versao);
+        const std::size_t cab = versao == kVersao ? kTamCabecalho
+                                                  : kTamCabecalhoSemData;
+        VerificadorDownload v;
+        v.alimenta(bytes.data(), cab);   // o pedaco acaba no fim do cabecalho
+
+        ASSERT_TRUE(v.tem_cabecalho()) << "versao " << versao;
+        EXPECT_EQ(v.cabecalho().n_pontos, 3u) << "versao " << versao;
+        EXPECT_EQ(v.bytes_de_dados(), 0u) << "versao " << versao;
+        EXPECT_EQ(v.conclui(kCapacidadeFirmware),
+                  ErroBase::ContagemInconsistente)
+            << "versao " << versao << ": o cabecalho prometeu 3 pontos e "
+               "nenhum chegou";
+    }
+}
+
+TEST(VerificadorDownload, OResteDoArquivoDepoisDesseCorteAindaEAceito) {
+    // O contrapeso: marcar o cabecalho mais cedo nao pode comer bytes de
+    // dado. O mesmo arquivo, entregue em dois pedacos com o corte em cima da
+    // fronteira, continua valido de ponta a ponta.
+    const auto bytes = tres_pontos_validos().constroi(kVersao);
+    VerificadorDownload v;
+    v.alimenta(bytes.data(), kTamCabecalho);
+    v.alimenta(bytes.data() + kTamCabecalho, bytes.size() - kTamCabecalho);
+
+    EXPECT_EQ(v.pontos_recebidos(), 3u);
+    EXPECT_EQ(v.crc_calculado(), v.cabecalho().crc);
+    EXPECT_EQ(v.conclui(kCapacidadeFirmware), ErroBase::Nenhum);
+}
+
 }  // namespace

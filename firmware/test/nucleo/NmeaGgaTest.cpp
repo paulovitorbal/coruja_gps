@@ -153,6 +153,31 @@ TEST(NmeaGga, contagem_de_satelites_absurda_e_campo_invalido) {
     EXPECT_EQ(analisa(gga("1", "99", "0.92"), &q), ErroNmea::CampoInvalido);
 }
 
+TEST(NmeaGga, contagem_que_daria_a_volta_em_32_bits_e_campo_invalido) {
+    // 4294967305 e 2^32 + 9: somado digito a digito em `uint32_t` ele da a
+    // volta e vira 9 satelites, um numero perfeitamente plausivel.
+    QualidadeFix q;
+    EXPECT_EQ(analisa(gga("1", "4294967305", "0.92"), &q),
+              ErroNmea::CampoInvalido);
+}
+
+TEST(NmeaGga, hdop_com_sinal_ou_absurdo_e_campo_invalido) {
+    // O u-blox satura o HDOP em 99,99. Acima disso e lixo, e um campo de 40
+    // digitos estreitado para `float` seria comportamento indefinido.
+    for (const char* hdop : {"+0.92", "150.0",
+                             "1000000000000000000000000000000000000000.0"}) {
+        QualidadeFix q;
+        EXPECT_EQ(analisa(gga("1", "09", hdop), &q), ErroNmea::CampoInvalido)
+            << hdop;
+    }
+}
+
+TEST(NmeaGga, o_hdop_saturado_do_ublox_ainda_e_lido) {
+    QualidadeFix q;
+    ASSERT_EQ(analisa(gga("1", "03", "99.99"), &q), ErroNmea::Nenhum);
+    EXPECT_NEAR(q.hdop, 99.99F, 1e-3F);
+}
+
 TEST(NmeaGga, vazia_e_vazia) {
     QualidadeFix q;
     EXPECT_EQ(analisa_gga(nullptr, 0, &q), ErroNmea::Vazia);

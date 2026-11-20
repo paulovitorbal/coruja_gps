@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "nucleo/BytesLe.h"
+
 namespace coruja {
 
 namespace {
@@ -44,19 +46,6 @@ constexpr std::size_t kConfig = 4;
 constexpr std::size_t kStatus = 5;
 constexpr std::uint8_t kBitUsaAop = 0x01;
 }  // namespace aopstatus
-
-std::uint16_t le_u16(const std::uint8_t* p) {
-    // Little-endian, como todo campo do UBX.
-    return static_cast<std::uint16_t>(p[0] |
-                                      (static_cast<std::uint16_t>(p[1]) << 8));
-}
-
-std::uint32_t le_u32(const std::uint8_t* p) {
-    return static_cast<std::uint32_t>(p[0]) |
-           (static_cast<std::uint32_t>(p[1]) << 8) |
-           (static_cast<std::uint32_t>(p[2]) << 16) |
-           (static_cast<std::uint32_t>(p[3]) << 24);
-}
 
 }  // namespace
 
@@ -248,7 +237,11 @@ std::size_t formata_diagnostico(const EstadoNavegacao& nav,
                       aop.calculando ? ", calculando" : "");
     }
 
-    char sin[72];
+    // O pior caso sao 81 caracteres: 49 de texto fixo, 15 dos cinco
+    // numeros de tres digitos e 17 da ressalva " (resumo parcial)". Eram 72,
+    // e a ressalva saia cortada -- justamente no ceu cheio, que e quando o
+    // quadro estoura os 248 bytes do leitor e o resumo VIRA parcial.
+    char sin[96];
     if (!sinal.respondeu) {
         std::snprintf(sin, sizeof sin, "NAV-SAT sem resposta");
     } else {

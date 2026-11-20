@@ -82,6 +82,7 @@ FRESULT f_open(FIL* fp, const TCHAR* caminho, BYTE modo);
 FRESULT f_close(FIL* fp);
 FRESULT f_read(FIL* fp, void* destino, UINT quantos, UINT* lidos);
 FRESULT f_lseek(FIL* fp, FSIZE_t posicao);
+FRESULT f_truncate(FIL* fp);
 FRESULT f_opendir(DIR* dp, const TCHAR* caminho);
 FRESULT f_readdir(DIR* dp, FILINFO* info);
 FRESULT f_closedir(DIR* dp);

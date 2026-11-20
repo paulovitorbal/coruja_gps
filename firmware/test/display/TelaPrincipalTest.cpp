@@ -2,10 +2,13 @@
 
 #include <cstdlib>
 
+#include "display/FonteNumero.h"
 #include "display/Sprites.h"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <bitset>
 #include <string>
 #include <vector>
 
@@ -176,6 +179,77 @@ TEST(TelaPrincipal, sem_fix_o_numero_vira_tracos_em_cinza) {
     EXPECT_EQ(v.numero()->s, "- -");
     EXPECT_EQ(v.numero()->cor, paleta::kDegradado)
         << "estado degradado nao pode usar a mesma cor do numero valido";
+}
+
+/// Pixels acesos do glifo `c` na fonte do numero, e a faixa de linhas onde
+/// eles caem. -1 em `indice` quando a fonte nao tem o glifo.
+struct TintaDoGlifo { int indice = -1; int acesos = 0; int topo = 0;
+                      int fundo = -1; };
+
+TintaDoGlifo tinta_no_numero(char c) {
+    namespace f = fonte::numero;
+    TintaDoGlifo t;
+    t.indice = f::indice(c);
+    if (t.indice < 0) { return t; }
+    t.topo = f::kAltura;
+    for (int y = 0; y < f::kAltura; ++y) {
+        for (int b = 0; b < f::kBytesPorLinha; ++b) {
+            const int n = static_cast<int>(std::bitset<8>(
+                f::kBitmap[t.indice][y * f::kBytesPorLinha + b]).count());
+            if (n == 0) { continue; }
+            t.acesos += n;
+            t.topo = std::min(t.topo, y);
+            t.fundo = std::max(t.fundo, y);
+        }
+    }
+    return t;
+}
+
+TEST(TelaPrincipal, sem_fix_os_tracos_ACENDEM_pixel) {
+    // Relatado na revisao de 17/11/2026: o "- -" nunca apareceu. A fonte
+    // do numero tinha so "0123456789/", e o painel PULA o glifo ausente,
+    // sem largura -- a area do numero ficava vazia justamente quando o
+    // aparelho precisava dizer que nao sabe a velocidade.
+    //
+    // O teste acima passava o tempo todo: ele compara o TEXTO composto, e
+    // o texto sempre esteve certo. Quem sumia era o pixel (o mesmo buraco
+    // do TelaMenu.valor_em_letras_aparece_na_tela).
+    VisorEspiao v;
+    TelaPrincipal tela;
+    EstadoTela e;
+    e.tem_fix = false;
+    tela.desenha(e, 0, v);
+    ASSERT_NE(v.numero(), nullptr);
+    ASSERT_EQ(v.numero()->f, Fonte::Numero);
+
+    for (const char c : v.numero()->s) {
+        EXPECT_GE(tinta_no_numero(c).indice, 0)
+            << "'" << c << "' nao existe na fonte do numero: o painel o pula";
+    }
+    EXPECT_GT(tinta_no_numero('-').acesos, 0) << "o traco nao acende nada";
+    EXPECT_EQ(tinta_no_numero(' ').acesos, 0);
+    // Tres celulas, e nao uma: e o espaco que separa os dois tracos.
+    EXPECT_EQ(largura_da_fonte(Fonte::Numero, v.numero()->s.c_str()),
+              3 * fonte::numero::kLargura);
+
+    // E o traco fica na altura dos digitos, dentro da faixa do "0" -- nao
+    // colado no topo nem no pe da celula.
+    const TintaDoGlifo traco = tinta_no_numero('-');
+    const TintaDoGlifo zero = tinta_no_numero('0');
+    EXPECT_GT(traco.topo, zero.topo);
+    EXPECT_LT(traco.fundo, zero.fundo);
+}
+
+TEST(TelaPrincipal, os_digitos_assentam_na_mesma_linha_de_base) {
+    // Com a linha de base comum, o pe de todo digito de base reta cai na
+    // mesma linha (os redondos -- 0, 3, 5, 6, 8 -- passam um pixel, que e
+    // o overshoot do desenho, e ficam fora daqui). Centralizado pela
+    // propria caixa, o "2" ficava um pixel abaixo do "1" e o numero
+    // dancava ao trocar de digito.
+    const int base = tinta_no_numero('1').fundo;
+    for (const char c : {'2', '4', '7', '9'}) {
+        EXPECT_EQ(tinta_no_numero(c).fundo, base) << "'" << c << "'";
+    }
 }
 
 // ============================================ faixa inferior: prioridade

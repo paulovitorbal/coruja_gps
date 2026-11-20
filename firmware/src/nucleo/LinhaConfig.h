@@ -11,8 +11,6 @@ namespace coruja {
 /// uma que o leitor honra -- o ajuste apareceria salvo no arquivo e o
 /// aparelho continuaria com o valor antigo, sem nada indicando o desacordo.
 
-bool e_espaco(char c);
-
 /// Recorta espacos das duas pontas, ajustando ponteiro e tamanho no lugar.
 void apara(const char*& ini, std::size_t& n);
 

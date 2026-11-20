@@ -69,6 +69,8 @@ private:
     CadenciaBuzzer cadencia_;
     PadraoLed      padrao_;
     Veredito       veredito_;
+    /// Qual fix a `maquina_` já avaliou. Ver `passo()`.
+    FixNovo        fix_novo_;
     const Ponto*   base_ = nullptr;
     std::size_t    quantos_ = 0;
 };

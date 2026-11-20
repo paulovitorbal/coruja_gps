@@ -20,14 +20,28 @@ não voltar:
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from sem_comentarios import sem_comentarios  # noqa: E402
 PASTA = RAIZ / "observabilidade"
 ALLOY = PASTA / "alloy.alloy"
 LOKI = PASTA / "loki.yml"
 COMPOSE = PASTA / "docker-compose.yml"
+
+
+def valendo(arquivo: Path, marcador: str = "#") -> str:
+    """O arquivo SEM comentario nenhum.
+
+    ⚠️ Procurar `mem_limit:` no texto inteiro casa com a linha comentada --
+    e "comentei so para testar" e exatamente como uma protecao some sem
+    ninguem ver. Estes testes leem o que vale, nao o que esta escrito.
+    """
+    return sem_comentarios(arquivo.read_text(encoding="utf-8"), marcador)
 
 
 def expressao_do_diario() -> re.Pattern:
@@ -107,7 +121,7 @@ class ConfiguracaoDoLoki(unittest.TestCase):
         # 20/09, voltou catorze vezes com `no schema config found for time`.
         # O diário do aparelho é pior: ele acumula no cartão e sobe dias
         # depois, com os carimbos do dia em que aconteceu.
-        texto = LOKI.read_text(encoding="utf-8")
+        texto = valendo(LOKI)
         datas = re.findall(r"^\s*- from: (\d{4})-\d{2}-\d{2}", texto, re.M)
         self.assertTrue(datas, "nenhum `from:` no schema_config")
         for ano in datas:
@@ -117,7 +131,7 @@ class ConfiguracaoDoLoki(unittest.TestCase):
                 "projeto: o que for mais antigo que ele e RECUSADO com 500")
 
     def test_amostra_antiga_nao_pode_ser_recusada(self):
-        texto = LOKI.read_text(encoding="utf-8")
+        texto = valendo(LOKI)
         self.assertTrue(
             re.search(r"^\s*reject_old_samples:\s*false\s*$", texto, re.M),
             "com a recusa ligada, uma remessa de viagens antigas e descartada "
@@ -132,7 +146,7 @@ class ConfiguracaoDoLoki(unittest.TestCase):
         14/10/2026: uma linha de nove dias atras nao chegava, e nem sempre
         havia erro no coletor.
         """
-        texto = LOKI.read_text(encoding="utf-8")
+        texto = valendo(LOKI)
         achado = re.search(r"^\s*max_chunk_age:\s*(\d+)h\s*$", texto, re.M)
         self.assertIsNotNone(
             achado, "sem `max_chunk_age`, o Loki so aceita a ultima hora")
@@ -145,15 +159,14 @@ class ConfiguracaoDoLoki(unittest.TestCase):
     def test_o_idexec_nao_vira_rotulo(self):
         # São 8 caracteres sorteados a cada ligação. Como rótulo, cada boot
         # abriria fluxos próprios no índice.
-        self.assertIn("allow_structured_metadata: true",
-                      LOKI.read_text(encoding="utf-8"))
-        alloy = ALLOY.read_text(encoding="utf-8")
+        self.assertIn("allow_structured_metadata: true", valendo(LOKI))
+        alloy = valendo(ALLOY, "//")
         metadado = alloy.index("stage.structured_metadata")
         self.assertIn("idexec", alloy[metadado:metadado + 200])
 
     def test_nao_manda_telemetria_para_fora(self):
         # O que esta base guarda e onde alguem esteve e quando.
-        self.assertIn("reporting_enabled: false", LOKI.read_text(encoding="utf-8"))
+        self.assertIn("reporting_enabled: false", valendo(LOKI))
 
 
 class Compose(unittest.TestCase):
@@ -161,7 +174,7 @@ class Compose(unittest.TestCase):
     def test_nenhum_servico_fica_sem_teto_de_memoria(self):
         # O z800 tem ~3 GB livres e a API precisa deles. Sem teto, um pico de
         # ingestao empurra para a troca justamente o que se quer observar.
-        texto = COMPOSE.read_text(encoding="utf-8")
+        texto = valendo(COMPOSE)
         # Só o bloco `services:`; abaixo dele vem `volumes:`, com nomes na
         # mesma indentação -- contá-los daria um total que fecha por acaso.
         bloco = texto[texto.index("services:"):texto.index("\nvolumes:")]
@@ -173,7 +186,7 @@ class Compose(unittest.TestCase):
 
     def test_a_senha_do_grafana_nao_esta_versionada(self):
         # Este arquivo vive num repositorio PUBLICO.
-        texto = COMPOSE.read_text(encoding="utf-8")
+        texto = valendo(COMPOSE)
         self.assertIn("GRAFANA_SENHA", texto)
         self.assertNotRegex(
             texto, r"GF_SECURITY_ADMIN_PASSWORD:\s*\"?[A-Za-z0-9]",
@@ -185,7 +198,7 @@ class Compose(unittest.TestCase):
     def test_o_loki_nao_e_publicado_na_rede(self):
         # Sem senha, quem alcancasse a porta leria tudo que o aparelho
         # registrou. Quem consulta e o Grafana, pela rede interna.
-        texto = COMPOSE.read_text(encoding="utf-8")
+        texto = valendo(COMPOSE)
         bloco = texto[texto.index("  loki:"):texto.index("  alloy:")]
         self.assertNotIn("ports:", bloco)
 
@@ -196,7 +209,7 @@ class Compose(unittest.TestCase):
         `mysql` e do `portainer` -- ruido, e ainda por cima recusadas pelo
         piso do esquema e reenviadas em laco.
         """
-        alloy = ALLOY.read_text(encoding="utf-8")
+        alloy = valendo(ALLOY, "//")
         bloco = alloy[alloy.index('discovery.relabel "containers"'):]
         bloco = bloco[:bloco.index("loki.source.docker")]
         self.assertIn('action        = "keep"', bloco,
@@ -204,17 +217,60 @@ class Compose(unittest.TestCase):
         self.assertIn('regex         = "/coruja-.*"', bloco)
 
     def test_o_que_o_aparelho_mandou_entra_somente_leitura(self):
-        texto = COMPOSE.read_text(encoding="utf-8")
-        self.assertIn("../recebidos:/recebidos:ro", texto)
+        self.assertIn("../recebidos:/recebidos:ro", valendo(COMPOSE))
 
     def test_todo_arquivo_montado_existe(self):
         # Mesmo espirito do test_imagem: um caminho que envelhece em silencio
         # vira container em laco de reinicio, e depois do push.
-        texto = COMPOSE.read_text(encoding="utf-8")
-        for origem in re.findall(r"^\s+- (\./[^:]+):", texto, re.M):
+        for origem in re.findall(r"^\s+- (\./[^:]+):", valendo(COMPOSE), re.M):
             with self.subTest(origem=origem):
                 self.assertTrue((PASTA / origem).exists(),
                                 f"{origem} montado no compose e nao existe")
+
+
+class Cardinalidade(unittest.TestCase):
+    """Rotulo e INDICE: cada valor distinto abre um fluxo proprio no Loki."""
+
+    def test_a_origem_nao_aceita_qualquer_coisa(self):
+        # ⚠️ `origem` virava rotulo com o que viesse antes dos dois pontos.
+        # Uma linha truncada no cartao -- metade de uma e metade de outra --
+        # produz texto arbitrario, e cada um abriria um fluxo. O indice do
+        # Loki cresce com o numero de fluxos, nao com o de linhas.
+        expressao = expressao_do_diario()
+        for origem in ("a" * 40, "origem-com-traco-muito-longa-demais",
+                       "cam.in/ho", "A" * 13):
+            with self.subTest(origem=origem):
+                self.assertIsNone(
+                    expressao.match(f"[INFO] {origem}: mensagem"),
+                    "origem sem limite vira rotulo e abre fluxo no indice")
+
+    def test_as_origens_do_firmware_continuam_casando(self):
+        # A lista veio do diario real; recusa-las trocaria cardinalidade por
+        # linha sem rotulo nenhum, que e pior.
+        for origem in ("sd", "gps", "vigia", "http", "app", "temp", "ota",
+                       "mem", "rede", "menu", "viagem", "radar"):
+            with self.subTest(origem=origem):
+                m = expressao_do_diario().match(f"[INFO] {origem}: x")
+                self.assertIsNotNone(m, f"origem {origem} nao casou")
+                self.assertEqual(m.group("origem"), origem)
+
+
+class InstrucoesDoCabecalho(unittest.TestCase):
+
+    def test_todo_arquivo_que_o_cabecalho_manda_copiar_existe(self):
+        """O `cp` do cabecalho tem de apontar para um arquivo que existe.
+
+        Ele dizia `cp .env.exemplo .env`, e o arquivo se chama
+        `env.exemplo`: quem seguisse a instrucao receberia "No such file" na
+        primeira linha do roteiro de subida.
+        """
+        for arquivo in (COMPOSE, PASTA / "README.md", RAIZ / "README.md"):
+            texto = arquivo.read_text(encoding="utf-8")
+            for origem in re.findall(r"cp ([\w./-]+) \.env\b", texto):
+                with self.subTest(arquivo=arquivo.name, origem=origem):
+                    self.assertTrue(
+                        (PASTA / origem).exists(),
+                        f"{arquivo.name} manda copiar {origem}, que nao existe")
 
 
 if __name__ == "__main__":

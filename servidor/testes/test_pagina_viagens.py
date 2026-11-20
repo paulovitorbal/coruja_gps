@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -207,6 +208,114 @@ class PaginaEmTeste(unittest.TestCase):
             cookie=f"{s.COOKIE_SESSAO}=inventado-na-mao")
         self.assertIn('name="token"', corpo)
 
+    # ===================================================== sessao e castigo
+
+    def sessoes(self) -> dict:
+        """O dicionario de sessoes DESTE servidor."""
+        return self.srv.RequestHandlerClass.sessoes
+
+    def test_sessao_vencida_nao_vale_mais(self):
+        # Oito horas sem uso. O prazo so e renovado a cada acesso, e um
+        # cookie velho num computador compartilhado nao pode continuar
+        # abrindo a listagem de onde o carro esteve.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, _venc = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, time.monotonic() - 1.0)
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn('name="token"', corpo, "a sessao vencida ainda abria")
+
+    def test_sessao_vencida_e_varrida_da_memoria(self):
+        # Sem a varredura o dicionario cresce para sempre num servidor que
+        # fica meses no ar.
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, _venc = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, time.monotonic() - 1.0)
+        self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertNotIn(sid, self.sessoes())
+
+    def test_o_uso_renova_o_prazo(self):
+        _st, cookie = self.entra()
+        sid = cookie.split("=", 1)[1]
+        nome, antes = self.sessoes()[sid]
+        self.sessoes()[sid] = (nome, antes - 3600)
+        self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertGreater(self.sessoes()[sid][1], antes - 3600)
+
+    def test_as_sessoes_tem_teto(self):
+        # Em memoria e sem teto, cada entrada vale ate oito horas: quem tem
+        # o token pode abrir sessao em laco e encher a memoria do processo.
+        antes = s.MAXIMO_DE_SESSOES
+        s.MAXIMO_DE_SESSOES = 4
+        self.addCleanup(setattr, s, "MAXIMO_DE_SESSOES", antes)
+        for _ in range(12):
+            st, _ = self.entra()
+            self.assertEqual(st, 200)
+        self.assertLessEqual(len(self.sessoes()), 4)
+
+    def test_a_sessao_mais_nova_sobrevive_ao_teto(self):
+        # Descartar a que acabou de entrar deixaria quem acabou de digitar o
+        # token de fora -- o teto viraria uma porta fechada.
+        antes = s.MAXIMO_DE_SESSOES
+        s.MAXIMO_DE_SESSOES = 3
+        self.addCleanup(setattr, s, "MAXIMO_DE_SESSOES", antes)
+        for _ in range(8):
+            _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertNotIn('name="token"', corpo, "a sessao recem-aberta caiu")
+
+    def test_token_errado_poe_o_endereco_de_castigo(self):
+        st, _cookie = self.entra("nao-esta-na-lista")
+        self.assertEqual(st, 401)
+        castigo = self.srv.RequestHandlerClass.castigo
+        self.assertEqual(list(castigo), ["127.0.0.1"])
+
+    def test_a_entrada_certa_tira_o_castigo(self):
+        self.entra("nao-esta-na-lista")
+        self.entra()
+        self.assertEqual(self.srv.RequestHandlerClass.castigo, {})
+
+    def test_o_castigo_tem_teto(self):
+        # A chave e o endereco de quem tentou, e atras da borda ele e o que
+        # o proxy disser: sem teto, um dicionario que so cresce.
+        antes = s.MAXIMO_DE_CASTIGOS
+        s.MAXIMO_DE_CASTIGOS = 3
+        self.addCleanup(setattr, s, "MAXIMO_DE_CASTIGOS", antes)
+        castigo = self.srv.RequestHandlerClass.castigo
+        for i in range(10):
+            castigo[f"10.0.0.{i}"] = time.monotonic() + 600
+        self.entra("nao-esta-na-lista")
+        self.assertLessEqual(len(castigo), 3)
+
+    def test_token_nao_ascii_na_pagina_e_recusado(self):
+        # `hmac.compare_digest` com `str` fora do ASCII levanta TypeError, e
+        # a excecao derrubava a conexao em vez de responder 401.
+        st, cookie = self.entra("segredo-com-acento-çãé")
+        self.assertEqual(st, 401)
+        self.assertEqual(cookie, "")
+
+    def test_cookie_secure_so_quando_a_borda_diz_https(self):
+        # O Cloudflare termina o TLS e fala HTTP com este servidor: olhar o
+        # proprio soquete diria "nao e seguro" sempre, e o cookie nunca
+        # voltaria. Quem sabe e o cabecalho da borda.
+        c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=10)
+        try:
+            c.request("POST", s.ROTA_VIAGENS, body=f"token={TOKEN}",
+                      headers={"Content-Type":
+                               "application/x-www-form-urlencoded",
+                               "X-Forwarded-Proto": "https"})
+            r = c.getresponse()
+            r.read()
+            com_borda = r.getheader("Set-Cookie", "")
+        finally:
+            c.close()
+        self.assertIn("Secure", com_borda)
+        _st, _c, cab = self.pede("POST", s.ROTA_VIAGENS, f"token={TOKEN}")
+        self.assertNotIn("Secure", cab.get("Set-Cookie", ""))
+
     # ===================================================== nomes e caminhos
 
     def test_travessia_de_caminho_e_recusada(self):
@@ -219,6 +328,19 @@ class PaginaEmTeste(unittest.TestCase):
             st, _corpo, _ = self.pede(
                 "GET", f"{s.ROTA_VIAGENS}/{nome}", cookie=cookie)
             self.assertEqual(st, 404, nome)
+
+    def test_nome_com_quebra_de_linha_nao_e_viagem(self):
+        # O `$` de uma expressao casa ANTES da quebra final, entao
+        # "20261006_123858.log\n" passava pela lista branca -- e o nome ia
+        # inteiro para o `href` da listagem. `fullmatch` nao tem essa
+        # gentileza.
+        alvo = self.recebidos / PASTA / "20261006_123858.log\n"
+        alvo.write_text(viagem_sintetica())
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertNotIn("20261006_123858.log\n", corpo)
+        self.assertIn("Nenhuma viagem", corpo)
 
     def test_coruja_log_e_infracoes_nao_sao_viagens(self):
         # Eles chegam na mesma pasta, pelo envio, e não são trajetos.
@@ -239,6 +361,170 @@ class PaginaEmTeste(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertIn("20261006_123858.log", corpo)
         self.assertNotIn("20261005_000000.log", corpo)
+
+    # -- um arquivo que nao e UTF-8 (S1 da revisao de 17/11/2026) --
+    #
+    # O `read_text` levanta `UnicodeDecodeError`, que NAO e `OSError`, e a
+    # listagem so capturava `ErroDeViagem`: um unico arquivo assim derrubava
+    # a conexao sem resposta, e com ele a pagina inteira do aparelho.
+
+    def poe_arquivo_que_nao_e_utf8(self, nome="20261005_000000.log"):
+        bruto = viagem_sintetica(inicio="2026-10-05T00:00:00Z").encode()
+        (self.recebidos / PASTA / nome).write_bytes(
+            bruto[:60] + b"\xff\xfe" + bruto[60:])
+
+    def test_arquivo_que_nao_e_utf8_nao_derruba_a_listagem(self):
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertIn("20261006_123858.log", corpo)
+        self.assertNotIn("20261005_000000.log", corpo)
+
+    def test_arquivo_que_nao_e_utf8_nao_derruba_o_mapa_da_vizinha(self):
+        # O mapa monta as jornadas do aparelho inteiro antes de desenhar, e
+        # e ali que o arquivo ruim estourava -- no mapa de OUTRA viagem.
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, _corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261006_123858.log", cookie=cookie)
+        self.assertEqual(st, 200)
+
+    def test_o_mapa_do_arquivo_que_nao_e_utf8_explica(self):
+        self.poe_arquivo_que_nao_e_utf8()
+        _st, cookie = self.entra()
+        st, corpo, _ = self.pede(
+            "GET", f"{s.ROTA_VIAGENS}/20261005_000000.log", cookie=cookie)
+        self.assertEqual(st, 422)
+        self.assertIn("UTF-8", corpo)
+
+    # ======================== corpo nao lido na MESMA conexao (keep-alive)
+    #
+    # O defeito de 2026-10-06 (ver `test_put_recusado_nao_contamina...` em
+    # test_servidor.py), em rotas que vieram depois: a resposta sai antes de
+    # o corpo ser lido, e os bytes dele viram o "proximo pedido" da conexao.
+    # O Cloudflare reaproveita conexao; estes testes tambem.
+
+    def na_mesma_conexao(self, *pedidos):
+        """`(metodo, rota, corpo, cabecalhos)` em sequencia, numa conexao so."""
+        c = http.client.HTTPConnection("127.0.0.1", self.porta, timeout=10)
+        respostas = []
+        try:
+            for metodo, rota, corpo, cab in pedidos:
+                c.request(metodo, rota, body=corpo, headers=cab)
+                r = c.getresponse()
+                respostas.append((r.status, r.read().decode("utf-8", "replace")))
+        finally:
+            c.close()
+        return respostas
+
+    def test_login_com_corpo_grande_e_recusado_sem_contaminar_o_seguinte(self):
+        formulario = {"Content-Type": "application/x-www-form-urlencoded"}
+        grande = "token=" + "a" * 5000
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS, grande, formulario),
+            ("GET", s.ROTA_VIAGENS, None, {}))
+        self.assertEqual(st1, 400)
+        self.assertEqual(st2, 200)
+        self.assertIn('name="token"', corpo2)
+
+    def test_sair_com_corpo_nao_contamina_o_pedido_seguinte(self):
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS + "/sair", "qualquer=coisa", {}),
+            ("GET", s.ROTA_VIAGENS, None, {}))
+        self.assertEqual(st1, 200)
+        self.assertEqual(st2, 200)
+        self.assertIn('name="token"', corpo2)
+
+    def test_mapa_pedido_com_corpo_nao_contamina_o_seguinte(self):
+        _st, cookie = self.entra()
+        (st1, _), (st2, corpo2) = self.na_mesma_conexao(
+            ("POST", s.ROTA_VIAGENS + "/20261006_123858.log", "x=1",
+             {"Cookie": cookie}),
+            ("GET", s.ROTA_VIAGENS, None, {"Cookie": cookie}))
+        self.assertEqual(st1, 404)
+        self.assertEqual(st2, 200)
+
+    # ===================================================== cabecalhos
+
+    def cabecalhos_de_cada_pagina(self):
+        """`(nome, cabecalhos)` de cada tipo de pagina HTML que o servidor da."""
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        _st, _c, formulario = self.pede("GET", s.ROTA_VIAGENS)
+        _st, _c, listagem = self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)
+        _st, _c, mapa = self.pede(
+            "GET", s.ROTA_VIAGENS + "/20261006_123858.log", cookie=cookie)
+        _st, _c, avis = self.pede(
+            "GET", s.ROTA_VIAGENS + "/20261006_000000.log", cookie=cookie)
+        _st, _c, entrada = self.pede(
+            "POST", s.ROTA_VIAGENS, f"token={TOKEN}",)
+        return [("formulario", formulario), ("listagem", listagem),
+                ("mapa", mapa), ("aviso", avis), ("redirecionamento", entrada)]
+
+    def test_toda_pagina_recusa_ser_emoldurada(self):
+        # Clickjacking: a pagina mostra onde o carro esteve, e um quadro
+        # invisivel por cima dela faz o clique ir para outro lugar.
+        for nome, cab in self.cabecalhos_de_cada_pagina():
+            with self.subTest(pagina=nome):
+                self.assertEqual(cab.get("X-Frame-Options"), "DENY")
+                self.assertIn("frame-ancestors 'none'",
+                              cab.get("Content-Security-Policy", ""))
+
+    def test_a_pagina_do_mapa_nao_ganha_politica_que_a_quebre(self):
+        # ⚠️ O mapa e folium: script embutido, biblioteca de CDN, tiles de
+        # outro dominio e fontes. Uma politica de origem aqui o quebraria, e
+        # nao ha navegador nesta imagem para perceber. So `frame-ancestors`.
+        cab = dict(self.cabecalhos_de_cada_pagina())["mapa"]
+        politica = cab.get("Content-Security-Policy", "")
+        for diretiva in ("default-src", "script-src", "style-src", "img-src",
+                         "connect-src", "font-src"):
+            self.assertNotIn(diretiva, politica)
+
+    def test_as_paginas_do_servidor_ganham_politica_estrita(self):
+        # Elas nao carregam NADA de fora -- ver o teste seguinte, que e o que
+        # torna esta politica segura.
+        for nome in ("formulario", "listagem", "aviso"):
+            with self.subTest(pagina=nome):
+                politica = dict(self.cabecalhos_de_cada_pagina())[nome].get(
+                    "Content-Security-Policy", "")
+                self.assertIn("default-src 'none'", politica)
+                self.assertIn("form-action 'self'", politica)
+
+    def test_o_redirecionamento_nao_precisa_nem_de_script(self):
+        politica = dict(self.cabecalhos_de_cada_pagina())[
+            "redirecionamento"].get("Content-Security-Policy", "")
+        self.assertIn("default-src 'none'", politica)
+        self.assertNotIn("script-src", politica)
+
+    def test_nenhuma_pagina_do_servidor_carrega_coisa_de_fora(self):
+        """O que sustenta o `default-src 'none'` das paginas proprias.
+
+        Se um dia uma delas passar a buscar uma fonte, um icone ou uma
+        biblioteca, o navegador vai recusar -- e e aqui que isso aparece,
+        antes de ir para o ar.
+        """
+        self.poe_viagem(PASTA, "20261006_123858.log")
+        _st, cookie = self.entra()
+        paginas = {
+            "formulario": self.pede("GET", s.ROTA_VIAGENS)[1],
+            "listagem": self.pede("GET", s.ROTA_VIAGENS, cookie=cookie)[1],
+            "aviso": self.pede("GET", s.ROTA_VIAGENS + "/20261006_000000.log",
+                               cookie=cookie)[1],
+            "redirecionamento": self.pede(
+                "POST", s.ROTA_VIAGENS, f"token={TOKEN}")[1],
+        }
+        # `//` cru nao serve de busca: o script embutido tem comentario de
+        # linha. O que nao pode e endereco em atributo e `url()` no estilo.
+        de_fora = re.compile(r"""(?:src|href|action)\s*=\s*["'](?:\w+:)?//""")
+        for nome, corpo in paginas.items():
+            with self.subTest(pagina=nome):
+                self.assertIsNone(de_fora.search(corpo),
+                                  "endereco de outro dominio na pagina")
+                self.assertNotIn("url(", corpo)
+                self.assertNotIn("<img", corpo)
 
     # ===================================================== as outras rotas
 
@@ -340,8 +626,94 @@ class LeituraDeViagem(unittest.TestCase):
                 esperado = 4 * (passo_s // viagem.PASSO_S) + 1
                 self.assertEqual(len(denso), esperado)
 
-    def test_resumo_devolve_none_para_arquivo_ruim(self):
-        self.assertIsNone(viagem.resumo(self.escreve("lixo\n")))
+    # -- o arquivo vem de fora: tudo e validado AQUI, uma vez --
+    #
+    # O cartao pode ter sido mexido, o relogio do GPS pode estar errado, e
+    # quem tem o token sobe o que quiser. O que passa daqui e usado sem
+    # desconfianca pela listagem, pelo recorte de privacidade e pelo mapa.
+
+    def linhas(self, *dados: str) -> str:
+        return ("# coruja_gps viagem v2\nutc;lat;lon;v_media;dist_km\n"
+                + "".join(d + "\n" for d in dados))
+
+    def test_byte_que_nao_e_utf8_vira_erro_de_viagem(self):
+        alvo = self.pasta / "20261006_123858.log"
+        alvo.write_bytes(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;-10.0;-40.0;20.0;0.01").encode()
+            + b"\xff\n")
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(alvo)
+        self.assertIn("UTF-8", str(e.exception))
+
+    def test_coordenada_que_nao_e_numero_finito_nao_vira_ponto(self):
+        # `float()` aceita "nan" e "inf". Um NaN chegava ao GeoJSON como
+        # `NaN`, que nao e JSON, e o `metros_entre` de um NaN e falso para
+        # toda comparacao -- inclusive a da zona privada.
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;nan;-40.0;20.0;0.01",
+            "2026-10-06T12:00:12Z;-10.0;inf;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.0;-40.0;nan;0.03",
+            "2026-10-06T12:00:24Z;-10.0;-40.0;20.0;-inf",
+            "2026-10-06T12:00:30Z;-10.001;-40.0;20.0;0.05")))
+        self.assertEqual([p.quando.second for p in v.pontos], [0, 30])
+
+    def test_coordenada_fora_da_faixa_nao_vira_ponto(self):
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "2026-10-06T12:00:06Z;-90.5;-40.0;20.0;0.01",
+            "2026-10-06T12:00:12Z;-10.0;180.5;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.001;-40.0;20.0;0.03")))
+        self.assertEqual([p.quando.second for p in v.pontos], [0, 18])
+
+    def test_ano_implausivel_nao_vira_ponto(self):
+        # 1980-01-06 e a epoca do GPS: e o que um receptor sem hora valida
+        # costuma informar. Uma amostra dessas no meio de uma viagem boa nao
+        # pode condenar a viagem -- nem virar um salto de 46 anos.
+        v = viagem.le_viagem(self.escreve(self.linhas(
+            "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+            "1980-01-06T00:00:00Z;-10.0;-40.0;20.0;0.01",
+            "9999-12-31T23:59:59Z;-10.0;-40.0;20.0;0.02",
+            "2026-10-06T12:00:18Z;-10.001;-40.0;20.0;0.03")))
+        self.assertEqual([p.quando.year for p in v.pontos], [2026, 2026])
+
+    def test_nenhuma_linha_util_diz_o_primeiro_motivo(self):
+        # "0 pontos" sozinho manda procurar; o motivo da primeira recusa
+        # costuma ser o de todas -- um relogio errado erra em toda linha.
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(self.escreve(self.linhas(
+                "2007-02-17T12:00:00Z;-10.0;-40.0;20.0;0.00",
+                "2007-02-17T12:00:06Z;-10.0;-40.0;20.0;0.01")))
+        self.assertIn("2007", str(e.exception))
+
+    def test_salto_de_tempo_entre_amostras_recusa_o_arquivo(self):
+        # O firmware fecha o arquivo depois de 5 min parado
+        # (formato_logs.md, secao 4). Um ano entre duas amostras do MESMO
+        # arquivo e relogio que pulou, e a animacao tentaria preencher o ano
+        # inteiro de dois em dois segundos.
+        with self.assertRaises(viagem.ErroDeViagem) as e:
+            viagem.le_viagem(self.escreve(self.linhas(
+                "2026-10-06T12:00:00Z;-10.0;-40.0;20.0;0.00",
+                "2026-10-06T12:00:06Z;-10.0;-40.0;20.0;0.01",
+                "2027-10-06T12:00:12Z;-10.001;-40.0;20.0;0.02")))
+        self.assertIn("salto", str(e.exception))
+
+    def test_o_adensamento_tem_teto(self):
+        # O teto e o que impede um arquivo de pedir memoria sem fim. O
+        # `Viagem` e montado direto, sem passar pelo leitor: o teto vale
+        # mesmo para o que nao veio de arquivo.
+        a = viagem.PontoViagem(
+            quando=datetime.datetime(2026, 10, 6, tzinfo=datetime.timezone.utc),
+            lat=-10.0, lon=-40.0, v_media_kmh=20.0, dist_km=0.0)
+        b = viagem.PontoViagem(
+            quando=a.quando + datetime.timedelta(days=5),
+            lat=-10.1, lon=-40.0, v_media_kmh=20.0, dist_km=11.0)
+        denso = viagem._densifica(viagem.Viagem(nome="x", pontos=[a, b]))
+        # Duas amostras nao podem virar duzentos mil pontos.
+        self.assertLess(len(denso), 100_000)
+        self.assertLessEqual(len(denso), viagem.TETO_DE_PASSOS + 2)
+        self.assertEqual((denso[0], denso[-1]), (a, b))
 
     def test_o_geojson_e_uma_LineString_adensada(self):
         # 6 registros de minuto viram 5 trechos de 60 s, a 5 s por passo:

@@ -89,6 +89,8 @@ public:
     void reinicia();
 
 private:
+    /// Marca o início da observação, uma vez só.
+    void observa(std::uint32_t agora_ms);
     void descarta_antigos(std::uint32_t agora_ms);
     /// O receptor falou "sem solução" há menos de uma janela. Mesma janela
     /// da taxa, e pela mesma razão: passado esse tempo o que se sabia já não
@@ -98,8 +100,10 @@ private:
     std::uint32_t instantes_[kCapacidadeJanela] = {};
     std::size_t   inicio_ = 0;   ///< índice do mais antigo
     std::size_t   quantos_ = 0;
-    std::uint32_t primeiro_ms_ = 0;
-    bool          houve_algum_ = false;
+    /// Quando o monitor começou a olhar a linha: a primeira chamada de
+    /// qualquer espécie. É daqui que o aquecimento conta.
+    std::uint32_t observando_desde_ms_ = 0;
+    bool          observando_ = false;
     std::uint32_t abaixo_desde_ms_ = 0;
     bool          abaixo_ = false;
     std::uint32_t ultimo_sem_fix_ms_ = 0;

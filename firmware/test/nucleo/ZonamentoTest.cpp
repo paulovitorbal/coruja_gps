@@ -1098,11 +1098,11 @@ TEST(ProaRecente, a_janela_anda_e_a_curva_sai_dela) {
 }
 
 TEST(ProaRecente, o_giro_atravessa_o_norte) {
-    // 358 e 2 graus distam 4, nao 356. Subtrair cru poria toda reta que passa
+    // 359 e 1 grau distam 2, nao 358. Subtrair cru poria toda reta que passa
     // pelo norte como curva fechada.
     ProaRecente p;
-    for (std::size_t i = 0; i < kAmostrasDeProa / 2; ++i) { p.anota(358.0F); }
-    for (std::size_t i = 0; i < kAmostrasDeProa / 2; ++i) { p.anota(2.0F); }
+    for (std::size_t i = 0; i < kAmostrasDeProa / 2; ++i) { p.anota(359.0F); }
+    for (std::size_t i = 0; i < kAmostrasDeProa / 2; ++i) { p.anota(1.0F); }
     EXPECT_TRUE(p.estavel());
 }
 

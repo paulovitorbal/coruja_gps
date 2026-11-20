@@ -118,6 +118,13 @@ public:
 private:
     void abre(std::uint32_t agora_ms);
     AcaoMenu fecha();
+    /// Fecha para executar `acao`. Com ajuste por gravar, devolve `Gravar` e
+    /// deixa `acao` para a volta seguinte.
+    AcaoMenu fecha_para(AcaoMenu acao);
+    /// O que um evento faz com o menu aberto.
+    AcaoMenu trata_evento(EventoEncoder evento);
+    /// O clique no item, navegando.
+    AcaoMenu clica_no_item();
     void anda(int passo);
     void edita(int passo);
     std::uint8_t& brilho_vigente();
@@ -130,6 +137,8 @@ private:
     EstadoViagem viagem_ = EstadoViagem::Parada;
     std::uint32_t ultimo_evento_ms_ = 0;
     bool alterado_ = false;
+    /// A acao que espera a gravacao do fechamento sair. Ver `fecha_para`.
+    AcaoMenu acao_pendente_ = AcaoMenu::Nenhuma;
 };
 
 }  // namespace coruja

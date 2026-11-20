@@ -1,9 +1,13 @@
 # Alvo duplo: -DCORUJA_TESTES=ON compila a suite no host (sem Pico SDK);
 # sem a opcao, compila o firmware para o RP2350. Ver docs/adr/0001.
-cmake_minimum_required(VERSION 3.13)
+#
+# 3.14 e o minimo de verdade: e onde nasceu o `FetchContent_MakeAvailable`,
+# que o alvo do Pico usa.
+cmake_minimum_required(VERSION 3.14)
 
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
+option(CORUJA_SANITIZER "ASan e UBSan na suite do host (requer CORUJA_TESTES)" OFF)
 
 # Identificacao do build, regenerada a cada compilacao. Ver
 # cmake/gera_versao.cmake para o motivo de nao ser na configuracao.
@@ -20,17 +24,58 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# `-Wall -Wextra` nos alvos DO PROJETO, e so neles.
+#
+# Nao com `add_compile_options`: o `pico_sdk_init()` acrescenta o SDK como
+# subdiretorio DESTE, entao a opcao desceria para o SDK, o lwIP e o mbedTLS
+# junto -- milhares de avisos de codigo de terceiro, que ninguem vai
+# consertar e que escondem os nossos.
+#
+# Sem `-Werror`, de proposito: aviso que quebra o build de quem clona hoje,
+# com outro compilador, e aviso que acaba desligado.
+#
+# A lista de alvos sai do proprio CMake (`BUILDSYSTEM_TARGETS` das NOSSAS
+# pastas), e nao escrita a mao: alvo novo ja nasce com os avisos ligados.
+function(coruja_avisos_nos_alvos_de)
+    foreach(PASTA IN LISTS ARGN)
+        get_property(ALVOS DIRECTORY "${PASTA}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(ALVO IN LISTS ALVOS)
+            get_target_property(TIPO ${ALVO} TYPE)
+            # Alvo de utilidade nao compila nada, e a INTERFACE empurraria a
+            # opcao para quem a usa -- inclusive para fontes de terceiros.
+            if(NOT TIPO STREQUAL "UTILITY"
+               AND NOT TIPO STREQUAL "INTERFACE_LIBRARY")
+                target_compile_options(${ALVO} PRIVATE -Wall -Wextra)
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+
 if(CORUJA_TESTES)
     project(coruja_gps_testes CXX)
     if(CORUJA_COBERTURA)
         add_compile_options(--coverage -O0 -g)
         add_link_options(--coverage)
     endif()
+    # A receita do `build-san` da liberacao. Era feita a mao, sem
+    # `-fno-sanitize-recover`: o UBSan imprimia o erro e o teste seguia
+    # verde, e a etapa do sanitizer passava por cima de UB. Com ela, o
+    # primeiro UB aborta o teste.
+    if(CORUJA_SANITIZER)
+        add_compile_options(-fsanitize=address,undefined
+                            -fno-sanitize-recover=all
+                            -fno-omit-frame-pointer -g -O1)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
     enable_testing()
     add_subdirectory(src)
     add_subdirectory(test)
     add_subdirectory(ferramentas)
+    coruja_avisos_nos_alvos_de(src test ferramentas)
 else()
+    if(CORUJA_SANITIZER)
+        message(FATAL_ERROR "CORUJA_SANITIZER e da suite do host: use com -DCORUJA_TESTES=ON.")
+    endif()
     include(pico_sdk_import.cmake)
     project(coruja_gps C CXX ASM)
     pico_sdk_init()
@@ -38,15 +83,19 @@ else()
     # FAT32 no cartao. Biblioteca adotada em vez de escrita: e a implementacao
     # de referencia para SD por SPI no Pico, Apache-2.0, com suporte a RP2350.
     # Ver docs/adr/0007.
+    #
+    # Pelo hash do commit da tag v3.6.2, e nao pelo nome: tag se move, e o
+    # que entra no binario publicado tem de ser o mesmo a cada build. Sem
+    # GIT_SHALLOW, que so busca por nome de ref, e nao por hash.
     include(FetchContent)
     FetchContent_Declare(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
         GIT_REPOSITORY https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico.git
-        GIT_TAG        v3.6.2
-        GIT_SHALLOW    TRUE
+        GIT_TAG        6c644cfc3ab03c161fee2dd7be4877e5b832fa71  # v3.6.2
         # 🔴 **SOURCE_SUBDIR aponta de proposito para um diretorio SEM
         # CMakeLists.** Assim o FetchContent BAIXA a biblioteca e NAO adiciona
         # o CMakeLists dela ao build -- quem declara o alvo somos nos, logo
-        # abaixo, sem os dois fontes SDIO. Ver docs/licencas/README.md.
+        # abaixo, sem os dois fontes do driver SDIO, que e GPL-3. Ver
+        # docs/licencas/README.md e firmware/cmake/fatfs_sd_sem_sdio.cmake.
         #
         # Baixar a biblioteca inteira esta certo: o que nao pode e o codigo
         # GPL-3 entrar na imagem publicada.
@@ -159,6 +208,13 @@ else()
         -Wl,--defsym=RAM_LENGTH=0x7C000
         -Wl,--defsym=SCRATCH_Y_ORIGIN=0x2007C000
         -Wl,--defsym=SCRATCH_Y_LENGTH=0x6000)
+    # E a guarda do que o bloco acima diz em prosa: a pilha esticada passa
+    # por cima de SCRATCH_X, e isso so vale enquanto NADA mora la. O
+    # `ASSERT` quebra o link no dia em que alguem puser, em vez de deixar o
+    # aparelho travar sem log. Ver cmake/link_guarda/.
+    pico_add_linker_script_override_path(coruja_gps
+        ${CMAKE_CURRENT_LIST_DIR}/cmake/link_guarda
+        FILES section_extra_post_end.incl)
 
     target_link_libraries(coruja_gps PRIVATE
         coruja_nucleo coruja_log coruja_ihm coruja_portes coruja_rede
@@ -174,4 +230,6 @@ else()
     pico_enable_stdio_usb(coruja_gps 1)
     pico_enable_stdio_uart(coruja_gps 0)
     pico_add_extra_outputs(coruja_gps)
+    # Por ultimo: `coruja_gps` mora nesta pasta e precisa ja existir.
+    coruja_avisos_nos_alvos_de(src "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

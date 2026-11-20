@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "apoio/LoggerMock.h"
+#include "apoio/fatfs/FatFsFalso.h"
+#include "armazenamento/CartaoSd.h"
 #include "nucleo/FormatoLog.h"
 
 namespace {
@@ -27,6 +29,11 @@ public:
                           std::size_t capacidade, std::size_t* lidos,
                           Logger&) override {
         ++leituras;
+        if (sem_cartao) { return ErroCartao::SemCartaoLegivel; }
+        if (falhar_leituras > 0) {
+            --falhar_leituras;
+            return ErroCartao::FalhaDeLeitura;
+        }
         const auto it = arquivos.find(nome);
         if (it == arquivos.end()) { return ErroCartao::ArquivoAusente; }
         if (it->second.size() >= capacidade) { return ErroCartao::ArquivoGrande; }
@@ -42,6 +49,8 @@ public:
     }
     ErroCartao acrescenta_arquivo(const char* nome, const char* conteudo,
                                   std::size_t tamanho, Logger&) override {
+        ++acrescimos;
+        if (sem_cartao) { return ErroCartao::SemCartaoLegivel; }
         if (falha_escrita) { return ErroCartao::FalhaDeEscrita; }
         // Falha passageira: o cartao recusa as N primeiras e volta a si. E
         // assim que a falha de verdade apareceu -- uma escrita perdida logo
@@ -56,11 +65,29 @@ public:
     bool escreve(const std::uint8_t*, std::size_t) override { return true; }
     ErroCartao conclui_escrita(Logger&) override { return ErroCartao::Nenhum; }
     void descarta_escrita(const char*, Logger&) override {}
-    ErroCartao promove(const char*, const char*, const char*, Logger&) override {
+    /// A troca do `CartaoSd`: base vira reserva, temporario vira base. O
+    /// estado de viagem passou a ser gravado por ela.
+    ErroCartao promove(const char* tmp, const char* base, const char* reserva,
+                       Logger&) override {
+        if (falha_escrita) { return ErroCartao::FalhaDeRenomeacao; }
+        const auto t = arquivos.find(tmp);
+        if (t == arquivos.end()) { return ErroCartao::FalhaDeRenomeacao; }
+        const auto b = arquivos.find(base);
+        if (b != arquivos.end()) {
+            arquivos[reserva] = b->second;
+            arquivos.erase(base);
+        }
+        arquivos[base] = arquivos[tmp];
+        arquivos.erase(tmp);
         return ErroCartao::Nenhum;
     }
 
     int falhar_proximas = 0;
+    /// O cartao fora do soquete: nada monta, nada se le, nada se grava.
+    bool sem_cartao = false;
+    /// Quantas leituras seguidas falham por leitura, com o arquivo la.
+    int falhar_leituras = 0;
+    std::size_t acrescimos = 0;
 
     bool tem(const std::string& nome) const {
         return arquivos.find(nome) != arquivos.end();
@@ -76,7 +103,9 @@ public:
 
 Telemetria em(std::uint8_t hora, std::uint8_t minuto, std::uint8_t segundo,
               float velocidade_kmh) {
+    static std::uint32_t sequencia = 0;   // cada chamada e um fix novo
     Telemetria t;
+    t.sequencia = ++sequencia;
     t.lat = -19.8F; t.lon = -44.0F;
     t.velocidade_kmh = velocidade_kmh;
     t.rumo_graus = 90.0F; t.rumo_valido = true;
@@ -121,6 +150,95 @@ TEST(DiarioBordo, o_cabecalho_nao_se_repete_em_arquivo_que_ja_existe) {
     d.passo(Veredito{}, em(17, 31, 11, 80.0F), true, 2000);
 
     EXPECT_EQ(c.linhas(kArquivoInfracoes), 4u) << "2 + antiga + nova";
+}
+
+/// Uma infracao consumada: passa pelo radar acima do limite e se afasta.
+void comete_infracao(DiarioBordo* d, std::uint32_t t_ms) {
+    d->passo(vendo(10.0F), em(17, 31, 10, 80.0F), true, t_ms);
+    d->passo(Veredito{}, em(17, 31, 11, 80.0F), true, t_ms + 1000);
+}
+
+std::size_t conta(const std::string& texto, const std::string& trecho) {
+    std::size_t n = 0;
+    for (auto p = texto.find(trecho); p != std::string::npos;
+         p = texto.find(trecho, p + 1)) {
+        ++n;
+    }
+    return n;
+}
+
+TEST(DiarioBordo, sem_cartao_o_cabecalho_e_a_infracao_saem_quando_ele_volta) {
+    // A sonda era marcada como feita ANTES do resultado: sem cartao na
+    // primeira infracao, o arquivo nascia depois sem cabecalho -- e o
+    // servidor recusa o arquivo sem assinatura. E a infracao era perdida.
+    CartaoFalso c; LoggerMock l;
+    c.sem_cartao = true;
+    DiarioBordo d(c, l);
+    comete_infracao(&d, 1000);
+    ASSERT_FALSE(c.tem(kArquivoInfracoes));
+
+    c.sem_cartao = false;
+    for (std::uint32_t t = 3000; t <= 20000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+
+    ASSERT_TRUE(c.tem(kArquivoInfracoes));
+    const auto& txt = c.arquivos[kArquivoInfracoes];
+    EXPECT_EQ(txt.rfind("# coruja_gps infracoes v1", 0), 0u)
+        << "o arquivo nasceu sem cabecalho";
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 3u)
+        << "2 de cabecalho + a infracao que esperou o cartao";
+}
+
+TEST(DiarioBordo, falha_passageira_de_leitura_nao_duplica_o_cabecalho) {
+    // "Nao consegui ler" nao e "nao existe": escrever o cabecalho nesse caso
+    // o repetia no meio de um arquivo que ja o tinha.
+    CartaoFalso c; LoggerMock l;
+    c.arquivos[kArquivoInfracoes] = std::string(kCabecalhoInfracoes) +
+                                    "linha antiga\n";
+    DiarioBordo d(c, l);
+    // A primeira volta com fix ja le o cartao (a retomada da viagem); a
+    // falha tem de cair na sondagem do arquivo de infracoes, na segunda.
+    d.passo(vendo(10.0F), em(17, 31, 10, 80.0F), true, 1000);
+    c.falhar_leituras = 1;
+    d.passo(Veredito{}, em(17, 31, 11, 80.0F), true, 2000);
+    for (std::uint32_t t = 3000; t <= 20000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_EQ(conta(c.arquivos[kArquivoInfracoes], "# coruja_gps infracoes"),
+              1u);
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 4u) << "2 + antiga + nova";
+}
+
+TEST(DiarioBordo, infracao_que_nao_gravou_e_retentada_uma_vez_so) {
+    CartaoFalso c; LoggerMock l;
+    c.arquivos[kArquivoInfracoes] = kCabecalhoInfracoes;
+    DiarioBordo d(c, l);
+    c.falhar_proximas = 1;
+    comete_infracao(&d, 1000);
+    ASSERT_EQ(c.linhas(kArquivoInfracoes), 2u);
+    EXPECT_TRUE(l.contem(Nivel::Error, "infracao"));
+
+    for (std::uint32_t t = 3000; t <= 30000; t += 250) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_EQ(c.linhas(kArquivoInfracoes), 3u)
+        << "a infracao perdida nao voltou, ou voltou repetida";
+}
+
+TEST(DiarioBordo, a_retentativa_sem_cartao_nao_martela_o_cartao) {
+    // O laco corre centenas de vezes por segundo. Tentar a cada volta com o
+    // cartao fora seria sondar as cinco particoes sem parar.
+    CartaoFalso c; LoggerMock l;
+    c.sem_cartao = true;
+    DiarioBordo d(c, l);
+    comete_infracao(&d, 1000);
+    const std::size_t antes = c.leituras + c.acrescimos;
+    for (std::uint32_t t = 3000; t < 23000; t += 50) {
+        d.passo(Veredito{}, em(17, 31, 20, 60.0F), true, t);
+    }
+    EXPECT_LE(c.leituras + c.acrescimos - antes, 10u)
+        << "20 s sem cartao viraram tentativas demais";
 }
 
 TEST(DiarioBordo, sem_fix_nao_alimenta_o_detector_de_infracao) {
@@ -359,7 +477,8 @@ TEST(DiarioBordo, estado_ilegivel_nao_vira_leitura_de_cartao_a_4_Hz) {
         d.passo(Veredito{}, em(17, 10, 0, 60.0F), true, ms);
     }
 
-    EXPECT_LE(c.leituras, 1u) << "sondou o cartao " << c.leituras << " vezes";
+    // Uma tentativa so: o estado e, na falta dele, a reserva.
+    EXPECT_LE(c.leituras, 2u) << "sondou o cartao " << c.leituras << " vezes";
     EXPECT_EQ(d.estado_viagem(), EstadoViagem::Parada);
 }
 
@@ -377,6 +496,66 @@ TEST(DiarioBordo, falha_de_escrita_nao_derruba_nem_trava) {
     // O estado interno segue coerente: o cartao falhou, o aparelho nao.
     EXPECT_EQ(d.estado_viagem(), EstadoViagem::Gravando);
     EXPECT_GT(l.contagem(Nivel::Error), 0u) << "falhou em silencio";
+}
+
+// --- a queda de energia NO MEIO da gravacao do estado ----------------------
+//
+// O `viagem.est` e regravado a cada ponto, e a alimentacao e pos-chave: a
+// queda no meio de uma gravacao nao e caso raro, e o caso de toda viagem que
+// termina com o motor desligando durante uma escrita. Reescrever no lugar
+// (`FA_CREATE_ALWAYS`) trunca o arquivo dentro do `f_open`, e a queda logo
+// depois deixava o cartao sem estado: o religamento comecava do zero.
+
+/// Dirige dois minutos -- dois pontos gravados, dois estados salvos -- com a
+/// energia caindo depois da operacao de cartao numero `queda` (0 = nunca).
+/// `minutos` = 1 para no primeiro estado salvo. Devolve quantas operacoes de
+/// cartao a corrida fez.
+std::size_t dirige_e_cai(std::size_t queda, unsigned minutos = 2) {
+    auto& fs = teste::FatFsFalso::instancia();
+    fs.reinicia();
+    fs.volumes[0].monta = true;
+    fs.queda_apos_n = queda;
+    CartaoSd   sd;
+    LoggerMock l;
+    DiarioBordo d(sd, l);
+    d.alterna_viagem();
+    for (unsigned m = 0; m <= minutos; ++m) {
+        d.passo(Veredito{}, em(17, static_cast<std::uint8_t>(30 + m), 0, 72.0F),
+                true, m * 60000U);
+    }
+    return fs.operacoes.size();
+}
+
+TEST(DiarioBordoNoCartao, queda_em_qualquer_ponto_da_gravacao_do_estado_retoma) {
+    // Varre TODOS os pontos de queda da segunda gravacao, sem o teste saber
+    // quais operacoes ela faz: o que se exige e o desfecho, nao a receita.
+    auto& fs = teste::FatFsFalso::instancia();
+    const std::size_t ate_o_primeiro = dirige_e_cai(0, 1);
+    ASSERT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+    const std::size_t total = dirige_e_cai(0);
+    ASSERT_GT(total, ate_o_primeiro);
+    ASSERT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+
+    for (std::size_t queda = ate_o_primeiro + 1; queda <= total; ++queda) {
+        dirige_e_cai(queda);
+        const std::string ultima = fs.operacoes.at(queda - 1);
+        fs.religa();
+
+        CartaoSd   sd;
+        LoggerMock l;
+        DiarioBordo depois(sd, l);
+        depois.passo(Veredito{}, em(17, 50, 0, 60.0F), true, 1000);
+        EXPECT_NE(depois.estado_viagem(), EstadoViagem::Parada)
+            << "a queda depois de '" << ultima << "' perdeu a viagem";
+    }
+}
+
+TEST(DiarioBordoNoCartao, a_gravacao_do_estado_deixa_um_arquivo_so_no_fim) {
+    // A troca atomica nao pode deixar o temporario para tras a cada ponto.
+    dirige_e_cai(0);
+    auto& fs = teste::FatFsFalso::instancia();
+    EXPECT_TRUE(fs.existe(0, kArquivoEstadoViagem));
+    EXPECT_FALSE(fs.existe(0, kArquivoEstadoViagemTmp));
 }
 
 }  // namespace

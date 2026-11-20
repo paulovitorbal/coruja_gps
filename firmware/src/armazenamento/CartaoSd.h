@@ -9,6 +9,23 @@ namespace coruja {
 
 class Logger;
 
+/// Milissegundos desde a energização, **fornecidos pelo alvo**.
+///
+/// Mesmo arranjo do `sd_init_driver()`: quem compõe o alvo define. No Pico
+/// vem do SDK (`hw_config.cpp`); no host, do dublê de FatFs, que deixa o
+/// teste adiantar o relógio. O `CartaoSd.cpp` é o mesmo nos dois.
+std::uint32_t agora_ms_cartao();
+
+/// Quanto se espera antes de sondar o cartão de novo depois de nenhuma
+/// partição montar.
+///
+/// **Cinco segundos, e o caso é o cartão fora do soquete.** Sem a espera,
+/// cada linha de log tentava montar as cinco partições — o laço corre
+/// centenas de vezes por segundo e o buffer do log descarrega sozinho, então
+/// era o barramento ocupado sem parar para chegar ao mesmo lugar. Curto o
+/// bastante para quem põe o cartão com o aparelho ligado ser atendido.
+constexpr std::uint32_t kEsperaRemontagemMs = 5000;
+
 // `ErroCartao` e `descreve()` vivem em `Armazenamento.h`, portavel.
 
 /// Acesso ao cartão microSD.
@@ -94,8 +111,6 @@ public:
     ErroCartao promove(const char* temporario, const char* base,
                        const char* reserva, Logger& log) override;
 
-    bool existe(const char* nome, Logger& log);
-
     // -----------------------------------------------------------------------
     // Arquivario -- o que a remessa de dados usa
     // -----------------------------------------------------------------------
@@ -119,6 +134,17 @@ public:
 private:
     /// Monta o volume de trabalho e devolve seu prefixo em `raiz`.
     ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log);
+
+    /// Lê `nome` de um volume **já montado**. Não monta nem desmonta: é a
+    /// parte que a sondagem do R-38 repete por partição.
+    ErroCartao le_do_volume(const char* raiz, const char* nome, char* destino,
+                            std::size_t capacidade, std::size_t* lidos,
+                            Logger& log);
+
+    /// A última sondagem não achou nada e a espera ainda não passou?
+    bool em_espera() const;
+    /// Anota que nenhuma partição montou agora.
+    void anota_cartao_ausente();
     /// O par de `monta_volume`. Só desmonta de verdade na última.
     void desmonta_volume(const char* raiz);
 
@@ -139,6 +165,9 @@ private:
     char     raiz_montada_[4] = {};
 
     bool iniciado_ = false;
+    /// Quando a última sondagem completa falhou. Ver `kEsperaRemontagemMs`.
+    std::uint32_t falhou_em_ms_ = 0;
+    bool          falhou_ = false;
     /// Volume onde o `coruja.cfg` foi achado. -1 enquanto não se sabe; aí a
     /// escrita sonda como a leitura faz.
     int  volume_ativo_ = -1;

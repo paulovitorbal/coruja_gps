@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "armazenamento/Armazenamento.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/Ponto.h"
 #include "nucleo/VerificadorDownload.h"
@@ -24,7 +25,9 @@ class Logger;
 ///
 /// O destino é escrito **durante** o fluxo, antes de o CRC ser conhecido. Em
 /// caso de recusa o conteúdo dele fica indefinido e não deve ser usado —
-/// `conclui()` diz se pode.
+/// `conclui()` diz se pode. Com destino **nulo** o carregador só valida: dá o
+/// mesmo veredito e a mesma contagem sem escrever nada, e é assim que a base
+/// em uso é protegida na troca (ver `troca_base`).
 class CarregadorFluxo {
 public:
     CarregadorFluxo(Ponto* destino, std::size_t capacidade);
@@ -56,5 +59,55 @@ private:
     std::int32_t lat_anterior_ = -2147483647 - 1;
     ErroBase     erro_de_registro_ = ErroBase::Nenhum;
 };
+
+/// Um pedaço lido em fluxo. A mesma forma do `CartaoSd::AoLerPedaco`.
+using AoLerPedacoBase = void (*)(void* contexto, const std::uint8_t* bytes,
+                                 std::size_t tamanho);
+
+/// Quem lê um arquivo inteiro em fluxo. Na placa é o `CartaoSd::le_em_fluxo`;
+/// é um ponteiro de função, e não o cartão, para que a troca rode no host
+/// contra uma leitura que falha na passada que o teste escolher.
+using LeituraEmFluxo = ErroCartao (*)(void* fonte, const char* nome,
+                                      AoLerPedacoBase ao_ler, void* contexto,
+                                      Logger& log);
+
+/// Pontos carregados e o cabeçalho de onde vieram.
+///
+/// O cabeçalho sai junto porque a tela de informação mostra a **data da
+/// base**, e ela vem de lá — não do momento do download.
+struct BaseCarregada {
+    std::size_t   pontos = 0;
+    CabecalhoBase cabecalho{};
+    /// Veio do arquivo vigente, e nao da reserva nem de lugar nenhum.
+    ///
+    /// E o que diz ao OTA se o `versao.txt` descreve a base QUE ESTA EM USO.
+    /// Sem isto, "versao igual" bastava para o OTA dizer `JaEstavaEmDia`, e um
+    /// aparelho operando pela reserva nunca se recuperava pelo menu -- ver
+    /// `AtualizadorOta::informa_vigente_em_uso`.
+    bool          da_vigente = false;
+};
+
+/// Troca a base em `destino` pela do cartão — `nome`, ou `reserva` se aquele
+/// não servir — e devolve a base que passa a valer.
+///
+/// **A base em uso só é trocada inteira, e só depois de validada.** Não há RAM
+/// para dois vetores de 281 KiB, então a troca é em dois estágios: o arquivo é
+/// lido uma vez **sem destino**, só para validar (cabeçalho, CRC, ordem e
+/// domínio), e só se passar é lido de novo, agora escrevendo. O custo é tempo
+/// — uma segunda leitura do arquivo —, não memória.
+///
+/// Os três desfechos:
+///  - nenhum arquivo validou: o vetor não foi tocado, e volta `em_uso`;
+///  - um validou e foi copiado: volta a base nova;
+///  - validou, mas a cópia falhou (cartão saindo no meio): o vetor está
+///    misturado e volta **zero pontos**. Alertar sobre ele com a contagem
+///    antiga seria alertar com coordenadas de duas bases.
+///
+/// Sem base em uso (`em_uso.pontos == 0`, o boot) não há o que proteger, e o
+/// arquivo é lido uma vez só, escrevendo.
+BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
+                         const char* reserva, Ponto* destino,
+                         std::size_t capacidade, const BaseCarregada& em_uso,
+                         Logger& log);
 
 }  // namespace coruja

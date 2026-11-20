@@ -7,7 +7,7 @@ hardware está no `bom_schematic.md` e os requisitos no `requirements.md`.
 
 | Ferramenta | Para quê | Instalação no macOS |
 | :--- | :--- | :--- |
-| CMake ≥ 3.13 | build dos dois alvos | `brew install cmake` |
+| CMake ≥ 3.14 | build dos dois alvos | `brew install cmake` |
 | Ninja | gerador | `brew install ninja` |
 | GoogleTest | suíte de testes | `brew install googletest` |
 | Arm GNU Toolchain | compilar para o RP2350 | ver o aviso abaixo |
@@ -31,6 +31,11 @@ export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 ```
 
 Ocupa ~1,0 GB. É o que está em uso aqui: **Arm GNU Toolchain 14.2.Rel1**.
+
+> O mínimo é **3.14**, e não 3.13: é onde nasceu o `FetchContent_MakeAvailable`,
+> que o alvo do Pico usa para trazer a biblioteca de cartão SD. Ela vem fixada
+> pelo **hash do commit** da tag `v3.6.2`, e não pelo nome da tag — tag se move,
+> e o que entra no binário publicado tem de ser o mesmo a cada build.
 
 O Pico SDK precisa do submódulo `lib/tinyusb` inicializado:
 
@@ -111,6 +116,22 @@ cmake -S firmware -B firmware/build-cov -G Ninja \
 cmake --build firmware/build-cov && ./firmware/build-cov/test/testes
 cd firmware/build-cov && xcrun gcov -b src/CMakeFiles/coruja_nucleo.dir/nucleo/*.gcda
 ```
+
+### Sanitizer
+
+A mesma suíte com ASan e UBSan. É a etapa 4 do `scripts/libera_fw.sh`, que
+configura o `build-san` assim quando ele não existe:
+
+```sh
+cmake -S firmware -B firmware/build-san -DCORUJA_TESTES=ON -DCORUJA_SANITIZER=ON
+cmake --build firmware/build-san
+UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir firmware/build-san --output-on-failure
+```
+
+> ⚠️ A receita era feita à mão, com `-fsanitize=address,undefined` e sem
+> `-fno-sanitize-recover`. Assim o UBSan **imprime o erro e segue**: o teste
+> termina verde e a etapa passava por cima de UB. Conferido em 19/11/2026 com
+> um estouro de inteiro proposital: verde na receita antiga, abortado na nova.
 
 ## Firmware para o Pico 2 W
 
@@ -330,6 +351,18 @@ Brilho, fuso, tolerâncias e calibração do LED ficam **no código**. O critér
 `docs/adr/0002`: se mudar o valor muda o comportamento de segurança, é especificação e
 não configuração.
 
+**O `coruja.bak` é a reserva do `coruja.cfg`.** Gravar um ajuste pelo menu
+escreve o `coruja.tmp` inteiro e o promove: cfg → bak, tmp → cfg. Uma queda
+de energia entre os dois renomeios deixa o cartão sem `coruja.cfg`; o
+aparelho então lê o `coruja.bak` (e diz no log que está operando pela
+reserva), e o próximo ajuste gravado devolve o `coruja.cfg` ao cartão. A
+reserva só é lida quando o cfg **não está lá**: um cfg presente, mesmo
+grande demais ou ilegível, é o que vale.
+
+O estado de viagem usa a mesma rotação a cada ponto gravado: `viagem.tmp` →
+`viagem.est`, com o anterior em `viagem.bak` (ver `formato_logs.md` §4). Os
+dois arquivos novos não sobem na remessa.
+
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.
@@ -365,6 +398,14 @@ e de qualquer proxy no caminho.
 >
 > ⚠️ Isso exige **o relógio acertado**: sem hora, todo certificado é recusado
 > por "ainda não vale". Ver `servidor_ntp`.
+>
+> E quem acerta o relógio decide, por tabela, se um certificado vencido
+> passa. O SNTP é UDP sem assinatura, então o pedido leva um **nonce**
+> sorteado do TRNG no campo `transmit`, e só é aceita a resposta que o
+> devolve no `originate`, vinda do **IP e da porta** a quem se perguntou,
+> com modo, versão e estrato válidos. Isso não protege de quem está no
+> caminho — esse vê o nonce —, mas tira do jogo quem só sabe o endereço do
+> aparelho. Pacotes recusados pela origem aparecem no log.
 
 Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue:
 apagar depois de confirmar N bytes destruiria os que vieram depois. Ver
@@ -437,7 +478,7 @@ parava no teto. Um token errado, uma `url_envio` errada ou um relógio sem hora
 — que faz todo certificado ser recusado — voltam iguais dois segundos depois:
 com 40 arquivos e um 401, eram 59 `PUT` e os dez minutos inteiros de aparelho
 preso. Desde a v0.2.25 cada tentativa termina num desfecho, e só é repetido o
-que pode mudar (`RemessaDados::classifica`):
+que pode mudar (`classifica_falha`, em `rede/Baixador.h`):
 
 | desfecho | repete? | na conta da parada |
 | :--- | :--- | :--- |
@@ -474,6 +515,33 @@ do arquivo, porque é ela que pede conserto; entre iguais, a mais recente.
 | `CARTAO ILEGIVEL` | o cartão não entregou os arquivos | cartão |
 | `SEM CONFIGURACAO` | `url_envio`, `token_aparelho` ou rede faltando ou inválidos | `coruja.cfg` |
 
+### Atualizar a base
+
+O item **atualizar base** do menu pergunta a `url_versao` e compara a linha
+com o `versao.txt` do cartão. **Versão igual não basta:** o `versao.txt`
+descreve o `radares.bin`, e se o boot recusou esse arquivo e caiu no
+`radares.bak` — ou não achou base nenhuma —, o aparelho baixa de novo mesmo
+com a versão igual. Até a revisão de 17/11/2026 ele respondia `JA ESTA EM
+DIA`, e o menu não tinha como tirar o aparelho da reserva.
+
+Quem sabe de onde a base veio é a carga do boot, e não o OTA relendo o
+arquivo: reler custaria 214 KB de cartão a cada clique, e a carga confere
+mais (ordem e domínio) do que a verificação do download.
+
+O download é tentado até 3 vezes, com 5 s entre elas — **só o que pode
+mudar**, pela mesma leitura da remessa (`classifica_falha`). Até a revisão
+de 17/11/2026 um 401 era baixado três vezes e a tela dizia `DOWNLOAD
+INCOMPLETO`.
+
+| tela | o que houve | repete? | onde olhar |
+| :--- | :--- | :--- | :--- |
+| `SERVIDOR NAO RESPONDE` | a consulta de versão não voltou: DNS, conexão, tempo, 5xx | não (é uma consulta só) | rede, servidor fora do ar |
+| `DOWNLOAD INCOMPLETO` | o download caiu: conexão, tempo, 5xx | sim | sinal do Wi-Fi |
+| `SERVIDOR RECUSOU` | respondeu e recusou: 3xx, 4xx | não | `token_aparelho`, `url_versao`, `url_base` |
+| `CERTIFICADO RECUSADO` | o TLS recusou o certificado | não | relógio: `servidor_ntp`, fix do GPS |
+| `ARQUIVO CORROMPIDO` | baixou e não passou na verificação | sim | servidor |
+| `CARTAO NAO GRAVOU` | o cartão não aceitou | sim; a troca atômica, não | cartão |
+
 ### Testes do gerador
 
 ```sh
@@ -496,7 +564,7 @@ firmware/src/
 ├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
 ├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
 │                    Encoder (interface), EncoderKy040 (hardware)
-├── app/             ModoTesteEncoder e ModoCalibracao — lógica de bancada
+├── app/             Aplicacao, PilotoAlerta, DiarioBordo — a lógica do produto
 ├── buzzer/          a fazer
 ├── armazenamento/   a fazer — cartão SD
 ├── display/         a fazer — módulo ainda não chegou
@@ -549,14 +617,13 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 * **Verificado:** a suíte de **143 casos** no host, com cobertura medida — 97,9%
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
-  `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
-  `ModoTesteEncoder`.
+  `Geo`, `LimiarInfracao`, `DecodificadorQuadratura` e `AntiRepique`.
 * **Verificado:** a compilação para ARM, com o toolchain oficial 14.2.Rel1 e o
   `pico-sdk` 2.3.1. Sai `coruja_gps.uf2` de 126 KB, e o orçamento de memória
   passou a ser medido no linker.
 * **Não verificado:** nada rodou numa placa. O `src/main.cpp` compila e liga,
-  mas o comportamento do modo de teste — inclusive se esquerda e direita saem
-  na ordem certa — só se confirma na bancada.
+  mas o comportamento na placa — inclusive se o giro à direita sai na ordem
+  certa — só se confirma na bancada.
 
 ## Modo de bancada de rede — o que o `main.cpp` roda hoje
 
@@ -646,42 +713,22 @@ pode ser recusado na carga, e isso é correto: são perguntas diferentes.
 - **Conexão episódica.** O rádio sobe no clique e cai ao fim, sempre — inclusive
   nos caminhos de erro.
 
-## Modo de calibração
+## O modo de calibração do LED saiu (R-05 concluído)
 
-O firmware atual roda o **modo de calibração**, que fecha a metade pendente do
-**R-05**: as razões de PWM do âmbar e do rosa. Não precisa de GPS, cartão nem
-display.
+O `ModoCalibracao`, o `ModoTesteEncoder` e o `CicloCores` foram apagados em
+2026-11-19: eram modos de bancada que nenhum alvo compilava mais — nem o
+produto, nem as três bancadas, nem o `diagnostico.cpp` — e um modo que não se
+liga não é testado em lugar nenhum.
 
-| Ação | Efeito |
-| :--- | :--- |
-| **Girar** | ajusta o canal variável do item atual, 5 de duty por detente |
-| **Clicar** | avança: vermelho → verde → azul → âmbar → rosa → volta |
+O que eles produziram continua valendo, no código e não num modo:
 
-Nas compostas o **vermelho fica fixo em 100%** e o encoder move o outro canal.
-Não é simplificação: é a forma como `led/Calibracao.h` guarda as cores, com o
-canal vermelho em 255 e só o secundário variando.
+* as razões de PWM do âmbar e do rosa medidas pelo R-05 vivem em
+  `led/Calibracao.h`, com a paleta inteira;
+* o `LedRegulado` tem teste que percorre essa paleta no piso de intensidade e
+  reprova uma cor nova que perca canal;
+* a conferência de fiação do LED e do encoder virou item de menu — **testar
+  alertas** —, que percorre as quatro cores e dá um toque no buzzer sem
+  firmware separado.
 
-Ao dar a volta, o log imprime o bloco pronto para transcrever:
-
-```
-[INFO ] calib: ---- calibracao do R-05, para o gera_config.py ----
-[INFO ] calib:   duty do verde no ambar : 0.45
-[INFO ] calib:   duty do azul no rosa   : 0.60
-[INFO ] calib:   (o vermelho das duas fica em 1,00 por construcao)
-[INFO ] calib:   canais isolados: R=1.00  G=1.00  B=1.00
-```
-
-> ⚠️ **Julgue o rosa ao lado do vermelho, e sob sol direto.** É o item crítico:
-> se os dois se confundirem, a faixa de margem parece Zona de Perigo ao
-> motorista, que é o oposto da intenção do RF03.4.
-
-De passagem ele valida a fiação inteira: os três canais acendem isolados —
-inclusive o **verde**, que o modo de teste anterior nunca acendia — e o giro e
-o clique exercitam o encoder. Se o giro à direita **diminuir** o brilho em vez
-de aumentar, `CLK` e `DT` estão invertidos: construa com
-`EncoderKy040(true, /*invertido=*/true)` em vez de mexer na fiação.
-
-### O modo de teste anterior continua disponível
-
-Esquerda vermelho, direita azul, clique apaga. Troque `ModoCalibracao` por
-`ModoTesteEncoder` no `src/main.cpp` — a classe continua no projeto e testada.
+Se um dia a calibração precisar ser refeita, o caminho é a bancada do display
+(`-DCORUJA_BANCADA_DISPLAY=ON`), que continua no projeto.

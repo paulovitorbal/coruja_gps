@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "LeArquivo.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/Nmea.h"
 #include "nucleo/Zonamento.h"
@@ -32,6 +33,7 @@
 namespace {
 
 using namespace coruja;
+using coruja::host::le_arquivo_inteiro;
 
 constexpr const char* kSerialPadrao = "simulador/serial";
 constexpr const char* kBasePadrao = "servidor/dados/radares.bin";
@@ -139,20 +141,10 @@ private:
 // ------------------------------------------------------------------- insumos
 
 bool carrega_do_disco(const char* caminho, std::vector<Ponto>* destino) {
-    std::FILE* f = std::fopen(caminho, "rb");
-    if (f == nullptr) {
-        std::fprintf(stderr, "nao abriu a base '%s': %s\n", caminho,
-                     std::strerror(errno));
-        return false;
-    }
-    std::fseek(f, 0, SEEK_END);
-    const long tamanho = std::ftell(f);
-    std::fseek(f, 0, SEEK_SET);
-    std::vector<std::uint8_t> bruto(static_cast<std::size_t>(tamanho));
-    const bool leu = std::fread(bruto.data(), 1, bruto.size(), f) == bruto.size();
-    std::fclose(f);
-    if (!leu) {
-        std::fprintf(stderr, "leitura incompleta de '%s'\n", caminho);
+    std::vector<std::uint8_t> bruto;
+    std::string erro;
+    if (!le_arquivo_inteiro(caminho, &bruto, &erro)) {
+        std::fprintf(stderr, "nao li a base: %s\n", erro.c_str());
         return false;
     }
 
@@ -251,7 +243,21 @@ int main(int argc, char** argv) {
         }
         if (a == "--serial") { caminho_serial = argv[++i]; }
         else if (a == "--base") { caminho_base = argv[++i]; }
-        else if (a == "--baud") { baud = std::strtol(argv[++i], nullptr, 10); }
+        else if (a == "--baud") {
+            // ⚠️ Era `strtol(..., nullptr, 10)`, e `--baud abc` virava 0 em
+            // silêncio -- que aqui quer dizer "não configure a porta". O
+            // monitor seguia na velocidade que a porta já tinha e mostrava
+            // lixo, sem uma linha dizendo que o argumento foi ignorado.
+            const char* texto = argv[++i];
+            char* fim = nullptr;
+            errno = 0;
+            baud = std::strtol(texto, &fim, 10);
+            if (errno != 0 || fim == texto || *fim != '\0' || baud <= 0) {
+                std::fprintf(stderr, "--baud pede um numero de bauds: '%s'\n",
+                             texto);
+                return 2;
+            }
+        }
         else {
             std::printf("uso: %s [--serial CAMINHO] [--base CAMINHO] [--baud N]\n",
                         argv[0]);

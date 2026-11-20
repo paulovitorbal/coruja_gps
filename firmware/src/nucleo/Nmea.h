@@ -25,6 +25,38 @@ struct Telemetria {
     std::uint8_t  mes = 0, dia = 0;
     std::uint8_t  hora = 0, minuto = 0, segundo = 0;
     bool data_valida = false;
+
+    /// Qual fix é este. Posto pelo `LeitorGps`, um a mais a cada RMC aceita;
+    /// zero é "nenhum fix ainda".
+    ///
+    /// 🔴 **Existe porque o laço não dorme.** Entre duas sentenças do
+    /// receptor (250 ms a 4 Hz) ele dá centenas de voltas, e em todas a
+    /// telemetria é a MESMA. Quem acumula amostras -- a janela de giro, a
+    /// média de cruzeiro, a distância da viagem -- e anda a cada volta enche
+    /// a janela com cópias de um fix só. Ver `FixNovo`.
+    std::uint32_t sequencia = 0;
+};
+
+/// Diz se uma telemetria traz um fix que este consumidor ainda não viu.
+///
+/// A pergunta "este fix é novo?" mora aqui, e só aqui: cada consumidor que
+/// acumula amostras guarda um destes e anda apenas quando ele diz que sim.
+class FixNovo {
+public:
+    /// Verdadeiro na primeira vez que vê o fix de `t`; falso nas voltas
+    /// seguintes do laço, que entregam a mesma telemetria de novo.
+    bool chegou(const Telemetria& t) {
+        if (t.sequencia == visto_) { return false; }
+        visto_ = t.sequencia;
+        return true;
+    }
+
+    /// Faz o fix atual contar como novo outra vez. Para quem zerou o próprio
+    /// estado e precisa reavaliar sem esperar a próxima sentença.
+    void esquece() { visto_ = 0; }
+
+private:
+    std::uint32_t visto_ = 0;
 };
 
 /// Quão boa é a solução de posição, da sentença GGA.

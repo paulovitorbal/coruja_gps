@@ -7,10 +7,15 @@ de origem são do **Twemoji** (CC-BY 4.0), versionados em `ativos/sprites/`.
 Por que 40×40 e RGB565 sem máscara: é o que o §4.1 orçou — 2 sprites de
 40×40 a 2 bytes por pixel dão exatamente 6.400 bytes. Sem canal alfa, o
 transparente do PNG é composto **sobre o fundo** na conversão, e é por isso
-que o ícone só pode ser desenhado sobre `paleta::kFundo`. Guardar máscara
-custaria 200 bytes por sprite e só serviria se o fundo variasse, o que o
-§4.1 diz que não acontece: fundo preto é permanente, e não por estética —
-com o brilho a 5% à noite, quanto menor a área acesa, menor o ofuscamento.
+que o ícone só pode ser desenhado sobre a cor com que foi composto —
+`paleta::kFundoAlerta` desde 2026-10-06, quando a faixa de alerta ganhou
+fundo claro. Guardar máscara custaria 200 bytes por sprite e só serviria se
+o fundo variasse, o que o §4.1 diz que não acontece: a faixa de alerta tem
+sempre a mesma cor.
+
+⚠️ **O resto da tela continua preto**, e não por estética — com o brilho a
+5% à noite, quanto menor a área acesa, menor o ofuscamento. O fundo claro é
+só da faixa de baixo, e só quando há alerta.
 """
 
 from __future__ import annotations
@@ -104,9 +109,13 @@ def main(argv=None) -> int:
               "namespace coruja::sprite {", "",
               f"constexpr int kLado = {LADO};",
               "",
-              "/// RGB565, linha por linha de cima para baixo. O transparente",
-              "/// do PNG ja vem composto sobre PRETO: desenhar sobre outro",
-              "/// fundo deixaria uma moldura escura em volta do icone.", ""]
+              "/// RGB565, linha por linha de cima para baixo.",
+              "///",
+              "/// O transparente do PNG ja vem composto sobre o",
+              f"/// `paleta::kFundoAlerta` (0x{para565(*FUNDO):04X}), que e o fundo da faixa",
+              "/// de alerta: sem canal alfa o sprite carrega o proprio fundo, e",
+              "/// desenha-lo sobre outra cor poria uma moldura de 40x40 em volta",
+              "/// do icone.", ""]
     total = 0
     for nome, arquivo, descricao in SPRITES:
         caminho = args.origem / arquivo

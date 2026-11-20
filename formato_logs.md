@@ -108,6 +108,13 @@ funcionando, divergência que persiste é caso novo.
 Acumulativo, uma linha por infração registrada. **Formato `v1` desde a
 v0.1.0** — nunca mudou.
 
+O cabeçalho só é escrito quando o cartão **responde** que o arquivo não
+existe: sem cartão, ou com uma leitura que falhou, não se sabe, e escrevê-lo
+ali o repetiria no meio de um arquivo que já o tem. Uma infração que o cartão
+recusar fica numa fila de duas em RAM e é tentada de novo a cada 5 s, então
+ela pode chegar ao arquivo alguns segundos depois do instante que a linha
+carimba. Enchendo a fila, a mais nova é descartada com ERRO no diário.
+
 ```
 utc;lat;lon;rumo;v_radar;v_max;v_infra;limite;radar_lat;radar_lon;dist_min
 ```
@@ -326,10 +333,15 @@ servidor.
 
 ## 4. Estado da viagem — `viagem.est`
 
-Arquivo minúsculo, reescrito a cada ponto gravado. Guarda se a **gravação
+Arquivo minúsculo, regravado a cada ponto gravado. Guarda se a **gravação
 está ligada**, a data/hora da última amostra e a distância acumulada.
 
 Não é log e não sobe para o servidor.
+
+**Nunca é reescrito no lugar.** Cada gravação escreve o `viagem.tmp` inteiro e
+o promove: `viagem.est` → `viagem.bak`, `viagem.tmp` → `viagem.est`. Uma queda
+de energia no meio deixa no cartão o estado novo ou o anterior, nunca um
+arquivo vazio; na falta do `viagem.est`, o religamento lê o `viagem.bak`.
 
 ### Gravar é um MODO, e só o menu o desliga
 

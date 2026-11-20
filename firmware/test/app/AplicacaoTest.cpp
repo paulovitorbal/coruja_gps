@@ -481,6 +481,34 @@ TEST(Aplicacao, AtualizarBaseChegaAQuemSabeFazer) {
     EXPECT_EQ(b.acoes.testes, 0U);
 }
 
+TEST(Aplicacao, ajuste_feito_antes_de_atualizar_vai_ao_cartao_e_atualiza) {
+    // O fechamento pela acao descartava a gravacao: o brilho mexido no
+    // menu valia ate o proximo boot e voltava ao do cartao.
+    Bancada b;
+    auto app = b.monta();
+    b.roda(app, 0, 4000, 0.0F);
+    ASSERT_NE(b.cartao.cfg.find("brilho_dia=100"), std::string::npos);
+    b.encoder.enfileira(EventoEncoder::GiroDireita);   // abre no brilho
+    b.encoder.enfileira(EventoEncoder::Clique);        // edita
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);  // 100 -> 95
+    b.encoder.enfileira(EventoEncoder::Clique);        // confirma
+    app.passo(4050);
+    std::uint32_t t = 4100;
+    for (int i = 0; i < 20 && app.menu().item() != ItemMenu::AtualizarBase;
+         ++i) {
+        b.encoder.enfileira(EventoEncoder::GiroDireita);
+        app.passo(t);
+        t += 50;
+    }
+    ASSERT_EQ(app.menu().item(), ItemMenu::AtualizarBase);
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(t);
+
+    EXPECT_NE(b.cartao.cfg.find("brilho_dia=95"), std::string::npos)
+        << "o ajuste nao chegou ao cartao";
+    EXPECT_EQ(b.acoes.bases, 1U) << "gravar custou a atualizacao";
+}
+
 // --- a fila do encoder ---
 
 TEST(Aplicacao, NenhumDetenteSePerdeNumaVolta) {
@@ -607,12 +635,26 @@ TEST(Aplicacao, o_alerta_continua_sendo_desenhado_com_o_menu_fechado) {
 TEST(Aplicacao, funciona_sem_visor) {
     // As bancadas e os testes de logica montam a Aplicacao sem painel. Um
     // ponteiro nulo nao pode ser caso de excecao -- tem de ser suportado.
+    //
+    // O que se afirma e que a volta inteira ACONTECE sem painel, e nao que
+    // ela nao estourou: o giro chega ao backlight e o clique parado chega a
+    // quem atualiza a base. Sem isso, uma `Aplicacao` que saisse na primeira
+    // linha do `passo()` passaria neste teste.
     Bancada b;
     Aplicacao app{b.gps,          b.encoder, b.piloto, b.brilho, b.luz,
                   b.led_regulado, b.cartao,  b.acoes,  b.log,    b.inicial,
                   b.trabalho,     sizeof(b.trabalho)};
     b.roda(app, 0, 2000, 60.0F);
-    SUCCEED();
+    const std::uint16_t duty_antes = b.luz.ultimo();
+
+    b.encoder.enfileira(EventoEncoder::GiroEsquerda);   // andando: brilho
+    app.passo(2050);
+    EXPECT_NE(b.luz.ultimo(), duty_antes) << "o giro nao chegou ao backlight";
+
+    b.roda(app, 2100, 20000, 0.0F);                     // para o carro
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(20050);
+    EXPECT_EQ(b.acoes.bases, 1U) << "o clique parado nao chegou ao OTA";
 }
 
 TEST(Aplicacao, o_contador_de_sem_sinal_mede_desde_a_perda) {
@@ -905,14 +947,28 @@ TEST(Aplicacao, sair_e_reentrar_na_informacao_reamostra_a_taxa) {
     app.passo(5200);
     ASSERT_EQ(app.menu().estado(), EstadoMenu::Informando);
 
-    // Sai do Informando com qualquer evento, e volta.
+    const float congelada = app.info_taxa_hz();
+    ASSERT_GT(congelada, 0.0F) << "a bancada nao produziu taxa nenhuma";
+
+    // Sai do Informando com qualquer evento.
     b.encoder.enfileira(EventoEncoder::GiroDireita);
     app.passo(5300);
     ASSERT_NE(app.menu().estado(), EstadoMenu::Informando);
-    b.encoder.enfileira(EventoEncoder::Clique);
-    app.passo(5400);
 
-    SUCCEED() << "reentrou sem travar; a reamostragem e observada no de cima";
+    // Fora da tela de informacao, a taxa cai: sem sentenca nenhuma por dez
+    // segundos, a janela esvazia.
+    for (std::uint32_t t = 5400; t < 16000; t += 100) {
+        app.passo(t);
+    }
+    ASSERT_LT(b.gps.monitor().taxa_hz(), congelada)
+        << "a taxa nao mudou; o teste nao tem o que reamostrar";
+
+    // Reentra: o valor exibido e o de AGORA, e nao o da primeira visita.
+    b.encoder.enfileira(EventoEncoder::Clique);
+    app.passo(16100);
+    ASSERT_EQ(app.menu().estado(), EstadoMenu::Informando);
+    EXPECT_FLOAT_EQ(app.info_taxa_hz(), b.gps.monitor().taxa_hz());
+    EXPECT_LT(app.info_taxa_hz(), congelada) << "reentrou mostrando o passado";
 }
 
 

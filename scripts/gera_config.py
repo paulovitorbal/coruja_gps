@@ -74,12 +74,38 @@ class Ajustes(NamedTuple):
     led_noite: int = 20
 
 
+#: O que o firmware tira das pontas de todo valor (`e_espaco`, no
+#: LinhaConfig.cpp). O `str.strip()` do Python tira mais que isso.
+ESPACOS_DO_FIRMWARE = " \t\r\n"
+
+
+def valida_valor(rotulo: str, valor: str, maximo: int) -> str | None:
+    """O valor chega ao aparelho como foi digitado? Devolve o erro, ou None.
+
+    ⚠️ **O firmware mede em BYTES** (`copia`, no LeitorConfig.cpp), e um
+    acento vale dois em UTF-8: medir em caracteres deixava passar um valor
+    que ele recusa. E ele **apara as pontas** de todo valor: uma senha com
+    espaço no fim chegaria sem ele, e a rede a recusaria com o arquivo
+    parecendo certo.
+    """
+    tamanho = len(valor.encode("utf-8"))
+    if tamanho > maximo:
+        return f"{rotulo} tem {tamanho} bytes; o máximo é {maximo}"
+    if "\n" in valor or "\r" in valor:
+        return (f"{rotulo} não pode ter quebra de linha: o resto viraria "
+                "outra linha do arquivo")
+    if valor != valor.strip(ESPACOS_DO_FIRMWARE):
+        return (f"{rotulo} tem espaço nas pontas, e o aparelho o apara ao "
+                "ler: chegaria diferente do que foi digitado")
+    return None
+
+
 def valida_rede(ssid: str, senha: str) -> str | None:
     """Devolve a mensagem de erro, ou None se estiver válido."""
-    if len(ssid) > MAX_SSID:
-        return f"SSID tem {len(ssid)} caracteres; o máximo é {MAX_SSID}"
-    if senha and len(senha) > MAX_SENHA:
-        return f"senha tem {len(senha)} caracteres; o máximo é {MAX_SENHA}"
+    erro = (valida_valor("SSID", ssid, MAX_SSID) or
+            valida_valor("senha", senha, MAX_SENHA))
+    if erro:
+        return erro
     if senha and len(senha) < 8:
         return "senha de WPA2 precisa de pelo menos 8 caracteres"
     return None
@@ -96,8 +122,9 @@ def valida_ajustes(a: Ajustes) -> str | None:
     """
     if not a.nome:
         return "o nome não pode ser vazio: ele identifica a unidade"
-    if len(a.nome) > MAX_NOME:
-        return f"nome tem {len(a.nome)} caracteres; o máximo é {MAX_NOME}"
+    erro = valida_valor("nome", a.nome, MAX_NOME)
+    if erro:
+        return erro
     for rotulo, valor, piso in (("brilho_dia", a.brilho_dia, BRILHO_MIN),
                                 ("brilho_noite", a.brilho_noite, BRILHO_MIN),
                                 ("led_dia", a.led_dia, LED_MIN),
@@ -120,8 +147,9 @@ def valida_url(url: str, permitir_http: bool = False) -> str | None:
     aparelho confia nela, porque o CRC-32 do arquivo confere com o cabeçalho
     do próprio arquivo trocado.
     """
-    if len(url) > MAX_URL:
-        return f"URL tem {len(url)} caracteres; o máximo é {MAX_URL}"
+    erro = valida_valor("URL", url, MAX_URL)
+    if erro:
+        return erro
     if not url.startswith(("http://", "https://")):
         return "a URL precisa começar com http:// ou https://"
     if url.startswith("http://") and not permitir_http:
@@ -377,10 +405,25 @@ def corpo_cfg(redes: list[Rede], url_versao: str, url_base: str,
 
 
 def grava(caminho: Path, conteudo: str, modo: int | None = None) -> None:
+    """Grava `conteudo`; com `modo`, a permissão vale ANTES do primeiro byte.
+
+    Escrever e depois dar `chmod` deixava a senha no disco, legível por
+    todos, entre as duas chamadas. O `os.open` cria já com o modo, mas só
+    vale na CRIAÇÃO: um arquivo que já existia com 644 continuaria 644, e
+    por isso o `fchmod` vem antes da escrita, com o arquivo já truncado.
+    """
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.write_text(conteudo, encoding="utf-8")
-    if modo is not None:
-        os.chmod(caminho, modo)
+    if modo is None:
+        caminho.write_text(conteudo, encoding="utf-8")
+    else:
+        fd = os.open(caminho, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modo)
+        try:
+            os.fchmod(fd, modo)
+            dados = conteudo.encode("utf-8")
+            while dados:
+                dados = dados[os.write(fd, dados):]
+        finally:
+            os.close(fd)
     print(f"  escrito: {caminho}")
 
 
@@ -389,7 +432,8 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--destino", type=Path, default=RAIZ,
-                   help="onde gravar o coruja.cfg; aponte para o cartão montado")
+                   help="onde gravar o coruja.cfg (ou, com --so-exemplo, o "
+                        "exemplo); aponte para o cartão montado")
     p.add_argument("--so-exemplo", action="store_true",
                    help="gera apenas o coruja.cfg.exemplo, sem pedir segredo")
     padrao = Ajustes()
@@ -445,7 +489,9 @@ def main(argv: list[str] | None = None) -> int:
                   "padroes; os ajustes so valem para o coruja.cfg do cartao.",
                   file=sys.stderr)
             return 1
-        grava(RAIZ / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
+        # No --destino, que por padrão é a raiz do repositório. Ignorá-lo
+        # mandava o exemplo pedido para o cartão por cima do versionado.
+        grava(args.destino / EXEMPLO, corpo_cfg([], "", "", com_segredo=False))
         return 0
 
     print("Configuração do Coruja GPS")

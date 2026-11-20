@@ -65,9 +65,38 @@ TEST(MonitorTaxa, comeca_aquecendo_e_nao_acusa_falha_no_boot) {
     EXPECT_EQ(m.avalia(2999), EstadoTaxa::Aquecendo);
 }
 
-TEST(MonitorTaxa, sem_fix_nenhum_continua_aquecendo_e_nao_vira_falha) {
+TEST(MonitorTaxa, o_aquecimento_conta_desde_a_primeira_observacao) {
+    // Uma chamada so, tarde: ainda nao houve janela observada para julgar.
     MonitorTaxa m;
     EXPECT_EQ(m.avalia(100000), EstadoTaxa::Aquecendo);
+    EXPECT_FALSE(m.precisa_reconfigurar());
+}
+
+TEST(MonitorTaxa, o_receptor_mudo_DESDE_O_BOOT_tambem_pede_reconfiguracao) {
+    // ⚠️ A viagem de 08/10/2026 inteira: o modulo noutro baud, nenhuma
+    // sentenca legivel, nenhum fix. Com o aquecimento preso ao primeiro fix
+    // o monitor ficava em `Aquecendo` para sempre, e o RF01.5 -- a sonda de
+    // baud que teria salvado aquela viagem -- nunca era pedido. O boot tenta
+    // configurar algumas vezes, mas so ali.
+    MonitorTaxa m;
+    EXPECT_EQ(roda(&m, 0, 9000, 0), EstadoTaxa::Falha);
+    EXPECT_TRUE(m.precisa_reconfigurar());
+}
+
+TEST(MonitorTaxa, partida_a_frio_com_o_receptor_falando_nao_pede_reconfiguracao) {
+    // O contrapeso: o receptor procurando satelites diz "sem solucao" a
+    // cada sentenca, por minutos. Falta ceu, nao configuracao.
+    MonitorTaxa m;
+    roda_sem_solucao(&m, 0, 120000, 250);
+    EXPECT_FALSE(m.precisa_reconfigurar());
+}
+
+TEST(MonitorTaxa, o_primeiro_fix_da_partida_a_frio_chega_a_nominal) {
+    // Depois de minutos sem solucao a janela enche como na saida de um
+    // tunel, e o caminho dela e o mesmo: sem pedido de reconfiguracao.
+    MonitorTaxa m;
+    roda_sem_solucao(&m, 0, 60000, 250);
+    EXPECT_EQ(roda(&m, 60250, 64000, 250), EstadoTaxa::Nominal);
     EXPECT_FALSE(m.precisa_reconfigurar());
 }
 

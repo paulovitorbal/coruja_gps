@@ -15,6 +15,37 @@ namespace {
 using namespace coruja;
 using coruja::teste::LedRgbMock;
 
+// ---- o PWM nao e reescrito a cada volta do laco -------------------------
+//
+// A `Aplicacao` reaplica a configuracao a cada volta -- centenas de vezes por
+// segundo --, e `define_presets` chamava `reaplica()` sempre. Era escrita de
+// registrador de PWM por nada, no caminho mais quente do firmware.
+
+TEST(LedRegulado, presets_repetidos_nao_reescrevem_o_led) {
+    LedRgbMock alvo;
+    LedRegulado led{alvo};
+    led.define_presets(100, 20);
+    led.define_cor(cores::kVermelho);
+    alvo.limpa();
+
+    for (int i = 0; i < 100; ++i) { led.define_presets(100, 20); }
+    EXPECT_EQ(alvo.escritas(), 0U) << "reescreveu o PWM sem nada mudar";
+}
+
+TEST(LedRegulado, preset_que_muda_de_verdade_chega_ao_led) {
+    // A economia nao pode custar o ajuste: mexer no "brilho led" do menu tem
+    // de acender na hora.
+    LedRgbMock alvo;
+    LedRegulado led{alvo};
+    led.define_presets(100, 20);
+    led.define_cor(cores::kVermelho);
+    alvo.limpa();
+
+    led.define_presets(50, 20);
+    ASSERT_EQ(alvo.escritas(), 1U);
+    EXPECT_EQ(alvo.cor_atual().r, 128) << "o LED nao seguiu o preset novo";
+}
+
 TEST(LedRegulado, ligado_repassa_a_cor) {
     LedRgbMock alvo;
     LedRegulado led{alvo};

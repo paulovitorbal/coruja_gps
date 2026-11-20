@@ -61,8 +61,6 @@ PASSAGENS_MINIMAS = 3
 #: de cada célula ser curta.
 CELULA_GRAUS = 0.005
 
-_M_POR_GRAU = 111_320.0
-
 
 @dataclass(frozen=True)
 class Estatistica:
@@ -78,10 +76,13 @@ class Estatistica:
 
 
 def _metros(lat0: float, lon0: float, lat: float, lon: float) -> tuple[float, float]:
-    """Deslocamento (leste, norte) em metros. Equirretangular em torno de lat0."""
-    leste = (lon - lon0) * _M_POR_GRAU * math.cos(math.radians(lat0))
-    norte = (lat - lat0) * _M_POR_GRAU
-    return leste, norte
+    """Deslocamento (leste, norte) em metros, do `viagem`.
+
+    A conta morava aqui também, igual à de lá. Duas cópias da mesma projeção
+    divergem com o tempo, e a divergência apareceria como radar medido na
+    pista errada -- que é justamente o que este módulo existe para decidir.
+    """
+    return viagem.deslocamento_m(lat0, lon0, lat, lon)
 
 
 def diferenca_rumo(a: float, b: float) -> float:

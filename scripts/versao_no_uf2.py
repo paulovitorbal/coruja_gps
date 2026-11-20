@@ -53,7 +53,12 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     dados = carga(Path(argv[1]))
-    alvo = argv[2].encode("ascii")
+    # Com o `\0` do fim: o `kVersaoBuild` é uma string de C. Sem ele, a tag
+    # `v0.2.1` casava com o começo de `v0.2.16`, e também com o de
+    # `v0.2.1-3-ga996cb1*`, que é o build de trabalho que a tag NÃO é. O
+    # começo fica sem âncora de propósito: o ligador pode fundir a string
+    # com o fim de outra mais longa, e aí não há `\0` antes dela.
+    alvo = argv[2].encode("ascii") + b"\0"
     if dados.find(alvo) >= 0:
         return 0
     # Não achou: diz o que HÁ, para o erro apontar em vez de só negar.

@@ -135,6 +135,48 @@ TEST(LeitorGps, sem_fix_nao_apaga_a_ultima_telemetria_boa) {
     EXPECT_FLOAT_EQ(b.leitor.telemetria().velocidade_kmh, v);
 }
 
+// =============================== a sequencia: o fix novo e o fix relido
+
+TEST(LeitorGps, voltas_do_laco_sem_sentenca_nova_entregam_o_MESMO_fix) {
+    // O laco do firmware nao dorme: entre duas sentencas ele da centenas de
+    // voltas, e quem acumula amostras tem de saber que nada chegou.
+    Bancada b;
+    b.uart.injeta(kRmcValida);
+    b.leitor.atualiza(0);
+    const std::uint32_t primeiro = b.leitor.telemetria().sequencia;
+    ASSERT_NE(primeiro, 0U) << "zero e 'nenhum fix ainda'";
+
+    for (std::uint32_t ms = 1; ms < 250; ++ms) { b.leitor.atualiza(ms); }
+    EXPECT_EQ(b.leitor.telemetria().sequencia, primeiro);
+}
+
+TEST(LeitorGps, a_mesma_sentenca_repetida_e_outro_fix) {
+    // Parado, o receptor repete posicao e velocidade. Continua sendo uma
+    // medida nova, e quem conta tempo por fix tem de ve-la.
+    Bancada b;
+    b.uart.injeta(kRmcValida);
+    b.leitor.atualiza(0);
+    const std::uint32_t primeiro = b.leitor.telemetria().sequencia;
+    b.uart.injeta(kRmcValida);
+    b.leitor.atualiza(250);
+    EXPECT_NE(b.leitor.telemetria().sequencia, primeiro);
+}
+
+TEST(LeitorGps, o_que_nao_e_fix_nao_avanca_a_sequencia) {
+    Bancada b;
+    b.uart.injeta(kRmcValida);
+    b.leitor.atualiza(0);
+    const std::uint32_t primeiro = b.leitor.telemetria().sequencia;
+
+    b.uart.injeta(kRmcSemFix);
+    b.uart.injeta(com_checksum(
+        "$GNGGA,123519.00,1947.99496,S,04401.26264,W,1,09,0.9,850.0,M,,M,,"));
+    b.uart.injeta("$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,22.4,84.4,"
+                  "220926,,,A*00\r\n");   // checksum errado
+    b.leitor.atualiza(250);
+    EXPECT_EQ(b.leitor.telemetria().sequencia, primeiro);
+}
+
 // ============================= diagnostico: por que o fix demorou 2:48
 
 /// Monta um quadro UBX completo, com checksum, para injetar na porta.

@@ -29,6 +29,33 @@ enum class ResultadoGravacao {
 
 const char* descreve(ResultadoGravacao r);
 
+/// Lê o texto do `coruja.cfg`, ou o do `coruja.bak` quando o cfg **não está
+/// no cartão**.
+///
+/// A troca atômica (`promove`) faz cfg -> bak e só depois tmp -> cfg. Uma
+/// queda entre os dois renomeios deixa o cartão sem `coruja.cfg`, com o
+/// arquivo anterior inteiro na reserva — e quem lesse só o cfg perderia as
+/// redes e as URLs para sempre. É o mesmo recuo que a base de radares faz.
+///
+/// **Só a ausência** cai para a reserva. Um cfg grande demais ou ilegível
+/// está no cartão e é o que vale: reescrever ajustes em cima da reserva
+/// nesse caso desfaria o arquivo que alguém editou à mão.
+ErroCartao le_texto_config(Armazenamento& cartao, char* destino,
+                           std::size_t capacidade, std::size_t* lidos,
+                           Logger& log);
+
+/// Lê e interpreta a configuração, com o mesmo recuo de `le_texto_config`.
+/// Devolve se o OTA é possível com ela.
+///
+/// É **a** leitura do `coruja.cfg` de todo alvo: o produto e a bancada de
+/// OTA tinham cada um a sua, e a da bancada ficou com o buffer de 2 KiB
+/// depois que o produto já tinha passado a 8 (ver `kMaxTextoCfg`). O texto
+/// vem para `buffer` porque ele é grande, e em `.bss` de quem compõe
+/// aparece no mapa de memória.
+bool carrega_configuracao(Armazenamento& cartao, char* buffer,
+                          std::size_t capacidade, Configuracao* destino,
+                          Logger& log);
+
 /// Grava os ajustes no `coruja.cfg` sem regerar o arquivo.
 ///
 /// Le, reescreve so os valores das cinco chaves (EscritorConfig) e troca o
@@ -38,9 +65,11 @@ const char* descreve(ResultadoGravacao r);
 /// porque sem o cfg o aparelho perde as redes e nao consegue nem se
 /// atualizar para se consertar.
 ///
-/// **Nao inventa arquivo.** Se nao ha `coruja.cfg`, recusa em vez de criar
-/// um so com os ajustes: seria um arquivo sem redes nem URLs, e o aparelho
-/// passaria a parecer configurado quando o cartao e que esta errado.
+/// **Nao inventa arquivo.** Se nao ha `coruja.cfg` nem reserva, recusa em vez
+/// de criar um so com os ajustes: seria um arquivo sem redes nem URLs, e o
+/// aparelho passaria a parecer configurado quando o cartao e que esta
+/// errado. Com so a reserva -- a queda no meio da troca --, parte dela, e a
+/// promocao devolve o `coruja.cfg` ao cartao.
 ///
 /// O buffer de trabalho vem de fora porque sao 8 KB: em `.bss` de quem
 /// chama, ele aparece no mapa de memoria; escondido aqui dentro, nao.

@@ -204,9 +204,16 @@ TEST(LeCrcHex, ponteiro_nulo_nao_quebra) {
 
 struct Coletor {
     std::string corpo;
-    static void ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
-        static_cast<Coletor*>(ctx)->corpo.append(
-            reinterpret_cast<const char*>(b), n);
+    /// Quantos bytes aceitar antes de pedir para parar. O padrao e nunca.
+    std::size_t aceita_ate = static_cast<std::size_t>(-1);
+    bool        pediu_para_parar = false;
+    unsigned    entregas_depois_de_parar = 0;
+    static bool ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
+        auto* c = static_cast<Coletor*>(ctx);
+        if (c->pediu_para_parar) { ++c->entregas_depois_de_parar; }
+        c->corpo.append(reinterpret_cast<const char*>(b), n);
+        c->pediu_para_parar = c->corpo.size() >= c->aceita_ate;
+        return !c->pediu_para_parar;
     }
 };
 
@@ -602,6 +609,178 @@ TEST(LeitorResposta, pedaco_exatamente_no_teto_e_aceito) {
     ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 999, &c));
     EXPECT_EQ(c.corpo, "xxxx");
     EXPECT_FALSE(leitor.completa());
+}
+
+// --- o fim do fluxo -------------------------------------------------------
+//
+// A conexao fechou. Ate 17/11/2026 o `ClienteTls` tomava todo fechamento
+// como fim do corpo: um `radares.versao` cortado no meio, com 200, virava
+// `ok()` e ia parar no `versao.txt`. So a resposta que nao anunciou o
+// proprio fim termina no fechamento; nas outras, fechar antes e corpo
+// truncado.
+
+TEST(LeitorResposta, o_fechamento_so_completa_quem_nao_anunciou_o_fim) {
+    struct Caso {
+        const char* nome;
+        const char* bruto;
+        bool        completa;
+    };
+    const Caso casos[] = {
+        {"sem tamanho: o fechamento e o fim",
+         "HTTP/1.1 200 OK\r\n\r\ncorpo solto", true},
+        {"content-length inteiro",
+         "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc", true},
+        {"content-length pela metade",
+         "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nola, ", false},
+        {"pedacos com o pedaco zero",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "2\r\noi\r\n0\r\n\r\n", true},
+        {"pedacos sem o pedaco zero",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "2\r\noi\r\n", false},
+        {"pedaco cortado no meio",
+         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+         "5\r\nab", false},
+        {"cabecalhos pela metade",
+         "HTTP/1.1 200 OK\r\nContent-Le", false},
+    };
+    for (const auto& caso : casos) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, caso.bruto, 5, &c)) << caso.nome;
+        leitor.fim_do_fluxo();
+        EXPECT_EQ(leitor.completa(), caso.completa) << caso.nome;
+    }
+}
+
+// --- o corpo nao e cabecalho -----------------------------------------------
+
+TEST(LeitorResposta, content_length_dentro_do_corpo_nao_vale) {
+    // O corpo que vem colado fica no MESMO buffer dos cabecalhos, e a
+    // varredura ia ate o fim dele: um corpo que comece com uma linha
+    // `content-length:` reescrevia o valor de verdade. Com 3 em vez de 42, o
+    // resto do radares.bin seria descartado como lixo de depois do corpo.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 42\r\n\r\n"
+        "content-length: 3\n" + std::string(24, 'x');
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(leitor.content_length(), 42);
+    EXPECT_EQ(c.corpo.size(), 42u);
+    EXPECT_TRUE(leitor.completa());
+}
+
+TEST(LeitorResposta, transfer_encoding_dentro_do_corpo_nao_vale) {
+    // O mesmo pela outra porta: um corpo que mencione `transfer-encoding:
+    // chunked` poria o leitor a ler tamanhos de pedaco dentro dos dados.
+    const std::string bruto =
+        "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\n"
+        "transfer-encoding: chunked\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(leitor.alimenta(
+        reinterpret_cast<const std::uint8_t*>(bruto.data()), bruto.size(),
+        Coletor::ao_receber, &c));
+    EXPECT_EQ(c.corpo, "transfer-encoding: chunked\r\nabc");
+    EXPECT_TRUE(leitor.completa());
+}
+
+// --- a resposta provisoria -------------------------------------------------
+
+TEST(LeitorResposta, cem_continue_nao_e_a_resposta_final) {
+    // Um proxy no caminho pode mandar `100 Continue` sem ninguem ter pedido.
+    // Tomar o 100 como final deixava o status em 100 -- que quem chama le
+    // como "sem resposta" -- e o corpo de verdade virava lixo depois do
+    // corpo.
+    const std::string bruto =
+        "HTTP/1.1 100 Continue\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\noi";
+    for (std::size_t passo : {1U, 3U, 999U}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, passo, &c)) << passo;
+        EXPECT_EQ(leitor.status(), 200u) << passo;
+        EXPECT_EQ(c.corpo, "oi") << passo;
+        EXPECT_TRUE(leitor.completa()) << passo;
+    }
+}
+
+TEST(LeitorResposta, cem_continue_sozinho_ainda_nao_tem_status) {
+    // So a provisoria chegou: nao ha resposta final, e dizer 100 seria pior
+    // do que dizer nada -- quem chama trata zero como "sem resposta".
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "HTTP/1.1 100 Continue\r\n\r\n",
+                                   4, &c));
+    EXPECT_EQ(leitor.status(), 0u);
+    EXPECT_FALSE(leitor.cabecalhos_prontos());
+}
+
+TEST(LeitorResposta, o_content_length_da_provisoria_nao_vale_para_a_final) {
+    const std::string bruto =
+        "HTTP/1.1 102 Processing\r\nContent-Length: 999\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc";
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, bruto, 7, &c));
+    EXPECT_EQ(leitor.status(), 200u);
+    EXPECT_EQ(leitor.content_length(), 3);
+    EXPECT_EQ(c.corpo, "abc");
+}
+
+// --- quem recebe pode parar -----------------------------------------------
+//
+// O OTA grava o corpo no cartao enquanto ele chega. Quando o cartao recusa,
+// ou o arquivo passa do que a placa comporta, continuar baixando era 120 s
+// de aparelho bloqueado -- sem GPS, sem alerta -- para nada.
+
+TEST(LeitorResposta, quem_recebe_pode_parar_o_corpo) {
+    for (const char* bruto :
+         {"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n0123456789",
+          "HTTP/1.1 200 OK\r\n\r\n0123456789",
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+          "a\r\n0123456789\r\n0\r\n\r\n"}) {
+        LeitorRespostaHttp leitor;
+        Coletor c;
+        c.aceita_ate = 4;
+        EXPECT_FALSE(alimenta_em_blocos(leitor, bruto, 2, &c)) << bruto;
+        EXPECT_EQ(c.entregas_depois_de_parar, 0U)
+            << "entregou depois do pedido de parar: " << bruto;
+        EXPECT_LT(c.corpo.size(), 10U) << bruto;
+        EXPECT_TRUE(leitor.destino_parou()) << bruto;
+        EXPECT_FALSE(leitor.completa()) << bruto;
+    }
+}
+
+TEST(LeitorResposta, parado_continua_parado_e_nao_e_resposta_malformada) {
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    c.aceita_ate = 1;
+    ASSERT_FALSE(alimenta_em_blocos(
+        leitor, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nab", 64, &c));
+    EXPECT_FALSE(alimenta_em_blocos(leitor, "cd", 64, &c));
+    EXPECT_EQ(c.corpo, "ab");
+    EXPECT_EQ(c.entregas_depois_de_parar, 0U);
+    EXPECT_EQ(leitor.status(), 200u) << "a resposta era boa; quem parou foi o destino";
+
+    // E o proximo pedido comeca do zero.
+    leitor.reinicia();
+    EXPECT_FALSE(leitor.destino_parou());
+}
+
+TEST(LeitorResposta, depois_do_fechamento_nada_mais_e_corpo) {
+    // O lwIP nao entrega byte depois do FIN; se algo chegasse, nao poderia
+    // reabrir um corpo que o fechamento ja deu por terminado.
+    LeitorRespostaHttp leitor;
+    Coletor c;
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "HTTP/1.1 200 OK\r\n\r\nabc", 4, &c));
+    leitor.fim_do_fluxo();
+    ASSERT_TRUE(alimenta_em_blocos(leitor, "def", 4, &c));
+    EXPECT_EQ(c.corpo, "abc");
+    EXPECT_TRUE(leitor.completa());
 }
 
 }  // namespace

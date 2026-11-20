@@ -72,14 +72,11 @@ add_executable(testes
     log/CarimboExecucaoTest.cpp
     encoder/DecodificadorQuadraturaTest.cpp
     encoder/AntiRepiqueTest.cpp
-    app/ModoTesteEncoderTest.cpp
     placa/PinosTest.cpp
     placa/MedidorPilhaTest.cpp
     placa/TermometroTest.cpp
-    app/ModoCalibracaoTest.cpp
     led/CalibracaoTest.cpp
     led/LedReguladoTest.cpp
-    app/CicloCoresTest.cpp
     app/PilotoAlertaTest.cpp
     app/AplicacaoTest.cpp
     app/OtaNaTelaTest.cpp
@@ -103,6 +100,8 @@ add_executable(testes
     armazenamento/CartaoSdTest.cpp
     gps/ConfiguradorGpsTest.cpp
     gps/LeitorGpsTest.cpp
+    rede/CaixaVarreduraTest.cpp
+    rede/PedidoHttpTest.cpp
 )
 target_include_directories(testes PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

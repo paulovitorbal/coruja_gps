@@ -36,7 +36,13 @@ WORKDIR /app
 # entrou em laço de reinício com `ModuleNotFoundError`, já implantado. Quem
 # acrescentar módulo aqui tem de acrescentar na lista — e
 # `testes/test_imagem.py` falha quando isso for esquecido.
-COPY servidor.py viagem.py privacidade.py pagina.py horario.py pista.py /app/
+#
+# ⚠️ O `pista.py` NÃO entra, e isso é deliberado: nada aqui dentro o importa.
+# Ele é ferramenta de bancada, rodada à mão sobre o `recebidos/` do
+# hospedeiro -- ver o README. Levá-lo para a imagem seria carregar código
+# que o serviço nunca executa, e o `testes/test_imagem.py` guarda a exceção
+# para que ela continue sendo escolha e não esquecimento.
+COPY servidor.py viagem.py privacidade.py pagina.py horario.py /app/
 
 USER coruja
 

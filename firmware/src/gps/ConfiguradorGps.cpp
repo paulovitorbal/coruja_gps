@@ -183,6 +183,20 @@ bool ConfiguradorGps::acha_o_modulo(const std::uint8_t* quadro,
     return false;
 }
 
+void ConfiguradorGps::volta_ao_baud(std::uint32_t baud, Logger& log) {
+    if (baud_final_ == baud) {
+        return;
+    }
+    uart_.define_baud(baud);
+    baud_final_ = baud;
+    char msg[128];
+    std::snprintf(msg, sizeof msg,
+                  "a porta volta a %lu: o modulo nao respondeu no baud novo, "
+                  "e e nela que ele falou por ultimo",
+                  static_cast<unsigned long>(baud));
+    log.warning("gps", msg);
+}
+
 ResultadoConfigGps ConfiguradorGps::executa_com_tentativas(
         Logger& log, unsigned tentativas) {
     ResultadoConfigGps r = ResultadoConfigGps::SemResposta;
@@ -337,6 +351,11 @@ ResultadoConfigGps ConfiguradorGps::aplica(Logger& log) {
     // E a u-blox **não garante** esse ACK. Por isso `tolera_silencio`: o
     // silêncio aqui não é falha, e quem julga é o passo seguinte, que só
     // funciona se a porta nova estiver de pé.
+    // Em que velocidade o módulo acabou de responder. Enquanto o baud NOVO
+    // não se provar, é a única com evidência — e é para ela que a porta
+    // volta se a sequência morrer daqui em diante. Ver `volta_ao_baud`.
+    const std::uint32_t baud_do_modulo = baud_final_;
+
     n = ubx::monta_cfg_prt_uart(kBaudDesejado, q, sizeof q);
     uart_.escreve(q, n);
     uart_.define_baud(kBaudDesejado);
@@ -344,10 +363,15 @@ ResultadoConfigGps ConfiguradorGps::aplica(Logger& log) {
     resumo_.passo = "CFG-PRT";
     log.debug("gps", "CFG-PRT enviado; porta local trocada para 115200");
     bool recusou = false;
+    bool novo_baud_provado = false;
     if (espera_ack(ubx::kCfgPrt, log, &recusou)) {
+        // A resposta chegou NO BAUD NOVO: a troca está provada.
+        novo_baud_provado = true;
         log.debug("gps", "CFG-PRT: ACK no baud novo");
     } else if (recusou) {
         log.error("gps", "CFG-PRT: NAK, o modulo recusou o baud");
+        // Recusa é certeza: o módulo entendeu e NÃO trocou de velocidade.
+        volta_ao_baud(baud_do_modulo, log);
         return ResultadoConfigGps::Recusado;
     } else {
         log.debug("gps", "CFG-PRT sem ACK; a u-blox nao o garante. O CFG-CFG "
@@ -367,8 +391,17 @@ ResultadoConfigGps ConfiguradorGps::aplica(Logger& log) {
     resumo_.passo = "CFG-RATE 250 ms";
     n = ubx::monta_cfg_rate(kPeriodoNavegacaoMs, q, sizeof q);
     if (comanda(q, n, ubx::kCfgRate, "CFG-RATE 250 ms", log) != Passo::Ok) {
+        // 🔴 **A porta não pode ficar num baud que o módulo não fala.** Sem
+        // ACK do `CFG-PRT` e sem resposta aqui, o `CFG-PRT` se perdeu e o
+        // receptor continua a 9600 — deixar 115200 condena quem lê depois a
+        // um fluxo ilegível. É o 08/10/2026, a viagem inteira muda com o
+        // módulo funcionando do outro lado.
+        if (!novo_baud_provado) { volta_ao_baud(baud_do_modulo, log); }
         return ResultadoConfigGps::SemResposta;
     }
+    // Respondeu a 115200: daqui em diante a troca está provada, e voltar
+    // atrás é que deixaria a porta errada.
+    novo_baud_provado = true;
 
     // --- 3c. modelo dinâmico ----------------------------------------------
     //
@@ -418,6 +451,7 @@ ResultadoConfigGps ConfiguradorGps::aplica(Logger& log) {
     n = ubx::monta_cfg_cfg(0xFFFFU, ubx::kDispBbr | ubx::kDispEeprom, q,
                            sizeof q);
     if (comanda(q, n, ubx::kCfgCfg, "CFG-CFG persistir", log) != Passo::Ok) {
+        // Sem volta: o `CFG-RATE` acima já respondeu a 115200.
         return ResultadoConfigGps::NaoPersistiu;
     }
 

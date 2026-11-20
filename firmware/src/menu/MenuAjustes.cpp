@@ -70,6 +70,19 @@ AcaoMenu MenuAjustes::fecha() {
     return gravar ? AcaoMenu::Gravar : AcaoMenu::Nenhuma;
 }
 
+AcaoMenu MenuAjustes::fecha_para(AcaoMenu acao) {
+    // ⚠️ O `Gravar` do fechamento NAO pode ser descartado. Era: quem mexia no
+    // brilho e depois clicava em "atualizar base" perdia o ajuste, porque o
+    // `fecha()` ja dava a alteracao por tratada. A gravacao sai agora e a
+    // acao na volta seguinte -- gravar antes, porque a acao bloqueia por
+    // muito tempo e a chave pode ser desligada no meio dela.
+    if (fecha() == AcaoMenu::Gravar) {
+        acao_pendente_ = acao;
+        return AcaoMenu::Gravar;
+    }
+    return acao;
+}
+
 void MenuAjustes::anda(int passo) {
     int i = static_cast<int>(item_) + passo;
     const int n = static_cast<int>(kItensMenu);
@@ -126,6 +139,15 @@ void MenuAjustes::edita(int passo) {
 
 AcaoMenu MenuAjustes::avalia(EventoEncoder evento, bool parado,
                              std::uint32_t agora_ms) {
+    // A acao que esperou a gravacao sair (ver `fecha_para`) vem antes de
+    // tudo, e uma vez so. Andando ela e descartada pela mesma regra de
+    // baixo: nada de atualizar com o carro em movimento.
+    const AcaoMenu pendente = acao_pendente_;
+    acao_pendente_ = AcaoMenu::Nenhuma;
+    if (pendente != AcaoMenu::Nenhuma && parado) {
+        return pendente;
+    }
+
     // Andar fecha, aconteca o que acontecer. Vem antes de tudo porque
     // nenhuma edicao em curso justifica tapar o velocimetro em movimento.
     if (!parado) {
@@ -147,7 +169,10 @@ AcaoMenu MenuAjustes::avalia(EventoEncoder evento, bool parado,
         return AcaoMenu::Nenhuma;
     }
     ultimo_evento_ms_ = agora_ms;
+    return trata_evento(evento);
+}
 
+AcaoMenu MenuAjustes::trata_evento(EventoEncoder evento) {
     if (estado_ == EstadoMenu::Informando) {
         estado_ = EstadoMenu::Navegando;
         return AcaoMenu::Nenhuma;
@@ -167,17 +192,19 @@ AcaoMenu MenuAjustes::avalia(EventoEncoder evento, bool parado,
         anda(gira(evento));
         return AcaoMenu::Nenhuma;
     }
+    return clica_no_item();
+}
+
+AcaoMenu MenuAjustes::clica_no_item() {
     switch (item_) {
         case ItemMenu::AtualizarBase:
             // Fecha antes: o OTA suspende a leitura do GPS, e o menu nao
             // pode ficar por baixo dele esperando um evento que nao vem.
-            fecha();
-            return AcaoMenu::AtualizarBase;
+            return fecha_para(AcaoMenu::AtualizarBase);
         case ItemMenu::EnviarDados:
             // Fecha antes, pelo mesmo motivo do OTA: a remessa bloqueia por
             // dezenas de segundos e desenha a propria tela por cima.
-            fecha();
-            return AcaoMenu::EnviarDados;
+            return fecha_para(AcaoMenu::EnviarDados);
         case ItemMenu::TestarAlertas:
             return AcaoMenu::TestarAlertas;
         case ItemMenu::Viagem:

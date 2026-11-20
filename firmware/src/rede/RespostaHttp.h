@@ -54,7 +54,11 @@ class LeitorRespostaHttp {
 public:
     /// Chamada com os bytes do CORPO, já sem cabeçalhos nem marcação de
     /// pedaço. Pode ser chamada várias vezes por bloco recebido.
-    using AoReceberCorpo = void (*)(void* contexto, const std::uint8_t* bytes,
+    ///
+    /// `false` pede para parar: nenhum byte mais é entregue, e `alimenta`
+    /// devolve `false` com `destino_parou()` verdadeiro — o que separa "quem
+    /// recebe desistiu" de "a resposta veio malformada".
+    using AoReceberCorpo = bool (*)(void* contexto, const std::uint8_t* bytes,
                                     std::size_t tamanho);
 
     /// Teto dos cabeçalhos. O Cloudflare manda bastante coisa (`cf-ray`,
@@ -81,14 +85,31 @@ public:
     bool cabecalhos_prontos() const { return fase_ != Fase::Cabecalhos; }
     std::uint32_t status() const { return status_; }
 
-    /// O corpo terminou de chegar **e isso é sabido**: ou o `Content-Length`
-    /// foi atingido, ou veio o pedaço de tamanho zero.
+    /// O corpo terminou de chegar **e isso é sabido**: o `Content-Length` foi
+    /// atingido, veio o pedaço de tamanho zero, ou — numa resposta sem
+    /// nenhum dos dois — a conexão fechou (`fim_do_fluxo`).
     ///
-    /// Falso não significa erro: numa resposta sem nenhum dos dois, o fim é
-    /// o fechamento da conexão, e quem sabe disso é a camada de transporte.
+    /// Falso depois do `fim_do_fluxo` é **corpo truncado**, e quem chama tem
+    /// de tratá-lo como falha.
     bool completa() const { return fase_ == Fase::Fim; }
 
+    /// A conexão fechou. Quem sabe disso é o transporte; o que isso quer
+    /// dizer é daqui.
+    ///
+    /// Só a resposta que não anunciou o próprio fim termina no fechamento.
+    /// Nas outras, fechar antes do `Content-Length` ou do pedaço zero deixa
+    /// `completa()` falso. Até 17/11/2026 o `ClienteTls` tomava todo
+    /// fechamento como fim do corpo, e um `radares.versao` cortado no meio,
+    /// com 200, ia parar no `versao.txt`.
+    void fim_do_fluxo() {
+        if (fase_ == Fase::CorpoAteFechar) { fase_ = Fase::Fim; }
+    }
+
     std::size_t recebidos() const { return recebidos_; }
+
+    /// Quem recebe o corpo pediu para parar. É o `false` do `alimenta` que
+    /// **não** é resposta malformada: a resposta podia estar boa.
+    bool destino_parou() const { return destino_parou_; }
 
     /// Bytes de corpo anunciados, ou -1 quando o servidor não disse.
     long content_length() const { return content_length_; }
@@ -105,8 +126,12 @@ private:
     };
 
     bool processa_cabecalhos(AoReceberCorpo ao_receber, void* contexto);
+    /// Entrega um trecho do corpo. `false` se quem recebe pediu para parar.
+    bool entrega(AoReceberCorpo ao_receber, void* contexto,
+                 const std::uint8_t* bytes, std::size_t n);
 
     Fase          fase_ = Fase::Cabecalhos;
+    bool          destino_parou_ = false;
     char          cabecalhos_[kMaxCabecalhos] = {};
     std::size_t   n_cabecalhos_ = 0;
     std::uint32_t status_ = 0;

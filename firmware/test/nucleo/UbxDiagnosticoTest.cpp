@@ -521,4 +521,27 @@ TEST(UbxDiagnostico, aopstatus_curto_demais_e_recusado) {
     EXPECT_FALSE(analisa_nav_aopstatus(p.b, sizeof p.b, &a));
 }
 
+
+TEST(UbxDiagnostico, a_ressalva_do_resumo_parcial_sai_inteira) {
+    // ⚠️ O quadro NAV-SAT com o ceu cheio passa dos 248 bytes que o leitor
+    // guarda, e e EXATAMENTE nesse caso -- muitos satelites, numeros de tres
+    // digitos -- que o buffer da linha de sinal estourava e a ressalva saia
+    // cortada no meio. Um resumo parcial que nao se anuncia como parcial le-se
+    // como contagem completa, e e o oposto do que a linha existe para dizer.
+    EstadoNavegacao nav; nav.respondeu = true;
+    EstadoRadio radio;   radio.respondeu = true;
+    EstadoAop aop;       aop.respondeu = true;
+
+    EstadoSinal sinal;
+    sinal.respondeu = true;
+    sinal.vistos = 255; sinal.usados = 255; sinal.bons = 255;
+    sinal.melhor_cno = 255; sinal.truncado = true;
+
+    char linha[kTamDiagnostico] = {};
+    ASSERT_GT(formata_diagnostico(nav, radio, aop, sinal, linha, sizeof linha),
+              0u);
+    EXPECT_NE(std::strstr(linha, "(resumo parcial)"), nullptr) << linha;
+    EXPECT_NE(std::strstr(linha, "255 vistos"), nullptr) << linha;
+}
+
 }  // namespace

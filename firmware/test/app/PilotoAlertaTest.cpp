@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -294,6 +296,96 @@ TEST(PilotoAlerta, o_monitor_de_taxa_acompanha_o_laco) {
     b.com_radar(1000.0F, 60);
     b.dirige(60.0F, 0, 4000);
     EXPECT_EQ(b.gps.monitor().estado(), EstadoTaxa::Nominal);
+}
+
+// ================================================= a curva e o filtro de pista
+//
+// O laco do firmware nao dorme: entre duas sentencas (250 ms a 4 Hz) ele da
+// centenas de voltas com a MESMA telemetria. A janela de giro tem doze
+// posicoes pensadas para 3 s de fixes; enchida a cada volta, ela guarda doze
+// copias de um fix so, a proa parece sempre reta, e numa curva o filtro de
+// pista (RF02.4) veta o radar que esta a frente na propria via.
+
+/// Quem percorre um arco de raio `raio_m` virando a direita, partindo da
+/// origem rumo norte, depois de andar `s_m` sobre ele.
+struct NoArco {
+    float norte_m, leste_m, rumo_graus;
+};
+NoArco no_arco(double raio_m, double s_m) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double phi = s_m / raio_m;
+    return {static_cast<float>(raio_m * std::sin(phi)),
+            static_cast<float>(raio_m * (1.0 - std::cos(phi))),
+            static_cast<float>(phi * 180.0 / kPi)};
+}
+
+float lat_de(float norte_m) { return kLat0 + norte_m / geo::kMetrosPorGrauLat; }
+float lon_de(float leste_m) {
+    return kLon0 +
+           leste_m / (geo::kMetrosPorGrauLat * geo::cosseno_latitude(kLat0));
+}
+
+/// Percorre a curva como o firmware: uma RMC a cada 250 ms e o laco dando
+/// uma volta a cada 10 ms entre elas. O radar fica SOBRE o arco, `a_frente_m`
+/// adiante de onde o carro para, e o carro anda antes o bastante para a
+/// janela de giro encher de curva.
+Veredito percorre_curva(float kmh, float graus_por_s, float a_frente_m,
+                        std::uint8_t limite) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double v_ms = kmh / 3.6;
+    const double raio = v_ms / (graus_por_s * kPi / 180.0);
+    const double percurso_m = 100.0;   // ~4 s a 80 km/h, ~9 s a 40 km/h
+    const NoArco r = no_arco(raio, percurso_m + a_frente_m);
+
+    Bancada b;
+    b.base.push_back(radar(r.norte_m, limite));
+    b.base.back().lon = lon_de(r.leste_m);
+    b.piloto.define_base(b.base.data(), b.base.size());
+
+    const auto duracao_ms = static_cast<std::uint32_t>(percurso_m / v_ms * 1000.0);
+    for (std::uint32_t t = 0; t <= duracao_ms; t += 10) {
+        if (t % 250 == 0) {
+            const NoArco c = no_arco(raio, v_ms * t / 1000.0);
+            b.uart.emite_rmc(lat_de(c.norte_m), lon_de(c.leste_m), kmh,
+                             c.rumo_graus);
+        }
+        b.piloto.passo(t);
+    }
+    return b.piloto.veredito();
+}
+
+TEST(PilotoAlerta, numa_curva_o_radar_a_frente_na_propria_via_nao_e_vetado) {
+    // 4 graus/s a 80 km/h e uma curva de ~320 m de raio. O radar 145 m
+    // adiante, sobre a via, fica 32 m ao lado da reta que a proa projeta --
+    // mais que os 25 m que o filtro tolera ali. So a janela de giro, vendo
+    // a curva, desliga o veto. Com a janela cheia de copias ela nao ve.
+    const Veredito v = percorre_curva(80.0F, 4.0F, 145.0F, 60);
+    EXPECT_TRUE(v.tem_alvo) << "o veto lateral escondeu o radar da curva";
+    EXPECT_EQ(v.zona, Zona::Perigo);
+}
+
+TEST(PilotoAlerta, curva_suave_de_dois_graus_por_segundo_tambem_abre_o_veto) {
+    // A curva que a constante do giro cita como a que desliga o veto. A
+    // 40 km/h, 2 graus/s tambem sao ~320 m de raio, e o radar 145 m adiante
+    // fica 32 m ao lado da proa. Em 12 fixes a 4 Hz a janela ve 5,5 graus.
+    const Veredito v = percorre_curva(40.0F, 2.0F, 145.0F, 40);
+    EXPECT_TRUE(v.tem_alvo) << "o veto lateral escondeu o radar da curva";
+    EXPECT_EQ(v.alvo.limite, 40);
+}
+
+TEST(PilotoAlerta, na_reta_o_mesmo_padrao_de_laco_mantem_o_veto) {
+    // O contrapeso: a mesma cadencia de laco, sem curva, e o radar 32 m ao
+    // lado da via continua vetado. Sem isto o teste acima passaria com o
+    // filtro de pista simplesmente desligado.
+    Bancada b;
+    b.base.push_back(radar(140.0F, 60));
+    b.base.back().lon = lon_de(32.0F);
+    b.piloto.define_base(b.base.data(), b.base.size());
+    for (std::uint32_t t = 0; t <= 4000; t += 10) {
+        if (t % 250 == 0) { b.uart.emite_rmc(kLat0, kLon0, 80.0F, 0.0F); }
+        b.piloto.passo(t);
+    }
+    EXPECT_FALSE(b.piloto.veredito().tem_alvo);
 }
 
 // ===================================================== dia e noite

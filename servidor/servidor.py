@@ -10,9 +10,10 @@ Expõe os dois recursos que o firmware consome (RF05.0):
 de onde veio. É por isso que ele pode viver no repositório público — quem
 clonar aponta o próprio pipeline para cá.
 
-Usa só a biblioteca padrão, como todo o Python deste projeto. Sem framework,
-a imagem Docker não precisa de `pip install` e não há dependência para
-envelhecer.
+Só a biblioteca padrão **aqui**: o servidor sobe, distribui a base e recebe
+arquivo sem dependência nenhuma. A única externa do projeto é o folium, no
+`viagem.py`, e ela é importada DENTRO da função que desenha o mapa -- faltar
+o folium tira a página de viagens, e não o serviço.
 
     python3 servidor.py --dados ./dados --porta 8080
 """
@@ -31,6 +32,8 @@ import hmac
 import re
 import secrets
 import shutil
+import signal
+import socket
 import threading
 import time
 import urllib.parse
@@ -78,6 +81,14 @@ SUBDIR_ENVIO = "recebidos"
 #: sobra e impede que um corpo sem fim encha o disco.
 TAMANHO_MAXIMO = 8 * 1024 * 1024
 
+#: Um `Content-Length` aceito: dígitos ASCII, e nada mais.
+#:
+#: O `int()` aceita `+5`, `1_0` e dígitos de outros alfabetos. Quem está na
+#: frente — a borda, um proxy — lê o mesmo cabeçalho do jeito dela, e duas
+#: contas diferentes do tamanho do mesmo corpo são o começo de um pedido
+#: contrabandeado: o resto de um vira o início do outro.
+PADRAO_TAMANHO = re.compile(r"[0-9]{1,12}", re.ASCII)
+
 #: Nome aceito: o que o firmware gera, e nada mais.
 #:
 #:   coruja.log               o diario de diagnostico
@@ -86,11 +97,16 @@ TAMANHO_MAXIMO = 8 * 1024 * 1024
 #:
 #: ⚠️ A lista branca e a defesa contra travessia de caminho. Rejeitar "../" e
 #: jogo de gato e rato; aceitar so o que casa com o padrao nao e.
-PADRAO_NOME = re.compile(r"^(coruja\.log|infracoes\.log|\d{8}_\d{6}\.log)$")
+#: ⚠️ `fullmatch` com `re.ASCII`, e não `match` com `$`. O `$` casa ANTES
+#: de uma quebra de linha final, então "infracoes.log\n" passava -- e o nome
+#: vira caminho em disco e `href` na listagem. O `re.ASCII` é pelo `\d`, que
+#: sem ele aceita dígito de qualquer alfabeto.
+PADRAO_NOME = re.compile(r"coruja\.log|infracoes\.log|\d{8}_\d{6}\.log",
+                         re.ASCII)
 
 #: So os registros de viagem, para a pagina. O `coruja.log` e o
 #: `infracoes.log` nao sao trajetos e nao tem o que desenhar.
-PADRAO_VIAGEM = re.compile(r"^\d{8}_\d{6}\.log$")
+PADRAO_VIAGEM = re.compile(r"\d{8}_\d{6}\.log", re.ASCII)
 
 #: Onde fica o histórico **append-only** dos arquivos de nome fixo.
 #:
@@ -128,6 +144,9 @@ SUBDIR_HISTORICO = "historico"
 #: trecho novo **começa pelo anterior**, só o rabo entra.
 SUFIXO_MARCA = ".marca"
 
+#: O conteúdo de uma marca: tamanho em dígitos e CRC em oito hexadecimais.
+PADRAO_MARCA = re.compile(r"([0-9]{1,12}) ([0-9a-f]{8})", re.ASCII)
+
 #: Quanto uma leitura ou escrita no soquete pode ficar parada.
 #:
 #: Sem prazo, a thread de um `PUT` cujo aparelho sumiu — o RST se perdeu
@@ -135,6 +154,30 @@ SUFIXO_MARCA = ".marca"
 #: Bem acima dos 15 s de inatividade do firmware (`kInatividadeHttpMs`): quem
 #: decide que um envio morreu é o aparelho, que sabe se ele ainda vale.
 TEMPO_LIMITE_S = 60
+
+#: Prazo TOTAL de um pedido: linha, cabeçalhos e corpo somados.
+#:
+#: ⚠️ **O `TEMPO_LIMITE_S` sozinho não limita nada**, porque ele vale por
+#: OPERAÇÃO de soquete: quem manda um byte a cada 59 s reinicia a contagem a
+#: cada byte e fica com a thread para sempre. É o ataque clássico de conexão
+#: lenta, e aqui ele não precisa de má intenção -- bastava um enlace ruim.
+#:
+#: Maior que os 180 s do `kTempoLimiteEnvioMs` do firmware: quem decide que
+#: um envio morreu continua sendo o aparelho, que sabe se ele ainda vale.
+#: Este prazo é o teto de paciência, e não o de operação normal -- quem o
+#: alcança já não está mandando dado, está ocupando uma vaga.
+PRAZO_DO_PEDIDO_S = 300
+
+#: Quantas conexões o servidor atende ao mesmo tempo.
+#:
+#: Uma thread por conexão, sem teto, é uma thread por conexão que alguém
+#: queira abrir: cada uma com pilha própria, e uma delas podendo estar
+#: desenhando um mapa. O teto troca "a máquina inteira para" por "esta
+#: conexão recebe 503 e tenta de novo" -- e o aparelho tenta de novo.
+#:
+#: 32 é folga larga para um punhado de aparelhos e uma pessoa olhando a
+#: página: o firmware abre no máximo duas conexões por arquivo, em série.
+MAXIMO_DE_CONEXOES = 32
 
 #: Uma gravação de cada vez: trocar o arquivo recebido e juntar o trecho ao
 #: histórico. O corpo é recebido FORA dela, então um envio lento não segura
@@ -189,8 +232,67 @@ ROTA_SAUDE = "/saude"
 #: identificador so da acesso de leitura, e morre com o processo.
 COOKIE_SESSAO = "coruja_sessao"
 
+#: A política que vale para TODA página, e a única que o mapa recebe.
+#:
+#: `frame-ancestors 'none'` é contra clickjacking: a página mostra onde o
+#: carro esteve, e um quadro invisível por cima dela faz o clique de quem
+#: olha ir para outro lugar. Ela não restringe o que a página carrega, e por
+#: isso é a que o mapa pode receber sem risco.
+#:
+#: ⚠️ **O mapa não leva mais que isto, de propósito.** Ele é montado pelo
+#: folium: script embutido, biblioteca de CDN, tiles de outro domínio e
+#: fontes. Uma política de origem ali quebraria o mapa — e não há navegador
+#: nesta imagem para perceber antes de ir para o ar.
+CSP_MINIMA = "frame-ancestors 'none'; base-uri 'none'"
+
+#: As páginas que o próprio servidor monta: formulário, listagem e aviso.
+#:
+#: Elas não carregam NADA de fora — o estilo e o script vão embutidos, e há
+#: um teste que recusa a primeira página que passar a buscar algo. É isso que
+#: torna `default-src 'none'` seguro aqui: uma injeção que escape do
+#: `html.escape` ainda não consegue trazer código de lugar nenhum.
+#:
+#: `'unsafe-inline'` continua necessário: o conversor de horário e o estilo
+#: são embutidos. Trocá-lo por nonce é possível e fica para quando houver
+#: navegador no caminho dos testes.
+CSP_PAGINA = (
+    "default-src 'none'; script-src 'unsafe-inline'; "
+    "style-src 'unsafe-inline'; form-action 'self'; " + CSP_MINIMA)
+
+#: A página de redirecionamento não tem script nem estilo: só o `meta
+#: refresh` e um link. Nada é permitido, e nada é preciso.
+CSP_SEM_SCRIPT = "default-src 'none'; form-action 'none'; " + CSP_MINIMA
+
 #: Quanto tempo uma sessao dura sem uso.
 VALIDADE_SESSAO_S = 8 * 3600
+
+#: Quantas sessoes cabem na memoria do processo.
+#:
+#: Cada entrada vale ate oito horas, e abrir sessao custa um POST com o
+#: token certo. Sem teto, quem tem o token enche a memoria em laco -- e nem
+#: precisa ser mal-intencionado: basta um script que refaz o login a cada
+#: pagina.
+#:
+#: 64 e folga larga para um punhado de aparelhos e as abas de uma pessoa.
+#: Passando disso, a sessao que vence primeiro sai; a recem-aberta nunca,
+#: senao o teto viraria uma porta fechada na cara de quem acabou de digitar
+#: o token.
+MAXIMO_DE_SESSOES = 64
+
+#: Quantos enderecos de castigo cabem na memoria.
+#:
+#: A chave e o endereco de quem errou o token, e atras da borda ele e o que
+#: o proxy disser -- ou seja, nao e um conjunto pequeno por natureza.
+MAXIMO_DE_CASTIGOS = 256
+
+#: Protege `sessoes` e `castigo`, dicionarios compartilhados por TODAS as
+#: threads de conexao.
+#:
+#: ⚠️ A varredura do `_sessao` percorre o dicionario e apaga enquanto
+#: percorre; uma entrada criada por outra thread no meio disso levanta
+#: `dictionary changed size during iteration` -- e o sintoma e uma pagina
+#: que falha sem explicacao, so quando ha gente olhando ao mesmo tempo.
+_TRAVA_DAS_SESSOES = threading.Lock()
 
 #: Espera imposta a cada tentativa de token errado, por endereco.
 #:
@@ -209,6 +311,86 @@ ARQUIVO_APARELHOS = "aparelhos.cfg"
 #: confere e recusa, porque "desprezivel" nao e "impossivel" e a consequencia
 #: seria dois carros gravando um por cima do outro.
 DIGITOS_IMPRESSAO = 16
+
+
+#: Quanto um `.parcial` pode ficar parado antes de ser lixo.
+#:
+#: Nenhum pedido vivo passa de `PRAZO_DO_PEDIDO_S`, então o dobro já é
+#: certeza com folga para relógio de arquivo arredondado.
+IDADE_DO_PARCIAL_S = 2 * PRAZO_DO_PEDIDO_S
+
+
+def _varre_parciais(pasta: Path) -> None:
+    """Apaga os `.parcial` que nenhuma conexão viva pode estar escrevendo.
+
+    ⚠️ **Eles não sumiam nunca.** Sobram quando o processo é morto no meio
+    de um envio -- um `docker stop` enquanto o aparelho manda --, e o nome
+    carrega o acaso da conexão que o criou: não há quem os reconheça depois.
+    Em um ano de remessas é lixo que só cresce, no mesmo volume onde cabem
+    as viagens.
+
+    Na pasta do aparelho que está enviando, e não no volume inteiro: é
+    trabalho proporcional ao que já se vai fazer, e não precisa de tarefa de
+    fundo nem de varredura na subida.
+
+    Falha de leitura ou remoção não derruba o envio: o arquivo que ela não
+    conseguiu apagar continua lá para a próxima.
+    """
+    limite = time.time() - IDADE_DO_PARCIAL_S
+    try:
+        for antigo in pasta.glob("*.parcial"):
+            try:
+                if antigo.stat().st_mtime < limite:
+                    antigo.unlink(missing_ok=True)
+                    log.info("parcial orfao removido: %s", antigo.name)
+            except OSError:
+                continue
+    except OSError as e:
+        log.warning("nao consegui varrer %s: %s", pasta, e)
+
+
+def bytes_ja_no_historico(marca: tuple[int, int] | None, tamanho: int,
+                          crc_do_prefixo: int) -> int:
+    """Quantos bytes do trecho novo o histórico já tem, pelo começo.
+
+    **Pura, e é o ponto.** A regra decide se um registro do produto é
+    gravado duas vezes, e antes só dava para exercitá-la subindo o servidor
+    e mandando duas remessas; os casos de borda ficavam por conta da sorte.
+
+    - sem marca: nada é pulado -- duplicar é ruim, perder é pior;
+    - trecho menor que o anterior: outro arquivo, entra inteiro;
+    - prefixo com outro CRC: trecho inédito que por acaso é maior, entra
+      inteiro. Sem esta conferência "maior que o anterior" bastaria para
+      pular bytes, e o trecho sairia mutilado.
+    """
+    if marca is None:
+        return 0
+    tamanho_antes, crc_antes = marca
+    if tamanho < tamanho_antes or crc_do_prefixo != crc_antes:
+        return 0
+    return tamanho_antes
+
+
+def _enxuga(guardados: dict, teto: int, poupe: str) -> None:
+    """Deixa no máximo `teto` entradas, tirando as que vencem primeiro.
+
+    `poupe` nunca sai: é a entrada que acabou de ser criada, e descartá-la
+    faria o teto virar uma porta fechada na cara de quem chegou agora.
+
+    Os valores são `(nome, vencimento)` nas sessões e o vencimento puro no
+    castigo; o `_quando` lê os dois.
+    """
+    def _quando(valor):
+        return valor[1] if isinstance(valor, tuple) else valor
+
+    if len(guardados) <= teto:
+        return
+    for chave, _valor in sorted(guardados.items(),
+                                key=lambda par: _quando(par[1])):
+        if len(guardados) <= teto:
+            return
+        if chave != poupe:
+            del guardados[chave]
 
 
 def impressao_do_token(token: str) -> str:
@@ -291,8 +473,10 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
     por_token: dict[str, str] = {}
     mapa: dict[str, str] = {}
     # `zona` se repete, entao aqui cada chave guarda uma LISTA. Quem valida e
-    # o `privacidade.monta`, que conhece as chaves e as faixas.
+    # o `privacidade.monta`, que conhece as chaves e as faixas. As linhas de
+    # cada valor ficam a parte, para o erro dizer ONDE sem dizer O QUE.
     reservado: dict[str, list[str]] = {}
+    linhas_reservadas: dict[str, list[int]] = {}
     secao = ""   # vazio = a lista de tokens
 
     for n_linha, bruta in enumerate(
@@ -319,6 +503,8 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
                 mapa[chave.lower()] = valor
             else:
                 reservado.setdefault(chave.lower(), []).append(valor)
+                linhas_reservadas.setdefault(chave.lower(), []).append(
+                    n_linha)
             continue
 
         token = linha
@@ -350,7 +536,10 @@ def le_aparelhos(caminho: Path) -> ListaDeAparelhos:
         # pedido e o mesmo: **nao subir**. Um servidor que ignorasse a secao
         # com defeito publicaria o endereco de casa no mapa achando que o
         # estava escondendo -- o pior resultado possivel desta funcionalidade.
-        raise ErroDeAparelhos(f"{caminho}: {e}") from e
+        linhas = linhas_reservadas.get(e.chave, [])
+        onde = (f"{caminho}:{linhas[e.ocorrencia]}"
+                if e.ocorrencia < len(linhas) else str(caminho))
+        raise ErroDeAparelhos(f"{onde}: {e}") from e
 
     return ListaDeAparelhos(por_token, mapa, zonas_privadas)
 
@@ -417,18 +606,118 @@ def versao_de(caminho: Path) -> str | None:
     return f"sha256:{hashlib.sha256(bruto).hexdigest()[:16]}"
 
 
+class _LeitorComPrazo:
+    """O `rfile` do pedido, com o prazo TOTAL de `PRAZO_DO_PEDIDO_S`.
+
+    ⚠️ **Por que não basta `settimeout`.** O prazo do soquete vale por
+    operação: ele mede o silêncio, não a duração. Um cliente que manda um
+    byte a cada 0,2 s nunca fica em silêncio e nunca é cortado -- e segura a
+    thread, o arquivo `.parcial` e a vaga.
+
+    Aqui cada leitura confere quanto resta do prazo do pedido e encurta o do
+    soquete para o que for MENOR dos dois. Assim o silêncio continua sendo
+    cortado pelo prazo de sempre, e a duração passa a ter teto.
+
+    `TimeoutError` é o que o `handle_one_request` da biblioteca já trata:
+    ele fecha a conexão sem responder, que é o certo para um cliente que
+    parou de falar.
+
+    ⚠️ **Conferir o prazo só na entrada de cada chamada não resolve**, e foi
+    a primeira versão disto: um `readline` do `BufferedReader` só volta na
+    quebra de linha, e um `read(n)` só com os `n` bytes -- os dois ficam
+    girando lá dentro enquanto o cliente pinga. Por isso aqui cada leitura é
+    desmontada em leituras curtas, com o prazo conferido ENTRE elas.
+    """
+
+    def __init__(self, fonte, soquete, limite_por_operacao: float | None):
+        # `peek` é o que permite olhar sem consumir, e é o que torna o
+        # `readline` em pedaços possível sem devolver byte ao buffer. O
+        # `BaseHTTPRequestHandler` sempre usa `rbufsize = -1`, que é
+        # bufferizado; se um dia não for, é melhor saber aqui.
+        assert hasattr(fonte, "peek"), "o rfile precisa ser bufferizado"
+        self._fonte = fonte
+        self._soquete = soquete
+        self._por_operacao = limite_por_operacao
+        self._fim = None
+
+    def comeca(self, prazo: float | None) -> None:
+        """Zera o cronômetro. Um pedido novo na mesma conexão recomeça."""
+        self._fim = None if prazo is None else time.monotonic() + prazo
+
+    def _ajusta(self) -> None:
+        """Confere o prazo do pedido e encurta o do soquete ao que resta."""
+        if self._fim is None:
+            return
+        resta = self._fim - time.monotonic()
+        if resta <= 0:
+            raise TimeoutError("prazo do pedido esgotado")
+        if self._por_operacao is not None:
+            resta = min(resta, self._por_operacao)
+        self._soquete.settimeout(resta)
+
+    def read(self, quanto=-1):
+        if quanto is None or quanto < 0:
+            # Ninguém neste servidor lê "até o fim": o corpo tem tamanho
+            # declarado e os cabeçalhos vão por linha. Sem teto não haveria
+            # prazo que valesse.
+            raise ValueError("leitura sem tamanho nao e aceita aqui")
+        pedacos = []
+        falta = quanto
+        while falta > 0:
+            self._ajusta()
+            # `read1`: no máximo UMA leitura do soquete, com o que já
+            # estiver lá. É o que devolve o controle a cada pingo.
+            pedaco = self._fonte.read1(falta)
+            if not pedaco:
+                break                      # o outro lado fechou
+            pedacos.append(pedaco)
+            falta -= len(pedaco)
+        return b"".join(pedacos)
+
+    def readline(self, limite=-1):
+        pedacos = []
+        lidos = 0
+        while True:
+            self._ajusta()
+            espiado = self._fonte.peek(1)
+            if not espiado:
+                break                      # o outro lado fechou
+            corte = espiado.find(b"\n")
+            quanto = corte + 1 if corte >= 0 else len(espiado)
+            if limite >= 0:
+                quanto = min(quanto, limite - lidos)
+            pedacos.append(self._fonte.read(quanto))
+            lidos += quanto
+            if corte >= 0 or (limite >= 0 and lidos >= limite):
+                break
+        return b"".join(pedacos)
+
+    def __getattr__(self, nome):
+        return getattr(self._fonte, nome)
+
+
 class Manipulador(http.server.BaseHTTPRequestHandler):
-    """Só duas rotas. Qualquer outra coisa é 404.
+    """As rotas, e nada além delas. Qualquer outra coisa é 404.
+
+        GET  /radares.versao  /radares.bin      a base, que o firmware baixa
+        PUT  /envio/<nome>    GET /envio/<nome> o que o aparelho mandou
+        GET  /viagens         /viagens/<nome>   a página de quem olha
+        POST /viagens         /viagens/sair     entrar e sair
+        GET  /saude                             o healthcheck do container
 
     Deliberadamente **não** herda de `SimpleHTTPRequestHandler`: aquele serve
     o diretório inteiro e faz listagem, o que aqui seria expor arquivos que
-    não são da API. Duas rotas fixas não têm travessia de caminho possível.
+    não são da API. Uma lista fechada de rotas não tem travessia de caminho
+    possível, e os dois nomes que viram caminho em disco passam por lista
+    branca -- ver `PADRAO_NOME` e `PADRAO_VIAGEM`.
     """
 
     server_version = "CorujaGPS/1.0"
     protocol_version = "HTTP/1.1"
     # O `StreamRequestHandler` aplica no soquete. Ver `TEMPO_LIMITE_S`.
     timeout = TEMPO_LIMITE_S
+    #: Prazo total de cada pedido. Ver `PRAZO_DO_PEDIDO_S`.
+    prazo_do_pedido: float | None = PRAZO_DO_PEDIDO_S
 
     # Injetado pelo `cria_servidor`.
     dados: Path = Path(".")
@@ -464,49 +753,111 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
     #: {endereco: instante ate o qual novas tentativas esperam}
     castigo: dict = {}
 
+    def setup(self) -> None:
+        super().setup()
+        # O prazo total precisa valer para a linha de pedido e para os
+        # cabeçalhos também, e quem os lê é a biblioteca -- direto do
+        # `rfile`. Envolver o `rfile` é o que alcança os três.
+        self.rfile = _LeitorComPrazo(self.rfile, self.connection, self.timeout)
+
+    def handle_one_request(self) -> None:
+        # Cada pedido da conexão ganha o prazo inteiro: numa conexão
+        # reaproveitada, o que o pedido anterior gastou não é dívida deste.
+        self.rfile.comeca(self.prazo_do_pedido)
+        super().handle_one_request()
+
+    #: Quantos bytes do corpo deste pedido ainda estão no soquete. `None`
+    #: quando não dá para saber: `Content-Length` malformado ou repetido com
+    #: valores diferentes, ou `Transfer-Encoding`. Ver `_responde`.
+    _corpo_pendente: int | None = 0
+
     def log_message(self, formato: str, *args) -> None:
-        log.info("%s %s", self.address_string(), formato % args)
+        # ⚠️ `translate` com a tabela da biblioteca: ela troca caractere de
+        # controle por `\xNN`. A linha do pedido vem de quem chama e vai
+        # para o stderr, para o `docker logs` e para o Loki -- um `ESC[2J`
+        # no meio dela limpa a tela de quem estiver lendo com `tail`, e um
+        # `\n` forja uma linha de log inteira. O `log_message` da biblioteca
+        # faz isso; sobrescrevê-lo tinha jogado a proteção fora.
+        log.info("%s %s", self.address_string(),
+                 (formato % args).translate(self._control_char_table))
+
+    def parse_request(self) -> bool:
+        """O da biblioteca, mais a conta do corpo, que vale para toda rota.
+
+        `Transfer-Encoding` é recusado aqui, antes de qualquer rota: este
+        servidor não decodifica pedaços, e o firmware sempre manda
+        `Content-Length`. 411 diz ao cliente exatamente o que falta.
+        """
+        if not super().parse_request():
+            return False
+        self._corpo_pendente = self._tamanho_declarado()
+        if self.headers.get("Transfer-Encoding") is not None:
+            self._erro(411, "mande Content-Length; Transfer-Encoding nao e "
+                       "aceito", self.command == "HEAD")
+            return False
+        return True
+
+    def _tamanho_declarado(self) -> int | None:
+        """O tamanho que o pedido anuncia para o corpo, ou `None`.
+
+        Sem `Content-Length` o corpo é vazio: é o caso de todo GET. Dois
+        `Content-Length` diferentes, ou um que não é só dígito, não têm
+        leitura segura — ver `PADRAO_TAMANHO`.
+        """
+        if self.headers.get("Transfer-Encoding") is not None:
+            return None
+        valores = {v.strip() for v in self.headers.get_all("Content-Length", [])}
+        if not valores:
+            return 0
+        if len(valores) > 1:
+            return None
+        (valor,) = valores
+        return int(valor) if PADRAO_TAMANHO.fullmatch(valor) else None
+
+    def _le_corpo(self, quanto: int) -> bytes:
+        """Até `quanto` bytes do corpo, descontando do que falta ler."""
+        pedaco = self.rfile.read(min(quanto, self._corpo_pendente or 0))
+        self._corpo_pendente = (self._corpo_pendente or 0) - len(pedaco)
+        return pedaco
 
     def _responde(self, codigo: int, corpo: bytes, tipo: str,
-                  so_cabecalho: bool = False) -> None:
+                  so_cabecalho: bool = False,
+                  extras: tuple[tuple[str, str], ...] = ()) -> None:
+        """A única saída de resposta, e por isso o único lugar da decisão.
+
+        ⚠️ **Corpo por ler fecha a conexão, em TODA resposta.** Responder
+        sem ler o corpo deixa os bytes dele no soquete. Com `keep-alive` — e
+        o Cloudflare usa — o pedido SEGUINTE chega grudado nesse resto, e o
+        servidor vê um método inventado:
+
+            Unsupported method ('xGET')
+
+        Apareceu assim, em produção, no deploy de 2026-10-06: um `PUT` de um
+        byte recusado com 401, e o `GET /radares.versao` logo depois voltando
+        501. Foi corrigido só no `_erro`, e voltou em 17/11/2026 pelas rotas
+        que vieram depois — login grande, saída com corpo — porque a decisão
+        morava num lugar por onde nem toda resposta passava. Agora mora aqui.
+
+        Drenar o corpo seria a alternativa, e é pior: o teto de
+        `TAMANHO_MAXIMO` existe justamente para NÃO ler o que não se quer, e
+        um corpo enorme recusado passaria a ser lido inteiro assim mesmo.
+        """
+        if self._corpo_pendente != 0:
+            self.close_connection = True
         self.send_response(codigo)
         self.send_header("Content-Type", tipo)
         # O RF05.2 aborta se `Content-Length` faltar.
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("Cache-Control", "no-store")
+        for nome, valor in extras:
+            self.send_header(nome, valor)
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
         if not so_cabecalho:
             self.wfile.write(corpo)
 
-    def _descarta_corpo(self) -> None:
-        """Fecha a conexao quando o corpo do pedido nao foi lido.
-
-        ⚠️ **Isto nao e zelo; e correcao.** Recusar um PUT sem ler o corpo
-        deixa os bytes dele na conexao. Com `keep-alive` -- e o Cloudflare usa
-        -- o pedido SEGUINTE chega grudado nesse resto, e o servidor ve um
-        metodo inventado:
-
-            Unsupported method ('xGET')
-
-        Apareceu assim, em producao, no deploy de 2026-10-06: um `PUT` de um
-        byte recusado com 401, e o `GET /radares.versao` logo depois voltando
-        501. Em teste nao aparecia, porque cada caso abria conexao nova.
-
-        Drenar o corpo seria a alternativa, e e pior: o teto de
-        `TAMANHO_MAXIMO` existe justamente para NAO ler o que nao se quer, e
-        um corpo enorme recusado passaria a ser lido inteiro assim mesmo.
-        """
-        try:
-            resta = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            resta = 1          # malformado: trate como se houvesse corpo
-        if resta > 0:
-            self.close_connection = True
-
     def _erro(self, codigo: int, msg: str, so_cabecalho: bool) -> None:
-        self._descarta_corpo()
         self._responde(codigo, (msg + "\n").encode(), "text/plain; charset=utf-8",
                        so_cabecalho)
 
@@ -550,7 +901,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         if not caminho.startswith(ROTA_ENVIO):
             return None
         nome = caminho[len(ROTA_ENVIO):]
-        return nome if PADRAO_NOME.match(nome) else None
+        return nome if PADRAO_NOME.fullmatch(nome) else None
 
     def _token_enviado(self) -> str:
         """O segredo da requisição. **Só o cabeçalho.**
@@ -565,14 +916,16 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         """
         return self.headers.get(CABECALHO_TOKEN, "")
 
-    def _aparelho(self) -> str | None:
-        """Qual aparelho mandou esta requisição, ou `None` se não se sabe.
+    def _aparelho_de(self, enviado: str) -> str | None:
+        """De quem é este segredo, ou `None`. **A única comparação de token.**
+
+        Era duas, uma aqui e outra na abertura de sessão, e as duas tinham
+        de manter a mesma propriedade de tempo. Uma delas envelheceria.
 
         Sem lista o laço não tem o que percorrer e a resposta já é `None` —
         não há atalho antes dele. Houve um, e uma campanha de mutação mostrou
         que nenhum teste conseguia distingui-lo: era peso, não guarda.
         """
-        enviado = self._token_enviado()
         if not enviado:
             # Requisição sem segredo nenhum para de imediato, e isto não é
             # só atalho: uma entrada de token vazio na lista casaria com
@@ -581,6 +934,11 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             # lista também chega por código -- é assim que os testes montam
             # servidores -- e aí ninguém a validou.
             return None
+        # ⚠️ Em BYTES dos dois lados. `compare_digest` com `str` fora do
+        # ASCII levanta `TypeError` -- e um token com acento, que qualquer um
+        # manda no cabeçalho ou digita no formulário, derrubava a conexão em
+        # vez de receber 401.
+        bruto = enviado.encode("utf-8")
         # Percorre a lista INTEIRA, sempre, e compara cada token em tempo
         # constante. Sair no primeiro acerto -- ou usar `dict.get`, que é o
         # mesmo -- faria o tempo de resposta depender de quantos tokens há
@@ -588,9 +946,13 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # caractere para quem tivesse muitas tentativas.
         achado = None
         for token, nome in self.aparelhos.items():
-            if hmac.compare_digest(enviado, token):
+            if hmac.compare_digest(bruto, token.encode("utf-8")):
                 achado = nome
         return achado
+
+    def _aparelho(self) -> str | None:
+        """Qual aparelho mandou esta requisição, ou `None` se não se sabe."""
+        return self._aparelho_de(self._token_enviado())
 
     def _autorizado(self) -> bool:
         return self._aparelho() is not None
@@ -623,9 +985,8 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._erro(404, "nome de arquivo nao aceito", False)
             return
 
-        try:
-            tamanho = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
+        tamanho = self._corpo_pendente
+        if tamanho is None:
             self._erro(400, "Content-Length invalido", False)
             return
         if tamanho <= 0:
@@ -653,18 +1014,25 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         # recebido herdaria a permissão. O volume `recebidos/` é montado
         # também pelo Alloy, com outro usuário, e mudar a permissão do que
         # chega não era o assunto aqui.
+        _varre_parciais(destino)
         temporario = destino / f"{nome}.{secrets.token_hex(4)}.parcial"
         recebido = 0
         crc = 0
         try:
             with temporario.open("xb") as f:
                 while recebido < tamanho:
-                    pedaco = self.rfile.read(min(64 * 1024, tamanho - recebido))
+                    pedaco = self._le_corpo(64 * 1024)
                     if not pedaco:
                         break
                     f.write(pedaco)
                     crc = zlib.crc32(pedaco, crc)
                     recebido += len(pedaco)
+        except TimeoutError:
+            # Quem parou de mandar não tem resposta a receber. Limpa o que
+            # era desta conexão e deixa subir: o `handle_one_request` da
+            # biblioteca fecha a conexão e registra.
+            temporario.unlink(missing_ok=True)
+            raise
         except OSError as e:
             temporario.unlink(missing_ok=True)
             log.error("falha gravando %s: %s", nome, e)
@@ -685,7 +1053,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             except OSError as e:
                 falha = e
             else:
-                if not PADRAO_VIAGEM.match(nome):
+                if not PADRAO_VIAGEM.fullmatch(nome):
                     self._acrescenta_ao_historico(destino, nome, crc, recebido)
         if falha is not None:
             temporario.unlink(missing_ok=True)
@@ -720,10 +1088,16 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         try:
             bruto = cls._caminho_da_marca(pasta, nome).read_text(
                 encoding="ascii")
-            tamanho, _, crc = bruto.strip().partition(" ")
-            return int(tamanho), int(crc, 16)
-        except (OSError, ValueError):
+        except OSError:
             return None
+        # Exatamente o que o `_acrescenta_ao_historico` escreve, e nada
+        # parecido: o `int()` aceita `1_0` e `+5`, e uma marca truncada ou
+        # mexida à mão viraria um tamanho e um CRC que nunca existiram
+        # juntos -- e aí o trecho seguinte entra mutilado no histórico.
+        achado = PADRAO_MARCA.fullmatch(bruto.strip())
+        if achado is None:
+            return None
+        return int(achado.group(1)), int(achado.group(2), 16)
 
     @staticmethod
     def _crc_do_prefixo(origem, quantos: int) -> int:
@@ -775,14 +1149,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
             with (destino / nome).open("rb") as origem:
                 repetido = 0
-                if anterior is not None:
-                    tamanho_antes, crc_antes = anterior
-                    if (tamanho >= tamanho_antes
-                            and cls._crc_do_prefixo(origem, tamanho_antes)
-                                == crc_antes):
-                        repetido = tamanho_antes
-                    else:
-                        origem.seek(0)
+                if anterior is not None and tamanho >= anterior[0]:
+                    # A conferência de tamanho aqui é atalho, não guarda: a
+                    # regra a repete. Ela evita ler o arquivo inteiro para
+                    # descobrir o que o tamanho já dizia.
+                    repetido = bytes_ja_no_historico(
+                        anterior, tamanho,
+                        cls._crc_do_prefixo(origem, anterior[0]))
+                if not repetido:
+                    # O `_crc_do_prefixo` deixou a posição depois do
+                    # prefixo; sem casar, o trecho inteiro é que entra.
+                    origem.seek(0)
                 # ⚠️ **Quem pula o prefixo é a POSIÇÃO do arquivo**, não esta
                 # variável: o `_crc_do_prefixo` deixou `origem` logo depois
                 # dele. `repetido` só diz quanto foi pulado — para escolher a
@@ -804,8 +1181,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             # Por último, e de propósito: uma marca gravada antes de o
             # acréscimo dar certo faria o trecho seguinte pular um prefixo que
             # não está no histórico.
-            cls._caminho_da_marca(pasta, nome).write_text(
-                f"{tamanho} {crc:08x}\n", encoding="ascii")
+            #
+            # ⚠️ Em temporário e `replace`, como o arquivo recebido. Escrita
+            # no lugar deixa a marca pela metade quando o processo morre no
+            # meio dela -- e uma marca truncada ainda CONVERTE, apontando um
+            # tamanho e um CRC que nunca existiram juntos. O `replace` é
+            # atômico no mesmo sistema de arquivos: ou a marca velha, ou a
+            # nova.
+            alvo = cls._caminho_da_marca(pasta, nome)
+            provisoria = alvo.with_suffix(alvo.suffix + ".nova")
+            provisoria.write_text(f"{tamanho} {crc:08x}\n", encoding="ascii")
+            provisoria.replace(alvo)
         except OSError as e:
             log.error("falha acrescentando %s ao historico: %s", nome, e)
 
@@ -839,28 +1225,39 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     # ------------------------------------------------------ pagina de viagens
 
-    def _sessao(self) -> str | None:
-        """O aparelho desta sessao, ou `None`. Renova o prazo a cada acesso."""
-        bruto = self.headers.get("Cookie", "")
+    def _cookie_da_sessao(self) -> str:
+        """O identificador que veio no cookie, ou vazio. **Um lugar só.**
+
+        A leitura morava aqui e na saída, e as duas tinham de concordar
+        sobre o que é o cookie da sessão -- inclusive quando vem mais de um
+        com o mesmo nome, caso em que vale o último.
+        """
         sid = ""
-        for parte in bruto.split(";"):
+        for parte in self.headers.get("Cookie", "").split(";"):
             chave, _, valor = parte.strip().partition("=")
             if chave == COOKIE_SESSAO:
                 sid = valor
+        return sid
+
+    def _sessao(self) -> str | None:
+        """O aparelho desta sessao, ou `None`. Renova o prazo a cada acesso."""
+        sid = self._cookie_da_sessao()
         if not sid:
             return None
 
         agora = time.monotonic()
-        # Varre e descarta as vencidas na passagem. Sem isto o dicionario
-        # cresceria para sempre num servidor que fica meses no ar.
-        for chave in [k for k, (_n, exp) in self.sessoes.items() if exp < agora]:
-            del self.sessoes[chave]
+        with _TRAVA_DAS_SESSOES:
+            # Varre e descarta as vencidas na passagem. Sem isto o dicionario
+            # cresceria para sempre num servidor que fica meses no ar.
+            for chave in [k for k, (_n, exp) in self.sessoes.items()
+                          if exp < agora]:
+                del self.sessoes[chave]
 
-        achado = self.sessoes.get(sid)
-        if achado is None:
-            return None
-        nome, _exp = achado
-        self.sessoes[sid] = (nome, agora + VALIDADE_SESSAO_S)
+            achado = self.sessoes.get(sid)
+            if achado is None:
+                return None
+            nome, _exp = achado
+            self.sessoes[sid] = (nome, agora + VALIDADE_SESSAO_S)
         return nome
 
     def _pasta_do_aparelho(self, nome: str) -> Path:
@@ -868,31 +1265,34 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
     def _abre_sessao(self, token: str) -> str | None:
         """Valida o token e devolve o identificador de sessao, ou `None`."""
-        aparelho = None
-        # Percorre a lista inteira e compara em tempo constante, como o
-        # `_aparelho()` faz: sair no primeiro acerto vazaria o prefixo certo
-        # pelo tempo de resposta.
-        if token:
-            for esperado, nome in self.aparelhos.items():
-                if hmac.compare_digest(token, esperado):
-                    aparelho = nome
+        aparelho = self._aparelho_de(token)
         if aparelho is None:
             return None
         sid = secrets.token_urlsafe(32)
-        self.sessoes[sid] = (aparelho, time.monotonic() + VALIDADE_SESSAO_S)
+        with _TRAVA_DAS_SESSOES:
+            self.sessoes[sid] = (aparelho,
+                                 time.monotonic() + VALIDADE_SESSAO_S)
+            _enxuga(self.sessoes, MAXIMO_DE_SESSOES, poupe=sid)
         return sid
 
     def _html(self, codigo: int, corpo: str,
-              cookie: tuple[str, str] | None = None) -> None:
-        bytes_ = corpo.encode("utf-8")
-        self.send_response(codigo)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(bytes_)))
-        self.send_header("Cache-Control", "no-store")
+              cookie: tuple[str, str] | None = None,
+              csp: str = CSP_PAGINA) -> None:
+        """Uma resposta HTML. `csp` escolhe a política -- ver `CSP_MINIMA`.
+
+        O padrão é a política das páginas próprias: quem serve HTML de outra
+        origem -- hoje só o mapa do folium -- tem de dizer isso, e não o
+        contrário. Esquecer aqui aperta; esquecer ao contrário afrouxa.
+        """
         # A pagina monta HTML com dados que vieram do aparelho. Os cabecalhos
         # abaixo sao a segunda linha de defesa; a primeira e o `html.escape`.
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        extras = [("X-Content-Type-Options", "nosniff"),
+                  ("Referrer-Policy", "no-referrer"),
+                  # `X-Frame-Options` alem do `frame-ancestors`: o cabecalho
+                  # velho ainda e o que vale em navegador que nao implementa
+                  # a diretiva, e custa uma linha.
+                  ("X-Frame-Options", "DENY"),
+                  ("Content-Security-Policy", csp)]
         if cookie is not None:
             nome, valor = cookie
             # `Secure` so quando a borda diz que o cliente veio por HTTPS: o
@@ -906,10 +1306,10 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
                 pedacos.append("Secure")
             if not valor:
                 pedacos.append("Max-Age=0")
-            self.send_header("Set-Cookie", "; ".join(pedacos))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(bytes_)
+            extras.append(("Set-Cookie", "; ".join(pedacos)))
+        self._responde(codigo, corpo.encode("utf-8"),
+                       "text/html; charset=utf-8", self.command == "HEAD",
+                       tuple(extras))
 
     def _pagina_viagens(self) -> None:
         aparelho = self._sessao()
@@ -933,7 +1333,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             return []
         trechos = []
         for arquivo in sorted(pasta.iterdir()):
-            if not arquivo.is_file() or not PADRAO_VIAGEM.match(arquivo.name):
+            if not arquivo.is_file() or not PADRAO_VIAGEM.fullmatch(arquivo.name):
                 continue
             try:
                 trechos.append(viagem.le_viagem(arquivo))
@@ -994,44 +1394,43 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             self._html(503, pagina.aviso(
                 "o mapa precisa do folium: pip install folium"))
             return
-        self._html(200, corpo)
+        self._html(200, corpo, csp=CSP_MINIMA)
 
     def _entra(self) -> None:
         agora = time.monotonic()
         de_onde = self.client_address[0]
-        espera = self.castigo.get(de_onde, 0.0)
+        with _TRAVA_DAS_SESSOES:
+            espera = self.castigo.get(de_onde, 0.0)
         if espera > agora:
             time.sleep(min(espera - agora, ESPERA_APOS_ERRO_S))
 
-        try:
-            tamanho = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            tamanho = 0
-        if tamanho <= 0 or tamanho > 4096:
+        tamanho = self._corpo_pendente
+        if not tamanho or tamanho > 4096:
             self._html(400, pagina.formulario("formulario invalido"))
             return
-        bruto = self.rfile.read(tamanho).decode("utf-8", errors="replace")
+        bruto = self._le_corpo(tamanho).decode("utf-8", errors="replace")
         campos = urllib.parse.parse_qs(bruto)
         token = (campos.get("token") or [""])[0].strip()
 
         sid = self._abre_sessao(token)
         if sid is None:
-            self.castigo[de_onde] = time.monotonic() + ESPERA_APOS_ERRO_S
+            with _TRAVA_DAS_SESSOES:
+                self.castigo[de_onde] = (time.monotonic()
+                                         + ESPERA_APOS_ERRO_S)
+                _enxuga(self.castigo, MAXIMO_DE_CASTIGOS, poupe=de_onde)
             log.warning("token recusado na pagina, de %s", de_onde)
             self._html(401, pagina.formulario("token desconhecido"))
             return
-        self.castigo.pop(de_onde, None)
+        with _TRAVA_DAS_SESSOES:
+            self.castigo.pop(de_onde, None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
-                   cookie=(COOKIE_SESSAO, sid))
+                   cookie=(COOKIE_SESSAO, sid), csp=CSP_SEM_SCRIPT)
 
     def _sai(self) -> None:
-        bruto = self.headers.get("Cookie", "")
-        for parte in bruto.split(";"):
-            chave, _, valor = parte.strip().partition("=")
-            if chave == COOKIE_SESSAO:
-                self.sessoes.pop(valor, None)
+        with _TRAVA_DAS_SESSOES:
+            self.sessoes.pop(self._cookie_da_sessao(), None)
         self._html(200, pagina.redireciona(ROTA_VIAGENS),
-                   cookie=(COOKIE_SESSAO, ""))
+                   cookie=(COOKIE_SESSAO, ""), csp=CSP_SEM_SCRIPT)
 
     def _trata_viagens(self, caminho: str) -> bool:
         """`True` se a rota era de viagens e ja foi respondida."""
@@ -1048,7 +1447,7 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
             nome = caminho[len(ROTA_VIAGENS) + 1:]
             # Mesma lista branca do envio: o nome vira caminho em disco, e
             # recusar o que nao casa com o padrao e a defesa contra travessia.
-            if not PADRAO_VIAGEM.match(nome):
+            if not PADRAO_VIAGEM.fullmatch(nome):
                 self._html(404, pagina.aviso("viagem nao encontrada"))
                 return True
             self._pagina_mapa(nome)
@@ -1109,6 +1508,62 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 class Servidor(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+    #: Conexões simultâneas. Ver `MAXIMO_DE_CONEXOES`.
+    maximo_de_conexoes = MAXIMO_DE_CONEXOES
+
+    def __init__(self, *args, **kwargs):
+        # Lido do atributo de CLASSE, e não de um parâmetro: é assim que os
+        # testes o baixam para dois, e é um número de implantação.
+        self._vagas = threading.BoundedSemaphore(self.maximo_de_conexoes)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address) -> None:
+        """Só abre thread se houver vaga. Sem vaga, 503 e fecha.
+
+        ⚠️ A recusa acontece ANTES da thread, na própria linha de aceitação:
+        abrir a thread para dizer que não há vaga seria gastar exatamente o
+        recurso que falta.
+        """
+        if not self._vagas.acquire(blocking=False):
+            self._recusa_lotado(request, client_address)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._vagas.release()
+            raise
+
+    def shutdown_request(self, request) -> None:
+        # Uma vaga por conexão atendida, devolvida quando ela termina. O
+        # `ThreadingMixIn` chama isto no `finally` da thread, inclusive
+        # quando o manipulador levanta.
+        try:
+            super().shutdown_request(request)
+        finally:
+            self._vagas.release()
+
+    def _recusa_lotado(self, request, client_address) -> None:
+        log.warning("%s recusado: %d conexoes em curso", client_address[0],
+                    self.maximo_de_conexoes)
+        corpo = b"servidor ocupado, tente de novo\n"
+        try:
+            # Prazo curto e próprio: a recusa não pode ser a próxima coisa a
+            # prender a linha de aceitação.
+            request.settimeout(2.0)
+            request.sendall(
+                b"HTTP/1.1 503 Service Unavailable\r\n"
+                b"Content-Type: text/plain; charset=utf-8\r\n"
+                b"Content-Length: " + str(len(corpo)).encode() + b"\r\n"
+                b"Connection: close\r\n\r\n" + corpo)
+        except OSError:
+            pass
+        # `close_request`, e não `shutdown_request`: esta conexão nunca teve
+        # vaga, e devolver uma que não se tomou estouraria o semáforo.
+        try:
+            request.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        self.close_request(request)
 
 
 def cria_servidor(dados: Path, porta: int, endereco: str = "",
@@ -1149,7 +1604,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--aparelhos", type=Path,
                    default=Path(os.environ.get("CORUJA_APARELHOS",
                                                ARQUIVO_APARELHOS)),
-                   help=f"lista 'nome=token', uma por linha "
+                   help=f"um token por linha, sem 'nome=' "
                         f"(padrao: {ARQUIVO_APARELHOS}). Ausente ou vazia: "
                         "base aberta e recepcao desligada")
     p.add_argument("--recebidos", type=Path,
@@ -1217,6 +1672,21 @@ def main(argv: list[str] | None = None) -> int:
 
     servidor = cria_servidor(args.dados, args.porta, args.endereco,
                              aparelhos, args.recebidos, mapa, zonas)
+
+    # ⚠️ **O processo é o PID 1 do container.** Sem tratar o SIGTERM, o
+    # `docker stop` espera dez segundos e manda SIGKILL -- e nesses dez
+    # segundos as conexões em curso ficam penduradas, cada reinício custa a
+    # espera inteira e o `.parcial` de quem estava enviando fica para trás.
+    #
+    # O `shutdown` sai numa thread porque ele espera o `serve_forever`
+    # terminar, e `serve_forever` está rodando nesta thread: chamá-lo aqui
+    # dentro travaria o encerramento que ele existe para fazer.
+    def encerra(_sinal, _quadro):
+        log.info("sinal recebido; encerrando")
+        threading.Thread(target=servidor.shutdown, daemon=True).start()
+
+    for sinal in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sinal, encerra)
     log.info("escutando em %s:%d", args.endereco or "0.0.0.0", args.porta)
     log.warning("HTTP puro. O RF05.2 exige HTTPS: ponha um proxy reverso na "
                 "frente antes de usar fora da rede local.")

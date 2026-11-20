@@ -1,0 +1,4 @@
+#!/bin/bash
+# docker FALSO, para os testes do libera_fw.sh: anota a chamada e passa.
+echo "docker $*" >> "$FALSO_DIARIO"
+exit 0

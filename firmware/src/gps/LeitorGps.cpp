@@ -89,6 +89,7 @@ void LeitorGps::processa_linha(const char* linha, std::size_t tamanho,
     const ErroNmea erro = analisa_rmc(linha, tamanho, &nova);
     switch (erro) {
         case ErroNmea::Nenhum:
+            nova.sequencia = ++sequencia_;
             telemetria_ = nova;
             ultimo_fix_ms_ = agora_ms;
             houve_fix_ = true;

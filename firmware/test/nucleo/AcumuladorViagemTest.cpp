@@ -16,9 +16,14 @@ using namespace coruja;
 /// informacao, em vez de escondê-la num parametro com valor padrao.
 const RadarDaAmostra kSemRadar{};
 
+/// Um fix: cada chamada e uma sentenca nova do receptor, com sequencia
+/// propria. Quem quiser a MESMA telemetria em varias voltas do laco guarda o
+/// valor devolvido e o repassa.
 Telemetria em(std::uint8_t hora, std::uint8_t minuto, std::uint8_t segundo,
               float velocidade_kmh, float lat = -19.8F, float lon = -44.0F) {
+    static std::uint32_t sequencia = 0;
     Telemetria t;
+    t.sequencia = ++sequencia;
     t.lat = lat;
     t.lon = lon;
     t.velocidade_kmh = velocidade_kmh;
@@ -178,6 +183,21 @@ TEST(AcumuladorViagem, a_virada_do_minuto_fecha_a_fatia) {
     EXPECT_EQ(a.ultimo_ponto().segundo, 54);
 }
 
+TEST(AcumuladorViagem, o_segundo_bissexto_fica_na_ultima_fatia_do_minuto) {
+    // A RMC entrega `:60` no segundo bissexto. Dividido por seis ele daria a
+    // fatia 10 de um minuto que so tem dez (0 a 9), e uma linha carimbada
+    // em `:60` que nenhum leitor de hora espera.
+    AcumuladorViagem a;
+    a.inicia();
+    a.alimenta(em(23, 59, 54, 60.0F), kSemRadar, true, 1000);
+    EXPECT_EQ(a.alimenta(em(23, 59, 60, 60.0F), kSemRadar, true, 7000),
+              EventoViagem::Nada)
+        << ":60 abriu fatia propria";
+    ASSERT_EQ(a.alimenta(em_dia(5, 0, 0, 0, 60.0F), kSemRadar, true, 8000),
+              EventoViagem::Grava);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 54);
+}
+
 TEST(AcumuladorViagem, a_media_e_das_amostras_da_fatia) {
     AcumuladorViagem a;
     a.inicia();
@@ -292,6 +312,54 @@ TEST(AcumuladorViagem, a_distancia_do_ponto_e_a_acumulada) {
         a.alimenta(em(17, m, s, 72.0F), kSemRadar, true, ms);
     }
     EXPECT_NEAR(a.ultimo_ponto().dist_km, 11.2F, 0.02F);
+}
+
+// --- o laco nao dorme ---
+//
+// O `DiarioBordo` chama `alimenta` a cada volta do laco, e o laco nao dorme:
+// entre dois fixes (250 ms a 4 Hz) sao centenas de chamadas com a MESMA
+// telemetria. Somar ou contar a cada chamada mede o laco, nao a viagem.
+
+/// Anda `minutos` a `kmh` como o firmware: uma sentenca nova a cada 250 ms e
+/// uma volta do laco a cada milissegundo, repetindo o fix entre elas.
+void anda_com_laco_de_1ms(AcumuladorViagem& a, float kmh,
+                          std::uint32_t minutos) {
+    Telemetria t;
+    for (std::uint32_t ms = 0; ms <= minutos * 60000U; ++ms) {
+        if (ms % 250 == 0) {
+            const std::uint32_t s = ms / 1000;
+            t = em(static_cast<std::uint8_t>(s / 3600),
+                   static_cast<std::uint8_t>(s / 60 % 60),
+                   static_cast<std::uint8_t>(s % 60), kmh);
+        }
+        a.alimenta(t, kSemRadar, true, ms);
+    }
+}
+
+TEST(AcumuladorViagem, laco_de_1ms_nao_muda_a_distancia_de_um_trajeto_longo) {
+    // Uma hora a 100 km/h sao 100 km, e o trecho retomado ja vinha de 450.
+    // A cada volta o incremento seria de 0,028 m: perto de 512 km isso fica
+    // abaixo da resolucao de um float, e a soma trava.
+    AcumuladorViagem a;
+    a.inicia(450.0F);
+    anda_com_laco_de_1ms(a, 100.0F, 60);
+    EXPECT_NEAR(a.dist_km(), 550.0F, 0.01F);
+}
+
+TEST(AcumuladorViagem, a_media_da_fatia_pesa_cada_FIX_uma_vez) {
+    // Uma volta lenta -- o cartao gravando, a tela redesenhando -- faz um fix
+    // ser visto menos vezes que outro. A media e das velocidades MEDIDAS, e
+    // cada medida vale uma.
+    AcumuladorViagem a;
+    a.inicia();
+    const Telemetria devagar = em(17, 30, 0, 40.0F);
+    for (std::uint32_t ms = 1000; ms < 1250; ++ms) {
+        a.alimenta(devagar, kSemRadar, true, ms);
+    }
+    a.alimenta(em(17, 30, 1, 80.0F), kSemRadar, true, 1250);  // visto uma vez
+    ASSERT_EQ(a.alimenta(em(17, 30, 6, 10.0F), kSemRadar, true, 1500),
+              EventoViagem::Grava);
+    EXPECT_FLOAT_EQ(a.ultimo_ponto().v_media_kmh, 60.0F);
 }
 
 // --- encerramento automatico ---
@@ -697,6 +765,35 @@ TEST(RadarDaViagem, a_zona_e_a_contagem_zeram_na_fatia_seguinte) {
     EXPECT_EQ(a.ultimo_ponto().radar.zona_pior, 0)
         << "a zona da fatia anterior vazou";
     EXPECT_EQ(a.ultimo_ponto().radar.n_candidatos, 0);
+}
+
+
+TEST(AcumuladorViagem, o_fechamento_do_trecho_nao_engole_a_gravacao_da_fatia) {
+    // ⚠️ As duas coisas caem na mesma leitura quando o carro para em cima da
+    // virada de uma fatia: ha ponto para gravar E cinco minutos parado. A
+    // funcao devolve UM evento, e devolver so o fechamento perdia o ponto --
+    // nunca escrito no cartao, e o `viagem.est` ficava com o carimbo da fatia
+    // anterior. O fechamento pode esperar a leitura seguinte; o ponto, nao.
+    AcumuladorViagem a;
+    a.inicia();
+    ASSERT_EQ(a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 0),
+              EventoViagem::Abre);
+    a.alimenta(em(17, 30, 0, 0.0F), kSemRadar, true, 1000);   // comeca a contar
+
+    // Virada de fatia exatamente no instante em que a parada vence.
+    EXPECT_EQ(a.alimenta(em(17, 35, 6, 0.0F), kSemRadar, true,
+                         1000 + kParadoFechaTrechoMs),
+              EventoViagem::Grava)
+        << "o ponto da fatia fechada foi engolido pelo fechamento";
+    EXPECT_EQ(a.ultimo_ponto().minuto, 30);
+    EXPECT_EQ(a.ultimo_ponto().segundo, 0);
+
+    // E o fechamento sai na leitura seguinte, sem precisar de outros cinco
+    // minutos: o relogio da parada continuou correndo.
+    EXPECT_EQ(a.alimenta(em(17, 35, 7, 0.0F), kSemRadar, true,
+                         1000 + kParadoFechaTrechoMs + 250),
+              EventoViagem::FechaTrecho);
+    EXPECT_EQ(a.estado(), EstadoViagem::Aguardando);
 }
 
 }  // namespace
