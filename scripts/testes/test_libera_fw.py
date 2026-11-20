@@ -206,6 +206,90 @@ class Liberacao(unittest.TestCase):
         self.assertIn("remoto", r.stderr)
         self.assertEqual(self.chamadas("cmake"), [])
 
+    def test_publicar_recusa_cedo_gh_que_nao_esta_autenticado(self):
+        """O `gh` so era usado DEPOIS do push. Deslogado, todo o build e as
+        suites passavam, o `git push --atomic` publicava a `main` e a tag, e o
+        `gh release create` falhava: tag publica, sem release, e o texto de
+        recuperacao mandava terminar a mao com comandos que tambem dependem do
+        `gh`. Por isso a checagem fica ANTES de qualquer coisa cara."""
+        antes = self.git("ls-remote", "origin", "refs/heads/main")
+        r = self.libera("--publicar", TAG, "primeira",
+                        FALSO_GH_ACAO='[ "$1 $2" != "auth status" ]')
+        self.assertSemTag(r)
+        self.assertIn("gh", r.stderr)
+        self.assertIn("auth", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [], "gastou build antes")
+        self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main"),
+                         antes)
+        self.assertNotIn(TAG, self.git("ls-remote", "--tags", "origin"))
+
+    def test_publicar_recusa_cedo_se_nao_ha_gh(self):
+        sem_gh = {**self.env, "PATH": f"{self._pasta_sem_gh()}"}
+        r = subprocess.run(
+            [str(self.repo / "scripts" / "libera_fw.sh"), "--publicar", TAG,
+             "primeira"], cwd=self.repo, env=sem_gh, capture_output=True,
+            text=True, check=False, timeout=60)
+        self.assertSemTag(r)
+        self.assertIn("gh", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [])
+
+    def _pasta_sem_gh(self) -> str:
+        """Um PATH com os utilitarios de que o script precisa, e sem `gh`."""
+        d = self.repo.parent / "bin-sem-gh"
+        d.mkdir(exist_ok=True)
+        for nome in ("bash", "git", "python3", "env", "dirname", "sed", "awk",
+                     "grep", "tr", "cat", "mkdir", "rm", "head", "sort", "wc",
+                     "shasum", "ls", "cut", "date", "mktemp", "basename",
+                     "sleep", "uname", "tee", "cp", "mv", "touch", "id"):
+            achado = shutil.which(nome)
+            if achado and not (d / nome).exists():
+                (d / nome).symlink_to(achado)
+        for nome in ("cmake", "ctest", "picotool", "docker"):
+            (d / nome).symlink_to(FALSOS / nome)
+        return str(d)
+
+    # --- a tag nao pode andar para tras ------------------------------------
+
+    def test_tag_menor_que_a_ultima_e_recusada_antes_de_gastar_build(self):
+        """O bootrom A/B sobe a imagem de MAIOR versao. Um erro de digitacao,
+        `v0.2.6` no lugar de `v0.2.26`, gera uma imagem 2.600 contra 2.2600,
+        e todas as conferencias passavam: a versao da imagem batia com a tag.
+        O aparelho subiria a copia ANTIGA, e a nova ficaria inerte."""
+        self.git("tag", "-a", "-m", "anterior", "v0.2.25")
+        r = self.libera("v0.2.6", "primeira")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.tags_locais(), ["v0.2.25"])
+        self.assertIn("v0.2.25", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [], "gastou build antes")
+
+    def test_tag_so_um_numero_acima_da_ultima_passa(self):
+        self.git("tag", "-a", "-m", "anterior", "v0.2.25")
+        r = self.libera("v0.2.26", "primeira")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("v0.2.26", self.tags_locais())
+
+    def test_ordem_e_numerica_e_nao_de_texto(self):
+        # `v0.2.9` vem DEPOIS de `v0.2.10` em ordem de texto.
+        self.git("tag", "-a", "-m", "anterior", "v0.2.10")
+        r = self.libera("v0.2.9", "primeira")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("v0.2.10", r.stderr)
+        # E recusada CEDO: sem esta linha o teste passava por outro motivo,
+        # a conferencia da versao no binario, depois de gastar o build.
+        self.assertEqual(self.chamadas("cmake"), [], "gastou build antes")
+
+    def test_publicar_tambem_olha_as_tags_do_remoto(self):
+        # A ultima liberacao pode ter sido de outra maquina: esta nao tem a
+        # tag local, mas o remoto tem.
+        self.git("tag", "-a", "-m", "anterior", "v0.5.0")
+        self.git("push", "-q", "origin", "v0.5.0")
+        self.git("tag", "-d", "v0.5.0")
+        r = self.libera("--publicar", "v0.4.0", "primeira")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.tags_locais(), [])
+        self.assertIn("v0.5.0", r.stderr)
+        self.assertEqual(self.chamadas("cmake"), [])
+
     # --- B2: o sanitizer --------------------------------------------------
 
     def test_sanitizer_configurado_pela_receita_e_parando_no_primeiro_ub(self):

@@ -120,6 +120,15 @@ print(min(tetos))
 PY
 }
 
+# Posicao de uma tag vA.B.C na ordem das versoes, ou nada se nao for dessa
+# forma. NUMERICA, e nao de texto: `v0.2.9` vem depois de `v0.2.10`. Preserva
+# a ordem lexicografica (A, B, C) que o bootrom A/B usa para escolher a imagem
+# -- ele sobe a de MAIOR versao.
+ordem_da_tag() {
+    [[ "$1" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+    echo $((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]}))
+}
+
 PUBLICAR=0
 if [ "${1:-}" = "--publicar" ]; then
     PUBLICAR=1
@@ -188,6 +197,16 @@ if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
     falhou "a tag '$TAG' ja existe."
 fi
 if [ "$PUBLICAR" -eq 1 ]; then
+    # O `gh` so entra depois do push, na etapa 11. Sem esta conferencia, um
+    # `gh` ausente ou deslogado deixava o build e as suites passarem, o
+    # `git push --atomic` publicar a main e a tag, e so entao o
+    # `gh release create` falhar: tag publica sem release, e a recuperacao
+    # que o script indica depende do mesmo `gh`. Confere ANTES de gastar
+    # qualquer coisa.
+    command -v gh > /dev/null \
+        || falhou "falta o gh (https://cli.github.com): a release e criada por ele, depois do push."
+    gh auth status > "$LOGS/libera-gh.log" 2>&1 \
+        || falhou "o gh nao esta autenticado: rode 'gh auth login' antes. (Ver $LOGS/libera-gh.log)"
     git ls-remote --exit-code --tags origin "refs/tags/$TAG" \
         > /dev/null 2> "$LOGS/libera-remoto.log"
     case $? in
@@ -195,6 +214,32 @@ if [ "$PUBLICAR" -eq 1 ]; then
         2) ;;
         *) falhou "nao consegui consultar o remoto. Ver $LOGS/libera-remoto.log" ;;
     esac
+fi
+
+# A tag nao anda para tras. O bootrom A/B sobe a imagem de MAIOR versao: um
+# erro de digitacao, `v0.2.6` no lugar de `v0.2.26`, gera uma imagem 2.600
+# contra 2.2600 -- e todas as conferencias do script passavam, porque a
+# versao da imagem BATE com a tag. O aparelho subiria a copia antiga e a nova
+# ficaria inerte. Compara com as tags locais e, ao publicar, com as do remoto,
+# que podem ser de outra maquina.
+NOVA_ORDEM=$(ordem_da_tag "$TAG") || falhou "a tag '$TAG' nao e vA.B.C."
+EXISTENTES=$(git tag --list 'v[0-9]*')
+if [ "$PUBLICAR" -eq 1 ]; then
+    EXISTENTES="$EXISTENTES
+$(git ls-remote --tags --refs origin 'refs/tags/v[0-9]*' 2> /dev/null | sed 's|.*refs/tags/||')"
+fi
+MAIOR_ORDEM=-1
+MAIOR_TAG=""
+while IFS= read -r existente; do
+    [ -n "$existente" ] || continue
+    ordem=$(ordem_da_tag "$existente") || continue
+    if [ "$ordem" -gt "$MAIOR_ORDEM" ]; then
+        MAIOR_ORDEM=$ordem
+        MAIOR_TAG=$existente
+    fi
+done <<< "$EXISTENTES"
+if [ "$NOVA_ORDEM" -le "$MAIOR_ORDEM" ]; then
+    falhou "a tag '$TAG' nao e maior que a ultima, '$MAIOR_TAG': o bootrom sobe a imagem de maior versao, e esta ficaria inerte. Foi erro de digitacao?"
 fi
 
 # --- 3. suíte no host --------------------------------------------------------
