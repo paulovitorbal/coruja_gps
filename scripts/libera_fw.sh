@@ -386,6 +386,23 @@ TABELA="$BUILD_PICO/coruja_gps-$TAG-particoes.uf2"
     || falhou "nao gerou a tabela de particoes. Ver $LOGS/libera-particoes.log"
 grava_soma "$TABELA"
 
+# Os textos das licencas do que esta DENTRO do binario. BSD-3, MIT e Apache-2.0
+# pedem o aviso de copyright e o texto junto do binario redistribuido, e as
+# bibliotecas nao estao neste repositorio: quem baixa so a release nao as tem.
+# Gerado aqui, na etapa 10 e nao na 11, para que a falta de qualquer texto
+# impeca a publicacao em vez de aparecer depois do push.
+SDK="${CORUJA_SDK:-}"
+if [ -z "$SDK" ]; then
+    SDK=$(sed -n 's/^PICO_SDK_PATH:[A-Z]*=//p' "$BUILD_PICO/CMakeCache.txt" 2> /dev/null | head -1)
+fi
+FATFS="${CORUJA_FATFS:-$BUILD_PICO/_deps/no-os-fatfs-sd-sdio-spi-rpi-pico-src}"
+[ -n "$SDK" ] || falhou "nao achei o Pico SDK (PICO_SDK_PATH no cache do build, ou CORUJA_SDK): os textos das licencas saem dele."
+LICENCAS_TERCEIROS="$BUILD_PICO/THIRD_PARTY_LICENSES.txt"
+python3 -I "$DIR/scripts/junta_licencas.py" --sdk "$SDK" --fatfs "$FATFS" \
+    --licencas "$DIR/docs/licencas" --saida "$LICENCAS_TERCEIROS" \
+    > "$LOGS/libera-licencas.log" 2>&1 \
+    || { cat "$LOGS/libera-licencas.log" >&2; falhou "nao juntou os textos das licencas de terceiros."; }
+
 echo
 echo "OK — $TAG liberada e verificada"
 echo "   $ARTEFATO"
@@ -418,7 +435,8 @@ git push --atomic origin "$SHA:refs/heads/main" "refs/tags/$TAG" \
 CONCLUIDO=1
 echo "     commit e tag empurrados"
 
-ANEXOS=("$ARTEFATO" "$ARTEFATO.sha256" "$TABELA" "$TABELA.sha256")
+ANEXOS=("$ARTEFATO" "$ARTEFATO.sha256" "$TABELA" "$TABELA.sha256"
+        "$LICENCAS_TERCEIROS")
 for aviso in $AVISOS; do
     ANEXOS+=("$DIR/$aviso")
 done

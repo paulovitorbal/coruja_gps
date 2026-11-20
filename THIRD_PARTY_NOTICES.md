@@ -40,5 +40,8 @@ eles, nem a deles para o resto do projeto.
   dois fontes. Por isso a GPL-3 não alcança este binário. Como e por quê, no
   `docs/licencas/README.md`.
 
-Os textos das licenças vêm com cada dependência (no `pico-sdk/`, nos `_deps/`);
-os da JetBrains Mono e do Twemoji estão versionados em `docs/licencas/`.
+Os **textos** das licenças — o que BSD-3, MIT e Apache-2.0 pedem junto do
+binário — vão anexos à mesma release, no `THIRD_PARTY_LICENSES.txt`, copiados
+dos arquivos que o build usou. As bibliotecas não estão no repositório, então
+quem baixa só a release não as teria de outro modo. Os da JetBrains Mono e do
+Twemoji também estão versionados em `docs/licencas/`.

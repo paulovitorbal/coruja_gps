@@ -85,6 +85,25 @@ class Liberacao(unittest.TestCase):
         for aviso in AVISOS:
             if (DISPOSITIVO / aviso).exists():
                 shutil.copy2(DISPOSITIVO / aviso, self.repo)
+        shutil.copy2(SCRIPTS / "junta_licencas.py", self.repo / "scripts")
+        (self.repo / "docs").mkdir()
+        shutil.copytree(DISPOSITIVO / "docs" / "licencas",
+                        self.repo / "docs" / "licencas")
+        # SDK e FatFs-SD FALSOS, so com os textos que o pacote de licencas le.
+        self.sdk = raiz / "sdk"
+        self.fatfs = raiz / "fatfs"
+        for base, rels in ((self.sdk, ("LICENSE.TXT", "lib/lwip/COPYING",
+                                       "lib/mbedtls/LICENSE",
+                                       "lib/tinyusb/LICENSE",
+                                       "lib/cyw43-driver/LICENSE",
+                                       "lib/cyw43-driver/LICENSE.RP")),
+                           (self.fatfs, ("LICENSE", "src/ff15/LICENSE.txt"))):
+            for rel in rels:
+                alvo = base / rel
+                alvo.parent.mkdir(parents=True, exist_ok=True)
+                alvo.write_text(f"TEXTO {rel}\n", encoding="utf-8")
+        self.env["CORUJA_SDK"] = str(self.sdk)
+        self.env["CORUJA_FATFS"] = str(self.fatfs)
         (self.repo / "scripts" / "testes" / "test_trivial.py").write_text(
             TESTE_TRIVIAL)
         (self.repo / "LEIAME.txt").write_text("um arquivo versionado\n")
@@ -289,6 +308,42 @@ class Liberacao(unittest.TestCase):
         self.assertEqual(self.tags_locais(), [])
         self.assertIn("v0.5.0", r.stderr)
         self.assertEqual(self.chamadas("cmake"), [])
+
+    # --- os textos das licencas vao na release ------------------------------
+
+    def test_publicar_anexa_o_pacote_de_licencas_de_terceiros(self):
+        """BSD-3, MIT e Apache-2.0 pedem o texto da licenca junto do binario.
+        As bibliotecas nao estao no repositorio: quem baixa so a release nao
+        as tem. O pacote e gerado dos textos que o build usou."""
+        r = self.libera("--publicar", TAG, "primeira")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        sobe = self.chamadas("gh release upload")
+        self.assertEqual(len(sobe), 1, sobe)
+        self.assertIn("THIRD_PARTY_LICENSES.txt", sobe[0])
+        pacote = (self.repo / "firmware" / "build-pico"
+                  / "THIRD_PARTY_LICENSES.txt").read_text(encoding="utf-8")
+        self.assertIn("TEXTO lib/lwip/COPYING", pacote)
+        self.assertIn("TEXTO src/ff15/LICENSE.txt", pacote)
+
+    def test_sem_o_texto_de_uma_licenca_nada_e_publicado(self):
+        (self.sdk / "lib" / "tinyusb" / "LICENSE").unlink()
+        antes = self.git("ls-remote", "origin", "refs/heads/main")
+        r = self.libera("--publicar", TAG, "primeira")
+        self.assertSemTag(r)
+        self.assertIn("tinyusb", r.stderr)
+        # Falhou ANTES do push: o remoto nao mudou e nao houve release.
+        self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main"),
+                         antes)
+        self.assertNotIn(TAG, self.git("ls-remote", "--tags", "origin"))
+        self.assertEqual(self.chamadas("gh release"), [])
+
+    def test_sem_publicar_tambem_confere_os_textos(self):
+        # Quem so confere (sem --publicar) tem de descobrir a falta agora, e
+        # nao so no dia em que for publicar.
+        (self.fatfs / "LICENSE").unlink()
+        r = self.libera(TAG, "primeira")
+        self.assertSemTag(r)
+        self.assertIn("LICENSE", r.stderr)
 
     # --- B2: o sanitizer --------------------------------------------------
 

@@ -29,7 +29,8 @@ projeto guarda texto de licença.
 As duas primeiras seções são de arte e tipografia, que viram **arquivos
 gerados** versionados aqui. As demais são das **bibliotecas** que o ligador
 põe dentro do `coruja_gps.uf2`: elas não estão no repositório, e o texto de
-cada licença vem com a dependência, no caminho indicado.
+cada licença está no caminho indicado — e **vai anexo à release**, no
+`THIRD_PARTY_LICENSES.txt`.
 
 ## JetBrains Mono — `OFL.txt`
 
@@ -79,7 +80,8 @@ SDIO da biblioteca de cartão SD **não está mais aqui** porque não está mais
 mapa — ver abaixo.
 
 Nenhuma dessas bibliotecas está versionada aqui — elas chegam pelo SDK ou pelo
-`FetchContent`. O texto de cada licença vem com elas, no caminho da tabela.
+`FetchContent`. O texto de cada licença está com elas, no caminho da tabela, e
+o `scripts/junta_licencas.py` o copia para o pacote que acompanha a release.
 
 | Componente | Licença | Texto, onde ele vem |
 | :--- | :--- | :--- |
@@ -95,14 +97,23 @@ Nenhuma dessas bibliotecas está versionada aqui — elas chegam pelo SDK ou pel
 O `picotool`, o `pioasm`, o GoogleTest e o toolchain da Arm **não** entram na
 imagem: são ferramentas de build, e por isso não estão aqui.
 
-**O que as três primeiras exigem neste uso:** as licenças BSD-3-Clause e a MIT
-pedem que o aviso de copyright e o texto da licença acompanhem a redistribuição
-**em forma binária**, na documentação ou nos materiais que vão junto. Um
-`.uf2` sozinho numa página de release não cumpre isso — é por isso que o
-`scripts/libera_fw.sh` anexa o `THIRD_PARTY_NOTICES.md`, que aponta para este
-arquivo, junto do binário. Do Mbed TLS, que é dupla, este projeto toma a
-**Apache-2.0**: a GPL-2.0 não conviveria com a licença não comercial do
-projeto.
+**O que quase todas exigem neste uso:** BSD-3-Clause, MIT, Apache-2.0 e a
+licença de duas cláusulas do FatFs pedem que o aviso de copyright e o texto da
+licença (na Apache-2.0, uma cópia dela) acompanhem a redistribuição **em forma
+binária**, na documentação ou nos materiais que vão junto. Um `.uf2` sozinho
+numa página de release não cumpre isso — e as bibliotecas não estão neste
+repositório, então quem baixa só a release não as tem.
+
+Por isso o `scripts/libera_fw.sh` anexa três coisas ao binário: o
+`THIRD_PARTY_NOTICES.md` (a lista curta), o `THIRD_PARTY_LICENSES.txt` (os
+**textos**, copiados dos arquivos que o build usou, pelo
+`scripts/junta_licencas.py`) e os documentos da licença do próprio projeto.
+O pacote de textos é gerado **antes** do push, e a liberação recusa sair se
+faltar qualquer um deles.
+
+Do Mbed TLS, que é dupla, este projeto toma a **Apache-2.0**: a GPL-2.0 não
+conviveria com a licença não comercial do projeto. O pacote diz isso ao lado do
+texto, que traz as duas licenças porque é o arquivo deles, sem edição.
 
 ### cyw43-driver: a licença que não é BSD
 
