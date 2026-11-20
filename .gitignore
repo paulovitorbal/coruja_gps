@@ -59,3 +59,13 @@ kicad/*.zip
 # no repositorio.
 caixa/*.stl
 
+
+# Relatorios de revisao: documento de trabalho de uma data, nao documentacao
+# do projeto. O que virou correcao esta nas mensagens de commit, que sao a
+# fonte permanente -- versionar o relatorio duplicaria isso e envelheceria.
+docs/revisao-*.md
+
+# Worktrees que o Claude Code cria para trabalhar em paralelo. Sem esta linha
+# elas aparecem como nao rastreadas e a etapa 1 do libera_fw.sh -- que exige
+# arvore limpa -- recusa a liberacao.
+.claude/worktrees/
