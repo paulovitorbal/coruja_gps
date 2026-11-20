@@ -14,9 +14,19 @@ void CaoDeGuardaPico::arma(std::uint32_t prazo_ms) {
 
 void CaoDeGuardaPico::alimenta() { watchdog_update(); }
 
-void CaoDeGuardaPico::suspende() { watchdog_disable(); }
+void CaoDeGuardaPico::suspende() {
+    if (prazo_ms_ == 0) { return; }   // nunca armado: nada a soltar
+    watchdog_disable();
+}
 
-void CaoDeGuardaPico::retoma() { watchdog_enable(prazo_ms_, false); }
+void CaoDeGuardaPico::retoma() {
+    // Sem `arma()` previa nao ha prazo, e a politica pode ter decidido NAO
+    // armar neste boot (tres mordidas seguidas). Retomar um cao que nunca foi
+    // armado o armaria pela porta dos fundos -- e o ciclo de reinicios que a
+    // politica quebrou voltaria na primeira associacao Wi-Fi.
+    if (prazo_ms_ == 0) { return; }
+    watchdog_enable(prazo_ms_, false);
+}
 
 bool CaoDeGuardaPico::reiniciou_por_travamento() const {
     // `watchdog_enable_caused_reboot`, e não `watchdog_caused_reboot`.

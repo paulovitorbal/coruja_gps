@@ -58,6 +58,8 @@
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
+#include "nucleo/PoliticaDoCao.h"
+#include "placa/ArmazemScratchPico.h"
 #include "placa/CaoDeGuardaPico.h"
 #include "placa/MedidorPilha.h"
 #include "placa/Termometro.h"
@@ -467,6 +469,13 @@ int main() {
     // ele iria para o console, que no carro nao existe.
     coruja::CaoDeGuardaPico cao;
     const bool veio_de_travamento = cao.reiniciou_por_travamento();
+    // A politica decide, ja aqui, se este boot arma o cao: o contador mora no
+    // registrador de rascunho do watchdog e sobrevive a mordida. O aviso so
+    // sai no log mais adiante, quando o cartao ja estiver ligado.
+    coruja::ArmazemScratchPico armazem_de_mordidas;
+    coruja::PoliticaDoCao      politica_do_cao(armazem_de_mordidas);
+    const auto decisao_do_cao =
+        politica_do_cao.decide_no_boot(veio_de_travamento);
 
     stdio_init_all();
     // Ver `CORUJA_ESPERA_CONSOLE_MS` no CMakeLists: zero no firmware do
@@ -593,6 +602,19 @@ int main() {
                           "TRAVAMENTO: o cao de guarda mordeu. Procure, "
                           "acima desta linha, a ultima coisa que o aparelho "
                           "registrou na ligacao passada");
+    }
+
+    if (!decisao_do_cao.arma) {
+        // WARNING (e nao info): forca a descarga, e o motivo de o aparelho
+        // estar sem protecao nao pode ficar num buffer que um novo travamento
+        // perderia.
+        char msg[200];
+        std::snprintf(msg, sizeof msg,
+                      "o cao NAO foi armado neste boot: %u mordidas seguidas. "
+                      "O aparelho esta sem protecao contra travamento ate a "
+                      "proxima ignicao; investigue o cartao",
+                      decisao_do_cao.mordidas_seguidas);
+        log.warning("boot", msg);
     }
 
     brilho.define_presets(config.brilho_dia, config.brilho_noite);
@@ -859,8 +881,10 @@ int main() {
     // que e a janela de inatividade do cliente HTTP.
     static_assert(coruja::kPrazoCaoMs > coruja::kInatividadeHttpMs,
                   "o cao morderia durante um pedido HTTP lento, mas vivo");
-    cao.arma(coruja::kPrazoCaoMs);
-    log.info("boot", "cao de guarda armado");
+    if (decisao_do_cao.arma) {
+        cao.arma(coruja::kPrazoCaoMs);
+        log.info("boot", "cao de guarda armado");
+    }
 
     std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
@@ -869,6 +893,7 @@ int main() {
         // do GPS voltaram. As operacoes longas alimentam por dentro, cada
         // uma nos seus pontos de progresso.
         cao.alimenta();
+        politica_do_cao.passo(pausa.agora_ms());
 
         // Medido no TOPO da volta seguinte: assim a conta inclui tudo o que
         // a volta fez, inclusive o desenho, que é justamente o suspeito.
