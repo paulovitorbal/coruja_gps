@@ -924,6 +924,49 @@ class Recepcao(unittest.TestCase):
         self.assertNotIn(PASTA.encode(), corpo)
 
 
+class RegraDeDeduplicacao(unittest.TestCase):
+    """A decisao de quanto do trecho novo ja esta no historico.
+
+    Ela morava no meio do `_acrescenta_ao_historico`, entre abrir arquivo,
+    copiar e gravar marca, e so dava para exercita-la subindo o servidor e
+    mandando duas remessas. Como funcao pura, cada caso e uma linha -- e os
+    quatro casos sao o que o aparelho de fato produz.
+    """
+
+    def test_sem_marca_o_trecho_entra_inteiro(self):
+        # Primeira remessa deste nome, ou marca ilegivel: o lado seguro da
+        # duvida e duplicar, nunca perder.
+        self.assertEqual(s.bytes_ja_no_historico(None, 100, 0x1234), 0)
+
+    def test_remessa_identica_e_pulada_inteira(self):
+        # O aparelho nao conseguiu apagar e mandou os MESMOS bytes.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 100, 0x1234), 100)
+
+    def test_arquivo_que_cresceu_pula_so_o_prefixo(self):
+        # Nao apagou, e ainda registrou mais: entra so o rabo.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 160, 0x1234), 100)
+
+    def test_prefixo_diferente_entra_inteiro(self):
+        # Trecho inedito que por acaso e maior que o anterior. Sem conferir
+        # o CRC, "maior" bastaria para pular bytes e o trecho sairia
+        # mutilado no historico.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 160, 0x9999), 0)
+
+    def test_trecho_menor_que_o_anterior_entra_inteiro(self):
+        # O cartao foi apagado e a gravacao recomecou: o trecho novo e
+        # menor, e nao tem relacao nenhuma com o anterior.
+        self.assertEqual(
+            s.bytes_ja_no_historico((100, 0x1234), 60, 0x1234), 0)
+
+    def test_arquivo_curto_demais_nunca_casa(self):
+        # `_crc_do_prefixo` devolve -1 quando o arquivo acaba antes, e
+        # nenhum CRC32 assume esse valor.
+        self.assertEqual(s.bytes_ja_no_historico((100, 0x1234), 160, -1), 0)
+
+
 class EncerramentoLimpo(unittest.TestCase):
     """O PID 1 do container tem de sair no `docker stop`.
 

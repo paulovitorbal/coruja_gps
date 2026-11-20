@@ -452,6 +452,11 @@ O cookie é `HttpOnly`, `SameSite=Strict`, escopo `/viagens`, e ganha `Secure`
 quando a borda manda `X-Forwarded-Proto: https`. As sessões vivem em memória e
 morrem com o processo.
 
+Elas duram **8 h sem uso** e são no máximo **64** (`MAXIMO_DE_SESSOES`), com a
+mesma ideia para os endereços em castigo por token errado (**256**). Os tetos
+existem porque os dois dicionários só cresciam: cada entrada vale horas, e
+abrir sessão custa um POST com o token certo.
+
 ### O tema Atlas precisa de chave
 
 No `aparelhos.cfg`:

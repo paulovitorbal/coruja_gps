@@ -349,6 +349,28 @@ def _varre_parciais(pasta: Path) -> None:
         log.warning("nao consegui varrer %s: %s", pasta, e)
 
 
+def bytes_ja_no_historico(marca: tuple[int, int] | None, tamanho: int,
+                          crc_do_prefixo: int) -> int:
+    """Quantos bytes do trecho novo o histórico já tem, pelo começo.
+
+    **Pura, e é o ponto.** A regra decide se um registro do produto é
+    gravado duas vezes, e antes só dava para exercitá-la subindo o servidor
+    e mandando duas remessas; os casos de borda ficavam por conta da sorte.
+
+    - sem marca: nada é pulado -- duplicar é ruim, perder é pior;
+    - trecho menor que o anterior: outro arquivo, entra inteiro;
+    - prefixo com outro CRC: trecho inédito que por acaso é maior, entra
+      inteiro. Sem esta conferência "maior que o anterior" bastaria para
+      pular bytes, e o trecho sairia mutilado.
+    """
+    if marca is None:
+        return 0
+    tamanho_antes, crc_antes = marca
+    if tamanho < tamanho_antes or crc_do_prefixo != crc_antes:
+        return 0
+    return tamanho_antes
+
+
 def _enxuga(guardados: dict, teto: int, poupe: str) -> None:
     """Deixa no máximo `teto` entradas, tirando as que vencem primeiro.
 
@@ -1127,14 +1149,17 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
 
             with (destino / nome).open("rb") as origem:
                 repetido = 0
-                if anterior is not None:
-                    tamanho_antes, crc_antes = anterior
-                    if (tamanho >= tamanho_antes
-                            and cls._crc_do_prefixo(origem, tamanho_antes)
-                                == crc_antes):
-                        repetido = tamanho_antes
-                    else:
-                        origem.seek(0)
+                if anterior is not None and tamanho >= anterior[0]:
+                    # A conferência de tamanho aqui é atalho, não guarda: a
+                    # regra a repete. Ela evita ler o arquivo inteiro para
+                    # descobrir o que o tamanho já dizia.
+                    repetido = bytes_ja_no_historico(
+                        anterior, tamanho,
+                        cls._crc_do_prefixo(origem, anterior[0]))
+                if not repetido:
+                    # O `_crc_do_prefixo` deixou a posição depois do
+                    # prefixo; sem casar, o trecho inteiro é que entra.
+                    origem.seek(0)
                 # ⚠️ **Quem pula o prefixo é a POSIÇÃO do arquivo**, não esta
                 # variável: o `_crc_do_prefixo` deixou `origem` logo depois
                 # dele. `repetido` só diz quanto foi pulado — para escolher a
