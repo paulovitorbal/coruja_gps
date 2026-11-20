@@ -7,7 +7,7 @@ hardware está no `bom_schematic.md` e os requisitos no `requirements.md`.
 
 | Ferramenta | Para quê | Instalação no macOS |
 | :--- | :--- | :--- |
-| CMake ≥ 3.13 | build dos dois alvos | `brew install cmake` |
+| CMake ≥ 3.14 | build dos dois alvos | `brew install cmake` |
 | Ninja | gerador | `brew install ninja` |
 | GoogleTest | suíte de testes | `brew install googletest` |
 | Arm GNU Toolchain | compilar para o RP2350 | ver o aviso abaixo |
@@ -31,6 +31,11 @@ export PATH="$HOME/arm-gnu-toolchain/bin:$PATH"
 ```
 
 Ocupa ~1,0 GB. É o que está em uso aqui: **Arm GNU Toolchain 14.2.Rel1**.
+
+> O mínimo é **3.14**, e não 3.13: é onde nasceu o `FetchContent_MakeAvailable`,
+> que o alvo do Pico usa para trazer a biblioteca de cartão SD. Ela vem fixada
+> pelo **hash do commit** da tag `v3.6.2`, e não pelo nome da tag — tag se move,
+> e o que entra no binário publicado tem de ser o mesmo a cada build.
 
 O Pico SDK precisa do submódulo `lib/tinyusb` inicializado:
 
