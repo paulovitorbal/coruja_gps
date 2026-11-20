@@ -274,17 +274,61 @@ TEST_F(CartaoSdNoHost, passada_a_espera_o_cartao_recem_posto_e_achado) {
     EXPECT_EQ(fs.conteudo(0, "coruja.log"), "x\n");
 }
 
-TEST_F(CartaoSdNoHost, a_espera_nao_atrapalha_a_leitura_logo_apos_uma_falha) {
-    // A leitura sonda por conta propria (R-38) e paga a mesma espera: sem
-    // isso o arranque sem cartao sondaria tudo de novo a cada arquivo.
+TEST_F(CartaoSdNoHost, a_leitura_nao_paga_a_espera_do_log) {
+    // A espera existe para o LOG, que tenta a cada linha, centenas de vezes
+    // por segundo. A leitura e rara e explicita -- config e base, no
+    // arranque --, e pagar a espera ali custava a base inteira: uma falha
+    // passageira na leitura do coruja.cfg abria a janela de 5 s, o GPS
+    // levava menos que isso para configurar, e a carga da base voltava
+    // SemCartaoLegivel sem sequer montar. Sem base, o aparelho dirigia a
+    // viagem toda sem alerta, e nada a recarregava depois.
+    char buf[64];
+    std::size_t n = 0;
+    ASSERT_EQ(sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+
+    // O cartao solucou e voltou, bem antes dos 5 s.
+    poe(0, "radares.bin", "base");
+    fs.agora_ms += 100;
+    ASSERT_LT(100u, kEsperaRemontagemMs);
+    EXPECT_EQ(sd.le_arquivo("radares.bin", buf, sizeof buf, &n, log),
+              ErroCartao::Nenhum)
+        << "a leitura respeitou a espera do log e nem tentou montar";
+    EXPECT_EQ(std::string(buf, n), "base");
+}
+
+TEST_F(CartaoSdNoHost, a_leitura_em_fluxo_nao_paga_a_espera_do_log) {
+    // O mesmo, pelo caminho que a base de radares realmente usa.
+    char buf[64];
+    std::size_t n = 0;
+    ASSERT_EQ(sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+
+    poe(0, "radares.bin", "base");
+    fs.agora_ms += 100;
+    std::string lido;
+    auto ao_ler = [](void* ctx, const std::uint8_t* b, std::size_t tam) {
+        static_cast<std::string*>(ctx)->append(
+            reinterpret_cast<const char*>(b), tam);
+    };
+    std::size_t total = 0;
+    EXPECT_EQ(sd.le_em_fluxo("radares.bin", ao_ler, &lido, &total, log),
+              ErroCartao::Nenhum)
+        << "a leitura em fluxo respeitou a espera do log";
+    EXPECT_EQ(lido, "base");
+}
+
+TEST_F(CartaoSdNoHost, uma_leitura_que_falha_ainda_cala_o_log_por_um_tempo) {
+    // O outro lado da mesma moeda: a leitura nao paga a espera, mas quando
+    // ela mesma descobre que nao ha cartao, o log nao precisa redescobrir.
     char buf[64];
     std::size_t n = 0;
     ASSERT_EQ(sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log),
               ErroCartao::SemCartaoLegivel);
     const std::size_t sondas = fs.operacoes.size();
-    EXPECT_EQ(sd.le_arquivo("radares.bin", buf, sizeof buf, &n, log),
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
               ErroCartao::SemCartaoLegivel);
-    EXPECT_EQ(fs.operacoes.size(), sondas);
+    EXPECT_EQ(fs.operacoes.size(), sondas) << "o log sondou de novo";
 }
 
 TEST_F(CartaoSdNoHost, descartar_apaga_o_temporario_mesmo_depois_de_concluir) {

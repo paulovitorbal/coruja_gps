@@ -133,7 +133,16 @@ public:
 
 private:
     /// Monta o volume de trabalho e devolve seu prefixo em `raiz`.
-    ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log);
+    ///
+    /// `respeita_espera` e de quem tenta a cada linha de log: depois de uma
+    /// sondagem que nao achou cartao, nao sonda de novo por
+    /// `kEsperaRemontagemMs`. **So o log pede isso.** Leitura de config e de
+    /// base, troca, listagem e remocao sao raras e explicitas, e pagar a
+    /// espera ali custava a base inteira: uma falha passageira no arranque
+    /// abria a janela, e a carga da base voltava `SemCartaoLegivel` sem
+    /// sequer montar.
+    ErroCartao monta_volume(char* raiz, std::size_t tam_raiz, Logger& log,
+                            bool respeita_espera = false);
 
     /// Lê `nome` de um volume **já montado**. Não monta nem desmonta: é a
     /// parte que a sondagem do R-38 repete por partição.
