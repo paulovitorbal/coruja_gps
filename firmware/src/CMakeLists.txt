@@ -59,7 +59,7 @@ target_link_libraries(coruja_gps_cfg PUBLIC coruja_nucleo coruja_log)
 add_library(coruja_ota STATIC rede/AtualizadorOta.cpp rede/RemessaDados.cpp
                             rede/RespostaHttp.cpp rede/Sntp.cpp
                             rede/CaixaDns.cpp rede/CacheDeHost.cpp
-                            rede/CaixaVarredura.cpp)
+                            rede/CaixaVarredura.cpp rede/PedidoHttp.cpp)
 target_include_directories(coruja_ota PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(coruja_ota PUBLIC coruja_nucleo coruja_log)
 

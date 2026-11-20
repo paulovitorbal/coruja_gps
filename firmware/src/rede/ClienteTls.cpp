@@ -23,6 +23,7 @@
 #include "rede/PlataformaMbedtls.h"
 #include "rede/RaizesConfiaveis.h"
 #include "rede/ResolucaoDns.h"
+#include "rede/PedidoHttp.h"
 #include "rede/RespostaHttp.h"
 
 namespace coruja {
@@ -575,40 +576,14 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         return saida;
     }
 
-    // `Connection: close` de proposito: o fim do fluxo marca o fim da
-    // resposta quando o servidor nao diz tamanho.
-    //
-    // `Accept-Encoding: identity` porque o Cloudflare comprime por padrao, e
-    // um radares.bin em gzip chegaria com CRC que nao bate -- o firmware nao
-    // descomprime e nao deve passar a descomprimir.
-    //
-    // `Content-Length` so quando ha corpo. O que havia aqui era um ternario
-    // com os DOIS RAMOS IGUAIS -- a intencao de omitir estava escrita e nunca
-    // acontecia, e todo GET saia com `Content-Length: 0`. Legal, mas e codigo
-    // morto dizendo uma coisa e fazendo outra.
-    char tamanho[40] = {};
-    if (corpo > 0) {
-        std::snprintf(tamanho, sizeof tamanho, "Content-Length: %u\r\n",
-                      static_cast<unsigned>(corpo));
-    }
-
-    char cabecalho[512];
-    const int n_cab = std::snprintf(
-        cabecalho, sizeof cabecalho,
-        "%s %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-        "User-Agent: coruja-gps\r\n"
-        "Accept-Encoding: identity\r\n"
-        "%s%s%s"
-        "%s"
-        "Connection: close\r\n"
-        "\r\n",
-        metodo, url.caminho, url.host,
-        token != nullptr && token[0] != '\0' ? "X-Coruja-Token: " : "",
-        token != nullptr && token[0] != '\0' ? token : "",
-        token != nullptr && token[0] != '\0' ? "\r\n" : "",
-        tamanho);
-    if (n_cab <= 0 || static_cast<std::size_t>(n_cab) >= sizeof cabecalho) {
+    // O pedido e montado em `PedidoHttp`, que e portavel e testado no host:
+    // quando o `Content-Length` existe, quando o token acompanha e o que
+    // acontece quando nao cabe sao decisoes, e aqui elas nao teriam teste.
+    // O PORQUE de cada cabecalho esta la, uma vez so.
+    char cabecalho[kMaxPedidoHttp];
+    const std::size_t n_cab = monta_pedido_http(cabecalho, sizeof cabecalho,
+                                                metodo, url, token, corpo);
+    if (n_cab == 0) {
         cyw43_arch_lwip_begin();
         altcp_arg(pcb, nullptr);
         altcp_abort(pcb);
