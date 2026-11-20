@@ -1527,11 +1527,12 @@ class Servidor(socketserver.ThreadingTCPServer):
         if not self._vagas.acquire(blocking=False):
             self._recusa_lotado(request, client_address)
             return
-        try:
-            super().process_request(request, client_address)
-        except BaseException:
-            self._vagas.release()
-            raise
+        # Nao devolve a vaga se `process_request` levantar (por exemplo, a
+        # thread nao abre): o `socketserver` chama `shutdown_request` nesse
+        # caso, e e la que a vaga volta. Devolver aqui tambem era devolver
+        # duas vezes -- o `BoundedSemaphore` levantava ValueError dentro do
+        # tratador de erro, e o `serve_forever` morria.
+        super().process_request(request, client_address)
 
     def shutdown_request(self, request) -> None:
         # Uma vaga por conexão atendida, devolvida quando ela termina. O

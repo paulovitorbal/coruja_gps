@@ -1068,6 +1068,44 @@ class ConexoesLentasEDemais(unittest.TestCase):
                 return time.monotonic() - inicio
         self.fail(f"o servidor aguentou {limite_s} s de conta-gotas")
 
+    def test_thread_que_nao_abre_devolve_a_vaga_uma_vez_so(self):
+        """`Thread.start()` falha com "can't start new thread" -- e a
+        vaga volta UMA vez.
+
+        O `socketserver` chama `shutdown_request` quando `process_request`
+        levanta, e o override dele ja devolve a vaga. Devolver tambem no
+        `except` do `process_request` era devolver duas: o
+        `BoundedSemaphore` levantava `ValueError` dentro do tratador de
+        erro, a excecao subia ate o `serve_forever`, e o processo saia --
+        derrubando os envios em curso, que e exatamente o que o teto de
+        conexoes existe para evitar.
+        """
+        import socket
+        from unittest import mock
+
+        def sem_thread(*_a, **_k):
+            raise RuntimeError("can't start new thread")
+
+        with mock.patch.object(s.socketserver.ThreadingMixIn,
+                               "process_request", sem_thread):
+            c = self.abre()
+            # Fecha o lado do cliente: o servidor so precisa ACEITAR.
+            c.shutdown(socket.SHUT_WR)
+            import time
+            for _ in range(50):
+                time.sleep(0.05)
+                if not self.t.is_alive():
+                    break
+        self.assertTrue(
+            self.t.is_alive(),
+            "o serve_forever morreu: a vaga foi devolvida duas vezes")
+        # E o servidor segue atendendo: as duas vagas continuam as duas.
+        for _ in range(2):
+            ok = self.abre()
+            ok.sendall(b"GET /saude HTTP/1.1\r\nHost: x\r\n"
+                       b"Connection: close\r\n\r\n")
+            self.assertTrue(ok.recv(64).startswith(b"HTTP/1.1 "))
+
     def test_cabecalho_a_conta_gotas_tem_prazo_total(self):
         c = self.abre()
         c.sendall(b"GET /saude HTTP/1.1\r\nX-Lento: ")
