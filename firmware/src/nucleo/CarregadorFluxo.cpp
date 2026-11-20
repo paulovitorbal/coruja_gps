@@ -186,7 +186,12 @@ BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
         // no vetor, e e ela que segue alertando.
         log.error(kOrigemBase, "nenhuma base nova validou; segue a que estava "
                                "em uso");
-        return em_uso;
+        // A base fica, mas ja nao e a do arquivo vigente: depois de um OTA o
+        // `promove` moveu o velho para o `.bak`. Quem usa `da_vigente` (o
+        // OTA, para decidir "ja em dia") nao pode acreditar na marca velha.
+        BaseCarregada mantida = em_uso;
+        mantida.da_vigente = false;
+        return mantida;
     }
     // RF07: sem base o aparelho opera, e precisa deixar isso evidente. Quem
     // avisa e a tela, com "BASE INDISPONIVEL".
