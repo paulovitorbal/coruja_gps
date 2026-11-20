@@ -560,7 +560,14 @@ compara suas constantes de limite com as do `Configuracao.h`.
 
 **Isto muda o comportamento visível.** Desde 19/11/2026 o firmware arma o
 watchdog do RP2350. Se o aparelho parar de progredir por **16,5 s**, ele
-reinicia — sozinho, sem ninguém tocar nele.
+reinicia — sozinho, sem ninguém tocar nele. Duas consequências que se enxergam:
+
+- **A tela de falha do OTA e da remessa se dispensa sozinha em 60 s**, e o
+  aparelho volta a dirigir. Antes ela esperava para sempre o encoder; como
+  enquanto espera o GPS e os alertas não rodam, uma falha esquecida na tela
+  deixava o detector mudo pela viagem inteira.
+- **Depois de 3 mordidas seguidas, o boot seguinte NÃO arma o cão** e escreve
+  no log um aviso dizendo isso (ver "Quebrando o ciclo de reinícios").
 
 Existe porque o pior modo de falha deste produto é ficar mudo sem avisar: um
 travamento no cartão, no cyw43 ou no mbedTLS deixava o detector com a tela
@@ -587,6 +594,30 @@ Ela vem de `watchdog_enable_caused_reboot()`, e não de
 `watchdog_caused_reboot()`: o segundo diz "sim" também quando se arrasta um
 `.uf2` para o RPI-RP2, e um aviso que mente é pior que a falta dele.
 
+### Quebrando o ciclo de reinícios
+
+O único efeito de uma mordida seria a linha acima. Um cartão que segura o
+barramento ocupado passa pelo arranque (que roda sem cão) e faz o cão morder
+no primeiro acesso do laço; o aparelho reinicia, o cartão continua ocupado, e
+o ciclo se repetiria para sempre — sem diagnóstico, porque o log também
+depende do cartão. A `PoliticaDoCao` quebra isso:
+
+| Situação | O que acontece |
+| :--- | :--- |
+| boot por mordida | contador sobe |
+| qualquer outro boot (religamento, `.uf2`) | contador zera |
+| 3 mordidas seguidas | **o cão não é armado neste boot**; aviso no log |
+| 10 min de laço armado sem mordida | contador zera |
+
+O contador mora em `watchdog_hw->scratch[0]`, que sobrevive a um reset por
+watchdog (o SDK usa só 4 a 7, conferido em `watchdog.c`), junto de uma marca
+`0xC0A7` na parte alta: o conteúdo de um religamento a frio é indefinido, e
+lixo não pode virar contagem. O boot sem cão volta a se comportar como antes
+do cão — pode travar mudo, mas não entra em laço de reinícios — e, como não
+há cão para morder, a ignição seguinte conta como religamento e rearma. Dez
+minutos são o dobro da cadência mais lenta de acesso ao cartão (a descarga da
+`vigia`, a cada 5 min), então um ciclo de mordidas nunca é confundido com saúde.
+
 ### O prazo, e de onde o número vem
 
 O teto do hardware é **16 777 ms** — 24 bits de microssegundos. (Os 8,3 s que
@@ -594,38 +625,65 @@ se lê por aí são do RP2040, onde o contador decrementa duas vezes por tick,
 errata RP2040-E1.)
 
 Quem decide o prazo **não é o laço principal**: a `vigia` mede a pior volta e
-o estado saudável é a dezena de milissegundos. Quem decide é a maior espera
-**legítima** de uma operação longa — os 15 s de `kInatividadeHttpMs`, que são
-o enlace fraco, não um travamento. Abaixo disso o aparelho reiniciaria em toda
-rede ruim, e reiniciar custa a viagem em andamento. Sobra a faixa entre 15 s e
-16,777 s; 16,5 s deixa 1,5 s para o cliente HTTP desistir e voltar.
-
-**Encompridar qualquer espera de rede acima de 15 s passa a exigir alimentar o
-cão por dentro dela.** O `static_assert` no `main.cpp` quebra o build se isso
-for esquecido.
+o estado saudável é a dezena de milissegundos. Quem decide é o maior trecho
+**sem refeição** de uma operação longa — a tabela abaixo. A versão anterior
+deste texto dizia que a maior espera legítima era a janela de 15 s do
+`kInatividadeHttpMs`; **era falso**: 15 s é o máximo de CADA fase de um pedido
+HTTP (DNS, conexão e handshake, resposta), e as fases se somam. Num Wi-Fi a
+-88 dBm — DNS 2 s, handshake 9 s, resposta 6 s — são 17 s sem travamento
+nenhum.
 
 ### Alimentar por progresso, não por tempo
 
-A regra, que é a decisão de desenho inteira: **alimenta-se o cão onde algo de
-fato andou**, nunca por tempo decorrido e nunca no topo de um laço de espera.
+O cão existe para pegar um travamento **dentro de uma chamada do SDK**
+(`cyw43_arch_poll`, mbedTLS, lwIP, o driver do cartão), situação em que o
+nosso código nem chega a testar os próprios prazos. Por isso alimenta-se só
+em dois lugares: **depois de uma chamada capaz de travar ter voltado** (se
+ela trava, a refeição não acontece e o cão morde), e **num laço que tem prazo
+próprio e limitado** (se o laço gira por lógica, o prazo o encerra). Nunca por
+tempo decorrido, e nunca num laço sem chamada que possa travar ou sem limite.
 
 | Onde | O que conta como progresso |
 | :--- | :--- |
 | laço principal | a volta fechou |
-| OTA | um pedaço que chegou **e foi gravado** no cartão |
-| remessa | um pedaço lido do cartão; um pedaço entregue ao PUT |
+| laços de espera do `ClienteTls` e do DNS | uma volta, DEPOIS de `cyw43_arch_poll()` voltar; também antes de registrar uma desistência no log |
+| OTA | um pedaço que chegou **e foi gravado**; cada trecho só de cartão fechado (log, configuração, versão) |
+| remessa | um pedaço lido do cartão (nas 3 passadas); um pedaço entregue ao PUT; listagem e abertura concluídas |
+| recarga da base pós-OTA | um pedaço de 4 KiB lido e consumido |
 | configuração do GPS | um quadro UBX que saiu pela porta |
-| tela de falha | uma pintura do painel |
+| tela de falha | uma pintura do painel (e se dispensa em 60 s) |
 
-Um download que gasta os 120 s do teto sem entregar um byte não alimenta
-nenhuma vez — e é exatamente aí que o cão morde.
+### O maior tempo sem refeição, por operação
+
+Esta é a conta que decide se 16,5 s serve. Valores de constantes do código;
+onde é estimativa, está dito.
+
+| Operação | Maior trecho sem refeição | De onde vem |
+| :--- | :--- | :--- |
+| laço principal | ~53 ms (redesenho da faixa); um acesso ao cartão limita-se a 2 s × 3 tentativas **por comando**, e uma operação de vários comandos pode passar do prazo — é a mordida desejada | `vigia`; `sd_timeouts.c` |
+| pedido HTTP (`ClienteTls`) | uma volta do laço (poll + 1 ms). O passo mais caro é o handshake TLS dentro de um poll: ordem de centenas de ms (**estimativa, não medida**) | `conversa`, `espera_vigiada` |
+| DNS do `ClienteTls` | uma volta do laço; teto 15 s | `kPrazoDnsMs` |
+| SNTP (depois do `retoma`) | **10 s**: 5 s de nome + 5 s de resposta, sem refeição por dentro (o `ClienteSntp` não recebe o cão); margem de 6,5 s | `kTempoLimiteNtpMs` |
+| associação Wi-Fi | não conta: o cão está **solto** (varredura 12 s + associação 20 s) | `RedeWifi`, `CaoSuspenso` |
+| OTA, antes de soltar o cão | uma operação de cartão por trecho (log, configuração, versão) | `AcoesDoAparelho`, `executa` |
+| OTA, download | um pedaço recebido e gravado | `ao_receber_base` |
+| remessa, depois do `retoma` | uma etapa: SNTP (10 s), listagem, abertura ou um pedaço de 1 KiB | `RemessaDados` |
+| recarga pós-OTA | um pedaço de 4 KiB (2 passadas; 4 na reserva) | `troca_base` |
+| configuração do GPS | uma espera de ACK: 50 × 20 ms = 1 s | `ConfiguradorGps.h` |
+| tela de falha | 50 ms + uma pintura; encerra em 60 s | `EsperaDispensa` |
+
+O pior trecho **sem** mecanismo de alimentação por dentro é o SNTP, com 10 s:
+cabe nos 16,5 s com 6,5 s de folga, e é por isso que encompridar o
+`kTempoLimiteNtpMs` exige dar o cão ao `ClienteSntp`.
 
 ### O buraco consciente: a associação do rádio
 
 A varredura (12 s) e a associação Wi-Fi (20 s) rodam com o cão **solto**. São
 chamadas do SDK sem gancho por dentro, e 20 s passa do teto do hardware:
 mantê-lo armado reiniciaria o aparelho em toda conexão que falha — senha
-errada, rede fora de alcance —, que é desfecho comum e não travamento.
+errada, rede fora de alcance —, que é desfecho comum e não travamento. A
+soltura e a devolução são um guarda RAII (`CaoSuspenso`): não há saída da
+função que esqueça de devolver o cão.
 
 O preço está assumido: **um cyw43 que trave na associação continua deixando o
 aparelho mudo.** É o único ponto do firmware em que isso vale.
