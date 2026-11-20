@@ -23,16 +23,19 @@ O console mostra volta, percentual e velocidade.
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import pty
 import select
 import sys
+import signal
 import termios
 import time
 import tty
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from geo import metros, rumo_graus  # noqa: E402
 
 AQUI = Path(__file__).resolve().parent
 ROTA = AQUI / "rota_eixao.csv"
@@ -78,13 +81,6 @@ def carrega_rota(caminho: Path) -> list[tuple[float, float]]:
     return pontos
 
 
-def metros(a: tuple[float, float], b: tuple[float, float]) -> float:
-    """Equirretangular. A mesma aproximação que o firmware usa, e pelo mesmo
-    motivo: sobre 16 km o erro contra Haversine é de centímetros."""
-    return math.hypot((b[0] - a[0]) * 111320.0,
-                      (b[1] - a[1]) * 111320.0 * math.cos(math.radians(a[0])))
-
-
 class Percurso:
     """A rota percorrida como uma linha só: ida, volta, e de novo.
 
@@ -126,20 +122,42 @@ class Percurso:
         return lat, lon, indo, volta, na_volta / self.volta_completa
 
 
-def rumo_graus(a: tuple[float, float], b: tuple[float, float]) -> float:
-    dy = (b[0] - a[0]) * 111320.0
-    dx = (b[1] - a[1]) * 111320.0 * math.cos(math.radians(a[0]))
-    return math.degrees(math.atan2(dx, dy)) % 360.0
+def inicio_da_grade(agora: datetime) -> datetime:
+    """O instante da grade de 250 ms imediatamente anterior a `agora`."""
+    passo_us = int(PERIODO_S * 1_000_000)
+    return agora.replace(microsecond=(agora.microsecond // passo_us) * passo_us)
+
+
+def carimbo(base: datetime, k: int) -> datetime:
+    """O instante da `k`-ésima sentença contada de `base`.
+
+    Contado da base, e não do relógio de cada volta do laço: o carimbo
+    descreve a GRADE de 4 Hz que o módulo emite. Lido do relógio, dois
+    quartos seguidos podiam cair no mesmo centésimo, ou pular um.
+    """
+    return base + timedelta(seconds=k * PERIODO_S)
+
+
+def grau_minuto(v: float, digitos: int) -> str:
+    """Graus e minutos como a NMEA os escreve: `GGMM.MMMM`.
+
+    ⚠️ **Arredondado em inteiro, e não pelo `%07.4f`.** A 59,99999 minutos
+    o formato escrevia `60.0000`: uma sentença que diz "15 graus e 60
+    minutos", que o parser ou lê como outro lugar ou recusa. O minuto cheio
+    tem de subir para o grau.
+    """
+    v = abs(v)
+    g = int(v)
+    # Em décimos de milésimo de minuto, que é a resolução do campo.
+    decimos = round((v - g) * 60.0 * 10_000)
+    sobe, decimos = divmod(decimos, 60 * 10_000)
+    g += sobe
+    return f"{g:0{digitos}d}{decimos // 10_000:02d}.{decimos % 10_000:04d}"
 
 
 def frase_rmc(lat: float, lon: float, kmh: float, rumo: float,
               agora: datetime) -> str:
     """Monta a RMC como o módulo monta, com o checksum calculado."""
-    def grau_minuto(v: float, digitos: int) -> str:
-        v = abs(v)
-        g = int(v)
-        m = (v - g) * 60.0
-        return f"{g:0{digitos}d}{m:07.4f}"
 
     ns = "S" if lat < 0 else "N"
     ew = "W" if lon < 0 else "E"
@@ -149,7 +167,10 @@ def frase_rmc(lat: float, lon: float, kmh: float, rumo: float,
     # isso é o ponto do simulador: é o caso que quebra parser desatento.
     campo_rumo = "" if kmh < 0.1 else f"{rumo:.1f}"
 
-    corpo = (f"$GNRMC,{agora:%H%M%S}.00,A,"
+    # A fração do segundo é do carimbo, e não `.00` fixo: a 4 Hz o módulo
+    # real emite .00, .25, .50 e .75, e quatro sentenças por segundo com o
+    # mesmo instante escondem erro de acompanhamento de quem as lê.
+    corpo = (f"$GNRMC,{agora:%H%M%S}.{agora.microsecond // 10_000:02d},A,"
              f"{grau_minuto(lat, 2)},{ns},{grau_minuto(lon, 3)},{ew},"
              f"{nos:.2f},{campo_rumo},{agora:%d%m%y},,,A")
     cs = 0
@@ -158,13 +179,46 @@ def frase_rmc(lat: float, lon: float, kmh: float, rumo: float,
     return f"{corpo}*{cs:02X}\r\n"
 
 
+def apaga_atalho_se_for_meu(link: Path, dispositivo: str) -> None:
+    """Apaga o atalho só se ele ainda apontar para a MINHA pty.
+
+    Duas instâncias usam o mesmo caminho: a segunda refaz o atalho para a
+    pty dela. Ao sair, a primeira apagava o atalho da outra, e quem
+    consumia perdia a serial de uma instância que continuava viva.
+    """
+    try:
+        if link.is_symlink() and os.readlink(link) == dispositivo:
+            link.unlink()
+    except OSError:
+        pass
+
+
+def velocidade_valida(texto: str) -> float:
+    """O valor de `--velocidade`, dentro do mesmo teto das teclas.
+
+    Sem teto, `--velocidade 20000` fazia cada amostra avançar 1,4 km: um
+    radar de 300 m de raio cabia inteiro entre duas sentenças e nunca era
+    alertado -- com o simulador parecendo funcionar.
+    """
+    try:
+        v = float(texto)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{texto!r} nao e um numero")
+    if not 0.0 <= v <= VELOCIDADE_MAXIMA_KMH:
+        raise argparse.ArgumentTypeError(
+            f"{texto} km/h: o simulador vai de 0 a "
+            f"{VELOCIDADE_MAXIMA_KMH:.0f} km/h")
+    return v
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--rota", type=Path, default=ROTA)
-    p.add_argument("--velocidade", type=float, default=VELOCIDADE_INICIAL_KMH,
-                   help="km/h iniciais")
+    p.add_argument("--velocidade", type=velocidade_valida,
+                   default=VELOCIDADE_INICIAL_KMH,
+                   help=f"km/h iniciais, de 0 a {VELOCIDADE_MAXIMA_KMH:.0f}")
     p.add_argument("--sem-link", action="store_true",
                    help=f"nao cria o atalho {LINK.name}")
     p.add_argument("--sem-pausa", action="store_true",
@@ -204,11 +258,20 @@ def main(argv: list[str]) -> int:
     print(f"  taxa  : {1/PERIODO_S:.0f} Hz")
     print("  teclas: a acelera · d desacelera · 0 para · q sai")
     print()
-    kmh = max(0.0, args.velocidade)
+    kmh = args.velocidade
     rodado = 0.0
     descartadas = 0
     entrada = sys.stdin.fileno()
     anterior = termios.tcgetattr(entrada) if os.isatty(entrada) else None
+
+    # SIGTERM e como este processo costuma morrer -- `kill`, `p.terminate()`
+    # de quem o roda. Sem tratar, ele morre SEM passar pelo `finally`, e o
+    # terminal de quem o chamou fica em cbreak, sem eco, ate alguem rodar
+    # `stty sane`. Virando SystemExit, o encerramento e o mesmo do `q`.
+    def encerra(_sinal, _quadro):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, encerra)
 
     try:
         # O cbreak fica **dentro** do try: se algo estourar adiante, o
@@ -240,6 +303,10 @@ def main(argv: list[str]) -> int:
         # um uso perfeitamente válido: `simula_gps.py | tee captura.nmea`.
 
         proximo = time.monotonic()
+        # A grade do carimbo e fixada uma vez, no inicio: e ela que da a
+        # cadencia de .00, .25, .50, .75 da taxa nominal.
+        base_do_tempo = inicio_da_grade(datetime.now(timezone.utc))
+        emitidas = 0
         while True:
             # --- teclado, sem bloquear ---
             # `anterior is not None` significa "stdin é um terminal". Sem
@@ -269,7 +336,8 @@ def main(argv: list[str]) -> int:
             rumo = rumo_graus((lat, lon), frente) if (lat, lon) != frente else 0.0
 
             frase = frase_rmc(lat, lon, kmh, rumo,
-                              datetime.now(timezone.utc)).encode()
+                              carimbo(base_do_tempo, emitidas)).encode()
+            emitidas += 1
             try:
                 escritos = os.write(mestre, frase)
                 if escritos != len(frase):
@@ -306,11 +374,10 @@ def main(argv: list[str]) -> int:
             termios.tcsetattr(entrada, termios.TCSADRAIN, anterior)
         os.close(mestre)
         os.close(escravo)
-        if not args.sem_link and LINK.is_symlink():
-            try:
-                LINK.unlink()   # o atalho aponta para uma pty que ja morreu
-            except OSError:
-                pass
+        if not args.sem_link:
+            # So o MEU: o atalho pode ja ter sido refeito por outra
+            # instancia, que continua viva.
+            apaga_atalho_se_for_meu(LINK, dispositivo)
         print()
 
 

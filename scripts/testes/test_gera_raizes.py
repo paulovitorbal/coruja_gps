@@ -8,8 +8,10 @@ uma raiz vencida mata o OTA numa data futura sem ninguém ter mexido em nada.
 Os dois casos só aparecem se alguém perguntar, e é isso que estes testes fazem.
 """
 
+import contextlib
 import datetime
 import hashlib
+import io
 import os
 import re
 import subprocess
@@ -52,8 +54,7 @@ def validade_de(pem: str) -> datetime.datetime:
     saida = subprocess.run(["openssl", "x509", "-noout", "-enddate"],
                            input=pem.encode(), capture_output=True,
                            check=True).stdout.decode()
-    bruto = saida.split("=", 1)[1].replace(" GMT", "").strip()
-    return datetime.datetime.strptime(bruto, "%b %d %H:%M:%S %Y")
+    return g.data_de(saida.split("=", 1)[1])
 
 
 class PacoteDeRaizes(unittest.TestCase):
@@ -93,7 +94,7 @@ class PacoteDeRaizes(unittest.TestCase):
         # Vence em silêncio: o aparelho só descobre quando um handshake falha
         # em campo, e aí o OTA -- que seria o conserto -- é justamente o que
         # parou.
-        agora = datetime.datetime.utcnow()
+        agora = datetime.datetime.now(datetime.timezone.utc)
         for pem in self.pems:
             self.assertGreater(validade_de(pem), agora)
 
@@ -101,7 +102,7 @@ class PacoteDeRaizes(unittest.TestCase):
         # Aviso antecipado, não constatação de óbito. Um ano é prazo para
         # regerar o pacote e distribuir o firmware novo pelo próprio OTA,
         # enquanto ele ainda funciona.
-        agora = datetime.datetime.utcnow()
+        agora = datetime.datetime.now(datetime.timezone.utc)
         menor = min(validade_de(p) for p in self.pems)
         self.assertGreater(
             menor, agora + datetime.timedelta(days=365),
@@ -188,7 +189,7 @@ class ServidorDeVerdade(unittest.TestCase):
         # O aparelho julga o prazo com o relogio que o NTP acertou. Um
         # certificado vencido no servidor para o OTA do mesmo jeito que uma
         # raiz vencida no firmware.
-        agora = datetime.datetime.utcnow()
+        agora = datetime.datetime.now(datetime.timezone.utc)
         self.assertGreater(validade_de(self.cadeia[0]), agora)
 
     def test_o_servidor_aceita_TLS_1_2(self):
@@ -213,21 +214,111 @@ class ServidorDeVerdade(unittest.TestCase):
         self.assertIn(tipo, ("id-ecPublicKey", "rsaEncryption"), tipo)
 
 
+def certificado_de_teste(pasta: Path, nome: str, *extras: str) -> str:
+    """Um certificado EC P-256 gerado na hora, em PEM. Nada sai da maquina.
+
+    `extras` vai direto ao `openssl req -x509`: e por ele que o teste monta
+    o certificado errado de cada jeito (nao-CA, emitido por outro, curto).
+    """
+    chave = pasta / f"{nome}.key"
+    saida = pasta / f"{nome}.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec",
+                    "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                    "-keyout", str(chave), "-out", str(saida),
+                    "-subj", f"/CN={nome}", *extras],
+                   capture_output=True, check=True)
+    return saida.read_text()
+
+
+def impressao_de(pem: str) -> str:
+    return hashlib.sha256(der_de(pem)).hexdigest()
+
+
 class ConfereRaiz(unittest.TestCase):
     """A conferência que o gerador faz antes de aceitar um download."""
 
     def setUp(self):
         self.pem = certificados_do_cabecalho()[0]
-        self.impressao = hashlib.sha256(der_de(self.pem)).hexdigest()
+        self.impressao = impressao_de(self.pem)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pasta = Path(self.tmp.name)
 
     def test_impressao_certa_passa(self):
-        g.confere("teste", self.pem.encode(), self.impressao)
+        pem, _expira = g.confere("teste", self.pem.encode(), self.impressao)
+        self.assertEqual(pem, self.pem.strip())
 
     def test_impressao_errada_recusa(self):
         # O caso que importa: alguém respondeu no lugar da autoridade.
         with self.assertRaises(SystemExit) as e:
             g.confere("teste", self.pem.encode(), "0" * 64)
         self.assertIn("sha256", str(e.exception))
+
+    def test_o_der_tambem_e_aceito(self):
+        # A GTS serve a raiz em DER (.crt); a ISRG, em PEM.
+        pem, _ = g.confere("teste", der_de(self.pem), self.impressao)
+        self.assertEqual(pem, self.pem.strip())
+
+    def test_certificado_a_mais_no_pacote_NAO_e_embutido(self):
+        # So o PRIMEIRO certificado da resposta e conferido. Antes, o PEM
+        # inteiro ia para o firmware: um segundo certificado colado no fim
+        # virava raiz de confianca sem impressao nenhuma.
+        intruso = certificado_de_teste(self.pasta, "Intruso", "-days", "30")
+        pem, _ = g.confere("teste", (self.pem + intruso).encode(),
+                           self.impressao)
+        self.assertEqual(pem.count("BEGIN CERTIFICATE"), 1)
+        self.assertEqual(impressao_de(pem + "\n"), self.impressao)
+        self.assertNotIn(intruso.strip().splitlines()[1], pem)
+
+    def test_nao_auto_assinado_e_recusado(self):
+        # Um intermediario expiraria anos antes da raiz e levaria o OTA
+        # junto, sem aviso.
+        certificado_de_teste(self.pasta, "Raiz", "-days", "30")
+        meio = certificado_de_teste(
+            self.pasta, "Intermediaria", "-days", "30",
+            "-CA", str(self.pasta / "Raiz.pem"),
+            "-CAkey", str(self.pasta / "Raiz.key"))
+        with self.assertRaises(SystemExit) as e:
+            g.confere("teste", meio.encode(), impressao_de(meio))
+        self.assertIn("nao e auto-assinado", str(e.exception))
+
+    def test_nao_CA_e_recusado(self):
+        folha = certificado_de_teste(
+            self.pasta, "Folha", "-days", "30",
+            "-addext", "basicConstraints=critical,CA:FALSE")
+        with self.assertRaises(SystemExit) as e:
+            g.confere("teste", folha.encode(), impressao_de(folha))
+        self.assertIn("nao e uma CA", str(e.exception))
+
+    def test_raiz_vencida_e_recusada(self):
+        # Embutir uma raiz vencida e embutir um OTA que ja nasce parado: o
+        # aparelho recusaria todo servidor assinado por ela.
+        raiz = certificado_de_teste(self.pasta, "Curta", "-days", "1")
+        depois = (datetime.datetime.now(datetime.timezone.utc)
+                  + datetime.timedelta(days=2))
+        with self.assertRaises(SystemExit) as e:
+            g.confere("teste", raiz.encode(), impressao_de(raiz),
+                      agora=depois)
+        self.assertIn("vencida", str(e.exception))
+        # E no prazo, a mesma raiz passa.
+        g.confere("teste", raiz.encode(), impressao_de(raiz))
+
+
+class GeraOCabecalho(unittest.TestCase):
+    def test_as_raizes_de_hoje_regeram_o_cabecalho_identico(self):
+        # O PEM agora e reemitido do DER conferido. Para as tres raizes de
+        # verdade isso nao pode mudar um byte do que o firmware compila --
+        # e se prova sem rede, servindo a cada URL o que o cabecalho tem.
+        pems = {impressao_de(p): p for p in certificados_do_cabecalho()}
+        servido = {}
+        for _nome, url, impressao, _motivo in g.RAIZES:
+            pem = pems[impressao]
+            # Como a autoridade serve: a GTS em DER, a ISRG em PEM.
+            servido[url] = der_de(pem) if url.endswith(".crt") \
+                else pem.encode()
+        with contextlib.redirect_stderr(io.StringIO()):
+            gerado = g.gera(servido.__getitem__)
+        self.assertEqual(gerado, CABECALHO.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ próprias autoridades. Para trocar uma raiz, troque também a impressão, de
 propósito: é para doer.
 """
 
+import datetime
 import hashlib
 import subprocess
 import sys
@@ -52,6 +53,8 @@ def como_pem(bruto: bytes) -> bytes:
 
 
 def como_der(pem: bytes) -> bytes:
+    """O DER do PRIMEIRO certificado do PEM -- o `openssl x509` ignora o
+    resto."""
     return subprocess.run(
         ["openssl", "x509", "-outform", "DER"],
         input=pem, capture_output=True, check=True).stdout
@@ -63,15 +66,34 @@ def campo(pem: bytes, opcao: str) -> str:
     return saida.decode().split("=", 1)[1].strip()
 
 
-def confere(nome: str, pem: bytes, impressao: str) -> str:
-    """Levanta se o certificado não for o esperado. Devolve a data de expiração."""
-    visto = hashlib.sha256(como_der(pem)).hexdigest()
+def data_de(texto: str) -> datetime.datetime:
+    """A data do `openssl x509 -enddate`, em UTC."""
+    return datetime.datetime.strptime(
+        texto.replace(" GMT", "").strip(),
+        "%b %d %H:%M:%S %Y").replace(tzinfo=datetime.timezone.utc)
+
+
+def confere(nome: str, bruto: bytes, impressao: str,
+            agora: datetime.datetime | None = None) -> tuple[str, str]:
+    """Levanta se o certificado não for o esperado.
+
+    Devolve (pem, expira): o PEM **reemitido do DER conferido**, e a data
+    de expiração.
+
+    ⚠️ Reemitido, e não o que veio: o `openssl x509` lê só o PRIMEIRO
+    certificado da resposta, e é só esse que a impressão confere. Embutir o
+    texto recebido levaria junto qualquer certificado colado depois dele —
+    uma raiz de confiança a mais, que nenhuma impressão conferiu.
+    """
+    der = como_der(como_pem(bruto))
+    visto = hashlib.sha256(der).hexdigest()
     if visto != impressao:
         raise SystemExit(
             f"RECUSADO: {nome} tem sha256 {visto},\n"
             f"          e a impressao fixada e {impressao}.\n"
             "          Ou a autoridade trocou a raiz, ou alguem respondeu no\n"
             "          lugar dela. Confira a mao antes de mexer neste script.")
+    pem = como_pem(der)
 
     # Raiz e auto-assinada por definicao. Um intermediario que passasse aqui
     # expiraria antes e quebraria o OTA sem aviso.
@@ -87,20 +109,36 @@ def confere(nome: str, pem: bytes, impressao: str) -> str:
     if "CA:TRUE" not in texto:
         raise SystemExit(f"RECUSADO: {nome} nao e uma CA")
 
-    return campo(pem, "-enddate")
+    # Uma raiz vencida embutida e um OTA que ja nasce parado: o aparelho
+    # recusaria todo servidor assinado por ela.
+    expira = campo(pem, "-enddate")
+    agora = agora or datetime.datetime.now(datetime.timezone.utc)
+    if data_de(expira) <= agora:
+        raise SystemExit(f"RECUSADO: {nome} esta vencida desde {expira}")
+
+    return pem.decode().strip(), expira
 
 
-def main() -> int:
+def baixa_da_rede(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=30) as r:
+        return r.read()
+
+
+def gera(baixa) -> str:
+    """O texto do cabeçalho, com cada raiz obtida por `baixa(url)`.
+
+    `baixa` entra como parâmetro para o cabeçalho poder ser regerado sem
+    rede, a partir de certificados já conhecidos -- é assim que o teste
+    prova que a saída legítima não muda.
+    """
     blocos = []
     resumo = []
     for nome, url, impressao, motivo in RAIZES:
         print(f"baixando {nome}...", file=sys.stderr)
-        with urllib.request.urlopen(url, timeout=30) as r:
-            pem = como_pem(r.read())
-        expira = confere(nome, pem, impressao)
+        pem, expira = confere(nome, baixa(url), impressao)
         print(f"  ok, expira em {expira}", file=sys.stderr)
         resumo.append((nome, motivo, expira, impressao))
-        blocos.append((nome, motivo, expira, pem.decode().strip()))
+        blocos.append((nome, motivo, expira, pem))
 
     linhas = [
         "// GERADO POR scripts/gera_raizes.py -- NAO EDITE A MAO.",
@@ -121,10 +159,6 @@ def main() -> int:
     # Ordenado pela data de verdade, e nao pela ordem da lista acima: um
     # resumo que diz "do mais curto para o mais longo" e nao esta ordenado
     # engana quem o le para decidir quando agir.
-    import datetime
-    def data_de(texto: str) -> datetime.datetime:
-        return datetime.datetime.strptime(texto.replace(" GMT", "").strip(),
-                                          "%b %d %H:%M:%S %Y")
     for nome, _motivo, expira, _imp in sorted(resumo, key=lambda r: data_de(r[2])):
         linhas.append(f"//   {nome:<14} {expira}")
     linhas += [
@@ -160,7 +194,11 @@ def main() -> int:
         "}  // namespace coruja",
         "",
     ]
-    DESTINO.write_text("\n".join(linhas), encoding="utf-8")
+    return "\n".join(linhas)
+
+
+def main() -> int:
+    DESTINO.write_text(gera(baixa_da_rede), encoding="utf-8")
     print(f"escrito: {DESTINO} ({DESTINO.stat().st_size} bytes)",
           file=sys.stderr)
     return 0
