@@ -127,10 +127,13 @@ coruja::ErroCartao le_base_do_cartao(void* fonte, const char* nome,
 /// No boot não há nenhuma, e o arquivo é lido uma vez só.
 coruja::BaseCarregada carrega_base(coruja::CartaoSd& cartao,
                                    const coruja::BaseCarregada& em_uso,
-                                   coruja::Logger& log) {
+                                   coruja::Logger& log,
+                                   coruja::CaoDeGuarda* cao) {
+    // `cao` e alimentado a cada pedaco lido: sao 2 passadas (4 se cair na
+    // reserva) sobre 214 KB sem nenhum gancho por dentro do `le_em_fluxo`.
     return coruja::troca_base(le_base_do_cartao, &cartao, coruja::kArquivoBase,
                               coruja::kArquivoBak, g_pontos,
-                              coruja::kCapacidadeFirmware, em_uso, log);
+                              coruja::kCapacidadeFirmware, em_uso, log, cao);
 }
 
 /// A leitura do `coruja.cfg` de todo alvo, com o recuo para o `coruja.bak`
@@ -197,7 +200,7 @@ public:
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa),
-          espera_(encoder, pausa, &cao),
+          espera_(encoder, pausa, &cao), cao_(cao),
           log_(log), http_(http), sincronizador_(sincronizador),
           gps_(gps), preparo_(preparo) {}
 
@@ -302,11 +305,17 @@ public:
         // Descarrega o log antes: o OTA mexe no cartão por bastante tempo, e
         // se algo travar no meio o que já aconteceu fica gravado.
         log_.descarrega();
+        // Cada trecho so de cartao, entre a ultima volta do laco e a
+        // associacao Wi-Fi, e fechado com uma refeicao: somados passavam do
+        // prazo num cartao lento, e nenhum deles tem gancho por dentro.
+        cao_.alimenta();
 
         // A configuração é relida AQUI e não guardada do boot: trocar o
         // cartão passa a valer sem reiniciar (RNF03).
         coruja::Configuracao config;
-        if (!carrega_configuracao(cartao_, &config, log_)) {
+        const bool config_ok = carrega_configuracao(cartao_, &config, log_);
+        cao_.alimenta();
+        if (!config_ok) {
             log_.error("ota", "sem configuracao utilizavel");
             mostra_falha(coruja::ResultadoOta::SemConfiguracao);
             return;
@@ -318,6 +327,7 @@ public:
             resultado = ota_.executa(config, log_);
         }
         log_.descarrega();
+        cao_.alimenta();
 
         // **Recarrega a base so quando ela mudou.** Voltou a ser economia:
         // o emprestimo da memoria foi aposentado -- o lwIP sobrescrevia o
@@ -331,7 +341,7 @@ public:
         // vetor misturado. `carrega_base` devolve a base que passa a valer --
         // a de antes, a nova, ou nenhuma --, e e ela que o piloto recebe.
         if (resultado == coruja::ResultadoOta::Atualizada) {
-            base_ = carrega_base(cartao_, base_, log_);
+            base_ = carrega_base(cartao_, base_, log_, &cao_);
             piloto_.define_base(g_pontos, base_.pontos);
             // O OTA acabou de gravar o `versao.txt` e supoe que a base nova
             // entrou. Quem sabe se ela de fato foi aceita e a carga: se o
@@ -366,11 +376,14 @@ public:
         // que ja aconteceu nesta sessao precisa estar no arquivo para subir
         // junto. Sem isto o que o servidor recebe para na ultima descarga.
         log_.descarrega();
+        cao_.alimenta();
 
         // Releida aqui como no OTA: trocar o cartao passa a valer sem
         // reiniciar (RNF03), e a URL de envio mora no mesmo arquivo.
         coruja::Configuracao config;
-        if (!carrega_configuracao(cartao_, &config, log_)) {
+        const bool config_ok = carrega_configuracao(cartao_, &config, log_);
+        cao_.alimenta();
+        if (!config_ok) {
             log_.error("remessa", "sem configuracao utilizavel");
             mostra_falha_remessa(coruja::ResultadoRemessa::SemConfiguracao);
             return;
@@ -399,6 +412,7 @@ public:
 
         log_.usa_arquivo(kArquivoLog);
         log_.descarrega();
+        cao_.alimenta();
 
         // Mesma regra do OTA: fim feliz passa, falha espera. Quem perdeu a
         // frase nao tem como pedir de novo.
@@ -445,6 +459,7 @@ private:
     coruja::Buzzer&         buzzer_;
     coruja::Pausa&          pausa_;
     coruja::EsperaDispensa  espera_;
+    coruja::CaoDeGuarda&    cao_;
     coruja::LoggerCartao&   log_;
     coruja::ClienteTls&     http_;
     coruja::SincronizadorHora& sincronizador_;
@@ -652,7 +667,7 @@ int main() {
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
     const coruja::BaseCarregada base =
-        carrega_base(cartao, coruja::BaseCarregada{}, log);
+        carrega_base(cartao, coruja::BaseCarregada{}, log, nullptr);
     piloto.define_base(g_pontos, base.pontos);
     // A linha de `carrega_base` diz quantos pontos o ARQUIVO tinha; esta diz
     // quantos chegaram a quem alerta. Eram a mesma coisa em todo log que

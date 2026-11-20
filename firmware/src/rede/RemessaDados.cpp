@@ -381,7 +381,12 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
     }
 
     std::size_t tamanho = 0;
-    if (cartao_.abre_para_leitura(nome, &tamanho, log) != ErroCartao::Nenhum) {
+    const ErroCartao abertura = cartao_.abre_para_leitura(nome, &tamanho, log);
+    // Antes de qualquer log: um `log.error` forca descarga no cartao, e esta
+    // abertura vem logo depois da associacao (o cao acabou de ser retomado,
+    // com o prazo cheio) e da listagem.
+    alimenta_o_cao();
+    if (abertura != ErroCartao::Nenhum) {
         std::snprintf(msg, sizeof msg, "nao abri %s", nome);
         log.error(kOrigem, msg);
         return Desfecho::Cartao;
@@ -483,6 +488,7 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
     std::size_t agora = 0;
     const bool releu = cartao_.abre_para_leitura(nome, &agora, log)
                        == ErroCartao::Nenhum;
+    alimenta_o_cao();
     Crc32 confere;
     bool  igual = releu && agora == tamanho;
     if (igual) {
@@ -496,6 +502,9 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
             }
             confere.alimenta(bomba_.pedaco, n);
             relidos += n;
+            // Como na primeira passada: cada pedaco lido e progresso, e um
+            // `le()` que nao volta nao produz nenhum.
+            alimenta_o_cao();
         }
         igual = igual && relidos == tamanho && confere.valor() == crc_local;
     }
@@ -568,6 +577,10 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     if (preparo_ != nullptr) {
         preparo_->apos_conectar(log);
     }
+    // O SNTP (ate 5 s de nome + 5 s de resposta) acabou de rodar sobre o prazo
+    // cheio do `retoma`; ele e seguido da listagem e da abertura do primeiro
+    // arquivo, tudo cartao sem gancho. Cada etapa concluida fecha o seu trecho.
+    alimenta_o_cao();
 
     ResultadoRemessa saida = ResultadoRemessa::NadaAEnviar;
     // So os contadores: os nomes alem de `n` nao sao lidos por ninguem, e
@@ -576,7 +589,9 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     colheita_.ignorados = 0;
 
     avisa(FaseRemessa::Listando, "", 0, 0, 1);
-    if (cartao_.lista(ao_listar, &colheita_, log) != ErroCartao::Nenhum) {
+    const ErroCartao listagem = cartao_.lista(ao_listar, &colheita_, log);
+    alimenta_o_cao();
+    if (listagem != ErroCartao::Nenhum) {
         log.error(kOrigem, "nao consegui listar o cartao");
         saida = ResultadoRemessa::FalhaDeCartao;
     } else {

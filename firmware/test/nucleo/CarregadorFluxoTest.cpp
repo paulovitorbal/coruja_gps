@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "apoio/CaoDeGuardaFalso.h"
 #include "apoio/LoggerMock.h"
 
 namespace {
@@ -179,6 +180,12 @@ struct CartaoDeBases {
     unsigned leituras = 0;
     /// A leitura de numero N (1, 2, ...) para no meio e devolve falha.
     unsigned falha_na_leitura = 0;
+    /// Quanto o relogio falso anda a cada pedaco entregue, e de que tamanho
+    /// eles sao. Um cartao lento ou degradado e exatamente isto: pedaco a
+    /// pedaco, o tempo passa.
+    std::uint32_t* relogio = nullptr;
+    std::uint32_t  custo_por_pedaco_ms = 0;
+    std::size_t    tamanho_do_pedaco = 4096;
 
     static ErroCartao le(void* fonte, const char* nome, AoLerPedacoBase ao_ler,
                          void* contexto, Logger&) {
@@ -189,8 +196,10 @@ struct CartaoDeBases {
         const auto& b = it->second;
         const bool falha = c->leituras == c->falha_na_leitura;
         const std::size_t ate = falha ? b.size() / 2 : b.size();
-        for (std::size_t i = 0; i < ate; i += 4096) {
-            ao_ler(contexto, b.data() + i, std::min<std::size_t>(4096, ate - i));
+        const std::size_t passo = c->tamanho_do_pedaco;
+        for (std::size_t i = 0; i < ate; i += passo) {
+            if (c->relogio != nullptr) { *c->relogio += c->custo_por_pedaco_ms; }
+            ao_ler(contexto, b.data() + i, std::min<std::size_t>(passo, ate - i));
         }
         return falha ? ErroCartao::FalhaDeLeitura : ErroCartao::Nenhum;
     }
@@ -214,10 +223,11 @@ struct TrocaDaBase : public ::testing::Test {
         return b;
     }
 
-    BaseCarregada troca(const BaseCarregada& em_uso) {
+    BaseCarregada troca(const BaseCarregada& em_uso,
+                        CaoDeGuarda* cao = nullptr) {
         return troca_base(&CartaoDeBases::le, &cartao, "radares.bin",
                           "radares.bak", vetor.data(), vetor.size(), em_uso,
-                          log);
+                          log, cao);
     }
 
     bool vetor_igual(const std::vector<Ponto>& outro) const {
@@ -341,6 +351,64 @@ TEST_F(TrocaDaBase, sem_base_em_uso_e_sem_arquivo_fica_sem_base) {
     const BaseCarregada depois = troca(BaseCarregada{});
     EXPECT_EQ(depois.pontos, 0u);
     EXPECT_TRUE(log.contem(Nivel::Error, "NENHUMA base"));
+}
+
+// ---------------------------------------------------------------------------
+// O cao de guarda na recarga pos-OTA. Ela le o `radares.bin` duas vezes (quatro
+// se cair na reserva), com o laco principal parado, e o `le_em_fluxo` nao tem
+// gancho por dentro: sem refeicao por pedaco, um cartao lento reiniciava o
+// aparelho no meio da recarga.
+
+class RelogioDoCartao : public Pausa {
+public:
+    std::uint32_t agora = 500'000;
+    void espera_ms(std::uint32_t ms) override { agora += ms; }
+    std::uint32_t agora_ms() override { return agora; }
+};
+
+TEST_F(TrocaDaBase, cada_pedaco_lido_alimenta_o_cao) {
+    ASSERT_FALSE(fixture.empty());
+    cartao.arquivos["radares.bin"] = fixture;
+    cartao.tamanho_do_pedaco = 256;
+    teste::CaoDeGuardaFalso cao;
+
+    troca(BaseCarregada{}, &cao);
+
+    const unsigned pedacos =
+        static_cast<unsigned>((fixture.size() + 255) / 256);
+    ASSERT_GT(pedacos, 3u);
+    EXPECT_EQ(cao.alimentacoes, pedacos);
+}
+
+TEST_F(TrocaDaBase, cartao_lento_nas_quatro_passadas_nao_deixa_o_cao_sem_comer) {
+    // Pior caso: base em uso (validacao + copia) e o `.bin` que cai na
+    // reserva, que e lida duas vezes tambem -- quatro passadas.
+    ASSERT_FALSE(fixture.empty());
+    auto corrompida = fixture;
+    corrompida[corrompida.size() - 5] ^= 0x01U;
+    cartao.arquivos["radares.bin"] = corrompida;
+    cartao.arquivos["radares.bak"] = fixture;
+    RelogioDoCartao relogio;
+    cartao.relogio = &relogio.agora;
+    cartao.custo_por_pedaco_ms = 2'000;
+    cartao.tamanho_do_pedaco = 64;
+    teste::CaoCronometrado cao(relogio);
+
+    const BaseCarregada depois = troca(poe_base_em_uso(), &cao);
+    cao.fecha();
+
+    EXPECT_EQ(depois.pontos, 100u);
+    EXPECT_GT(relogio.agora - 500'000u, kPrazoCaoMs)
+        << "o cenario nem passa do prazo: nao prova nada";
+    EXPECT_LE(cao.maior_intervalo_ms, 2'000u)
+        << "um trecho da recarga ficou " << cao.maior_intervalo_ms
+        << " ms sem refeicao";
+}
+
+TEST_F(TrocaDaBase, sem_cao_a_troca_roda_igual) {
+    ASSERT_FALSE(fixture.empty());
+    cartao.arquivos["radares.bin"] = fixture;
+    EXPECT_EQ(troca(BaseCarregada{}, nullptr).pontos, 100u);
 }
 
 }  // namespace

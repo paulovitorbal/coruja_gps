@@ -104,17 +104,28 @@ namespace {
 
 constexpr const char* kOrigemBase = "base";
 
+/// O que o `ler` recebe de volta a cada pedaco: o carregador e quem alimentar.
+struct Passada {
+    CarregadorFluxo* carregador;
+    CaoDeGuarda*     cao;
+};
+
 void ao_ler_pedaco(void* contexto, const std::uint8_t* bytes,
                    std::size_t tamanho) {
-    static_cast<CarregadorFluxo*>(contexto)->alimenta(bytes, tamanho);
+    auto* p = static_cast<Passada*>(contexto);
+    p->carregador->alimenta(bytes, tamanho);
+    // Depois de consumido: pedaco que chegou E foi processado e progresso.
+    if (p->cao != nullptr) { p->cao->alimenta(); }
 }
 
 /// Uma passada inteira pelo arquivo. Verdadeiro se ele leu e validou.
 bool passa_pelo_arquivo(LeituraEmFluxo ler, void* fonte, const char* nome,
-                        CarregadorFluxo* carregador, Logger& log) {
+                        CarregadorFluxo* carregador, CaoDeGuarda* cao,
+                        Logger& log) {
     char msg[96];
     carregador->reinicia();
-    const ErroCartao leitura = ler(fonte, nome, ao_ler_pedaco, carregador, log);
+    Passada passada{carregador, cao};
+    const ErroCartao leitura = ler(fonte, nome, ao_ler_pedaco, &passada, log);
     if (leitura != ErroCartao::Nenhum) {
         std::snprintf(msg, sizeof msg, "'%s': %s", nome, descreve(leitura));
         // Tentar o vigente e cair na reserva e o projeto funcionando. Se
@@ -157,7 +168,7 @@ void anuncia(const char* nome, const char* reserva,
 BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
                          const char* reserva, Ponto* destino,
                          std::size_t capacidade, const BaseCarregada& em_uso,
-                         Logger& log) {
+                         Logger& log, CaoDeGuarda* cao) {
     // Dois carregadores, um sem destino: o que valida nao tem como escrever
     // no vetor nem por engano. Custam ~100 B de pilha cada.
     CarregadorFluxo validador(nullptr, capacidade);
@@ -167,11 +178,11 @@ BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
 
     for (const char* candidato : {nome, reserva}) {
         if (protege &&
-            !passa_pelo_arquivo(ler, fonte, candidato, &validador, log)) {
+            !passa_pelo_arquivo(ler, fonte, candidato, &validador, cao, log)) {
             continue;
         }
         tocou_no_vetor = true;
-        if (!passa_pelo_arquivo(ler, fonte, candidato, &carregador, log)) {
+        if (!passa_pelo_arquivo(ler, fonte, candidato, &carregador, cao, log)) {
             continue;
         }
         anuncia(candidato, reserva, carregador, log);

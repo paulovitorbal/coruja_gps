@@ -282,6 +282,10 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
 
     log.debug("ota", "==== atualizacao solicitada ====");
     le_versao_local(log);
+    // Leitura so de cartao, sem gancho, logo antes de soltar o cao para a
+    // associacao: fechada com uma refeicao, como os trechos de cartao que a
+    // precedem em `AcoesDoAparelho` (main.cpp).
+    alimenta_o_cao();
 
     avisa(FaseOta::Conectando);
     // ⚠️ **O cao sai solto para a associacao, e volta logo depois.** A

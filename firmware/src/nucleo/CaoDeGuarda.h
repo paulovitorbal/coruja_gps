@@ -27,7 +27,9 @@ constexpr std::uint32_t kPrazoMaximoCaoMs = 16'777;
 /// de um segundo já teria trezentas vezes de folga.
 ///
 /// **Quem decide é o maior trecho SEM REFEIÇÃO de uma operação longa**, e a
-/// conta de cada operação está na tabela abaixo.
+/// conta de cada operação está na tabela "O maior tempo sem refeição, por
+/// operação" da seção do cão no `firmware/README.md`. Quem mexer numa espera
+/// ou num prazo de rede refaz aquela conta.
 ///
 /// ## A regra de alimentar, e o que ela proíbe de verdade
 ///
@@ -59,7 +61,7 @@ constexpr std::uint32_t kPrazoMaximoCaoMs = 16'777;
 /// -88 dBm — DNS 2 s, handshake 9 s, resposta 6 s — são 17 s, mais que os
 /// 16,5 s, sem nenhum travamento: o cão mordia um aparelho vivo. Hoje o
 /// `ClienteTls` alimenta a cada volta, e o prazo precisa cobrir só o trecho
-/// entre duas refeições, que é uma volta do laço (ver a tabela).
+/// entre duas refeições, que é uma volta do laço (ver a tabela do README).
 ///
 /// Mantém-se 16,5 s: acima de qualquer chamada única de cartão ou de rede que
 /// seja legítima, e abaixo do teto do hardware.

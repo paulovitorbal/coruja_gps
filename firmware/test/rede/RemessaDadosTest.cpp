@@ -85,8 +85,21 @@ public:
     /// acaba. É o caso que a conferência de tamanho não enxerga.
     std::string troca_depois_de_enviar;
     std::string troca_em;
+    /// O tempo que cada operacao do cartao gasta do relogio falso. Zero e o
+    /// cartao instantaneo que quase todos os testes querem; um cartao lento
+    /// ou degradado (2 s de timeout por comando, 3 tentativas) nao e zero, e
+    /// os testes do cao precisam dele para a conta de tempo ser verdadeira.
+    PausaFalsa*   relogio = nullptr;
+    std::uint32_t custo_lista_ms = 0;
+    std::uint32_t custo_abre_ms = 0;
+    std::uint32_t custo_le_ms = 0;
+
+    void cobra(std::uint32_t ms) {
+        if (relogio != nullptr) { relogio->agora += ms; }
+    }
 
     ErroCartao lista(AoListar ao_listar, void* ctx, Logger&) override {
+        cobra(custo_lista_ms);
         if (falha_ao_listar) { return ErroCartao::SemCartaoLegivel; }
         for (const auto& [nome, dado] : arquivos) {
             ao_listar(ctx, nome.c_str(), dado.size());
@@ -96,6 +109,7 @@ public:
 
     ErroCartao abre_para_leitura(const char* nome, std::size_t* tamanho,
                                  Logger&) override {
+        cobra(custo_abre_ms);
         // Como o `CartaoSd`: uma leitura de cada vez. Sem isto, uma leitura
         // que a remessa esquecesse aberta passaria aqui -- e no aparelho todo
         // `abre_para_leitura` seguinte falharia, ate o reinicio.
@@ -119,6 +133,7 @@ public:
 
     bool le(std::uint8_t* destino, std::size_t capacidade,
             std::size_t* lidos) override {
+        cobra(custo_le_ms);
         if (aberto_.empty()) { return false; }
         const bool armada = falha_no_meio_da_leitura
                             && (!falha_so_na_segunda_passada || rebobinou_);
@@ -1912,6 +1927,72 @@ TEST(CaoDeGuardaNaRemessa, a_associacao_do_radio_roda_com_o_cao_solto) {
         << "o cao estava armado durante a associacao";
     EXPECT_EQ(c.rede.retomadas_ao_conectar, 0U);
     EXPECT_EQ(c.cao.retomadas, 1U) << "o cao ficou solto depois de conectar";
+}
+
+TEST(CaoDeGuardaNaRemessa, cartao_lento_nas_tres_passadas_nao_deixa_o_cao_sem_comer) {
+    // **O dublê de cartao agora gasta o tempo que um cartao lento gasta.**
+    // Antes ele era instantaneo, e a refeicao da primeira passada (e a da
+    // terceira, que nao existia) podia sumir sem que nenhum teste falhasse.
+    // O arquivo tem dez pedacos; cada leitura custa 3 s. Cada passada soma
+    // 30 s: sem refeicao por pedaco em TODAS as tres, o trecho passa de 16,5 s.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] =
+        std::string(10 * kPedacoRemessa, 'x');
+    c.cartao.relogio = &c.pausa;
+    c.cartao.custo_le_ms = 3000;
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_GT(c.pausa.agora - 1'234'567u, 3 * kPrazoCaoMs)
+        << "o cenario nem passa do prazo: nao prova nada";
+    EXPECT_LE(c.cao.maior_intervalo_ms, 3000u)
+        << "um trecho ficou " << c.cao.maior_intervalo_ms
+        << " ms sem refeicao";
+}
+
+TEST(CaoDeGuardaNaRemessa, do_retoma_ao_primeiro_pedaco_cada_etapa_fecha_o_seu_trecho) {
+    // Entre o `retoma` (prazo cheio de novo) e o primeiro pedaco lido vem o
+    // preparo da sessao (SNTP), a listagem e a abertura, tudo sem gancho --
+    // e, no cartao degradado, cada um a varios segundos. Nove segundos cada:
+    // dois quaisquer, adjacentes e sem refeicao no meio, passam de 16,5 s;
+    // com a abertura e a leitura, o mesmo para o par abertura+pedaco.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.cartao.relogio = &c.pausa;
+    c.cartao.custo_lista_ms = 9000;
+    c.cartao.custo_abre_ms = 9000;
+    c.cartao.custo_le_ms = 9000;
+    c.preparo.custo_ms = 9000;
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_LE(c.cao.maior_intervalo_ms, 9000u)
+        << "um trecho ficou " << c.cao.maior_intervalo_ms
+        << " ms sem refeicao";
+}
+
+TEST(CaoDeGuardaNaRemessa, confirmacao_lenta_nao_soma_a_consulta_com_a_espera) {
+    // Tres consultas de CRC de 15 s (a janela de inatividade) separadas pela
+    // espera de 2 s: sem a refeicao DEPOIS de cada consulta, 15 + 2 passam
+    // de 16,5 s.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.servidor.custo_ms = 15000;
+    c.servidor.falhas_de_consulta_restantes = kTentativasDeConfirmacao - 1;
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_LE(c.cao.maior_intervalo_ms, 15000u)
+        << "um trecho ficou " << c.cao.maior_intervalo_ms
+        << " ms sem refeicao";
+}
+
+TEST(CaoDeGuardaNaRemessa, a_espera_entre_tentativas_nao_soma_com_a_abertura_do_cartao) {
+    // Um envio que falha, 2 s de espera e a abertura lenta do arquivo: sem a
+    // refeicao DEPOIS da espera, 2 + 15 passam de 16,5 s.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.cartao.relogio = &c.pausa;
+    c.cartao.custo_abre_ms = 15000;
+    c.servidor.falhas_de_envio_restantes = 1;
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_LE(c.cao.maior_intervalo_ms, 15000u)
+        << "um trecho ficou " << c.cao.maior_intervalo_ms
+        << " ms sem refeicao";
 }
 
 TEST(CaoDeGuardaNaRemessa, sem_cao_a_remessa_roda_igual) {

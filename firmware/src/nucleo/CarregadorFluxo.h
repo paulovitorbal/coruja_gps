@@ -4,6 +4,7 @@
 
 #include "armazenamento/Armazenamento.h"
 #include "nucleo/BaseRadares.h"
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Ponto.h"
 #include "nucleo/VerificadorDownload.h"
 
@@ -105,9 +106,16 @@ struct BaseCarregada {
 ///
 /// Sem base em uso (`em_uso.pontos == 0`, o boot) não há o que proteger, e o
 /// arquivo é lido uma vez só, escrevendo.
+///
+/// **`cao` é alimentado a cada pedaço lido.** São duas passadas por arquivo
+/// (quatro se cair na reserva) sobre 214 KB, com o laço principal parado, e a
+/// leitura em fluxo não tem gancho por dentro: um cartão lento reiniciaria o
+/// aparelho no meio da recarga. Cada pedaço que chegou e foi consumido é
+/// progresso real; uma leitura que trava não produz nenhum. Nulo é "ninguém
+/// vigia" (o arranque, que roda sem cão).
 BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
                          const char* reserva, Ponto* destino,
                          std::size_t capacidade, const BaseCarregada& em_uso,
-                         Logger& log);
+                         Logger& log, CaoDeGuarda* cao = nullptr);
 
 }  // namespace coruja
