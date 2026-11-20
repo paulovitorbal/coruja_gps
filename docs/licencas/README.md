@@ -29,7 +29,8 @@ projeto guarda texto de licença.
 As duas primeiras seções são de arte e tipografia, que viram **arquivos
 gerados** versionados aqui. As demais são das **bibliotecas** que o ligador
 põe dentro do `coruja_gps.uf2`: elas não estão no repositório, e o texto de
-cada licença vem com a dependência, no caminho indicado.
+cada licença está no caminho indicado — e **vai anexo à release**, no
+`THIRD_PARTY_LICENSES.txt`.
 
 ## JetBrains Mono — `OFL.txt`
 
@@ -74,10 +75,13 @@ do `Sprites.h` gerado, e não só aqui — quem ler só o código também vê.
 
 Esta lista saiu do **mapa do ligador** (`firmware/build-pico/coruja_gps.elf.map`,
 build de 19/11/2026 com `PICO_BOARD=pico2_w` e `pico-sdk` 2.3.1), e não do que
-o `CMakeLists.txt` menciona: é o que o ligador de fato pôs na imagem.
+o `CMakeLists.txt` menciona: é o que o ligador de fato pôs na imagem. O driver
+SDIO da biblioteca de cartão SD **não está mais aqui** porque não está mais no
+mapa — ver abaixo.
 
 Nenhuma dessas bibliotecas está versionada aqui — elas chegam pelo SDK ou pelo
-`FetchContent`. O texto de cada licença vem com elas, no caminho da tabela.
+`FetchContent`. O texto de cada licença está com elas, no caminho da tabela, e
+o `scripts/junta_licencas.py` o copia para o pacote que acompanha a release.
 
 | Componente | Licença | Texto, onde ele vem |
 | :--- | :--- | :--- |
@@ -88,20 +92,28 @@ Nenhuma dessas bibliotecas está versionada aqui — elas chegam pelo SDK ou pel
 | cyw43-driver | própria, **não é BSD** — ver abaixo | `pico-sdk/lib/cyw43-driver/LICENSE` e `LICENSE.RP` |
 | no-OS-FatFS-SD-SDIO-SPI-RPi-Pico | Apache-2.0 | `LICENSE` do repositório |
 | FatFs (ChaN) | própria, de duas cláusulas, estilo BSD | `src/ff15/LICENSE.txt`, dentro da anterior |
-| driver SDIO (do ZuluSCSI) | **GPL-3.0-or-later** — ver abaixo | `src/ZuluSCSI-firmware/LICENSE`, dentro da anterior |
 | driver SPI (do Mbed OS) | Apache-2.0 | cabeçalho de `sd_driver/SPI/sd_card_spi.c` |
 
 O `picotool`, o `pioasm`, o GoogleTest e o toolchain da Arm **não** entram na
 imagem: são ferramentas de build, e por isso não estão aqui.
 
-**O que as três primeiras exigem neste uso:** as licenças BSD-3-Clause e a MIT
-pedem que o aviso de copyright e o texto da licença acompanhem a redistribuição
-**em forma binária**, na documentação ou nos materiais que vão junto. Um
-`.uf2` sozinho numa página de release não cumpre isso — é por isso que o
-`scripts/libera_fw.sh` anexa o `THIRD_PARTY_NOTICES.md`, que aponta para este
-arquivo, junto do binário. Do Mbed TLS, que é dupla, este projeto toma a
-**Apache-2.0**: a GPL-2.0 não conviveria com a licença não comercial do
-projeto.
+**O que quase todas exigem neste uso:** BSD-3-Clause, MIT, Apache-2.0 e a
+licença de duas cláusulas do FatFs pedem que o aviso de copyright e o texto da
+licença (na Apache-2.0, uma cópia dela) acompanhem a redistribuição **em forma
+binária**, na documentação ou nos materiais que vão junto. Um `.uf2` sozinho
+numa página de release não cumpre isso — e as bibliotecas não estão neste
+repositório, então quem baixa só a release não as tem.
+
+Por isso o `scripts/libera_fw.sh` anexa três coisas ao binário: o
+`THIRD_PARTY_NOTICES.md` (a lista curta), o `THIRD_PARTY_LICENSES.txt` (os
+**textos**, copiados dos arquivos que o build usou, pelo
+`scripts/junta_licencas.py`) e os documentos da licença do próprio projeto.
+O pacote de textos é gerado **antes** do push, e a liberação recusa sair se
+faltar qualquer um deles.
+
+Do Mbed TLS, que é dupla, este projeto toma a **Apache-2.0**: a GPL-2.0 não
+conviveria com a licença não comercial do projeto. O pacote diz isso ao lado do
+texto, que traz as duas licenças porque é o arquivo deles, sem edição.
 
 ### cyw43-driver: a licença que não é BSD
 
@@ -129,11 +141,11 @@ Vale notar que a licença não comercial do driver e a escolha de uma licença n
 comercial para este projeto são **coincidência**, e não causa: são licenciantes
 diferentes, e cada uma vale por si.
 
-### O driver SDIO e a GPL-3 — ponto em aberto
+### O driver SDIO e a GPL-3 — resolvido tirando o driver do build
 
 A biblioteca de cartão SD traz **dois** drivers: o SPI, que é o que este
 aparelho usa (ver `docs/adr/0007`), e um SDIO de 4 bits. O `CMakeLists.txt`
-dela compila os dois, e o mapa mostra o SDIO **dentro da imagem**
+dela compila os dois, sem opção para desligar, e o SDIO entrava na imagem
 (`rp2040_sdio.c.o` em `0x1000e440`) mesmo sem ninguém chamá-lo.
 
 O README da biblioteca diz que esse driver é derivado do
@@ -141,18 +153,52 @@ O README da biblioteca diz que esse driver é derivado do
 versiona o `LICENSE` dele junto: **GPL-3.0-or-later**. Os arquivos
 `sd_driver/SDIO/*.c` não trazem cabeçalho de licença próprio.
 
-⚠️ **A decisão é do autor, e ainda não foi tomada.** Código sob GPL-3 dentro
-de um binário publicado traz as obrigações da GPL-3 para esse binário, e elas
-não convivem com uma licença não comercial. Três caminhos, nenhum deles
-recomendação jurídica:
+Código sob GPL-3 dentro de um binário publicado traz as obrigações da GPL-3
+para esse binário, e a GPL-3 proíbe acrescentar restrição de uso não
+comercial — que é justamente o que a PolyForm Noncommercial deste projeto faz.
 
-1. não compilar o SDIO — a biblioteca não tem opção para isso hoje, e daria um
-   `CMakeLists.txt` próprio listando só os fontes que o projeto usa;
-2. tratar a questão com quem publica a biblioteca;
-3. publicar o binário sob termos compatíveis com a GPL-3.
+**A decisão do autor, em 19/11/2026: não compilar o SDIO.** Era o primeiro dos
+três caminhos registrados aqui, e o único que não pede nada de ninguém: o
+driver nunca rodou neste aparelho, então tirá-lo não custa funcionalidade
+alguma. Os outros dois — tratar a questão com quem publica a biblioteca, ou
+publicar o binário sob termos compatíveis com a GPL-3 — ficam registrados
+porque descrevem o que foi descartado, e por quê.
 
-Enquanto não houver decisão, o fato fica registrado aqui — e **não** some do
-`THIRD_PARTY_NOTICES.md` que vai na release.
+**Como ficou implementado.** O `FetchContent` continua baixando a biblioteca
+inteira — o problema nunca foi baixar, foi *publicar*. O que mudou é que o
+`SOURCE_SUBDIR` passou a apontar para um diretório que não existe, de modo que
+a biblioteca é populada e o `CMakeLists.txt` dela **não entra no build**. Quem
+declara o alvo passa a ser `firmware/cmake/fatfs_sd_sem_sdio.cmake`, com a
+mesma lista de fontes da v3.6.2 menos `sd_driver/SDIO/rp2040_sdio.c` e
+`sd_driver/SDIO/sd_card_sdio.c`, e sem o `pico_generate_pio_header` de
+`rp2040_sdio.pio`.
+
+O caminho SPI ainda **referencia** três símbolos do SDIO, sempre atrás de um
+teste de `sd_card_p->type` (`sd_sdio_ctor`, `rp2040_sdio_get_sd_status` e
+`sdio_irq_handler`). Com o único cartão declarado `SD_IF_SPI`, nenhum deles é
+alcançável. Eles vêm de `firmware/src/armazenamento/sdio_ausente.c`, deste
+projeto, e todos chamam `panic()` com a causa escrita — não devolvem sucesso
+silencioso, porque um cartão SDIO montado por engano seria pior do que um
+aparelho parado.
+
+**A prova, que vale mais do que o `CMakeLists.txt`:**
+
+```
+$ arm-none-eabi-nm firmware/build-pico/coruja_gps.elf | grep -i sdio
+10045630 T sd_sdio_ctor
+$ arm-none-eabi-addr2line -f -e firmware/build-pico/coruja_gps.elf 10045630
+sd_sdio_ctor
+firmware/src/armazenamento/sdio_ausente.c:37
+```
+
+O único símbolo que sobra é o stub deste projeto. No `.map` não há nenhum
+`rp2040_sdio.c.o` nem `sd_card_sdio.c.o`. O `.bin` encolheu de 724 988 para
+714 836 bytes.
+
+⚠️ **Ao subir a versão da biblioteca, reconfira a lista de fontes** em
+`firmware/cmake/fatfs_sd_sem_sdio.cmake` contra o `src/CMakeLists.txt` dela.
+Fonte nova lá não aparece aqui sozinha — o sintoma é erro de link, não
+funcionalidade sumindo em silêncio.
 
 ## Certificados de raiz
 

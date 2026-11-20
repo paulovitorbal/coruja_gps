@@ -172,12 +172,6 @@ ErroCartao CartaoSd::le_arquivo(const char* nome, char* destino,
         return r;
     }
 
-    if (em_espera()) {
-        // A sondagem anterior nao achou cartao nenhum, e nao faz cinco
-        // segundos. Sondar de novo so ocuparia o barramento.
-        return ErroCartao::SemCartaoLegivel;
-    }
-
     char msg[128];
     int  montadas = 0;
 
@@ -321,7 +315,8 @@ ErroCartao CartaoSd::le_em_fluxo(const char* nome, AoLerPedaco ao_ler,
 
 // ---------------------------------------------------------------- escrita ---
 
-ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log) {
+ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz,
+                                  Logger& log, bool respeita_espera) {
     if (montagens_ > 0) {
         // Ja ha operacao segurando o volume. Reaproveita a montagem dela em
         // vez de montar de novo -- e, principalmente, em vez de DESMONTAR no
@@ -333,7 +328,7 @@ ErroCartao CartaoSd::monta_volume(char* raiz, std::size_t tam_raiz, Logger& log)
     if (!iniciado_) {
         inicia(log);
     }
-    if (em_espera()) {
+    if (respeita_espera && em_espera()) {
         return ErroCartao::SemCartaoLegivel;
     }
     // Volume conhecido: tenta ele primeiro. Não montando, **sonda os
@@ -524,7 +519,9 @@ ErroCartao CartaoSd::acrescenta_arquivo(const char* nome, const char* conteudo,
         return ErroCartao::FalhaDeEscrita;
     }
     char raiz[4];
-    const auto erro = monta_volume(raiz, sizeof raiz, log);
+    // So o log respeita a espera: tenta a cada linha, e sondar cinco
+    // particoes a cada uma ocupava o barramento sem parar.
+    const auto erro = monta_volume(raiz, sizeof raiz, log, true);
     if (erro != ErroCartao::Nenhum) {
         return erro;
     }

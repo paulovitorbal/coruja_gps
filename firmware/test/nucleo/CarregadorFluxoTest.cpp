@@ -242,6 +242,29 @@ TEST_F(TrocaDaBase, base_nova_que_nao_valida_nao_toca_na_base_em_uso) {
     EXPECT_TRUE(vetor_igual(antes)) << "a base em uso foi misturada com a nova";
 }
 
+TEST_F(TrocaDaBase, base_preservada_deixa_de_dizer_que_e_a_vigente) {
+    // `da_vigente` diz ao OTA se o `versao.txt` descreve a base EM USO. Depois
+    // de um OTA o `promove` ja moveu o arquivo velho para o `.bak`: se
+    // nenhum arquivo novo valida e a base em uso e mantida, ela segue na
+    // memoria, mas o arquivo vigente ja NAO e o dela. Devolver a marca velha
+    // (`true`) fazia o clique seguinte dizer "JA ESTA EM DIA" com o `.bin`
+    // ruim no cartao e a base antiga rodando.
+    ASSERT_FALSE(fixture.empty());
+    BaseCarregada em_uso = poe_base_em_uso();
+    em_uso.da_vigente = true;
+
+    auto corrompida = fixture;
+    corrompida[corrompida.size() - 5] ^= 0x01U;
+    cartao.arquivos["radares.bin"] = corrompida;
+    cartao.arquivos["radares.bak"] = corrompida;
+
+    const BaseCarregada depois = troca(em_uso);
+
+    EXPECT_EQ(depois.pontos, em_uso.pontos) << "a base em uso foi perdida";
+    EXPECT_FALSE(depois.da_vigente)
+        << "a base em uso nao e mais a do arquivo vigente";
+}
+
 TEST_F(TrocaDaBase, leitura_que_falha_no_meio_nao_toca_na_base_em_uso) {
     ASSERT_FALSE(fixture.empty());
     const BaseCarregada em_uso = poe_base_em_uso();

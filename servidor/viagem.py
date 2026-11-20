@@ -616,9 +616,15 @@ def _finito(texto: str) -> float:
     Um NaN passa por toda comparação como falso: chegava ao GeoJSON como
     `NaN`, que não é JSON, e escapava do `<=` da zona privada.
     """
-    valor = float(texto)
+    # Mensagens SEM o valor: o motivo da recusa vai para a pagina 422 e para
+    # o log, e a excecao do `float()` repete o texto do campo -- que aqui e
+    # uma coordenada. `from None` tira a excecao original da cadeia.
+    try:
+        valor = float(texto)
+    except ValueError:
+        raise ValueError("campo numerico ilegivel") from None
     if not math.isfinite(valor):
-        raise ValueError(f"'{texto}' nao e numero finito")
+        raise ValueError("campo numerico nao e finito")
     return valor
 
 
@@ -661,8 +667,13 @@ def _ponto_de(campos: list[str]) -> PontoViagem:
     regra a mais aqui vale para todos; uma regra espalhada lá adiante
     esqueceria um caminho.
     """
-    quando = datetime.datetime.strptime(
-        campos[0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    try:
+        quando = datetime.datetime.strptime(
+            campos[0], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc)
+    except ValueError:
+        # O `strptime` repete o texto inteiro do campo na mensagem.
+        raise ValueError("horario fora do formato") from None
     if not ANO_MINIMO <= quando.year <= ANO_MAXIMO:
         raise ValueError(f"ano {quando.year} fora de "
                          f"{ANO_MINIMO}..{ANO_MAXIMO}")

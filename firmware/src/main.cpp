@@ -331,6 +331,14 @@ public:
         if (resultado == coruja::ResultadoOta::Atualizada) {
             base_ = carrega_base(cartao_, base_, log_);
             piloto_.define_base(g_pontos, base_.pontos);
+            // O OTA acabou de gravar o `versao.txt` e supoe que a base nova
+            // entrou. Quem sabe se ela de fato foi aceita e a carga: se o
+            // `radares.bin` passou no CRC mas reprovou na ordem ou no dominio
+            // dos registros, a `troca_base` caiu na reserva, e sem este
+            // repasse o proximo clique dizia "JA ESTA EM DIA" com o arquivo
+            // ruim no cartao e a base antiga rodando. Antes so o arranque
+            // informava.
+            ota_.informa_vigente_em_uso(base_.da_vigente);
         }
 
         // **Fim feliz passa; falha espera.** Sem segurar, a tela de dirigir

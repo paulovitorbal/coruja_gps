@@ -335,7 +335,8 @@ Em uma frase: **é livre para uso pessoal, e não é para vender.**
 >
 > Não é permitido vender aparelhos montados, kits, placas ou caixas feitos a
 > partir deste projeto, cobrar pela montagem, nem usar o projeto em produto ou
-> serviço comercial, ou por uma empresa.
+> serviço comercial. Uso **não comercial** por instituições — de ensino, de
+> pesquisa, sem fins lucrativos — é permitido pela própria licença do código.
 >
 > Para outros usos, inclusive comerciais, as licenças podem ser negociadas:
 > veja `PERMISSOES-ADICIONAIS.md`.
@@ -369,10 +370,25 @@ PolyForm: código é código onde quer que esteja.
 - Os PDF de datasheet da raiz (`NEO-M8_*.pdf`, `adafruit-microsd-spi-sdio.pdf`)
   pertencem aos **fabricantes** — u-blox e Adafruit. Estão aqui para
   referência e não são licenciados por este projeto.
+- Dentro de `firmware/`, o que **não** é escrito aqui, embora a pasta inteira
+  esteja na linha da PolyForm acima:
+  - `src/display/Fonte*.h` — mapas de bits **derivados da JetBrains Mono**, sob
+    a **SIL OFL 1.1** (`docs/licencas/OFL.txt`), que exige que o derivado
+    continue sob ela. O gerador é nosso; a saída não é.
+  - `src/display/Sprites.h` — ícones derivados do **Twemoji**, sob CC-BY 4.0.
+  - `pico_sdk_import.cmake` — cópia do arquivo do SDK, © Raspberry Pi
+    (Trading) Ltd., **BSD-3-Clause**, com o cabeçalho preservado.
+  - `lwipopts.h` — **derivado** do `lwipopts` dos `pico-examples`, também da
+    Raspberry Pi, BSD-3-Clause.
+- `coruja_gps.fzz` — o arquivo de esquema embute **peças do Fritzing de
+  terceiros**, por exemplo a do Raspberry Pi Pico (`part.rpi_pico-tht_1.fzp`,
+  autoria "Alasdair Allan/Jack Wills, modificada por vanepp"). A licença
+  dessas peças **não está declarada no arquivo** e não foi confirmada: a
+  CC BY-NC vale para o que é nosso nele, o desenho, e não para elas.
 - As dependências que vão **dentro do binário** mantêm cada uma a sua licença.
   Quem é quem, e o que cada licença exige neste uso, está em
-  `docs/licencas/README.md` — inclusive um **ponto em aberto** sobre o driver
-  SDIO da biblioteca de cartão SD, que é GPL-3 e está na imagem. O
+  `docs/licencas/README.md` — inclusive por que o driver SDIO da biblioteca de
+  cartão SD, que é GPL-3, **ficou de fora do binário**. O
   `THIRD_PARTY_NOTICES.md` da raiz é a versão curta que vai anexa à release.
 
 O `NOTICE` traz o aviso que a PolyForm exige que acompanhe as cópias.

@@ -1,9 +1,13 @@
 # Alvo duplo: -DCORUJA_TESTES=ON compila a suite no host (sem Pico SDK);
 # sem a opcao, compila o firmware para o RP2350. Ver docs/adr/0001.
 #
-# 3.14 e o minimo de verdade: e onde nasceu o `FetchContent_MakeAvailable`,
-# que o alvo do Pico usa.
-cmake_minimum_required(VERSION 3.14)
+# 3.18 e o minimo de verdade: e onde nasceu o `SOURCE_SUBDIR` do
+# `FetchContent_Declare` (a ajuda do modulo diz "versionadded 3.18"), que o
+# alvo do Pico usa para NAO adicionar o CMakeLists da biblioteca de cartao SD
+# -- ver cmake/fatfs_sd_sem_sdio.cmake. O `FetchContent_MakeAvailable`, de
+# 3.14, ja nao bastava: com um CMake de 3.14 a 3.17 a opcao seria ignorada, o
+# CMakeLists da biblioteca entraria, e o driver SDIO (GPL-3) voltaria ao binario.
+cmake_minimum_required(VERSION 3.18)
 
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
@@ -91,9 +95,17 @@ else()
     FetchContent_Declare(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
         GIT_REPOSITORY https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico.git
         GIT_TAG        6c644cfc3ab03c161fee2dd7be4877e5b832fa71  # v3.6.2
-        # O repositorio nao tem CMakeLists na raiz: o alvo vive em src/.
-        SOURCE_SUBDIR  src)
+        # 🔴 **SOURCE_SUBDIR aponta de proposito para um diretorio SEM
+        # CMakeLists.** Assim o FetchContent BAIXA a biblioteca e NAO adiciona
+        # o CMakeLists dela ao build -- quem declara o alvo somos nos, logo
+        # abaixo, sem os dois fontes do driver SDIO, que e GPL-3. Ver
+        # docs/licencas/README.md e firmware/cmake/fatfs_sd_sem_sdio.cmake.
+        #
+        # Baixar a biblioteca inteira esta certo: o que nao pode e o codigo
+        # GPL-3 entrar na imagem publicada.
+        SOURCE_SUBDIR  cmake-nao-usado-de-proposito)
     FetchContent_MakeAvailable(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico)
+    include(cmake/fatfs_sd_sem_sdio.cmake)
     add_subdirectory(src)
     # -DCORUJA_DIAGNOSTICO=ON troca o firmware pelo diagnostico de pinos.
     option(CORUJA_DIAGNOSTICO "Compila o diagnostico de pinos do encoder" OFF)

@@ -240,8 +240,16 @@ ErroNmea le_movimento(const Campo& c_nos, const Campo& c_rumo, Telemetria* t) {
     if (c_rumo.vazio()) return ErroNmea::Nenhum;
 
     double rumo = 0.0;
-    if (!decimal(c_rumo, &rumo) || rumo >= 360.0) {
+    // Ate 360,00 INCLUSIVE: o receptor escreve o rumo com duas casas, e um
+    // 359,996 sai como "360.00". Recusar isso derrubava a RMC inteira --
+    // posicao e velocidade junto -- por um rumo que ele acabou de arredondar
+    // para cima. 360 e 0 sao a mesma direcao, e o resto do sistema espera
+    // [0, 360).
+    if (!decimal(c_rumo, &rumo) || rumo > 360.0) {
         return ErroNmea::CampoInvalido;
+    }
+    if (rumo >= 360.0) {
+        rumo = 0.0;
     }
     t->rumo_graus = static_cast<float>(rumo);
     t->rumo_valido = true;
