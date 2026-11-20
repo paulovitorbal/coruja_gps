@@ -21,7 +21,31 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 
+#: Os módulos que ficam DE FORA da imagem, de propósito.
+#:
+#: O `pista.py` é ferramenta de bancada: roda à mão sobre o `recebidos/` do
+#: hospedeiro e nenhum módulo do serviço o importa. A exceção é explícita
+#: para continuar sendo escolha -- sem a lista, tirá-lo seria indistinguível
+#: do esquecimento que este arquivo existe para pegar.
+FERRAMENTAS_DE_HOST = {"pista.py"}
+
+
 class ImagemLevaTodosOsModulos(unittest.TestCase):
+
+    def test_a_ferramenta_de_bancada_nao_vai_na_imagem(self):
+        dockerfile = (RAIZ / "Dockerfile").read_text(encoding="utf-8")
+        for linha in dockerfile.splitlines():
+            if not linha.startswith("COPY "):
+                continue
+            for ferramenta in FERRAMENTAS_DE_HOST:
+                self.assertNotIn(ferramenta, linha.split(),
+                                 f"{ferramenta} nao e executado pelo servico")
+
+    def test_a_ferramenta_de_bancada_continua_existindo(self):
+        # Ela sai da IMAGEM, nao do repositorio: o README a documenta e o
+        # `testes/test_pista.py` a exercita.
+        for ferramenta in FERRAMENTAS_DE_HOST:
+            self.assertTrue((RAIZ / ferramenta).is_file())
 
     def test_todo_modulo_do_servidor_entra_na_imagem(self):
         dockerfile = (RAIZ / "Dockerfile").read_text(encoding="utf-8")
@@ -33,7 +57,7 @@ class ImagemLevaTodosOsModulos(unittest.TestCase):
             for campo in linha.split()[1:-1]:
                 copiados.add(campo)
 
-        no_disco = {p.name for p in RAIZ.glob("*.py")}
+        no_disco = {p.name for p in RAIZ.glob("*.py")} - FERRAMENTAS_DE_HOST
         faltando = sorted(no_disco - copiados)
         self.assertEqual(
             faltando, [],

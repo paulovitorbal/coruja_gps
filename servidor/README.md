@@ -577,8 +577,14 @@ histórico inteiro e pode medir a coisa certa — a distância de cada radar at�
 **linha** que o carro percorreu.
 
 ```sh
+cd servidor
 python3 pista.py recebidos/<id> dados/radares.bin --minimo 3
 ```
+
+⚠️ **Ferramenta de bancada, e não parte do serviço.** Ela roda no
+hospedeiro, sobre o `recebidos/` que o compose monta, e por isso **não vai
+na imagem** — nada lá dentro a importa. Só a biblioteca padrão: o `folium`
+não é preciso aqui.
 
 Sai uma linha por radar com 3+ passagens, da maior mediana para a menor:
 

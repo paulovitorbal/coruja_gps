@@ -626,9 +626,6 @@ class LeituraDeViagem(unittest.TestCase):
                 esperado = 4 * (passo_s // viagem.PASSO_S) + 1
                 self.assertEqual(len(denso), esperado)
 
-    def test_resumo_devolve_none_para_arquivo_ruim(self):
-        self.assertIsNone(viagem.resumo(self.escreve("lixo\n")))
-
     # -- o arquivo vem de fora: tudo e validado AQUI, uma vez --
     #
     # O cartao pode ter sido mexido, o relogio do GPS pode estar errado, e

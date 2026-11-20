@@ -743,19 +743,6 @@ def le_viagem(caminho: Path) -> Viagem:
     return Viagem(nome=caminho.name, pontos=pontos)
 
 
-def resumo(caminho: Path) -> dict | None:
-    """Os números da viagem, para a listagem. `None` se não der para ler.
-
-    Lê o arquivo inteiro, e isso é aceitável: um registro de viagem de duas
-    horas tem 120 linhas.
-    """
-    try:
-        v = le_viagem(caminho)
-    except ErroDeViagem:
-        return None
-    return resumo_da_jornada(Jornada([v]))
-
-
 def resumo_da_jornada(j: Jornada) -> dict:
     """Os números da viagem inteira, para a listagem."""
     return {

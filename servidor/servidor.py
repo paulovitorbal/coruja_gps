@@ -10,9 +10,10 @@ Expõe os dois recursos que o firmware consome (RF05.0):
 de onde veio. É por isso que ele pode viver no repositório público — quem
 clonar aponta o próprio pipeline para cá.
 
-Usa só a biblioteca padrão, como todo o Python deste projeto. Sem framework,
-a imagem Docker não precisa de `pip install` e não há dependência para
-envelhecer.
+Só a biblioteca padrão **aqui**: o servidor sobe, distribui a base e recebe
+arquivo sem dependência nenhuma. A única externa do projeto é o folium, no
+`viagem.py`, e ela é importada DENTRO da função que desenha o mapa -- faltar
+o folium tira a página de viagens, e não o serviço.
 
     python3 servidor.py --dados ./dados --porta 8080
 """
@@ -142,6 +143,9 @@ SUBDIR_HISTORICO = "historico"
 #: A marca guarda tamanho e CRC do que foi acrescentado por último. Quando o
 #: trecho novo **começa pelo anterior**, só o rabo entra.
 SUFIXO_MARCA = ".marca"
+
+#: O conteúdo de uma marca: tamanho em dígitos e CRC em oito hexadecimais.
+PADRAO_MARCA = re.compile(r"([0-9]{1,12}) ([0-9a-f]{8})", re.ASCII)
 
 #: Quanto uma leitura ou escrita no soquete pode ficar parada.
 #:
@@ -671,11 +675,19 @@ class _LeitorComPrazo:
 
 
 class Manipulador(http.server.BaseHTTPRequestHandler):
-    """Só duas rotas. Qualquer outra coisa é 404.
+    """As rotas, e nada além delas. Qualquer outra coisa é 404.
+
+        GET  /radares.versao  /radares.bin      a base, que o firmware baixa
+        PUT  /envio/<nome>    GET /envio/<nome> o que o aparelho mandou
+        GET  /viagens         /viagens/<nome>   a página de quem olha
+        POST /viagens         /viagens/sair     entrar e sair
+        GET  /saude                             o healthcheck do container
 
     Deliberadamente **não** herda de `SimpleHTTPRequestHandler`: aquele serve
     o diretório inteiro e faz listagem, o que aqui seria expor arquivos que
-    não são da API. Duas rotas fixas não têm travessia de caminho possível.
+    não são da API. Uma lista fechada de rotas não tem travessia de caminho
+    possível, e os dois nomes que viram caminho em disco passam por lista
+    branca -- ver `PADRAO_NOME` e `PADRAO_VIAGEM`.
     """
 
     server_version = "CorujaGPS/1.0"
@@ -1054,10 +1066,16 @@ class Manipulador(http.server.BaseHTTPRequestHandler):
         try:
             bruto = cls._caminho_da_marca(pasta, nome).read_text(
                 encoding="ascii")
-            tamanho, _, crc = bruto.strip().partition(" ")
-            return int(tamanho), int(crc, 16)
-        except (OSError, ValueError):
+        except OSError:
             return None
+        # Exatamente o que o `_acrescenta_ao_historico` escreve, e nada
+        # parecido: o `int()` aceita `1_0` e `+5`, e uma marca truncada ou
+        # mexida à mão viraria um tamanho e um CRC que nunca existiram
+        # juntos -- e aí o trecho seguinte entra mutilado no histórico.
+        achado = PADRAO_MARCA.fullmatch(bruto.strip())
+        if achado is None:
+            return None
+        return int(achado.group(1)), int(achado.group(2), 16)
 
     @staticmethod
     def _crc_do_prefixo(origem, quantos: int) -> int:
@@ -1561,7 +1579,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--aparelhos", type=Path,
                    default=Path(os.environ.get("CORUJA_APARELHOS",
                                                ARQUIVO_APARELHOS)),
-                   help=f"lista 'nome=token', uma por linha "
+                   help=f"um token por linha, sem 'nome=' "
                         f"(padrao: {ARQUIVO_APARELHOS}). Ausente ou vazia: "
                         "base aberta e recepcao desligada")
     p.add_argument("--recebidos", type=Path,
