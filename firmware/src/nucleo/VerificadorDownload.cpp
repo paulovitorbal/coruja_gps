@@ -2,19 +2,10 @@
 
 #include <cstring>
 
+#include "nucleo/BytesLe.h"
+
 namespace coruja {
 namespace {
-
-std::uint16_t le_u16(const std::uint8_t* b) {
-    return static_cast<std::uint16_t>(b[0] | (b[1] << 8));
-}
-
-std::uint32_t le_u32(const std::uint8_t* b) {
-    return static_cast<std::uint32_t>(b[0]) |
-           (static_cast<std::uint32_t>(b[1]) << 8) |
-           (static_cast<std::uint32_t>(b[2]) << 16) |
-           (static_cast<std::uint32_t>(b[3]) << 24);
-}
 
 }  // namespace
 
@@ -60,7 +51,12 @@ void VerificadorDownload::alimenta(const std::uint8_t* bytes,
     // seguintes sao cabecalho ou ja sao dados. Errar aqui nao da erro
     // visivel -- corrompe o CRC, e o arquivo e recusado por um motivo que
     // nao e o verdadeiro.
-    while (!cabecalho_lido_ && tamanho > 0) {
+    // A condicao de parada e o cabecalho estar LIDO, e nao haver byte neste
+    // pedaco: um pedaco que termina exatamente no fim do cabecalho deixava a
+    // bandeira em falso, e com ela `conclui` respondia TamanhoInvalido a um
+    // download truncado -- a falha mais provavel num carro em movimento, e
+    // um diagnostico que manda procurar arquivo corrompido.
+    while (!cabecalho_lido_) {
         const std::size_t alvo =
             recebidos_ < kTamCabecalhoSemData
                 ? kTamCabecalhoSemData
@@ -70,6 +66,8 @@ void VerificadorDownload::alimenta(const std::uint8_t* bytes,
             cabecalho_lido_ = true;
             break;
         }
+        // Falta cabecalho e este pedaco acabou: o resto vem no proximo.
+        if (tamanho == 0) { return; }
         const std::size_t falta = alvo - recebidos_;
         const std::size_t copiar = tamanho < falta ? tamanho : falta;
         std::memcpy(buffer_cabecalho_ + recebidos_, bytes, copiar);

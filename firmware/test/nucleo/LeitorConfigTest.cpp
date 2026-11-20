@@ -606,4 +606,59 @@ TEST(LeitorConfig, TokenNoLimiteCabe) {
     EXPECT_TRUE(r.diagnostico.limpo());
 }
 
+
+// --- o que o arquivo editado a mao traz ---
+
+TEST(LeitorConfig, SsidVazioNaoEUmaRedeConfigurada) {
+    // ⚠️ `wifi_ssid_1=` e uma linha que quem edita o arquivo deixa para tras
+    // ao apagar o nome da rede sem apagar a chave. Ela virava uma rede de
+    // nome "", o aparelho tentava associar-se a ela, e o diagnostico saia
+    // LIMPO -- nada no log dizia por que nao havia Wi-Fi.
+    const auto r = le("wifi_ssid_1=\nwifi_senha_1=segredo\n");
+    EXPECT_EQ(r.config.n_redes, 0U);
+    EXPECT_EQ(r.diagnostico.redes_incompletas, 1U)
+        << "a senha sem SSID tem de aparecer no diagnostico";
+    EXPECT_FALSE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, SsidVazioNaoEngoleAsRedesSeguintes) {
+    // A segunda rede continua valendo: uma linha estragada nao pode custar o
+    // resto do arquivo.
+    const auto r = le(
+        "wifi_ssid_1=\n"
+        "wifi_ssid_2=celular\nwifi_senha_2=outra\n");
+    ASSERT_EQ(r.config.n_redes, 1U);
+    EXPECT_STREQ(r.config.redes[0].ssid, "celular");
+}
+
+TEST(LeitorConfig, SenhaVaziaContinuaValendoParaRedeAberta) {
+    // O contrapeso: senha vazia e legitima -- rede aberta. So o SSID e que
+    // nao pode faltar.
+    const auto r = le("wifi_ssid_1=praca\nwifi_senha_1=\n");
+    ASSERT_EQ(r.config.n_redes, 1U);
+    EXPECT_STREQ(r.config.redes[0].ssid, "praca");
+    EXPECT_STREQ(r.config.redes[0].senha, "");
+}
+
+TEST(LeitorConfig, OBomDoUtf8NaoEstragaAPrimeiraChave) {
+    // ⚠️ O Bloco de Notas do Windows e varios editores gravam o BOM
+    // (EF BB BF) no inicio do arquivo. Colado na primeira chave, ele fazia
+    // "\xEF\xBB\xBFwifi_ssid_1" nao casar com nada: a rede sumia e o log
+    // acusava chave desconhecida, mandando procurar erro de digitacao numa
+    // linha que esta certa.
+    const auto r = le("\xEF\xBB\xBF" "wifi_ssid_1=casa\nwifi_senha_1=x\n");
+    ASSERT_EQ(r.config.n_redes, 1U);
+    EXPECT_STREQ(r.config.redes[0].ssid, "casa");
+    EXPECT_EQ(r.diagnostico.chaves_desconhecidas, 0U);
+    EXPECT_TRUE(r.diagnostico.limpo());
+}
+
+TEST(LeitorConfig, OBomSoValeNaPrimeiraLinha) {
+    // No meio do arquivo aqueles bytes nao sao marca de codificacao: sao
+    // lixo, e lixo continua sendo chave desconhecida.
+    const auto r = le("nome=coruja\n\xEF\xBB\xBF" "wifi_ssid_1=casa\n");
+    EXPECT_EQ(r.config.n_redes, 0U);
+    EXPECT_EQ(r.diagnostico.chaves_desconhecidas, 1U);
+}
+
 }  // namespace

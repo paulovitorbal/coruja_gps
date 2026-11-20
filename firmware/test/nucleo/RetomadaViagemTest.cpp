@@ -149,6 +149,50 @@ TEST(RetomadaViagem, texto_truncado_ou_sujo_e_recusado) {
     }
 }
 
+TEST(RetomadaViagem, campo_fora_da_faixa_nao_da_a_volta_para_uma_data_valida) {
+    // O cartao e dado de fora. Validar DEPOIS de estreitar para uint8/uint16
+    // deixava 65536 + 2026 virar 2026, e mes 257 virar janeiro: um arquivo
+    // estragado retomava viagem com uma data que ele nunca disse.
+    EstadoViagemSalvo lido;
+    const char* voltas[] = {
+        "ativa=1\nutc=67562-10-04T17:31Z\ndist_km=1.00\n",
+        "ativa=1\nutc=2026-266-04T17:31Z\ndist_km=1.00\n",
+        "ativa=1\nutc=2026-10-260T17:31Z\ndist_km=1.00\n",
+        "ativa=1\nutc=2026-10-04T273:31Z\ndist_km=1.00\n",
+        "ativa=1\nutc=2026-10-04T17:287Z\ndist_km=1.00\n",
+        "ativa=2\nutc=2026-10-04T17:31Z\ndist_km=1.00\n",
+    };
+    for (const char* s : voltas) {
+        EXPECT_FALSE(analisa_estado(s, std::strlen(s), &lido))
+            << "aceitou: " << s;
+    }
+}
+
+TEST(RetomadaViagem, distancia_que_nao_e_distancia_e_recusada) {
+    // `%lf` aceita nan, inf e sinal. Qualquer um deles viraria a
+    // quilometragem de partida do trecho seguinte, e dali para o servidor.
+    EstadoViagemSalvo lido;
+    const char* ruins[] = {
+        "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=nan\n",
+        "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=inf\n",
+        "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=-inf\n",
+        "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=-0.50\n",
+        "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=1e9\n",
+    };
+    for (const char* s : ruins) {
+        EXPECT_FALSE(analisa_estado(s, std::strlen(s), &lido))
+            << "aceitou: " << s;
+    }
+}
+
+TEST(RetomadaViagem, a_distancia_zero_e_valida) {
+    // A fronteira de baixo: viagem que ainda nao andou.
+    EstadoViagemSalvo lido;
+    const char* s = "ativa=1\nutc=2026-10-04T17:31Z\ndist_km=0.00\n";
+    ASSERT_TRUE(analisa_estado(s, std::strlen(s), &lido));
+    EXPECT_FLOAT_EQ(lido.dist_km, 0.0F);
+}
+
 TEST(RetomadaViagem, entrada_maior_que_o_buffer_e_recusada) {
     EstadoViagemSalvo lido;
     char grande[kTamEstadoViagem * 2] = {};

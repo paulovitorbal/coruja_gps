@@ -53,7 +53,10 @@ void AcumuladorViagem::monta_nome(const Telemetria& t) {
 }
 
 std::uint8_t AcumuladorViagem::fatia_de(const Telemetria& t) {
-    return static_cast<std::uint8_t>(t.segundo / kSegundosPorAmostra);
+    // O segundo bissexto (`:60`) fica na última fatia do minuto. Dividido
+    // direto daria uma fatia a mais do que o minuto tem, carimbada em `:60`.
+    const unsigned segundo = t.segundo < 59U ? t.segundo : 59U;
+    return static_cast<std::uint8_t>(segundo / kSegundosPorAmostra);
 }
 
 void AcumuladorViagem::abre_amostra(const Telemetria& t) {
@@ -104,7 +107,7 @@ void AcumuladorViagem::fecha_amostra() {
     ponto_.lon = ultima_lon_;
     ponto_.v_media_kmh =
         amostras_ > 0 ? soma_vel_ / static_cast<float>(amostras_) : 0.0F;
-    ponto_.dist_km = dist_km_;
+    ponto_.dist_km = dist_km();
     ponto_.rumo_graus = ultimo_rumo_;
     ponto_.rumo_valido = ultimo_rumo_valido_;
     ponto_.radar = radar_da_fatia_;
@@ -160,6 +163,16 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
         return EventoViagem::Nada;
     }
 
+    // 🔴 **Anda por FIX, não por chamada.** O `DiarioBordo` chama a cada volta
+    // do laço, e o laço não dorme: entre duas sentenças são centenas de
+    // chamadas com a mesma telemetria. Integrar a cada uma somava 0,03 m por
+    // milissegundo, abaixo da resolução de um float perto de 512 km -- a
+    // distância travava ali --, e a média da fatia pesava cada fix pelo
+    // número de voltas em que ele foi visto, não pela medida que ele é.
+    if (!fix_novo_.chegou(t)) {
+        return EventoViagem::Nada;
+    }
+
     if (estado_ == EstadoViagem::Aguardando) {
         // Depois de um fechamento por veículo parado, quem reabre é o
         // movimento. Reabrir no fix faria um arquivo a cada cinco minutos
@@ -172,7 +185,7 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
             // e a régua é a mesma da retomada depois do corte de energia —
             // porque é a mesma pergunta.
             if (ponto_.ano != 0 && passou_da_janela(t)) {
-                dist_km_ = 0.0F;
+                dist_km_ = 0.0;
             }
             exige_movimento_ = false;
         }
@@ -195,8 +208,8 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     if (tem_passo_anterior_) {
         const std::uint32_t passo_ms = agora_ms - anterior_ms_;
         if (passo_ms <= kMaxPassoIntegracaoMs) {
-            dist_km_ += t.velocidade_kmh *
-                        (static_cast<float>(passo_ms) / 3600000.0F);
+            dist_km_ += static_cast<double>(t.velocidade_kmh) *
+                        (static_cast<double>(passo_ms) / 3600000.0);
         }
     }
     anterior_ms_ = agora_ms;
@@ -231,18 +244,28 @@ EventoViagem AcumuladorViagem::alimenta(const Telemetria& t,
     ultimo_rumo_valido_ = t.rumo_valido;
 
     // --- encerramento automático ---
-    if (t.velocidade_kmh < kVelocidadeParadoKmh) {
-        if (!contando_parado_) {
-            contando_parado_ = true;
-            parado_desde_ms_ = agora_ms;
-        } else if (agora_ms - parado_desde_ms_ >= kParadoFechaTrechoMs) {
-            fecha_trecho();
-            return EventoViagem::FechaTrecho;
-        }
-    } else {
+    if (t.velocidade_kmh >= kVelocidadeParadoKmh) {
         contando_parado_ = false;
+        return evento;
+    }
+    if (!contando_parado_) {
+        contando_parado_ = true;
+        parado_desde_ms_ = agora_ms;
+        return evento;
     }
 
+    // ⚠️ **Um evento por chamada, e o `Grava` tem precedência.** O carro
+    // parar em cima da virada de uma fatia faz as duas coisas caírem na
+    // mesma leitura, e devolver só o fechamento perdia o ponto: ele nunca
+    // era escrito no cartão, e o `viagem.est` ficava com o carimbo da fatia
+    // anterior. O fechamento pode esperar a leitura seguinte -- o relógio da
+    // parada continua correndo, e lá ele já estará vencido. O ponto, não: a
+    // fatia dele já fechou.
+    if (evento == EventoViagem::Nada &&
+        agora_ms - parado_desde_ms_ >= kParadoFechaTrechoMs) {
+        fecha_trecho();
+        return EventoViagem::FechaTrecho;
+    }
     return evento;
 }
 

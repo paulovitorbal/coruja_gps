@@ -57,11 +57,20 @@ public:
 
 private:
     /// Cabeçalho de bloco, imediatamente antes da área entregue.
-    struct Bloco {
+    ///
+    /// ⚠️ `alignas` porque no ARM de 32 bits os três campos somam 12 bytes, e
+    /// a área útil saía em endereço ≡ 4 (mod 8). No host de 64 bits são 24, e
+    /// os testes não viam: quem vê é o `static_assert` abaixo, no build do
+    /// Pico.
+    struct alignas(kAlinhamento) Bloco {
         std::size_t tamanho;  ///< bytes úteis, já alinhados
         Bloco*      proximo;
         bool        livre;
     };
+    // A área útil começa logo depois do cabeçalho. Se o tamanho dele não for
+    // múltiplo do alinhamento, todo ponteiro entregue sai torto.
+    static_assert(sizeof(Bloco) % kAlinhamento == 0,
+                  "cabecalho desalinharia a area entregue");
 
     void junta_vizinhos();
 

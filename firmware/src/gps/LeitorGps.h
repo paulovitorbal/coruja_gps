@@ -113,6 +113,11 @@ private:
     bool           houve_fix_ = false;
     std::uint32_t  ultimo_fix_ms_ = 0;
     std::uint32_t  fixes_ = 0;
+    /// A `Telemetria::sequencia` do último fix. **Não volta a zero no
+    /// `reinicia()`**, ao contrário de `fixes_`: quem consome guarda o último
+    /// número que viu, e uma contagem recomeçada poderia repeti-lo e fazer um
+    /// fix novo passar por velho.
+    std::uint32_t  sequencia_ = 0;
     std::uint32_t  sem_fix_ = 0;
     std::uint32_t  descartadas_ = 0;
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 
 namespace coruja {
 
@@ -13,6 +14,27 @@ namespace coruja {
 /// `tamanho` entra com o comprimento atual e sai com o novo. O texto fica
 /// sempre terminado em `\0`.
 void apara_branco(char* texto, std::size_t* tamanho);
+
+/// Espaço, tabulação, `\r` ou `\n`.
+///
+/// **Estava escrito duas vezes**, aqui e no `LinhaConfig` como `e_espaco`,
+/// com a mesma lista de quatro caracteres. Duas definições do que é branco
+/// são duas chances de o leitor e o escritor do `coruja.cfg` discordarem
+/// sobre onde uma chave começa.
+inline bool e_branco(char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+/// Inteiro sem sinal, exigindo que **todos** os caracteres sejam dígitos.
+///
+/// Nada de `atoi`, que devolve 0 para lixo e não distingue "zero" de "não é
+/// número". Devolve falso para campo vazio, para qualquer caractere estranho
+/// e para número que não caiba em 32 bits — sem a última guarda, `2^32 + 9`
+/// vira `9`, um valor perfeitamente plausível.
+///
+/// Também estava escrito duas vezes: no parser NMEA e no leitor de
+/// configuração, que são as duas fronteiras por onde entra texto de fora.
+bool inteiro(const char* ini, std::size_t n, std::uint32_t* destino);
 
 /// O texto só tem imprimíveis de ASCII, de `0x21` a `0x7E`?
 ///

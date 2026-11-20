@@ -1,5 +1,7 @@
 #include "nucleo/Nmea.h"
 
+#include "nucleo/Texto.h"
+
 namespace coruja {
 namespace {
 
@@ -36,22 +38,21 @@ std::size_t posicao_asterisco(const char* s, std::size_t n) {
     return n;
 }
 
-/// Inteiro sem sinal, exigindo **todos** os caracteres dígitos. Devolve false
-/// para campo vazio ou com qualquer caractere estranho — nada de `atoi`, que
-/// devolve 0 para lixo e não distingue "zero" de "não é número".
+/// O mesmo `inteiro` do `Texto.h`, lido de um campo recortado. A regra --
+/// todos os caracteres dígitos, sem dar a volta em 32 bits -- é a mesma do
+/// leitor de configuração, e por isso mora num lugar só.
 bool inteiro(const Campo& c, std::uint32_t* destino) {
-    if (c.vazio()) return false;
-    std::uint32_t v = 0;
-    for (std::size_t i = 0; i < c.n; ++i) {
-        if (c.ini[i] < '0' || c.ini[i] > '9') return false;
-        v = v * 10U + static_cast<std::uint32_t>(c.ini[i] - '0');
-    }
-    *destino = v;
-    return true;
+    return coruja::inteiro(c.ini, c.n, destino);
 }
 
-/// Decimal com ponto, em `double`. Sem `strtod`: o campo não é terminado em
-/// `\0` e copiá-lo para um buffer só para isso seria trabalho por nada.
+/// Decimal **sem sinal**, com ponto, em `double`. Sem `strtod`: o campo não é
+/// terminado em `\0` e copiá-lo para um buffer só para isso seria trabalho
+/// por nada.
+///
+/// Sem sinal porque nenhum campo que lê o tem: a RMC diz o hemisfério por
+/// letra, e velocidade, rumo, minutos e HDOP não são negativos. Aceitá-lo
+/// deixava `+` e `-` de lixo passarem, e obrigava cada chamador a repetir o
+/// "e não pode ser negativo".
 // ⚠️ **`double` aqui é deliberado, contra a regra do resto do projeto.**
 //
 // O `Geo.h` documenta que a FPU do RP2350 é de precisão simples e que é por
@@ -74,14 +75,7 @@ bool decimal(const Campo& c, double* destino) {
     double divisor = 1.0;
     bool   depois_do_ponto = false;
     bool   algum_digito = false;
-    std::size_t i = 0;
-    bool negativo = false;
-
-    if (c.ini[0] == '-' || c.ini[0] == '+') {
-        negativo = c.ini[0] == '-';
-        i = 1;
-    }
-    for (; i < c.n; ++i) {
+    for (std::size_t i = 0; i < c.n; ++i) {
         const char ch = c.ini[i];
         if (ch == '.') {
             if (depois_do_ponto) return false;  // dois pontos
@@ -98,7 +92,7 @@ bool decimal(const Campo& c, double* destino) {
         }
     }
     if (!algum_digito) return false;
-    *destino = (inteiro_parte + fracao) * (negativo ? -1.0 : 1.0);
+    *destino = inteiro_parte + fracao;
     return true;
 }
 
@@ -106,9 +100,12 @@ bool decimal(const Campo& c, double* destino) {
 ///
 /// O NMEA junta grau e minuto no mesmo número, e é onde parsers erram: os
 /// minutos são sempre os **dois últimos** dígitos antes do ponto, e o que vem
-/// antes é o grau — não há separador.
+/// antes é o grau — não há separador. Por isso o ponto é exigido exatamente
+/// ali: em qualquer outra posição a coluna está deslocada, e a conta daria
+/// uma posição plausível e errada.
 bool graus_minutos(const Campo& c, std::size_t digitos_de_grau, double* destino) {
-    if (c.n < digitos_de_grau + 2) return false;
+    const std::size_t ponto = digitos_de_grau + 2;
+    if (c.n <= ponto || c.ini[ponto] != '.') return false;
 
     Campo parte_grau{c.ini, digitos_de_grau};
     std::uint32_t g = 0;
@@ -116,18 +113,176 @@ bool graus_minutos(const Campo& c, std::size_t digitos_de_grau, double* destino)
 
     Campo parte_minuto{c.ini + digitos_de_grau, c.n - digitos_de_grau};
     double m = 0.0;
-    if (!decimal(parte_minuto, &m)) return false;
-    if (m < 0.0 || m >= 60.0) return false;
+    if (!decimal(parte_minuto, &m) || m >= 60.0) return false;
 
     *destino = static_cast<double>(g) + m / 60.0;
     return true;
 }
 
 constexpr double kNoParaKmh = 1.852;
-constexpr std::size_t kCamposRmc = 10;  ///< até a data, que é o índice 9
+
+/// Teto da velocidade. O NEO-M8N não reporta acima de 500 m/s (~972 nós);
+/// acima disto é campo enorme e bem formado que passou pelo checksum, e
+/// estreitá-lo para `float` seria comportamento indefinido.
+constexpr double kMaxNos = 1000.0;
+
+/// Teto do HDOP. O u-blox o satura em 99,99; o resto é lixo, e o mesmo
+/// estreitamento para `float` cobra o mesmo teto.
+constexpr double kMaxHdop = 100.0;
+
+/// Até a data, que é o índice 8. Variação magnética e modo vêm depois e são
+/// opcionais: exigi-los recusava uma RMC completa.
+constexpr std::size_t kCamposRmc = 9;
 /// Até o HDOP, que é o índice 7. A altitude e a separação geoidal vêm
 /// depois e não interessam a este aparelho.
 constexpr std::size_t kCamposGga = 8;
+
+/// Dois dígitos hexadecimais, que é o tamanho do checksum NMEA.
+bool dois_hex(const char* p) {
+    return valor_hex(p[0]) >= 0 && valor_hex(p[1]) >= 0;
+}
+
+/// Valida a moldura de qualquer sentença — `$`, `*`, checksum — e devolve em
+/// `asterisco` onde o corpo termina.
+ErroNmea delimita(const char* sentenca, std::size_t tamanho,
+                  std::size_t* asterisco) {
+    if (sentenca == nullptr || tamanho == 0) return ErroNmea::Vazia;
+
+    const std::size_t n = sem_terminador(sentenca, tamanho);
+    if (n == 0) return ErroNmea::Vazia;
+    if (sentenca[0] != '$') return ErroNmea::SemCifrao;
+
+    const std::size_t ast = posicao_asterisco(sentenca, n);
+    if (ast >= n) return ErroNmea::SemAsterisco;
+    if (n - ast != 3 || !dois_hex(sentenca + ast + 1)) {
+        return ErroNmea::ChecksumMalformado;
+    }
+    if (!checksum_valido(sentenca, tamanho)) return ErroNmea::ChecksumInvalido;
+
+    *asterisco = ast;
+    return ErroNmea::Nenhum;
+}
+
+/// O cabeçalho é `$` + 2 do talker + o tipo de três letras + `,`.
+///
+///   índice  0  1 2  3 4 5  6
+///           $  G N  R M C  ,
+///
+/// O talker não é conferido de propósito — ver a nota no cabeçalho.
+bool e_do_tipo(const char* sentenca, std::size_t ast, const char* tipo) {
+    if (ast < 7) return false;
+    return sentenca[3] == tipo[0] && sentenca[4] == tipo[1] &&
+           sentenca[5] == tipo[2] && sentenca[6] == ',';
+}
+
+/// Recorta os campos entre vírgulas, do byte 7 até o `*`, e devolve quantos
+/// saíram. Campo vazio é recorte de comprimento zero, e não some — a posição
+/// é o que identifica cada campo.
+std::size_t fatia_campos(const char* sentenca, std::size_t ast, Campo* campos,
+                         std::size_t teto) {
+    std::size_t quantos = 0;
+    std::size_t inicio = 7;
+    for (std::size_t i = 7; i <= ast && quantos < teto; ++i) {
+        if (i == ast || sentenca[i] == ',') {
+            campos[quantos].ini = sentenca + inicio;
+            campos[quantos].n = i - inicio;
+            ++quantos;
+            inicio = i + 1;
+        }
+    }
+    return quantos;
+}
+
+/// O envelope que **toda** sentença NMEA tem, da moldura ao recorte dos
+/// campos.
+///
+/// Extraído porque a RMC e a GGA o repetiam linha por linha, e duas cópias de
+/// uma validação de fronteira são duas chances de só uma delas ser corrigida.
+/// `erro_tipo` é o que devolver quando o tipo não casa: o `LeitorGps` depende
+/// de `NaoEhRmc` para saber que ainda vale tentar a GGA na mesma linha.
+ErroNmea recorta_campos(const char* sentenca, std::size_t tamanho,
+                        const char* tipo, ErroNmea erro_tipo, Campo* campos,
+                        std::size_t quantos_pedidos) {
+    std::size_t ast = 0;
+    const ErroNmea moldura = delimita(sentenca, tamanho, &ast);
+    if (moldura != ErroNmea::Nenhum) return moldura;
+    if (!e_do_tipo(sentenca, ast, tipo)) return erro_tipo;
+    if (fatia_campos(sentenca, ast, campos, quantos_pedidos) <
+        quantos_pedidos) {
+        return ErroNmea::CamposDeMenos;
+    }
+    return ErroNmea::Nenhum;
+}
+
+/// Uma coordenada e seu hemisfério, já em graus decimais com sinal.
+bool le_coordenada(const Campo& valor, const Campo& hemisferio,
+                   std::size_t digitos_de_grau, char negativo, char positivo,
+                   double limite, float* destino) {
+    double graus = 0.0;
+    if (!graus_minutos(valor, digitos_de_grau, &graus)) return false;
+    if (graus > limite) return false;
+    if (hemisferio.n != 1) return false;
+    const char h = hemisferio.ini[0];
+    if (h != negativo && h != positivo) return false;
+    *destino = static_cast<float>(h == negativo ? -graus : graus);
+    return true;
+}
+
+/// Velocidade em nós e rumo em graus, os dois campos que descrevem o
+/// movimento. Rumo vazio com o veículo parado é normal, não erro.
+ErroNmea le_movimento(const Campo& c_nos, const Campo& c_rumo, Telemetria* t) {
+    double nos = 0.0;
+    if (!decimal(c_nos, &nos) || nos > kMaxNos) {
+        return ErroNmea::CampoInvalido;
+    }
+    t->velocidade_kmh = static_cast<float>(nos * kNoParaKmh);
+
+    if (c_rumo.vazio()) return ErroNmea::Nenhum;
+
+    double rumo = 0.0;
+    if (!decimal(c_rumo, &rumo) || rumo >= 360.0) {
+        return ErroNmea::CampoInvalido;
+    }
+    t->rumo_graus = static_cast<float>(rumo);
+    t->rumo_valido = true;
+    return ErroNmea::Nenhum;
+}
+
+/// Dois dígitos, que é como o NMEA escreve hora, minuto, segundo, dia, mês e
+/// ano — sempre com o zero à esquerda.
+bool dois_digitos(const char* p, std::uint32_t* destino) {
+    return inteiro(Campo{p, 2}, destino);
+}
+
+/// `hhmmss.sss`. O segundo 60 é o bissexto, que o receptor entrega e o
+/// `TempoUtc` aceita; recusá-lo apagaria a data da fix inteira.
+bool le_hora(const Campo& c, Telemetria* t) {
+    std::uint32_t hh = 0, mm = 0, ss = 0;
+    if (c.n < 6 || !dois_digitos(c.ini, &hh) ||
+        !dois_digitos(c.ini + 2, &mm) || !dois_digitos(c.ini + 4, &ss)) {
+        return false;
+    }
+    if (hh >= 24 || mm >= 60 || ss > 60) return false;
+    t->hora = static_cast<std::uint8_t>(hh);
+    t->minuto = static_cast<std::uint8_t>(mm);
+    t->segundo = static_cast<std::uint8_t>(ss);
+    return true;
+}
+
+/// `ddmmyy`. O ano de dois dígitos é do século 21 — o NMEA não diz mais que
+/// isso, e este aparelho não existia antes de 2000.
+bool le_data(const Campo& c, Telemetria* t) {
+    std::uint32_t dd = 0, mo = 0, aa = 0;
+    if (c.n != 6 || !dois_digitos(c.ini, &dd) ||
+        !dois_digitos(c.ini + 2, &mo) || !dois_digitos(c.ini + 4, &aa)) {
+        return false;
+    }
+    if (dd < 1 || dd > 31 || mo < 1 || mo > 12) return false;
+    t->dia = static_cast<std::uint8_t>(dd);
+    t->mes = static_cast<std::uint8_t>(mo);
+    t->ano = static_cast<std::uint16_t>(2000 + aa);
+    return true;
+}
 
 }  // namespace
 
@@ -167,116 +322,37 @@ bool checksum_valido(const char* sentenca, std::size_t tamanho) {
     return calculado == static_cast<std::uint8_t>(alto * 16 + baixo);
 }
 
+
 ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
                      Telemetria* destino) {
-    if (sentenca == nullptr || destino == nullptr || tamanho == 0) {
-        return ErroNmea::Vazia;
-    }
-    const std::size_t n = sem_terminador(sentenca, tamanho);
-    if (n == 0) return ErroNmea::Vazia;
-    if (sentenca[0] != '$') return ErroNmea::SemCifrao;
-
-    const std::size_t ast = posicao_asterisco(sentenca, n);
-    if (ast >= n) return ErroNmea::SemAsterisco;
-    if (n - ast != 3 || valor_hex(sentenca[ast + 1]) < 0 ||
-        valor_hex(sentenca[ast + 2]) < 0) {
-        return ErroNmea::ChecksumMalformado;
-    }
-    if (!checksum_valido(sentenca, tamanho)) return ErroNmea::ChecksumInvalido;
-
-    // Layout do cabeçalho: `$` + 2 do talker + `RMC` + `,`.
-    //   índice  0  1 2  3 4 5  6
-    //           $  G N  R M C  ,
-    // O talker não é conferido de propósito — ver a nota no cabeçalho.
-    if (ast < 7 || sentenca[3] != 'R' || sentenca[4] != 'M' ||
-        sentenca[5] != 'C' || sentenca[6] != ',') {
-        return ErroNmea::NaoEhRmc;
-    }
-
-    // Recorta os campos entre vírgulas, do byte 7 até o `*`. Campo vazio é
-    // recorte de comprimento zero, e não some — a posição importa.
-    Campo campos[kCamposRmc];
-    std::size_t quantos = 0;
-    std::size_t inicio = 7;
-    for (std::size_t i = 7; i <= ast && quantos < kCamposRmc; ++i) {
-        if (i == ast || sentenca[i] == ',') {
-            campos[quantos].ini = sentenca + inicio;
-            campos[quantos].n = i - inicio;
-            ++quantos;
-            inicio = i + 1;
-        }
-    }
-    if (quantos < kCamposRmc) return ErroNmea::CamposDeMenos;
+    if (destino == nullptr) return ErroNmea::Vazia;
 
     // 0=hora 1=status 2=lat 3=N/S 4=lon 5=E/W 6=nos 7=rumo 8=data
-    const Campo& c_hora   = campos[0];
-    const Campo& c_status = campos[1];
-    const Campo& c_lat    = campos[2];
-    const Campo& c_ns     = campos[3];
-    const Campo& c_lon    = campos[4];
-    const Campo& c_ew     = campos[5];
-    const Campo& c_nos    = campos[6];
-    const Campo& c_rumo   = campos[7];
-    const Campo& c_data   = campos[8];
+    Campo campos[kCamposRmc];
+    const ErroNmea envelope = recorta_campos(sentenca, tamanho, "RMC",
+                                             ErroNmea::NaoEhRmc, campos,
+                                             kCamposRmc);
+    if (envelope != ErroNmea::Nenhum) return envelope;
 
+    const Campo& c_status = campos[1];
     if (c_status.n != 1) return ErroNmea::CampoInvalido;
     // Sem fix: sentença íntegra, dado ausente. Não é erro de formato, e não
     // pode sobrescrever a última posição conhecida.
     if (c_status.ini[0] != 'A') return ErroNmea::SemFix;
 
     Telemetria t;
-
-    double lat = 0.0, lon = 0.0;
-    if (!graus_minutos(c_lat, 2, &lat)) return ErroNmea::CampoInvalido;
-    if (!graus_minutos(c_lon, 3, &lon)) return ErroNmea::CampoInvalido;
-    if (c_ns.n != 1 || (c_ns.ini[0] != 'N' && c_ns.ini[0] != 'S')) {
+    if (!le_coordenada(campos[2], campos[3], 2, 'S', 'N', 90.0, &t.lat) ||
+        !le_coordenada(campos[4], campos[5], 3, 'W', 'E', 180.0, &t.lon)) {
         return ErroNmea::CampoInvalido;
     }
-    if (c_ew.n != 1 || (c_ew.ini[0] != 'E' && c_ew.ini[0] != 'W')) {
-        return ErroNmea::CampoInvalido;
-    }
-    if (lat > 90.0 || lon > 180.0) return ErroNmea::CampoInvalido;
-    if (c_ns.ini[0] == 'S') lat = -lat;
-    if (c_ew.ini[0] == 'W') lon = -lon;
-    t.lat = static_cast<float>(lat);
-    t.lon = static_cast<float>(lon);
 
-    double nos = 0.0;
-    if (!decimal(c_nos, &nos) || nos < 0.0) return ErroNmea::CampoInvalido;
-    t.velocidade_kmh = static_cast<float>(nos * kNoParaKmh);
+    const ErroNmea movimento = le_movimento(campos[6], campos[7], &t);
+    if (movimento != ErroNmea::Nenhum) return movimento;
 
-    // Rumo vazio com o veículo parado é normal, não erro.
-    double rumo = 0.0;
-    if (!c_rumo.vazio()) {
-        if (!decimal(c_rumo, &rumo) || rumo < 0.0 || rumo >= 360.0) {
-            return ErroNmea::CampoInvalido;
-        }
-        t.rumo_graus = static_cast<float>(rumo);
-        t.rumo_valido = true;
-    }
-
-    // Hora `hhmmss.sss` e data `ddmmyy`. Ausentes não invalidam a posição — o
-    // relógio é conveniência; a posição é o que protege o motorista.
-    if (c_hora.n >= 6 && c_data.n == 6) {
-        std::uint32_t hh = 0, mm = 0, ss = 0, dd = 0, mo = 0, aa = 0;
-        const bool ok =
-            inteiro(Campo{c_hora.ini, 2}, &hh) &&
-            inteiro(Campo{c_hora.ini + 2, 2}, &mm) &&
-            inteiro(Campo{c_hora.ini + 4, 2}, &ss) &&
-            inteiro(Campo{c_data.ini, 2}, &dd) &&
-            inteiro(Campo{c_data.ini + 2, 2}, &mo) &&
-            inteiro(Campo{c_data.ini + 4, 2}, &aa);
-        if (ok && hh < 24 && mm < 60 && ss < 60 &&
-            dd >= 1 && dd <= 31 && mo >= 1 && mo <= 12) {
-            t.hora = static_cast<std::uint8_t>(hh);
-            t.minuto = static_cast<std::uint8_t>(mm);
-            t.segundo = static_cast<std::uint8_t>(ss);
-            t.dia = static_cast<std::uint8_t>(dd);
-            t.mes = static_cast<std::uint8_t>(mo);
-            t.ano = static_cast<std::uint16_t>(2000 + aa);
-            t.data_valida = true;
-        }
-    }
+    // Hora e data ausentes não invalidam a posição — o relógio é
+    // conveniência; a posição é o que protege o motorista. As duas juntas,
+    // porque meia data não serve para carimbar coisa nenhuma.
+    t.data_valida = le_hora(campos[0], &t) && le_data(campos[8], &t);
 
     *destino = t;
     return ErroNmea::Nenhum;
@@ -284,60 +360,30 @@ ErroNmea analisa_rmc(const char* sentenca, std::size_t tamanho,
 
 ErroNmea analisa_gga(const char* sentenca, std::size_t tamanho,
                      QualidadeFix* destino) {
-    if (sentenca == nullptr || destino == nullptr || tamanho == 0) {
-        return ErroNmea::Vazia;
-    }
-    const std::size_t n = sem_terminador(sentenca, tamanho);
-    if (n == 0) return ErroNmea::Vazia;
-    if (sentenca[0] != '$') return ErroNmea::SemCifrao;
-
-    const std::size_t ast = posicao_asterisco(sentenca, n);
-    if (ast >= n) return ErroNmea::SemAsterisco;
-    if (n - ast != 3 || valor_hex(sentenca[ast + 1]) < 0 ||
-        valor_hex(sentenca[ast + 2]) < 0) {
-        return ErroNmea::ChecksumMalformado;
-    }
-    if (!checksum_valido(sentenca, tamanho)) return ErroNmea::ChecksumInvalido;
-
-    //   índice  0  1 2  3 4 5  6
-    //           $  G N  G G A  ,
-    if (ast < 7 || sentenca[3] != 'G' || sentenca[4] != 'G' ||
-        sentenca[5] != 'A' || sentenca[6] != ',') {
-        return ErroNmea::NaoEhGga;
-    }
-
-    Campo campos[kCamposGga];
-    std::size_t quantos = 0;
-    std::size_t inicio = 7;
-    for (std::size_t i = 7; i <= ast && quantos < kCamposGga; ++i) {
-        if (i == ast || sentenca[i] == ',') {
-            campos[quantos].ini = sentenca + inicio;
-            campos[quantos].n = i - inicio;
-            ++quantos;
-            inicio = i + 1;
-        }
-    }
-    if (quantos < kCamposGga) return ErroNmea::CamposDeMenos;
+    if (destino == nullptr) return ErroNmea::Vazia;
 
     // 0=hora 1=lat 2=N/S 3=lon 4=E/W 5=qualidade 6=satelites 7=hdop
-    const Campo& c_qualidade = campos[5];
-    const Campo& c_satelites = campos[6];
-    const Campo& c_hdop      = campos[7];
+    Campo campos[kCamposGga];
+    const ErroNmea envelope = recorta_campos(sentenca, tamanho, "GGA",
+                                             ErroNmea::NaoEhGga, campos,
+                                             kCamposGga);
+    if (envelope != ErroNmea::Nenhum) return envelope;
 
+    const Campo& c_qualidade = campos[5];
     if (c_qualidade.vazio()) return ErroNmea::CampoInvalido;
     // `0` é "sem solução": sentença íntegra, dado ausente. Não é erro de
     // formato, e não pode sobrescrever a última qualidade conhecida.
     if (c_qualidade.ini[0] == '0') return ErroNmea::SemFix;
 
     std::uint32_t satelites = 0;
-    if (!inteiro(c_satelites, &satelites)) return ErroNmea::CampoInvalido;
-    if (satelites > kMaxSatelites) return ErroNmea::CampoInvalido;
+    if (!inteiro(campos[6], &satelites) || satelites > kMaxSatelites) {
+        return ErroNmea::CampoInvalido;
+    }
 
     double hdop = 0.0;
-    if (!decimal(c_hdop, &hdop)) return ErroNmea::CampoInvalido;
-    // Diluição de precisão negativa não existe. `decimal` aceita o sinal
-    // porque outros campos o usam; aqui ele só pode vir de lixo.
-    if (hdop < 0.0) return ErroNmea::CampoInvalido;
+    if (!decimal(campos[7], &hdop) || hdop > kMaxHdop) {
+        return ErroNmea::CampoInvalido;
+    }
 
     destino->satelites = static_cast<std::uint8_t>(satelites);
     destino->hdop = static_cast<float>(hdop);

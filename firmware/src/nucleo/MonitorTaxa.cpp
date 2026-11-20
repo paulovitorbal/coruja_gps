@@ -15,7 +15,7 @@ const char* descreve(EstadoTaxa estado) {
 void MonitorTaxa::reinicia() {
     inicio_ = 0;
     quantos_ = 0;
-    houve_algum_ = false;
+    observando_ = false;
     abaixo_ = false;
     houve_sem_fix_ = false;
     checksums_invalidos_ = 0;
@@ -27,7 +27,15 @@ void MonitorTaxa::reinicia() {
 
 void MonitorTaxa::registra_checksum_invalido() { ++checksums_invalidos_; }
 
+void MonitorTaxa::observa(std::uint32_t agora_ms) {
+    if (!observando_) {
+        observando_ = true;
+        observando_desde_ms_ = agora_ms;
+    }
+}
+
 void MonitorTaxa::registra_sem_fix(std::uint32_t agora_ms) {
+    observa(agora_ms);
     // Não toca na janela: isto não é fix. O que ele marca é que o módulo
     // está do outro lado da linha, falando.
     ultimo_sem_fix_ms_ = agora_ms;
@@ -40,10 +48,7 @@ bool MonitorTaxa::sem_solucao_recente(std::uint32_t agora_ms) const {
 }
 
 void MonitorTaxa::registra_fix(std::uint32_t agora_ms) {
-    if (!houve_algum_) {
-        primeiro_ms_ = agora_ms;
-        houve_algum_ = true;
-    }
+    observa(agora_ms);
     if (quantos_ == kCapacidadeJanela) {
         // Cheia: o mais antigo sai. Só acontece acima de 10,7 Hz, onde o
         // veredito é `Nominal` com ou sem a amostra perdida.
@@ -64,6 +69,7 @@ void MonitorTaxa::descarta_antigos(std::uint32_t agora_ms) {
 }
 
 EstadoTaxa MonitorTaxa::avalia(std::uint32_t agora_ms) {
+    observa(agora_ms);
     descarta_antigos(agora_ms);
     taxa_hz_ = static_cast<float>(quantos_) /
                (static_cast<float>(kJanelaMs) / 1000.0F);
@@ -72,7 +78,14 @@ EstadoTaxa MonitorTaxa::avalia(std::uint32_t agora_ms) {
     // 3 s começa vazia, e uma taxa perfeita de 4 Hz mede 0,33 Hz no primeiro
     // quarto de segundo. Um alarme que dispara sempre no boot é um alarme
     // que se aprende a ignorar.
-    if (!houve_algum_ || (agora_ms - primeiro_ms_) < kJanelaMs) {
+    //
+    // 🔴 **Conta desde a primeira OBSERVAÇÃO, não desde o primeiro fix.**
+    // Preso ao fix, um receptor mudo desde o boot -- o de 08/10/2026, noutro
+    // baud -- deixava o monitor aquecendo para sempre, e a reconfiguração
+    // do RF01.5 nunca era pedida justamente no caso para o qual ela existe.
+    // A partida a frio continua quieta: o receptor procurando céu diz "sem
+    // solução", e `sem_solucao_recente` segura o pedido como num túnel.
+    if ((agora_ms - observando_desde_ms_) < kJanelaMs) {
         estado_ = EstadoTaxa::Aquecendo;
         abaixo_ = false;
         tentou_nesta_falha_ = false;
