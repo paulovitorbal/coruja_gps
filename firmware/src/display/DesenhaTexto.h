@@ -17,12 +17,6 @@ namespace coruja {
 /// mesma largura. Com fonte proporcional, o `1` estreito faria o conjunto
 /// pular de lugar a cada mudanca -- ruim numa tela que se olha de relance.
 
-/// Largura em pixels que o texto vai ocupar. Para centralizar antes de
-/// desenhar, em vez de desenhar e descobrir depois.
-int largura_numero(const char* texto);
-int largura_numero_pequeno(const char* texto);
-int largura_texto(const char* texto);
-
 /// Desenha e devolve a largura consumida. `fundo` e pintado junto, o que
 /// dispensa limpar a regiao antes -- uma escrita por glifo em vez de duas.
 int escreve_numero(PainelSt7789& painel, int x, int y, const char* texto,

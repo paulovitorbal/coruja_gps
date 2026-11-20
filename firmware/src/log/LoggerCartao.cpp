@@ -80,11 +80,22 @@ void LoggerCartao::descarrega() {
                                     static_cast<unsigned>(perdidas_));
         if (n > 0) {
             gravando_ = true;
-            cartao_.acrescenta_arquivo(nome_, aviso,
-                                       static_cast<std::size_t>(n), seguinte_);
+            const bool foi =
+                cartao_.acrescenta_arquivo(nome_, aviso,
+                                           static_cast<std::size_t>(n),
+                                           seguinte_) == ErroCartao::Nenhum;
             gravando_ = false;
+            // ⚠️ **Só zera quando o aviso ENTROU.** Zerar na tentativa
+            // devolvia o buraco ao silêncio -- e logo em quem mais precisa
+            // dele: quem perde linha por buffer cheio é justamente quem está
+            // com o cartão ocupado ou ruim. A contagem fica e sai na
+            // descarga seguinte, com o total atualizado.
+            if (foi) { perdidas_ = 0; }
+        } else {
+            // A mensagem não se formou. Contar para sempre não ajudaria
+            // ninguém, e a próxima perda monta a linha de novo.
+            perdidas_ = 0;
         }
-        perdidas_ = 0;
     }
 }
 

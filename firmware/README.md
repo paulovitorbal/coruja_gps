@@ -351,6 +351,18 @@ Brilho, fuso, tolerâncias e calibração do LED ficam **no código**. O critér
 `docs/adr/0002`: se mudar o valor muda o comportamento de segurança, é especificação e
 não configuração.
 
+**O `coruja.bak` é a reserva do `coruja.cfg`.** Gravar um ajuste pelo menu
+escreve o `coruja.tmp` inteiro e o promove: cfg → bak, tmp → cfg. Uma queda
+de energia entre os dois renomeios deixa o cartão sem `coruja.cfg`; o
+aparelho então lê o `coruja.bak` (e diz no log que está operando pela
+reserva), e o próximo ajuste gravado devolve o `coruja.cfg` ao cartão. A
+reserva só é lida quando o cfg **não está lá**: um cfg presente, mesmo
+grande demais ou ilegível, é o que vale.
+
+O estado de viagem usa a mesma rotação a cada ponto gravado: `viagem.tmp` →
+`viagem.est`, com o anterior em `viagem.bak` (ver `formato_logs.md` §4). Os
+dois arquivos novos não sobem na remessa.
+
 > ⚠️ O `coruja.cfg` contém a senha do Wi-Fi e o **cartão é removível e legível
 > por qualquer um**. Isso não é mitigável por software: use uma rede de
 > convidados ou de IoT para o OTA, nunca a rede principal.
@@ -517,7 +529,7 @@ firmware/src/
 ├── led/             Cor, LedRgb (interface), LedRgbAnodoComum (hardware)
 ├── encoder/         DecodificadorQuadratura e AntiRepique (puros),
 │                    Encoder (interface), EncoderKy040 (hardware)
-├── app/             ModoTesteEncoder e ModoCalibracao — lógica de bancada
+├── app/             Aplicacao, PilotoAlerta, DiarioBordo — a lógica do produto
 ├── buzzer/          a fazer
 ├── armazenamento/   a fazer — cartão SD
 ├── display/         a fazer — módulo ainda não chegou
@@ -570,14 +582,13 @@ escritos e testados **antes** dos módulos chegarem, contra mocks.
 
 * **Verificado:** a suíte de **143 casos** no host, com cobertura medida — 97,9%
   de linhas e **100% de ramos** no carregador, e **100% de linhas e ramos** em
-  `Geo`, `LimiarInfracao`, `DecodificadorQuadratura`, `AntiRepique` e
-  `ModoTesteEncoder`.
+  `Geo`, `LimiarInfracao`, `DecodificadorQuadratura` e `AntiRepique`.
 * **Verificado:** a compilação para ARM, com o toolchain oficial 14.2.Rel1 e o
   `pico-sdk` 2.3.1. Sai `coruja_gps.uf2` de 126 KB, e o orçamento de memória
   passou a ser medido no linker.
 * **Não verificado:** nada rodou numa placa. O `src/main.cpp` compila e liga,
-  mas o comportamento do modo de teste — inclusive se esquerda e direita saem
-  na ordem certa — só se confirma na bancada.
+  mas o comportamento na placa — inclusive se o giro à direita sai na ordem
+  certa — só se confirma na bancada.
 
 ## Modo de bancada de rede — o que o `main.cpp` roda hoje
 
@@ -667,42 +678,22 @@ pode ser recusado na carga, e isso é correto: são perguntas diferentes.
 - **Conexão episódica.** O rádio sobe no clique e cai ao fim, sempre — inclusive
   nos caminhos de erro.
 
-## Modo de calibração
+## O modo de calibração do LED saiu (R-05 concluído)
 
-O firmware atual roda o **modo de calibração**, que fecha a metade pendente do
-**R-05**: as razões de PWM do âmbar e do rosa. Não precisa de GPS, cartão nem
-display.
+O `ModoCalibracao`, o `ModoTesteEncoder` e o `CicloCores` foram apagados em
+2026-11-19: eram modos de bancada que nenhum alvo compilava mais — nem o
+produto, nem as três bancadas, nem o `diagnostico.cpp` — e um modo que não se
+liga não é testado em lugar nenhum.
 
-| Ação | Efeito |
-| :--- | :--- |
-| **Girar** | ajusta o canal variável do item atual, 5 de duty por detente |
-| **Clicar** | avança: vermelho → verde → azul → âmbar → rosa → volta |
+O que eles produziram continua valendo, no código e não num modo:
 
-Nas compostas o **vermelho fica fixo em 100%** e o encoder move o outro canal.
-Não é simplificação: é a forma como `led/Calibracao.h` guarda as cores, com o
-canal vermelho em 255 e só o secundário variando.
+* as razões de PWM do âmbar e do rosa medidas pelo R-05 vivem em
+  `led/Calibracao.h`, com a paleta inteira;
+* o `LedRegulado` tem teste que percorre essa paleta no piso de intensidade e
+  reprova uma cor nova que perca canal;
+* a conferência de fiação do LED e do encoder virou item de menu — **testar
+  alertas** —, que percorre as quatro cores e dá um toque no buzzer sem
+  firmware separado.
 
-Ao dar a volta, o log imprime o bloco pronto para transcrever:
-
-```
-[INFO ] calib: ---- calibracao do R-05, para o gera_config.py ----
-[INFO ] calib:   duty do verde no ambar : 0.45
-[INFO ] calib:   duty do azul no rosa   : 0.60
-[INFO ] calib:   (o vermelho das duas fica em 1,00 por construcao)
-[INFO ] calib:   canais isolados: R=1.00  G=1.00  B=1.00
-```
-
-> ⚠️ **Julgue o rosa ao lado do vermelho, e sob sol direto.** É o item crítico:
-> se os dois se confundirem, a faixa de margem parece Zona de Perigo ao
-> motorista, que é o oposto da intenção do RF03.4.
-
-De passagem ele valida a fiação inteira: os três canais acendem isolados —
-inclusive o **verde**, que o modo de teste anterior nunca acendia — e o giro e
-o clique exercitam o encoder. Se o giro à direita **diminuir** o brilho em vez
-de aumentar, `CLK` e `DT` estão invertidos: construa com
-`EncoderKy040(true, /*invertido=*/true)` em vez de mexer na fiação.
-
-### O modo de teste anterior continua disponível
-
-Esquerda vermelho, direita azul, clique apaga. Troque `ModoCalibracao` por
-`ModoTesteEncoder` no `src/main.cpp` — a classe continua no projeto e testada.
+Se um dia a calibração precisar ser refeita, o caminho é a bancada do display
+(`-DCORUJA_BANCADA_DISPLAY=ON`), que continua no projeto.

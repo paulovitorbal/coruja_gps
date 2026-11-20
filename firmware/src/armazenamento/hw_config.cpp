@@ -6,7 +6,9 @@
 // `Pinos.h`, que é a fonte da verdade do projeto, em vez de virarem uma
 // segunda cópia livre para divergir.
 #include <hardware/spi.h>
+#include <pico/time.h>
 
+#include "armazenamento/CartaoSd.h"
 #include "placa/Pinos.h"
 
 extern "C" {
@@ -70,6 +72,15 @@ sd_card_t g_cartao = {
 };
 
 }  // namespace
+
+/// O relógio que o `CartaoSd` usa para esperar antes de sondar de novo um
+/// cartão que não montou. Mora aqui, com o resto do que é do alvo: o
+/// `CartaoSd.cpp` também compila no host, contra o dublê de FatFs.
+namespace coruja {
+std::uint32_t agora_ms_cartao() {
+    return to_ms_since_boot(get_absolute_time());
+}
+}  // namespace coruja
 
 extern "C" size_t sd_get_num() { return 1; }
 

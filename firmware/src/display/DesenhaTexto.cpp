@@ -7,26 +7,6 @@
 
 namespace coruja {
 
-int largura_numero(const char* texto) {
-    int n = 0;
-    for (const char* p = texto; *p != '\0'; ++p) {
-        if (fonte::numero::indice(*p) >= 0) {
-            n += fonte::numero::kLargura;
-        }
-    }
-    return n;
-}
-
-int largura_texto(const char* texto) {
-    int n = 0;
-    for (const char* p = texto; *p != '\0'; ++p) {
-        if (fonte::texto::indice(*p) >= 0) {
-            n += fonte::texto::kLargura;
-        }
-    }
-    return n;
-}
-
 int escreve_numero(PainelSt7789& painel, int x, int y, const char* texto,
                    Cor565 cor, Cor565 fundo) {
     const int inicio = x;
@@ -76,16 +56,6 @@ int escreve_texto_grande(PainelSt7789& painel, int x, int y, const char* texto,
         x += fonte::textogrande::kLargura;
     }
     return x - inicio;
-}
-
-int largura_numero_pequeno(const char* texto) {
-    int n = 0;
-    for (const char* p = texto; *p != '\0'; ++p) {
-        if (fonte::numeropequeno::indice(*p) >= 0) {
-            n += fonte::numeropequeno::kLargura;
-        }
-    }
-    return n;
 }
 
 int escreve_numero_pequeno(PainelSt7789& painel, int x, int y,

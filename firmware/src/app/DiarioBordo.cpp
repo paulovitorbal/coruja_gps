@@ -1,6 +1,7 @@
 #include "app/DiarioBordo.h"
 
 #include <cstring>
+#include <initializer_list>
 
 #include "log/Logger.h"
 #include "nucleo/FormatoLog.h"
@@ -11,35 +12,105 @@ namespace {
 constexpr const char* kOrigem = "diario";
 }
 
-bool DiarioBordo::arquivo_existe(const char* nome) {
+bool DiarioBordo::garante_cabecalho_infracoes() {
+    if (infracoes_com_cabecalho_) {
+        return true;
+    }
     char sonda[2] = {};
     std::size_t lidos = 0;
-    const auto r = cartao_.le_arquivo(nome, sonda, sizeof sonda, &lidos, log_);
+    const auto r = cartao_.le_arquivo(kArquivoInfracoes, sonda, sizeof sonda,
+                                      &lidos, log_);
     // `ArquivoGrande` é o caso comum de arquivo existente: a sonda tem dois
     // bytes de propósito, e qualquer log real é maior que isso.
-    return r == ErroCartao::Nenhum || r == ErroCartao::ArquivoGrande;
+    if (r == ErroCartao::Nenhum || r == ErroCartao::ArquivoGrande) {
+        infracoes_com_cabecalho_ = true;
+        return true;
+    }
+    // ⚠️ **Só a AUSÊNCIA pede cabeçalho.** Sem cartão, ou com uma leitura
+    // que falhou, não se sabe se o arquivo existe: escrever o cabeçalho ali
+    // o repetia no meio de um arquivo que já o tinha. E a sondagem só conta
+    // como feita quando dá resposta — marcá-la antes deixava o arquivo
+    // nascer sem assinatura se o cartão faltasse na primeira infração.
+    if (r != ErroCartao::ArquivoAusente) {
+        return false;
+    }
+    if (cartao_.acrescenta_arquivo(kArquivoInfracoes, kCabecalhoInfracoes,
+                                   std::strlen(kCabecalhoInfracoes),
+                                   log_) != ErroCartao::Nenhum) {
+        return false;
+    }
+    infracoes_com_cabecalho_ = true;
+    return true;
 }
 
-void DiarioBordo::grava_infracao(const RegistroInfracao& r) {
-    if (!sondou_infracoes_) {
-        sondou_infracoes_ = true;
-        if (!arquivo_existe(kArquivoInfracoes)) {
-            cartao_.acrescenta_arquivo(kArquivoInfracoes, kCabecalhoInfracoes,
-                                       std::strlen(kCabecalhoInfracoes), log_);
-        }
-    }
-
+void DiarioBordo::grava_infracao(const RegistroInfracao& r,
+                                 std::uint32_t agora_ms) {
     const auto n = formata_infracao(r, trabalho_, sizeof trabalho_);
     if (n == 0) {
         log_.error(kOrigem, "linha de infracao nao coube");
         return;
     }
-    if (cartao_.acrescenta_arquivo(kArquivoInfracoes, trabalho_, n, log_) !=
-        ErroCartao::Nenhum) {
-        log_.error(kOrigem, "falha ao gravar infracao");
+    // `>=`: o terminador do aviso de log tambem mora aqui.
+    if (n_pendentes_ + n >= sizeof pendentes_) {
+        log_.error(kOrigem, "infracao perdida: o cartao nao grava as anteriores");
         return;
     }
-    log_.warning(kOrigem, trabalho_);
+    std::memcpy(pendentes_ + n_pendentes_, trabalho_, n);
+    n_pendentes_ += n;
+    if (!descarrega_infracoes(agora_ms)) {
+        // Uma linha por infração, e não por tentativa: com o cartão fora,
+        // a retentativa a cada 5 s encheria o log de ERRO por nada.
+        log_.error(kOrigem, "falha ao gravar infracao; vai tentar de novo");
+    }
+}
+
+bool DiarioBordo::descarrega_infracoes(std::uint32_t agora_ms) {
+    tentou_infracoes_em_ms_ = agora_ms;
+    // Falhando, as linhas ficam na fila e voltam a ser tentadas (ver
+    // `passo`). Perder uma infração consumada por um cartão que piscou era
+    // o desfecho de antes.
+    if (!garante_cabecalho_infracoes() ||
+        cartao_.acrescenta_arquivo(kArquivoInfracoes, pendentes_,
+                                   n_pendentes_, log_) != ErroCartao::Nenhum) {
+        return false;
+    }
+    pendentes_[n_pendentes_] = '\0';
+    log_.warning(kOrigem, pendentes_);
+    n_pendentes_ = 0;
+    return true;
+}
+
+void DiarioBordo::grava_estado(const EstadoViagemSalvo& e) {
+    char buf[kTamEstadoViagem];
+    const auto n = formata_estado(e, buf, sizeof buf);
+    if (n == 0) {
+        return;
+    }
+    // ⚠️ **Nunca no lugar.** Reescrever o `viagem.est` direto truncava o
+    // arquivo dentro do `f_open`, e a energia que caisse antes do fechamento
+    // -- a alimentacao e pos-chave, e isto roda a cada minuto -- deixava o
+    // cartao sem estado: o religamento comecava viagem nova do zero. Escreve
+    // o temporario inteiro e o promove, como a base e o cfg; numa queda no
+    // meio da troca, `le_estado` acha o anterior na reserva.
+    if (cartao_.grava_arquivo(kArquivoEstadoViagemTmp, buf, n, log_) !=
+        ErroCartao::Nenhum) {
+        return;
+    }
+    cartao_.promove(kArquivoEstadoViagemTmp, kArquivoEstadoViagem,
+                    kArquivoEstadoViagemBak, log_);
+}
+
+bool DiarioBordo::le_estado(EstadoViagemSalvo* salvo) {
+    for (const char* nome : {kArquivoEstadoViagem, kArquivoEstadoViagemBak}) {
+        char buf[kTamEstadoViagem] = {};
+        std::size_t lidos = 0;
+        if (cartao_.le_arquivo(nome, buf, sizeof buf, &lidos, log_) ==
+                ErroCartao::Nenhum &&
+            analisa_estado(buf, lidos, salvo)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void DiarioBordo::salva_estado(bool ativa, const PontoViagem& p) {
@@ -48,32 +119,17 @@ void DiarioBordo::salva_estado(bool ativa, const PontoViagem& p) {
     e.ano = p.ano; e.mes = p.mes; e.dia = p.dia;
     e.hora = p.hora; e.minuto = p.minuto;
     e.dist_km = viagem_.dist_km();
-    char buf[kTamEstadoViagem];
-    const auto n = formata_estado(e, buf, sizeof buf);
-    if (n > 0) {
-        cartao_.grava_arquivo(kArquivoEstadoViagem, buf, n, log_);
-    }
+    grava_estado(e);
 }
 
 void DiarioBordo::limpa_estado() {
-    EstadoViagemSalvo e;  // ativa = false
-    char buf[kTamEstadoViagem];
-    const auto n = formata_estado(e, buf, sizeof buf);
-    if (n > 0) {
-        cartao_.grava_arquivo(kArquivoEstadoViagem, buf, n, log_);
-    }
+    grava_estado(EstadoViagemSalvo{});  // ativa = false
 }
 
 void DiarioBordo::tenta_retomar(const Telemetria& t) {
     tentou_retomar_ = true;
-    char buf[kTamEstadoViagem] = {};
-    std::size_t lidos = 0;
-    if (cartao_.le_arquivo(kArquivoEstadoViagem, buf, sizeof buf, &lidos,
-                           log_) != ErroCartao::Nenhum) {
-        return;
-    }
     EstadoViagemSalvo salvo;
-    if (!analisa_estado(buf, lidos, &salvo)) {
+    if (!le_estado(&salvo)) {
         return;
     }
     if (!salvo.ativa) {
@@ -186,8 +242,14 @@ void DiarioBordo::passo(const Veredito& v, const Telemetria& t, bool tem_fix,
     if (tem_fix) {
         RegistroInfracao r;
         if (det_.alimenta(v, t, &r)) {
-            grava_infracao(r);
+            grava_infracao(r, agora_ms);
         }
+    }
+    // A retentativa tem cadência propria: o laço corre centenas de vezes
+    // por segundo, e com o cartão fora cada tentativa sonda as partições.
+    if (n_pendentes_ > 0 &&
+        agora_ms - tentou_infracoes_em_ms_ >= kRetentativaInfracaoMs) {
+        descarrega_infracoes(agora_ms);
     }
     trata_viagem(v, t, tem_fix, agora_ms);
 }

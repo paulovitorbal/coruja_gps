@@ -347,6 +347,46 @@ TEST(MenuAjustes, EnviarDadosFechaOMenuAntesDeDisparar) {
     EXPECT_FALSE(c.menu().aberto());
 }
 
+// O fechamento pela acao descartava o `Gravar` que o `fecha()` devolvia:
+// quem mexia no brilho e depois clicava em "atualizar base" perdia o ajuste,
+// porque o menu ja dava a alteracao por tratada.
+
+void edita_o_brilho(Cenario* c) {
+    c->abre();
+    c->clica();          // entra no brilho
+    c->gira_esquerda();  // muda o valor
+    c->clica();          // volta a navegar
+}
+
+TEST(MenuAjustes, AjusteAntesDeAtualizarAindaEGravadoEDepoisAtualiza) {
+    Cenario c;
+    edita_o_brilho(&c);
+    c.vai_ate(ItemMenu::AtualizarBase);
+    EXPECT_EQ(c.clica(), AcaoMenu::Gravar) << "o ajuste se perdia aqui";
+    EXPECT_FALSE(c.menu().aberto());
+    EXPECT_EQ(c.ocioso(0), AcaoMenu::AtualizarBase)
+        << "gravar nao pode custar a atualizacao";
+    EXPECT_EQ(c.ocioso(0), AcaoMenu::Nenhuma) << "a acao saiu duas vezes";
+}
+
+TEST(MenuAjustes, AjusteAntesDeEnviarAindaEGravadoEDepoisEnvia) {
+    Cenario c;
+    edita_o_brilho(&c);
+    c.vai_ate(ItemMenu::EnviarDados);
+    EXPECT_EQ(c.clica(), AcaoMenu::Gravar);
+    EXPECT_EQ(c.ocioso(0), AcaoMenu::EnviarDados);
+}
+
+TEST(MenuAjustes, AndarDepoisDeGravarNaoDisparaAAcaoPendente) {
+    // A gravacao ja saiu; a atualizacao com o carro andando nao.
+    Cenario c;
+    edita_o_brilho(&c);
+    c.vai_ate(ItemMenu::AtualizarBase);
+    ASSERT_EQ(c.clica(), AcaoMenu::Gravar);
+    EXPECT_EQ(c.anda(), AcaoMenu::Nenhuma);
+    EXPECT_EQ(c.ocioso(0), AcaoMenu::Nenhuma);
+}
+
 TEST(MenuAjustes, EnviarDadosTemRotuloProprio) {
     Cenario c;
     EXPECT_STREQ(c.menu().rotulo(ItemMenu::EnviarDados), "enviar dados");

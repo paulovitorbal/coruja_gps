@@ -31,7 +31,6 @@
 #include "app/EsperaDispensa.h"
 #include "VersaoBuild.h"
 #include "app/OtaNaTela.h"
-#include "app/EmprestimoDaBase.h"
 #include "app/RemessaNaTela.h"
 #include "app/PilotoAlerta.h"
 #include "armazenamento/CartaoSd.h"
@@ -54,7 +53,7 @@
 #include "nucleo/BaseRadares.h"
 #include "nucleo/CarimboDeLog.h"
 #include "nucleo/CarregadorFluxo.h"
-#include "nucleo/LeitorConfig.h"
+#include "nucleo/GravadorConfig.h"
 #include "nucleo/LinhaVigia.h"
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
@@ -103,9 +102,14 @@ constexpr const char* kArquivoLog = "coruja.log";
 /// para ser lido depois de um envio que falhou.
 constexpr const char* kArquivoLogRemessa = "remessa.log";
 
-void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
-                           std::size_t tamanho) {
-    static_cast<coruja::CarregadorFluxo*>(contexto)->alimenta(bytes, tamanho);
+/// A ponte entre o `CartaoSd::le_em_fluxo` e a `troca_base`, que e portavel
+/// e por isso nao conhece o cartao.
+coruja::ErroCartao le_base_do_cartao(void* fonte, const char* nome,
+                                     coruja::AoLerPedacoBase ao_ler,
+                                     void* contexto, coruja::Logger& log) {
+    std::size_t lidos = 0;
+    return static_cast<coruja::CartaoSd*>(fonte)->le_em_fluxo(
+        nome, ao_ler, contexto, &lidos, log);
 }
 
 /// Carrega a base do cartão, com o recuo do RF05.2 passo 6.
@@ -114,102 +118,26 @@ void ao_ler_pedaco_da_base(void* contexto, const std::uint8_t* bytes,
 /// esse recuo, uma atualização que passasse na verificação e ainda assim
 /// produzisse arquivo ruim deixaria o aparelho sem base **e sem caminho de
 /// volta**, e o motorista descobriria dirigindo.
-/// Pontos carregados e o cabeçalho de onde vieram.
 ///
-/// O cabeçalho sai junto porque a tela de informação mostra a **data da
-/// base**, e ela vem de lá — não do momento do download. O aparelho pode
-/// ter baixado hoje uma base de três meses atrás, e é a idade dos dados que
-/// diz se vale a pena atualizar.
-struct BaseCarregada {
-    std::size_t          pontos = 0;
-    coruja::CabecalhoBase cabecalho{};
-};
-
-BaseCarregada carrega_base(coruja::CartaoSd& cartao, coruja::Logger& log) {
-    coruja::CarregadorFluxo carregador(g_pontos, coruja::kCapacidadeFirmware);
-    char msg[128];
-
-    for (const char* nome : {coruja::kArquivoBase, coruja::kArquivoBak}) {
-        carregador.reinicia();
-        std::size_t lidos = 0;
-        const auto leitura = cartao.le_em_fluxo(nome, ao_ler_pedaco_da_base,
-                                                &carregador, &lidos, log);
-        if (leitura != coruja::ErroCartao::Nenhum) {
-            std::snprintf(msg, sizeof msg, "'%s': %s", nome, descreve(leitura));
-            // Tentar o vigente e cair na reserva e o projeto funcionando. Se
-            // AMBOS falharem, o ERRO de `NENHUMA base` fecha o assunto.
-            log.debug("base", msg);
-            continue;
-        }
-        if (carregador.conclui() != coruja::ErroBase::Nenhum) {
-            std::snprintf(msg, sizeof msg, "'%s' RECUSADA", nome);
-            log.error("base", msg);
-            continue;
-        }
-        const auto& cab = carregador.cabecalho();
-        if (cab.tem_data()) {
-            std::snprintf(msg, sizeof msg, "%u pontos de '%s', base de %02u/%02u/%04u",
-                          static_cast<unsigned>(carregador.pontos()), nome,
-                          static_cast<unsigned>(cab.dia),
-                          static_cast<unsigned>(cab.mes),
-                          static_cast<unsigned>(cab.ano));
-        } else {
-            std::snprintf(msg, sizeof msg, "%u pontos de '%s' (formato antigo, sem data)",
-                          static_cast<unsigned>(carregador.pontos()), nome);
-        }
-        log.info("base", msg);
-        if (nome == coruja::kArquivoBak) {
-            log.warning("base", "operando pela RESERVA: atualize quando puder");
-        }
-        return {carregador.pontos(), cab};
-    }
-    // RF07: sem base o aparelho opera, e precisa deixar isso evidente. Quem
-    // avisa é a tela, com "BASE INDISPONIVEL".
-    log.error("base", "NENHUMA base: nem a vigente nem a reserva");
-    return {};
+/// `em_uso` é a base que o alerta está usando agora: ela só é trocada
+/// inteira, e só por um arquivo que já validou (ver `coruja::troca_base`).
+/// No boot não há nenhuma, e o arquivo é lido uma vez só.
+coruja::BaseCarregada carrega_base(coruja::CartaoSd& cartao,
+                                   const coruja::BaseCarregada& em_uso,
+                                   coruja::Logger& log) {
+    return coruja::troca_base(le_base_do_cartao, &cartao, coruja::kArquivoBase,
+                              coruja::kArquivoBak, g_pontos,
+                              coruja::kCapacidadeFirmware, em_uso, log);
 }
 
+/// A leitura do `coruja.cfg` de todo alvo, com o recuo para o `coruja.bak`
+/// (ver `coruja::carrega_configuracao`), presa ao buffer daqui.
 bool carrega_configuracao(coruja::CartaoSd& cartao,
                           coruja::Configuracao* destino,
                           coruja::Logger& log) {
-    std::size_t lidos = 0;
-    const auto erro = cartao.le_arquivo("coruja.cfg", g_texto_config,
-                                        kTamBufferConfig, &lidos, log);
-    if (erro != coruja::ErroCartao::Nenhum) {
-        char msg[96];
-        std::snprintf(msg, sizeof msg, "coruja.cfg: %s", descreve(erro));
-        log.error("config", msg);
-        return false;
-    }
-    *destino = coruja::le_config(g_texto_config, lidos, &log).config;
-    return destino->ota_possivel();
+    return coruja::carrega_configuracao(cartao, g_texto_config,
+                                        kTamBufferConfig, destino, log);
 }
-
-/// O que a `Aplicacao` manda fazer e não sabe como (regra 2).
-///
-/// Vive aqui, na composição, porque as duas ações precisam de coisas que a
-/// `Aplicacao` não tem e não deveria ter: rede, cartão e o orquestrador do
-/// Reconstroi a base no vetor depois de ele ter sido emprestado ao TLS.
-///
-/// E o `carrega_base` de sempre, so que atras da interface que o
-/// `EmprestimoDaBase` exige -- e e o que torna impossivel devolver o ponteiro
-/// sem recarregar.
-class RecarregadorDoCartao final : public coruja::RecarregadorBase {
-public:
-    explicit RecarregadorDoCartao(coruja::CartaoSd& cartao)
-        : cartao_(cartao) {}
-
-    std::size_t recarrega(coruja::Logger& log) override {
-        ultima_ = carrega_base(cartao_, log);
-        return ultima_.pontos;
-    }
-
-    const BaseCarregada& ultima() const { return ultima_; }
-
-private:
-    coruja::CartaoSd& cartao_;
-    BaseCarregada     ultima_;
-};
 
 /// Acerta o relogio assim que a rede sobe, antes do primeiro pedido.
 ///
@@ -246,6 +174,10 @@ private:
     char servidor_[coruja::kMaxUrl + 1] = {};
 };
 
+/// O que a `Aplicacao` manda fazer e não sabe como (regra 2).
+///
+/// Vive aqui, na composição, porque as duas ações precisam de coisas que a
+/// `Aplicacao` não tem e não deveria ter: rede, cartão e o orquestrador do
 /// OTA numa; LED e buzzer na outra.
 class AcoesDoAparelho final : public coruja::AcoesAplicacao {
 public:
@@ -257,13 +189,12 @@ public:
                     coruja::Pausa& pausa, coruja::Encoder& encoder,
                     coruja::LoggerCartao& log, coruja::ClienteTls& http,
                     coruja::SincronizadorHora& sincronizador,
-                    RecarregadorDoCartao& recarregador,
                     coruja::LeitorGps& gps, RelogioAntesDoTls& preparo)
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
           led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
           log_(log), http_(http), sincronizador_(sincronizador),
-          recarregador_(recarregador), gps_(gps), preparo_(preparo) {}
+          gps_(gps), preparo_(preparo) {}
 
     /// Prepara tudo que uma sessao de rede precisa, e desfaz no fim.
     ///
@@ -388,9 +319,14 @@ public:
         // alocador e a arena nunca era usada --, entao o vetor nao e mais
         // tocado pelo TLS e nao ha o que reconstruir depois de "ja estava em
         // dia".
+        //
+        // ⚠️ O vetor e o MESMO que o piloto le, e so e trocado inteiro, por
+        // um arquivo que ja validou. A versao anterior escrevia nele enquanto
+        // lia e, se a leitura falhava, mantinha a contagem antiga sobre um
+        // vetor misturado. `carrega_base` devolve a base que passa a valer --
+        // a de antes, a nova, ou nenhuma --, e e ela que o piloto recebe.
         if (resultado == coruja::ResultadoOta::Atualizada) {
-            base_ = recarregador_.recarrega(log_) > 0 ? recarregador_.ultima()
-                                                      : base_;
+            base_ = carrega_base(cartao_, base_, log_);
             piloto_.define_base(g_pontos, base_.pontos);
         }
 
@@ -480,8 +416,8 @@ public:
         led_.define_cor(coruja::cores::kApagado);
     }
 
-    const BaseCarregada& base() const { return base_; }
-    void define_base(const BaseCarregada& b) { base_ = b; }
+    const coruja::BaseCarregada& base() const { return base_; }
+    void define_base(const coruja::BaseCarregada& b) { base_ = b; }
 
 private:
     static constexpr std::uint32_t kMostraResultadoMs = 2500;
@@ -499,10 +435,9 @@ private:
     coruja::LoggerCartao&   log_;
     coruja::ClienteTls&     http_;
     coruja::SincronizadorHora& sincronizador_;
-    RecarregadorDoCartao&      recarregador_;
     coruja::LeitorGps&         gps_;
     RelogioAntesDoTls&         preparo_;
-    BaseCarregada           base_;
+    coruja::BaseCarregada   base_;
     bool                    houve_ota_ = false;
 };
 
@@ -654,7 +589,8 @@ int main() {
     }
 
     coruja::PilotoAlerta piloto(gps, led, buzzer);
-    const BaseCarregada base = carrega_base(cartao, log);
+    const coruja::BaseCarregada base =
+        carrega_base(cartao, coruja::BaseCarregada{}, log);
     piloto.define_base(g_pontos, base.pontos);
     // A linha de `carrega_base` diz quantos pontos o ARQUIVO tinha; esta diz
     // quantos chegaram a quem alerta. Eram a mesma coisa em todo log que
@@ -686,7 +622,6 @@ int main() {
     }
 
     coruja::SincronizadorHora sincronizador(relogio, ntp);
-    RecarregadorDoCartao      recarregador(cartao);
     // O relogio e acertado pelos ORQUESTRADORES, logo depois de a rede
     // subir -- nunca antes. Ver `PreparoDeSessao`.
     RelogioAntesDoTls         preparo(sincronizador, gps);
@@ -699,8 +634,7 @@ int main() {
                                         &ponte_remessa, &preparo);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
                                  piloto, led, buzzer, pausa, encoder, log,
-                                 http, sincronizador, recarregador, gps,
-                                 preparo);
+                                 http, sincronizador, gps, preparo);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, luz, led, cartao,

@@ -117,12 +117,13 @@ TEST_F(CartaoSdNoHost, arquivo_maior_que_o_buffer_e_recusado_sem_estourar) {
 }
 
 TEST_F(CartaoSdNoHost, driver_que_nao_inicia_nao_derruba_a_leitura) {
+    // `sd_init_driver()` falhando nao e motivo para desistir: o barramento
+    // pode ja estar de pe de uma tentativa anterior. O que NAO pode e a
+    // falha passar calada -- e onde se procura quando o cartao nao responde.
     fs.driver_inicia = false;
     poe(0, "coruja.cfg", "x");
-    char buf[64];
-    std::size_t n = 0;
-    sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log);
-    SUCCEED() << "nao travou nem estourou";
+    EXPECT_EQ(le("coruja.cfg"), "x") << "desistiu da leitura por causa do driver";
+    EXPECT_TRUE(log.contem(Nivel::Error, "sd_init_driver"));
 }
 
 // ================================================ RF05.2: troca atômica
@@ -205,6 +206,119 @@ TEST_F(CartaoSdNoHost, descartar_a_escrita_nao_deixa_o_temporario) {
     EXPECT_FALSE(fs.existe(0, "radares.tmp"));
 }
 
+// ---- a escrita curta: o cartao que enche e diz FR_OK ---------------------
+//
+// Cartao cheio devolve `FR_OK` com MENOS bytes. O acrescimo gravava o pedaco
+// e devolvia falha, e quem chama -- o `LoggerCartao` -- guarda o buffer para
+// tentar de novo: a tentativa seguinte repetia o bloco inteiro, com o pedaco
+// ja no arquivo. O log ficava com meia linha colada numa linha inteira.
+
+TEST_F(CartaoSdNoHost, acrescimo_curto_nao_deixa_pedaco_no_arquivo) {
+    poe(0, "coruja.log", "ja estava\n");
+    fs.escrita_curta_apos = 3;        // tres bytes cabem, o resto nao
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\n")
+        << "o pedaco gravado ficou no arquivo";
+}
+
+TEST_F(CartaoSdNoHost, a_tentativa_seguinte_ao_acrescimo_curto_nao_duplica) {
+    poe(0, "coruja.log", "ja estava\n");
+    fs.escrita_curta_apos = 3;
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+
+    fs.escrita_curta_apos = 0;        // o cartao volta a si
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\nlinha nova\n");
+}
+
+TEST_F(CartaoSdNoHost, f_close_que_falha_no_acrescimo_e_falha_de_escrita) {
+    // O tamanho so vai ao diretorio no fechamento: um `f_close` que falha
+    // deixa o arquivo como estava, e dizer "gravado" perderia a linha.
+    poe(0, "coruja.log", "ja estava\n");
+    fs.erro_close = FR_DISK_ERR;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha nova\n", 11, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "ja estava\n");
+}
+
+// ---- cartao ausente: nao se sonda o cartao a cada linha de log -----------
+
+TEST_F(CartaoSdNoHost, sem_cartao_a_sondagem_espera_antes_de_tentar_de_novo) {
+    // Sem cartao, cada linha de log sondava as cinco particoes. O laco corre
+    // centenas de vezes por segundo e o buffer do log descarrega sozinho: era
+    // o barramento ocupado sem parar, para nada.
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::SemCartaoLegivel);
+    const std::size_t sondas = fs.operacoes.size();
+    ASSERT_EQ(sondas, 5u) << "sondou as cinco particoes";
+
+    for (int i = 0; i < 20; ++i) {
+        EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+                  ErroCartao::SemCartaoLegivel);
+    }
+    EXPECT_EQ(fs.operacoes.size(), sondas) << "sondou de novo sem esperar";
+}
+
+TEST_F(CartaoSdNoHost, passada_a_espera_o_cartao_recem_posto_e_achado) {
+    // A espera nao pode virar desistencia: quem poe o cartao com o aparelho
+    // ligado tem de ser atendido.
+    ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::SemCartaoLegivel);
+    poe(0, "coruja.log", "");
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "x\n", 2, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "x\n");
+}
+
+TEST_F(CartaoSdNoHost, a_espera_nao_atrapalha_a_leitura_logo_apos_uma_falha) {
+    // A leitura sonda por conta propria (R-38) e paga a mesma espera: sem
+    // isso o arranque sem cartao sondaria tudo de novo a cada arquivo.
+    char buf[64];
+    std::size_t n = 0;
+    ASSERT_EQ(sd.le_arquivo("coruja.cfg", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+    const std::size_t sondas = fs.operacoes.size();
+    EXPECT_EQ(sd.le_arquivo("radares.bin", buf, sizeof buf, &n, log),
+              ErroCartao::SemCartaoLegivel);
+    EXPECT_EQ(fs.operacoes.size(), sondas);
+}
+
+TEST_F(CartaoSdNoHost, descartar_apaga_o_temporario_mesmo_depois_de_concluir) {
+    // O caminho do OTA: `conclui_escrita` falha e ele chama
+    // `descarta_escrita` logo em seguida. Como o concluir ja tinha baixado a
+    // bandeira de escrita, o descarte nao fazia NADA e o `radares.tmp` ficava
+    // no cartao -- ocupando espaco e parecendo um download bom.
+    fs.volumes[0].monta = true;
+    ASSERT_EQ(sd.abre_para_escrita("radares.tmp", log), ErroCartao::Nenhum);
+    const std::uint8_t a[] = {'x'};
+    ASSERT_TRUE(sd.escreve(a, sizeof a));
+    fs.erro_close = FR_DISK_ERR;
+    ASSERT_EQ(sd.conclui_escrita(log), ErroCartao::FalhaDeEscrita);
+    ASSERT_TRUE(fs.existe(0, "radares.tmp")) << "o teste nao reproduziu o caso";
+
+    fs.erro_close = FR_OK;
+    sd.descarta_escrita("radares.tmp", log);
+    EXPECT_FALSE(fs.existe(0, "radares.tmp"));
+    EXPECT_EQ(fs.montagens, fs.desmontagens) << "o cartao ficou montado";
+}
+
+TEST_F(CartaoSdNoHost, descartar_sem_cartao_nao_deixa_o_volume_preso) {
+    // Sem cartao nao ha o que apagar -- e nao pode sobrar montagem pendurada
+    // nem bandeira de escrita: a tentativa seguinte do OTA usa as duas.
+    sd.descarta_escrita("radares.tmp", log);
+    EXPECT_EQ(fs.montagens, fs.desmontagens);
+
+    fs.volumes[0].monta = true;
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.abre_para_escrita("radares.tmp", log), ErroCartao::Nenhum)
+        << "a escrita seguinte nao abriu";
+    EXPECT_EQ(sd.conclui_escrita(log), ErroCartao::Nenhum);
+}
+
 TEST_F(CartaoSdNoHost, acrescentar_nao_reescreve_o_arquivo_inteiro) {
     poe(0, "coruja.log", "primeira\n");
     ASSERT_EQ(sd.acrescenta_arquivo("coruja.log", "segunda\n", 8, log),
@@ -230,6 +344,69 @@ TEST_F(CartaoSdNoHost, a_escrita_vai_ao_MESMO_volume_onde_a_leitura_achou) {
     EXPECT_FALSE(fs.existe(0, "versao.txt"));
 }
 
+
+// ---- o volume lembrado pode sumir ---------------------------------------
+
+TEST_F(CartaoSdNoHost, o_volume_lembrado_que_nao_monta_mais_e_ressondado) {
+    // Trocar o cartao por outro, com o aparelho ligado, mudava a particao
+    // onde tudo mora. O volume ficava lembrado para sempre e a escrita
+    // tentava so ele: o aparelho parava de gravar ate religar.
+    fs.volumes[0].monta = true;                  // monta, vazia
+    poe(3, "coruja.cfg", "config aqui");
+    ASSERT_EQ(le("coruja.cfg"), "config aqui");
+
+    fs.volumes[3].monta = false;                 // o cartao foi trocado
+    fs.volumes[3].arquivos.clear();
+    fs.agora_ms += kEsperaRemontagemMs;
+    EXPECT_EQ(sd.acrescenta_arquivo("coruja.log", "linha\n", 6, log),
+              ErroCartao::Nenhum);
+    EXPECT_EQ(fs.conteudo(0, "coruja.log"), "linha\n")
+        << "ficou preso na particao que sumiu";
+}
+
+// ---- a leitura no meio de outra operacao --------------------------------
+
+TEST_F(CartaoSdNoHost, le_arquivo_durante_um_fluxo_aberto_nao_mata_o_fluxo) {
+    // O `le_arquivo` sondava com `f_mount` sem olhar a contagem de
+    // montagens. Montar de novo reinicia a area de trabalho do volume, e
+    // todo `FIL` aberto nele morre -- e a remessa mantem um aberto durante o
+    // envio inteiro.
+    poe(0, "20261006_143000.log", "viagem inteira aqui");
+    poe(0, "coruja.cfg", "nome=fusca");
+    std::size_t tamanho = 0;
+    ASSERT_EQ(sd.abre_para_leitura("20261006_143000.log", &tamanho, log),
+              ErroCartao::Nenhum);
+
+    EXPECT_EQ(le("coruja.cfg"), "nome=fusca");
+
+    std::string tudo;
+    std::uint8_t buf[8];
+    for (;;) {
+        std::size_t n = 0;
+        if (!sd.le(buf, sizeof buf, &n) || n == 0) { break; }
+        tudo.append(reinterpret_cast<char*>(buf), n);
+    }
+    sd.fecha_leitura();
+    EXPECT_EQ(tudo, "viagem inteira aqui") << "a leitura em curso morreu";
+    EXPECT_EQ(fs.montagens, fs.desmontagens) << "o cartao ficou montado";
+}
+
+// ---- nome que nao cabe no caminho ---------------------------------------
+
+TEST_F(CartaoSdNoHost, nome_que_nao_cabe_no_caminho_e_recusado_e_nao_truncado) {
+    // Truncar em silencio enderecaria OUTRO arquivo: ler um, gravar por cima
+    // de outro. O limite e do buffer de caminho, nao do FAT.
+    const std::string gigante(120, 'n');
+    fs.volumes[0].monta = true;
+    char buf[64];
+    std::size_t n = 0;
+    EXPECT_EQ(sd.le_arquivo(gigante.c_str(), buf, sizeof buf, &n, log),
+              ErroCartao::FalhaDeLeitura);
+    EXPECT_EQ(sd.acrescenta_arquivo(gigante.c_str(), "x", 1, log),
+              ErroCartao::FalhaDeEscrita);
+    EXPECT_EQ(sd.remove(gigante.c_str(), log), ErroCartao::FalhaDeEscrita);
+    EXPECT_TRUE(fs.volumes[0].arquivos.empty()) << "gravou num nome truncado";
+}
 
 // ===========================================================================
 // Arquivario -- o que a remessa de dados usa
