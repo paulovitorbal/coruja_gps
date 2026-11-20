@@ -127,6 +127,9 @@ if(NOT CORUJA_TESTES)
     add_library(coruja_armazenamento STATIC
         armazenamento/CartaoSd.cpp
         armazenamento/hw_config.cpp
+        # Ver o cabecalho do arquivo: o driver SDIO saiu do build por licenca
+        # (GPL-3), e estes tres simbolos sobraram referenciados pelo SPI.
+        armazenamento/sdio_ausente.c
         # O logger de cartao vive aqui, e nao em coruja_log, porque depende do
         # CartaoSd -- e coruja_log e portavel, compila no host.
     )
