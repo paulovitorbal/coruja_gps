@@ -663,18 +663,33 @@ onde é estimativa, está dito.
 | laço principal | ~53 ms (redesenho da faixa); um acesso ao cartão limita-se a 2 s × 3 tentativas **por comando**, e uma operação de vários comandos pode passar do prazo — é a mordida desejada | `vigia`; `sd_timeouts.c` |
 | pedido HTTP (`ClienteTls`) | uma volta do laço (poll + 1 ms). O passo mais caro é o handshake TLS dentro de um poll: ordem de centenas de ms (**estimativa, não medida**) | `conversa`, `espera_vigiada` |
 | DNS do `ClienteTls` | uma volta do laço; teto 15 s | `kPrazoDnsMs` |
-| SNTP (depois do `retoma`) | **10 s**: 5 s de nome + 5 s de resposta, sem refeição por dentro (o `ClienteSntp` não recebe o cão); margem de 6,5 s | `kTempoLimiteNtpMs` |
+| SNTP (depois do `retoma`) | **10 s**: 5 s de nome + 5 s de resposta, sem refeição por dentro (o `ClienteSntp` não recebe o cão). **A margem de 6,5 s é otimista:** uma falha do NTP ainda gera até 3 descargas forçadas no cartão (o `log.error` do DNS, o aviso "sem resposta" e o erro "sem hora"), sem refeição entre elas — com Wi-Fi no ar e sem internet, e um cartão degradado, os 10 s mais as descargas passam de 16,5 s | `kTempoLimiteNtpMs`, `SincronizadorHora` |
 | associação Wi-Fi | não conta: o cão está **solto** (varredura 12 s + associação 20 s) | `RedeWifi`, `CaoSuspenso` |
 | OTA, antes de soltar o cão | uma operação de cartão por trecho (log, configuração, versão) | `AcoesDoAparelho`, `executa` |
-| OTA, download | um pedaço recebido e gravado | `ao_receber_base` |
-| remessa, depois do `retoma` | uma etapa: SNTP (10 s), listagem, abertura ou um pedaço de 1 KiB | `RemessaDados` |
+| OTA, download | uma volta do laço de `conversa` (a refeição saiu do pedaço gravado e foi para o laço, depois do poll) | `ClienteTls`, `ao_receber_base` |
+| remessa, depois do `retoma` | uma etapa: SNTP (10 s), listagem, abertura ou um pedaço de 1 KiB. **Depois do `remove`** há mais um trecho de cartão sem refeição que esta linha não conta: reler o arquivo, `fecha_leitura`, a pintura "Apagando", o `remove` (uma operação de FAT), um `log.info` e o `abre_para_leitura` do arquivo seguinte, até a primeira refeição dele | `RemessaDados` |
 | recarga pós-OTA | um pedaço de 4 KiB (2 passadas; 4 na reserva) | `troca_base` |
 | configuração do GPS | uma espera de ACK: 50 × 20 ms = 1 s | `ConfiguradorGps.h` |
 | tela de falha | 50 ms + uma pintura; encerra em 60 s | `EsperaDispensa` |
 
-O pior trecho **sem** mecanismo de alimentação por dentro é o SNTP, com 10 s:
-cabe nos 16,5 s com 6,5 s de folga, e é por isso que encompridar o
-`kTempoLimiteNtpMs` exige dar o cão ao `ClienteSntp`.
+O pior trecho **sem** mecanismo de alimentação por dentro é o SNTP, com 10 s.
+Num cartão saudável cabe nos 16,5 s com folga; num cartão degradado, somado às
+descargas forçadas de log que a falha do NTP provoca, **pode não caber** — a
+segunda revisão do watchdog apontou isso, e é o risco conhecido mais concreto
+que sobra. O conserto é barato e fica para depois: dar o cão ao `ClienteSntp`
+(o `PedidoDns::cao` já existe e a espera de UDP pode usar `espera_vigiada`).
+Encompridar o `kTempoLimiteNtpMs` exige fazê-lo antes.
+
+O cão **não é aninhável**: `CaoSuspenso` guarda contra um `return` esquecido,
+não contra reentrada, e `suspende` não tem contador de profundidade. Hoje os
+dois únicos usos (OTA e remessa) não se chamam; um terceiro que se aninhasse
+rearmaria o cão no destrutor do guarda interno.
+
+**Validação pendente em hardware** (o SDK não responde por estes pontos): se o
+bit `ENABLE` do watchdog persiste depois de um reset por watchdog — se
+persistisse, o boot sem cão que a `PoliticaDoCao` decide depois de 3 mordidas
+seria mordido de novo no primeiro `alimenta()`; e se o bootrom do RP2350 usa
+`scratch[0]`, onde mora o contador de mordidas.
 
 ### O buraco consciente: a associação do rádio
 
