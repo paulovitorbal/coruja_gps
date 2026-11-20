@@ -74,3 +74,6 @@ Verificado por teste negativo: forçando `0`, o build quebra.
   de depuração, num projeto cujo assunto é outro.
 * **`carlk3/no-OS-FatFS-SD-SPI-RPi-Pico`** (a anterior, só SPI, mais
   estrelas). A adotada é a sucessora mantida, e o SDIO que sobra não atrapalha.
+  ⚠️ Essa última frase **envelheceu**: o SDIO atrapalhava, sim — é GPL-3 e
+  entrava na imagem publicada. Desde 19/11/2026 ele não é mais compilado.
+  Ver `docs/licencas/README.md`.

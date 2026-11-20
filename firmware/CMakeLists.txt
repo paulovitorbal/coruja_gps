@@ -91,9 +91,17 @@ else()
     FetchContent_Declare(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
         GIT_REPOSITORY https://github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico.git
         GIT_TAG        6c644cfc3ab03c161fee2dd7be4877e5b832fa71  # v3.6.2
-        # O repositorio nao tem CMakeLists na raiz: o alvo vive em src/.
-        SOURCE_SUBDIR  src)
+        # 🔴 **SOURCE_SUBDIR aponta de proposito para um diretorio SEM
+        # CMakeLists.** Assim o FetchContent BAIXA a biblioteca e NAO adiciona
+        # o CMakeLists dela ao build -- quem declara o alvo somos nos, logo
+        # abaixo, sem os dois fontes do driver SDIO, que e GPL-3. Ver
+        # docs/licencas/README.md e firmware/cmake/fatfs_sd_sem_sdio.cmake.
+        #
+        # Baixar a biblioteca inteira esta certo: o que nao pode e o codigo
+        # GPL-3 entrar na imagem publicada.
+        SOURCE_SUBDIR  cmake-nao-usado-de-proposito)
     FetchContent_MakeAvailable(no-OS-FatFS-SD-SDIO-SPI-RPi-Pico)
+    include(cmake/fatfs_sd_sem_sdio.cmake)
     add_subdirectory(src)
     # -DCORUJA_DIAGNOSTICO=ON troca o firmware pelo diagnostico de pinos.
     option(CORUJA_DIAGNOSTICO "Compila o diagnostico de pinos do encoder" OFF)

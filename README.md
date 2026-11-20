@@ -371,8 +371,8 @@ PolyForm: código é código onde quer que esteja.
   referência e não são licenciados por este projeto.
 - As dependências que vão **dentro do binário** mantêm cada uma a sua licença.
   Quem é quem, e o que cada licença exige neste uso, está em
-  `docs/licencas/README.md` — inclusive um **ponto em aberto** sobre o driver
-  SDIO da biblioteca de cartão SD, que é GPL-3 e está na imagem. O
+  `docs/licencas/README.md` — inclusive por que o driver SDIO da biblioteca de
+  cartão SD, que é GPL-3, **ficou de fora do binário**. O
   `THIRD_PARTY_NOTICES.md` da raiz é a versão curta que vai anexa à release.
 
 O `NOTICE` traz o aviso que a PolyForm exige que acompanhe as cópias.
