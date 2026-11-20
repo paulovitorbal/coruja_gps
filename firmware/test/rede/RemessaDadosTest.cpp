@@ -373,7 +373,13 @@ Configuracao cfg_valida() {
 class PreparoEspiao : public PreparoDeSessao {
 public:
     std::vector<std::string>* diario = nullptr;
+    /// Quanto o preparo custa do relogio falso. No aparelho ele acerta o
+    /// relogio pelo SNTP: ate 5 s para o nome e 5 s para a resposta.
+    std::uint32_t custo_ms = 0;
+    PausaFalsa* relogio = nullptr;
+
     void apos_conectar(Logger&) override {
+        if (relogio != nullptr) { relogio->agora += custo_ms; }
         if (diario != nullptr) { diario->push_back("preparo"); }
     }
 };
@@ -392,6 +398,7 @@ struct Cenario {
     ResultadoRemessa roda() {
         rede.diario = &diario;
         preparo.diario = &diario;
+        preparo.relogio = &pausa;
         servidor.relogio = &pausa;
         rede.relogio = &pausa;
         servidor.espia = &cao;
@@ -1917,6 +1924,24 @@ TEST(CaoDeGuardaNaRemessa, sem_cao_a_remessa_roda_igual) {
     cartao.arquivos["20261001_120000.log"] = "viagem";
     RemessaDados r(cartao, rede, servidor, pausa);
     EXPECT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+}
+
+TEST(CaoDeGuardaNaRemessa, o_preparo_da_sessao_nao_deixa_o_cao_sem_comer) {
+    // ⚠️ **Este passou de primeira, e ele fica como guarda.**
+    //
+    // O preparo acerta o relogio pelo SNTP logo depois de a rede subir: ate
+    // 5 s para o nome e 5 s para a resposta, bloqueantes, entre a associacao
+    // e o primeiro pedido. Dez segundos cabem no prazo -- a margem e de 6,5 s
+    // --, entao nao foi preciso alimentar ali. Mas a margem e o resultado de
+    // DUAS escolhas: o prazo e a refeicao que a passada do CRC faz antes do
+    // envio. Mexer em qualquer uma delas sem olhar esta conta quebra aqui.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.preparo.custo_ms = 10000;
+    c.servidor.custo_ms = 15000;
+    c.roda();
+    EXPECT_LE(c.cao.maior_intervalo_ms, kPrazoCaoMs)
+        << "o preparo e o primeiro pedido viraram um bloco so";
 }
 
 }  // namespace
