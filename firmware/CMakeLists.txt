@@ -1,9 +1,13 @@
 # Alvo duplo: -DCORUJA_TESTES=ON compila a suite no host (sem Pico SDK);
 # sem a opcao, compila o firmware para o RP2350. Ver docs/adr/0001.
 #
-# 3.14 e o minimo de verdade: e onde nasceu o `FetchContent_MakeAvailable`,
-# que o alvo do Pico usa.
-cmake_minimum_required(VERSION 3.14)
+# 3.18 e o minimo de verdade: e onde nasceu o `SOURCE_SUBDIR` do
+# `FetchContent_Declare` (a ajuda do modulo diz "versionadded 3.18"), que o
+# alvo do Pico usa para NAO adicionar o CMakeLists da biblioteca de cartao SD
+# -- ver cmake/fatfs_sd_sem_sdio.cmake. O `FetchContent_MakeAvailable`, de
+# 3.14, ja nao bastava: com um CMake de 3.14 a 3.17 a opcao seria ignorada, o
+# CMakeLists da biblioteca entraria, e o driver SDIO (GPL-3) voltaria ao binario.
+cmake_minimum_required(VERSION 3.18)
 
 option(CORUJA_TESTES "Compila a suite de testes no host em vez do firmware" OFF)
 option(CORUJA_COBERTURA "Instrumenta para cobertura (requer CORUJA_TESTES)" OFF)
