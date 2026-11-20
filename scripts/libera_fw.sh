@@ -300,8 +300,15 @@ echo "     servidor: $(grep -E '^(OK|FAILED)' "$LOGS/libera-py-servidor.log")"
 
 # --- 6. os três alvos do Pico ------------------------------------------------
 etapa "6/10 alvos do Pico"
+# Esta compilacao e PRE-TAG: so para ver se compila, e a etapa 8 reconstroi NA
+# tag -- e essa imagem e a que se publica. Com 100 ou mais commits desde a
+# ultima tag, o guarda de `versao_imagem.cmake` recusava configurar, e a
+# propria liberacao que cria a tag que o resolve era barrada por ele.
+# Declarar `CORUJA_BUILD_PRE_TAG=1` so AQUI (e nunca na etapa 8) faz a imagem
+# sair 0.0, que a etapa 9 recusa, e deixa o guarda de pe para o que se publica.
 for alvo in build-pico build-bancada build-ota; do
-    cmake --build "$DIR/firmware/$alvo" -j8 > "$LOGS/libera-$alvo.log" 2>&1 \
+    CORUJA_BUILD_PRE_TAG=1 cmake --build "$DIR/firmware/$alvo" -j8 \
+        > "$LOGS/libera-$alvo.log" 2>&1 \
         || falhou "$alvo nao compila. Ver $LOGS/libera-$alvo.log"
     echo "     $alvo ok"
 done

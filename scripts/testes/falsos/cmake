@@ -63,12 +63,12 @@ if [ -n "${!falha:-}" ]; then
 fi
 
 if [ "$nome" != "build-pico" ]; then
-    echo "cmake $*" >> "$FALSO_DIARIO"
+    echo "cmake $* [pre_tag=${CORUJA_BUILD_PRE_TAG:-}]" >> "$FALSO_DIARIO"
     exit 0
 fi
 
 descricao=$(git describe --tags --always --dirty='*' 2>/dev/null || echo sem-git)
-echo "cmake $* [describe=$descricao]" >> "$FALSO_DIARIO"
+echo "cmake $* [describe=$descricao] [pre_tag=${CORUJA_BUILD_PRE_TAG:-}]" >> "$FALSO_DIARIO"
 versao="0.0"
 longa=$(git describe --tags --long --match 'v[0-9]*' 2>/dev/null)
 if [[ "$longa" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)-g ]]; then

@@ -119,6 +119,27 @@ function(coruja_versao_imagem FONTE SAIDA)
     # da direita faria duas versões diferentes darem o mesmo número, e passar
     # de 654 no da esquerda estouraria os 16 bits.
     if(N GREATER_EQUAL 100)
+        # A compilacao PRE-TAG do `scripts/libera_fw.sh` (etapa 6) so quer ver
+        # se compila: a etapa 8 reconstroi NA tag, e e essa imagem que se
+        # publica. Com 100 ou mais commits desde a ultima tag, o guarda
+        # impedia a propria liberacao que existe para criar a tag que o
+        # resolve. Quem a declara (`CORUJA_BUILD_PRE_TAG=1`, so o valor 1)
+        # recebe uma imagem 0.0 -- o mesmo caminho do "sem tag" acima, que o
+        # `libera_fw.sh` ja recusa na etapa 9 --, e nunca um numero que
+        # colida com o da tag seguinte. Sem a declaracao, o guarda segue.
+        if("$ENV{CORUJA_BUILD_PRE_TAG}" STREQUAL "1")
+            message(WARNING
+                "versao da imagem: ${N} commits depois da tag (${DESCRICAO}); "
+                "compilacao pre-tag declarada, a imagem sai SEM versao (0.0). "
+                "Nao grave esta imagem: crie a tag nova e reconstrua.")
+            set(DESCRICAO "${DESCRICAO} pre-tag")
+            set(MAIOR 0)
+            set(MENOR 0)
+            _coruja_grava_versao_imagem("${SAIDA}" "${DESCRICAO}" ${MAIOR} ${MENOR})
+            set(CORUJA_VERSAO_MAIOR ${MAIOR} PARENT_SCOPE)
+            set(CORUJA_VERSAO_MENOR ${MENOR} PARENT_SCOPE)
+            return()
+        endif()
         message(FATAL_ERROR
             "versao da imagem: ${N} commits depois da tag (${DESCRICAO}). "
             "Com 100 ou mais o numero colidiria com o da tag seguinte: "

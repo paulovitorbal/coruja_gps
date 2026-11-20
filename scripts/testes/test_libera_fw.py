@@ -283,6 +283,11 @@ class Liberacao(unittest.TestCase):
 
     def test_tag_so_um_numero_acima_da_ultima_passa(self):
         self.git("tag", "-a", "-m", "anterior", "v0.2.25")
+        # A tag nova fica num commit NOVO, como na vida real. As duas no mesmo
+        # commit e no mesmo segundo faziam o `git describe` desempatar por
+        # acaso, e o binario as vezes saia com a tag velha: o teste era
+        # instavel por culpa propria, nao do script.
+        self.git("commit", "-q", "--allow-empty", "-m", "depois da v0.2.25")
         r = self.libera("v0.2.26", "primeira")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("v0.2.26", self.tags_locais())
@@ -308,6 +313,37 @@ class Liberacao(unittest.TestCase):
         self.assertEqual(self.tags_locais(), [])
         self.assertIn("v0.5.0", r.stderr)
         self.assertEqual(self.chamadas("cmake"), [])
+
+    # --- a compilacao pre-tag nao pode travar a liberacao --------------------
+
+    def test_so_as_compilacoes_pre_tag_declaram_que_sao_pre_tag(self):
+        """O guarda de `versao_imagem.cmake` recusa configurar com 100 ou mais
+        commits desde a ultima tag, e a etapa 6 compila ANTES de criar a tag:
+        a propria liberacao que cria a tag que resolveria o guarda era barrada
+        por ele. A etapa 6 declara que e pre-tag (a imagem sai 0.0, que a
+        etapa 9 recusa). A etapa 8, que constroi o que se PUBLICA, nao pode
+        declarar: senao o guarda nunca a protegeria."""
+        r = self.libera(TAG, "primeira")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        builds = [c for c in self.chamadas("cmake --build")
+                  if c.split()[2].rsplit("/", 1)[-1]
+                  in ("build-pico", "build-bancada", "build-ota")]
+        pre = [c for c in builds if "[pre_tag=1]" in c]
+        pos = [c for c in builds if "[pre_tag=]" in c]
+        # Etapa 6: as tres. Etapa 8: so o do Pico, reconstruido na tag.
+        self.assertEqual(len(pre), 3, builds)
+        self.assertEqual(len(pos), 1, builds)
+        self.assertIn("/build-pico", pos[0])
+        self.assertIn(f"[describe={TAG}]", pos[0])
+
+    def test_a_declaracao_nao_vaza_para_a_construcao_na_tag(self):
+        # O mesmo, visto pelo outro lado: a ultima compilacao do Pico, a que
+        # vira o artefato publicado, nunca leva a declaracao.
+        r = self.libera(TAG, "primeira")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pico = self.compilacoes_do_pico()
+        self.assertIn("[pre_tag=1]", pico[0])
+        self.assertNotIn("[pre_tag=1]", pico[-1])
 
     # --- os textos das licencas vao na release ------------------------------
 
