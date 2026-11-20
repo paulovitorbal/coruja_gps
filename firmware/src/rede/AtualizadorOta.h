@@ -28,6 +28,16 @@ constexpr const char* kArquivoTmp    = "radares.tmp";
 constexpr const char* kArquivoBak    = "radares.bak";
 constexpr const char* kArquivoVersao = "versao.txt";
 
+/// O maior `radares.bin` que esta placa aceita: o cabeçalho mais a
+/// capacidade inteira, ~281 KB.
+///
+/// **É o teto do que o download grava no cartão**, conferido a cada pedaço.
+/// Antes dele, só o verificador recusava um arquivo grande demais — no fim,
+/// com tudo já gravado: um servidor errado, ou hostil, enchia o cartão até
+/// onde o cartão deixasse.
+constexpr std::size_t kTetoBase =
+    kTamCabecalho + std::size_t{kCapacidadeFirmware} * kTamRegistro;
+
 enum class ResultadoOta {
     Atualizada,        ///< baixou, verificou e aceitou
     JaEstavaEmDia,     ///< a versão do servidor é a que já se tem
@@ -37,6 +47,13 @@ enum class ResultadoOta {
     FalhaAoBaixar,     ///< o download não completou
     BaseRecusada,      ///< baixou inteiro e o conteúdo não passou
     FalhaAoGravar,     ///< chegou íntegra e o cartão não aceitou
+    /// O servidor respondeu e recusou: 3xx, 4xx. Quase sempre é o
+    /// `token_aparelho` (401) ou a URL (404). Não se repete.
+    ServidorRecusou,
+    /// O aperto de mão TLS recusou o certificado do servidor. Quase sempre é
+    /// o relógio: sem hora acertada, todo certificado "ainda não vale". Não
+    /// se repete.
+    CertificadoRecusado,
 };
 
 const char* descreve(ResultadoOta resultado);
@@ -73,6 +90,8 @@ inline bool e_falha(ResultadoOta r) {
         case ResultadoOta::FalhaAoBaixar:
         case ResultadoOta::BaseRecusada:
         case ResultadoOta::FalhaAoGravar:
+        case ResultadoOta::ServidorRecusou:
+        case ResultadoOta::CertificadoRecusado:
             return true;
     }
     return true;  // enum fora de faixa: trata como falha, que é o lado seguro
@@ -120,9 +139,49 @@ public:
 
     ResultadoOta executa(const Configuracao& cfg, Logger& log);
 
+    /// A base em uso veio do `radares.bin`? Quem sabe é a carga do boot.
+    ///
+    /// O `versao.txt` descreve o `radares.bin`, e só ele. Quando a carga
+    /// recusa esse arquivo e cai na reserva — ou não acha base nenhuma —, a
+    /// versão gravada continua igual à do servidor, e comparar só as duas
+    /// respondia "já está em dia" para sempre: o menu não tinha como
+    /// consertar o aparelho (F3, revisão de 17/11/2026).
+    ///
+    /// **É a carga que responde, e não o OTA relendo o arquivo.** Reler
+    /// custaria 214 KB de cartão a cada clique em dia, e ainda responderia
+    /// menos: o `VerificadorDownload` confere cabeçalho, contagem e CRC, e a
+    /// carga confere também ordem e domínio — é ela que decide se o `.bin`
+    /// vale ou se o aparelho cai na reserva.
+    ///
+    /// Sem ninguém informar, vale `false`: na dúvida o OTA rebaixa, que é o
+    /// modo de falha que o resto deste fluxo já escolheu. Depois de promover
+    /// uma base, o próprio OTA passa a `true` — a que ele acabou de pôr no
+    /// lugar é a vigente.
+    void informa_vigente_em_uso(bool sim) { vigente_em_uso_ = sim; }
+
     const char* versao_local() const { return versao_local_; }
 
 private:
+    // O `executa` em pedaços, na ordem em que rodam. Cada um devolve o
+    // resultado em vez de encerrar: quem desconecta é só o `encerra`, e um
+    // retorno adiantado lá dentro não tem como esquecer o rádio.
+    void avisa(FaseOta fase, unsigned tentativa = 1);
+    void le_versao_local(Logger& log);
+    ResultadoOta encerra(ResultadoOta r, Logger& log);
+    ResultadoOta fala_com_o_servidor(const Url& url_versao,
+                                     const Url& url_base, Logger& log);
+    /// Passo 1. `false`, com o motivo, quando a resposta não serve.
+    bool consulta_versao(const Url& url, Logger& log, ResultadoOta* motivo);
+    bool ja_em_dia(Logger& log) const;
+    /// As tentativas do RF05.2, com a espera entre elas.
+    ResultadoOta baixa_com_tentativas(const Url& url, Logger& log);
+    /// Uma tentativa. `repete` diz se a seguinte pode dar outro resultado.
+    ResultadoOta tenta_baixar(const Url& url, unsigned tentativa, Logger& log,
+                              bool* repete);
+    /// Passos 2 a 5 do RF05.2, com o download já no temporário.
+    ResultadoOta verifica_e_promove(unsigned tentativa, Logger& log,
+                                    bool* repete);
+
     Armazenamento&      cartao_;
     Conexao&            rede_;
     Baixador&           http_;
@@ -133,6 +192,7 @@ private:
     char                versao_local_[kMaxVersao + 1] = {};
     char                versao_remota_[kMaxVersao + 1] = {};
     std::size_t         versao_remota_tam_ = 0;
+    bool                vigente_em_uso_ = false;
 };
 
 }  // namespace coruja

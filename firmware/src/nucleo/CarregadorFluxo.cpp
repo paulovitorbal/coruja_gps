@@ -175,7 +175,10 @@ BaseCarregada troca_base(LeituraEmFluxo ler, void* fonte, const char* nome,
             continue;
         }
         anuncia(candidato, reserva, carregador, log);
-        return {carregador.pontos(), carregador.cabecalho()};
+        // `candidato` e um dos dois ponteiros do laco, entao comparar
+        // ponteiro basta -- e a mesma identidade que o `anuncia` usa.
+        return {carregador.pontos(), carregador.cabecalho(),
+                candidato != reserva};
     }
 
     if (!tocou_no_vetor) {

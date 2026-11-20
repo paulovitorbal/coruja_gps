@@ -101,6 +101,7 @@ bool comeca_com_ic(const char* texto, const char* prefixo) {
 
 void LeitorRespostaHttp::reinicia() {
     fase_ = Fase::Cabecalhos;
+    destino_parou_ = false;
     n_cabecalhos_ = 0;
     cabecalhos_[0] = '\0';
     status_ = 0;
@@ -117,14 +118,36 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
     const char* corpo = corpo_da_resposta(cabecalhos_, n_cabecalhos_, &n_corpo);
     if (corpo == nullptr) { return true; }  // ainda nao chegaram inteiros
 
-    status_ = status_da_resposta(cabecalhos_, n_cabecalhos_);
-    if (status_ == 0) { return false; }
+    const std::uint32_t status = status_da_resposta(cabecalhos_,
+                                                    n_cabecalhos_);
+    if (status == 0) { return false; }
 
-    // Varre linha a linha. Cabecalho nao diferencia maiuscula, e o
-    // Cloudflare manda em minuscula enquanto o servidor de referencia manda
-    // capitalizado -- comparar byte a byte funcionaria contra um e nao
-    // contra o outro.
-    for (std::size_t i = 0; i < n_cabecalhos_; ++i) {
+    // 1xx e resposta PROVISORIA: o que interessa vem depois dela. Um proxy
+    // no caminho manda `100 Continue` sem ninguem ter pedido, e tomar o 100
+    // como final deixava o status em 100 -- que quem chama le como "sem
+    // resposta" -- e o corpo de verdade virava lixo de depois do corpo.
+    //
+    // Descarta este bloco e recomeca pelo que veio atras dele, que e o
+    // comeco da resposta seguinte. O laco termina porque cada volta consome
+    // ao menos a linha de status e a linha em branco desta provisoria.
+    if (status < 200) {
+        const std::size_t consumidos = n_cabecalhos_ - n_corpo;
+        std::memmove(cabecalhos_, cabecalhos_ + consumidos, n_corpo);
+        n_cabecalhos_ = n_corpo;
+        cabecalhos_[n_cabecalhos_] = '\0';
+        return n_corpo > 0 ? processa_cabecalhos(ao_receber, contexto) : true;
+    }
+    status_ = status;
+
+    // Varre linha a linha, e SO ATE O FIM DOS CABECALHOS: o corpo que vem
+    // colado mora no mesmo buffer, e varrer ate o fim dele fazia um corpo
+    // comecado por `content-length:` reescrever o valor de verdade.
+    //
+    // Cabecalho nao diferencia maiuscula, e o Cloudflare manda em minuscula
+    // enquanto o servidor de referencia manda capitalizado -- comparar byte
+    // a byte funcionaria contra um e nao contra o outro.
+    const std::size_t fim = n_cabecalhos_ - n_corpo;
+    for (std::size_t i = 0; i < fim; ++i) {
         const bool inicio_de_linha =
             i == 0 || (i >= 1 && cabecalhos_[i - 1] == '\n');
         if (!inicio_de_linha) { continue; }
@@ -170,7 +193,8 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
     // Aponta DIRETO para dentro de `cabecalhos_`, sem copia: a `fase_` acabou
     // de deixar de ser `Cabecalhos`, e nenhuma outra fase escreve nesse
     // buffer. A copia que havia aqui custava 2 KiB de pilha dentro de um
-    // callback de recepcao, numa pilha de 8 KiB.
+    // callback de recepcao -- a pilha do aparelho tem 24 KiB, e este
+    // caminho e o que desce mais fundo nela.
     if (n_corpo > 0) {
         return alimenta(reinterpret_cast<const std::uint8_t*>(corpo),
                         n_corpo, ao_receber, contexto);
@@ -178,10 +202,22 @@ bool LeitorRespostaHttp::processa_cabecalhos(AoReceberCorpo ao_receber,
     return true;
 }
 
+bool LeitorRespostaHttp::entrega(AoReceberCorpo ao_receber, void* contexto,
+                                 const std::uint8_t* bytes, std::size_t n) {
+    recebidos_ += n;
+    if (ao_receber == nullptr || n == 0) { return true; }
+    if (!ao_receber(contexto, bytes, n)) {
+        destino_parou_ = true;
+        return false;
+    }
+    return true;
+}
+
 bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                                   std::size_t tamanho,
                                   AoReceberCorpo ao_receber, void* contexto) {
-    if (bytes == nullptr) { return false; }
+    // Parado e parado: nada mais chega a quem pediu para parar.
+    if (bytes == nullptr || destino_parou_) { return false; }
 
     std::size_t i = 0;
     while (i < tamanho) {
@@ -209,9 +245,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
 
             case Fase::CorpoAteFechar: {
                 const std::size_t n = tamanho - i;
-                recebidos_ += n;
-                if (ao_receber != nullptr) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 break;
@@ -222,9 +257,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
                                    - recebidos_;
                 const std::size_t n = (tamanho - i) < falta ? (tamanho - i)
                                                             : falta;
-                recebidos_ += n;
-                if (ao_receber != nullptr && n > 0) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 if (recebidos_ >= static_cast<std::size_t>(content_length_)) {
@@ -278,9 +312,8 @@ bool LeitorRespostaHttp::alimenta(const std::uint8_t* bytes,
             case Fase::PedacoDados: {
                 const std::size_t n = (tamanho - i) < falta_no_pedaco_
                                       ? (tamanho - i) : falta_no_pedaco_;
-                recebidos_ += n;
-                if (ao_receber != nullptr && n > 0) {
-                    ao_receber(contexto, bytes + i, n);
+                if (!entrega(ao_receber, contexto, bytes + i, n)) {
+                    return false;
                 }
                 i += n;
                 falta_no_pedaco_ -= n;

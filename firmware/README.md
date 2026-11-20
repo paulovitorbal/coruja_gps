@@ -398,6 +398,14 @@ e de qualquer proxy no caminho.
 >
 > ⚠️ Isso exige **o relógio acertado**: sem hora, todo certificado é recusado
 > por "ainda não vale". Ver `servidor_ntp`.
+>
+> E quem acerta o relógio decide, por tabela, se um certificado vencido
+> passa. O SNTP é UDP sem assinatura, então o pedido leva um **nonce**
+> sorteado do TRNG no campo `transmit`, e só é aceita a resposta que o
+> devolve no `originate`, vinda do **IP e da porta** a quem se perguntou,
+> com modo, versão e estrato válidos. Isso não protege de quem está no
+> caminho — esse vê o nonce —, mas tira do jogo quem só sabe o endereço do
+> aparelho. Pacotes recusados pela origem aparecem no log.
 
 Um arquivo que **cresceu durante o envio** fica no cartão, mesmo entregue:
 apagar depois de confirmar N bytes destruiria os que vieram depois. Ver
@@ -470,7 +478,7 @@ parava no teto. Um token errado, uma `url_envio` errada ou um relógio sem hora
 — que faz todo certificado ser recusado — voltam iguais dois segundos depois:
 com 40 arquivos e um 401, eram 59 `PUT` e os dez minutos inteiros de aparelho
 preso. Desde a v0.2.25 cada tentativa termina num desfecho, e só é repetido o
-que pode mudar (`RemessaDados::classifica`):
+que pode mudar (`classifica_falha`, em `rede/Baixador.h`):
 
 | desfecho | repete? | na conta da parada |
 | :--- | :--- | :--- |
@@ -506,6 +514,33 @@ do arquivo, porque é ela que pede conserto; entre iguais, a mais recente.
 | `SERVIDOR NAO ACEITOU` | respondeu e recusou: 3xx, 4xx, 5xx, CRC | `token_aparelho`, `url_envio`, servidor |
 | `CARTAO ILEGIVEL` | o cartão não entregou os arquivos | cartão |
 | `SEM CONFIGURACAO` | `url_envio`, `token_aparelho` ou rede faltando ou inválidos | `coruja.cfg` |
+
+### Atualizar a base
+
+O item **atualizar base** do menu pergunta a `url_versao` e compara a linha
+com o `versao.txt` do cartão. **Versão igual não basta:** o `versao.txt`
+descreve o `radares.bin`, e se o boot recusou esse arquivo e caiu no
+`radares.bak` — ou não achou base nenhuma —, o aparelho baixa de novo mesmo
+com a versão igual. Até a revisão de 17/11/2026 ele respondia `JA ESTA EM
+DIA`, e o menu não tinha como tirar o aparelho da reserva.
+
+Quem sabe de onde a base veio é a carga do boot, e não o OTA relendo o
+arquivo: reler custaria 214 KB de cartão a cada clique, e a carga confere
+mais (ordem e domínio) do que a verificação do download.
+
+O download é tentado até 3 vezes, com 5 s entre elas — **só o que pode
+mudar**, pela mesma leitura da remessa (`classifica_falha`). Até a revisão
+de 17/11/2026 um 401 era baixado três vezes e a tela dizia `DOWNLOAD
+INCOMPLETO`.
+
+| tela | o que houve | repete? | onde olhar |
+| :--- | :--- | :--- | :--- |
+| `SERVIDOR NAO RESPONDE` | a consulta de versão não voltou: DNS, conexão, tempo, 5xx | não (é uma consulta só) | rede, servidor fora do ar |
+| `DOWNLOAD INCOMPLETO` | o download caiu: conexão, tempo, 5xx | sim | sinal do Wi-Fi |
+| `SERVIDOR RECUSOU` | respondeu e recusou: 3xx, 4xx | não | `token_aparelho`, `url_versao`, `url_base` |
+| `CERTIFICADO RECUSADO` | o TLS recusou o certificado | não | relógio: `servidor_ntp`, fix do GPS |
+| `ARQUIVO CORROMPIDO` | baixou e não passou na verificação | sim | servidor |
+| `CARTAO NAO GRAVOU` | o cartão não aceitou | sim; a troca atômica, não | cartão |
 
 ### Testes do gerador
 

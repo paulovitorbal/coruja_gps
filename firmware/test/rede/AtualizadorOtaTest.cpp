@@ -160,6 +160,9 @@ public:
     /// Os caminhos pedidos, na ordem. É onde o segredo do aparelho aparece.
     std::vector<std::string> caminhos;
     unsigned          pedidos_base = 0;
+    /// Bytes da base que chegaram a quem recebe, somando as tentativas. E
+    /// por aqui que se ve um download que nao parou quando devia.
+    std::size_t       entregues_base = 0;
 
     ResultadoHttp baixa(const Url& url, AoReceber ao_receber, void* contexto,
                         Logger&, std::uint32_t) override {
@@ -179,7 +182,12 @@ public:
         for (std::size_t i = 0; i < corpo_base.size(); i += passo) {
             const std::size_t n = (i + passo <= corpo_base.size())
                                       ? passo : corpo_base.size() - i;
-            ao_receber(contexto, corpo_base.data() + i, n);
+            entregues_base += n;
+            if (!ao_receber(contexto, corpo_base.data() + i, n)) {
+                // O que o `ClienteTls` faz: aborta a conexao e devolve
+                // `Interrompida`, com o status que tinha lido.
+                return ResultadoHttp{ErroHttp::Interrompida, 200, i + n};
+            }
         }
         if (pedidos_base < cura_na_tentativa) { return resposta_base; }
         return ResultadoHttp{};
@@ -208,6 +216,9 @@ struct Bancada {
     PausaFalsa         pausa;
     teste::LoggerMock  log;
     Configuracao       cfg;
+    /// O que o boot diria: a base em uso veio do `radares.bin`. E o caso
+    /// sao, e e o de quase toda a suite; os testes do F3 o desligam.
+    bool               vigente_em_uso = true;
 
     Bancada() {
         std::snprintf(cfg.url_versao, sizeof cfg.url_versao,
@@ -222,6 +233,7 @@ struct Bancada {
 
     ResultadoOta roda() {
         AtualizadorOta ota(cartao, rede, http, pausa);
+        ota.informa_vigente_em_uso(vigente_em_uso);
         return ota.executa(cfg, log);
     }
 
@@ -256,14 +268,81 @@ TEST(AtualizadorOta, falha_de_rede_encerra_sem_tentar_baixar) {
 
 // ================================================================== versão
 
-TEST(AtualizadorOta, versao_igual_nao_baixa_a_base) {
+TEST(AtualizadorOta, versao_igual_com_a_vigente_em_uso_nao_baixa_a_base) {
+    // O caso sao: o boot carregou o `radares.bin`, e a versao do servidor e
+    // a que ele descreve. Baixar de novo seriam 214 KB a toa.
     Bancada b;
+    b.vigente_em_uso = true;
     b.cartao.resposta_le_versao = ErroCartao::Nenhum;
     b.cartao.versao_no_cartao = "2026-09-28";
     b.http.corpo_versao = "2026-09-28";
     EXPECT_EQ(b.roda(), ResultadoOta::JaEstavaEmDia);
     EXPECT_EQ(b.http.pedidos_base, 0U) << "baixou 214 KB a toa";
     EXPECT_EQ(b.rede.desconexoes, 1U);
+}
+
+// --- F3: a versao local so vale se descreve a base em uso ---
+//
+// O `versao.txt` descreve o `radares.bin`. Quando o boot recusa o `.bin` e
+// cai na reserva -- ou nao acha base nenhuma --, a versao continua la,
+// igual a do servidor, e o OTA respondia JA ESTA EM DIA para sempre: o menu
+// nao tinha como consertar o aparelho.
+
+TEST(AtualizadorOta, versao_igual_rodando_pela_reserva_baixa_de_novo) {
+    Bancada b;
+    b.vigente_em_uso = false;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    EXPECT_EQ(b.roda(), ResultadoOta::Atualizada)
+        << "o aparelho segue pela reserva e o menu nao conserta";
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+    EXPECT_EQ(b.cartao.promoveu_para, kArquivoBase);
+}
+
+TEST(AtualizadorOta, sem_saber_de_onde_veio_a_base_versao_igual_baixa) {
+    // Quem nao informa nada nao ganha a economia: na duvida, o desperdicio
+    // de rede e o modo de falha certo -- o mesmo da versao gravada por
+    // ultimo.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(AtualizadorOta, depois_de_atualizar_a_versao_igual_volta_a_bastar) {
+    // A base que o OTA acabou de promover e a vigente: o clique seguinte
+    // nao pode rebaixa-la so porque o boot tinha caido na reserva.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    ota.informa_vigente_em_uso(false);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+
+    b.cartao.versao_no_cartao = b.cartao.versao_gravada;
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::JaEstavaEmDia);
+    EXPECT_EQ(b.http.pedidos_base, 1U) << "rebaixou a base que acabou de gravar";
+}
+
+TEST(AtualizadorOta, falha_ao_rebaixar_pela_reserva_nao_finge_em_dia) {
+    // Se o download que conserta falhar, a proxima tentativa tem de
+    // insistir: a base em uso continua sendo a reserva.
+    Bancada b;
+    b.cartao.resposta_le_versao = ErroCartao::Nenhum;
+    b.cartao.versao_no_cartao = "2026-09-28";
+    b.http.corpo_versao = "2026-09-28";
+    b.http.resposta_base = ResultadoHttp{ErroHttp::Interrompida, 0, 0};
+    b.http.cura_na_tentativa = kTentativas + 1;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    ota.informa_vigente_em_uso(false);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::FalhaAoBaixar);
+
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
 }
 
 TEST(AtualizadorOta, espaco_em_volta_da_versao_nao_conta_como_diferenca) {
@@ -281,6 +360,37 @@ TEST(AtualizadorOta, versao_vazia_do_servidor_e_falha_e_nao_atualizacao) {
     b.http.corpo_versao = "   \r\n";
     EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar);
     EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(AtualizadorOta, versao_com_quebra_de_linha_nao_injeta_no_log) {
+    // A versao vem do servidor e vai para o log -- e o log e lido depois,
+    // linha a linha, para saber o que aconteceu. Uma quebra de linha nela
+    // escreve linhas inteiras que ninguem registrou. Ela tambem vai para o
+    // `versao.txt` e volta na comparacao do clique seguinte.
+    Bancada b;
+    b.http.corpo_versao = "2026-09-28\nota: base gravada em 'radares.bin'";
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+    for (const auto& e : b.log.entradas()) {
+        EXPECT_EQ(e.mensagem.find('\n'), std::string::npos) << e.mensagem;
+    }
+}
+
+TEST(AtualizadorOta, versao_com_caractere_de_controle_e_recusada) {
+    Bancada b;
+    b.http.corpo_versao = "2026-09-\x1b[2J28";
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(AtualizadorOta, versao_comum_do_servidor_continua_passando) {
+    // O par do teste acima: uma guarda que recusasse tudo passaria nele.
+    for (const char* v : {"2026-09-28", "v1.2.3", "a7f3c9e",
+                          "2026-09-28T12:00:00Z"}) {
+        Bancada b;
+        b.http.corpo_versao = v;
+        EXPECT_EQ(b.roda(), ResultadoOta::Atualizada) << v;
+    }
 }
 
 TEST(AtualizadorOta, consulta_que_falha_nao_baixa) {
@@ -426,6 +536,56 @@ TEST(AtualizadorOta, cartao_que_enche_no_meio_do_download) {
     EXPECT_EQ(b.cartao.descartes, kTentativas);
 }
 
+TEST(AtualizadorOta, escrita_que_falha_para_o_download_na_hora) {
+    // Continuar baixando depois de o cartao recusar era ate 120 s de
+    // aparelho bloqueado -- sem GPS, sem alerta -- para nada, a cada
+    // tentativa.
+    Bancada b;
+    b.http.corpo_base = base_valida(200);   // 2420 B, 38 pedacos de 64
+    b.cartao.escrita_falha_em_diante = true;
+    b.cartao.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoGravar);
+    EXPECT_EQ(b.http.entregues_base, kTentativas * 64U)
+        << "seguiu baixando depois de o cartao recusar";
+}
+
+// --- o teto do que vai para o cartao ---
+
+/// Um cabecalho v2 que promete `pontos` registros, sem os registros.
+std::vector<std::uint8_t> cabecalho_que_promete(std::uint32_t pontos) {
+    auto base = base_valida(1);
+    base.resize(kTamCabecalho);
+    base[8] = static_cast<std::uint8_t>(pontos);
+    base[9] = static_cast<std::uint8_t>(pontos >> 8);
+    base[10] = static_cast<std::uint8_t>(pontos >> 16);
+    base[11] = static_cast<std::uint8_t>(pontos >> 24);
+    return base;
+}
+
+TEST(AtualizadorOta, nada_alem_do_que_a_placa_comporta_chega_ao_cartao) {
+    // Um servidor errado -- ou hostil -- que mande mais do que cabe na
+    // placa enchia o cartao ate onde ele deixasse: o teto so era conferido
+    // no fim, pelo verificador, com tudo ja gravado.
+    Bancada b;
+    b.http.corpo_base = cabecalho_que_promete(kCapacidadeFirmware + 1);
+    b.http.corpo_base.resize(kTetoBase + 4096, 0x55);
+    EXPECT_EQ(b.roda(), ResultadoOta::BaseRecusada);
+    EXPECT_LE(b.cartao.escrito.size(), kTetoBase);
+    EXPECT_FALSE(b.chamou("promove"));
+    EXPECT_EQ(b.http.pedidos_base, 1U)
+        << "o servidor mandaria o mesmo arquivo grande de novo";
+    EXPECT_EQ(b.cartao.descartes, 1U);
+}
+
+TEST(AtualizadorOta, a_maior_base_que_a_placa_comporta_passa_pelo_teto) {
+    // O teto e a capacidade, e nao menos: a base cheia tem de caber.
+    Bancada b;
+    b.http.corpo_base = base_valida(kCapacidadeFirmware);
+    ASSERT_EQ(b.http.corpo_base.size(), kTetoBase);
+    EXPECT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.cartao.escrito.size(), kTetoBase);
+}
+
 TEST(AtualizadorOta, falha_ao_concluir_a_escrita_descarta) {
     Bancada b;
     b.cartao.resposta_conclui = ErroCartao::FalhaDeEscrita;
@@ -441,6 +601,87 @@ TEST(AtualizadorOta, falha_na_troca_atomica_nao_tenta_de_novo) {
     EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoGravar);
     EXPECT_EQ(b.http.pedidos_base, 1U) << "insistiu numa falha que nao se cura";
     EXPECT_EQ(b.rede.desconexoes, 1U);
+}
+
+// ================================================== o erro que nao muda
+//
+// Ate 17/11/2026 o OTA repetia toda falha de download tres vezes, com 5 s
+// entre elas, e a tela dizia DOWNLOAD INCOMPLETO -- inclusive para um 401
+// (token errado), um 404 (`url_base` errada) ou um certificado recusado
+// (relogio sem hora). Nada disso muda em cinco segundos. A leitura e a da
+// remessa: `classifica_falha`.
+
+TEST(ErroPermanenteOta, recusa_na_consulta_diz_que_o_servidor_recusou) {
+    Bancada b;
+    b.http.resposta_versao = ResultadoHttp{ErroHttp::StatusNaoOk, 401, 0};
+    EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou)
+        << "um 401 nao e SERVIDOR NAO RESPONDE: ele respondeu";
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(ErroPermanenteOta, certificado_recusado_na_consulta_diz_o_motivo) {
+    Bancada b;
+    b.http.resposta_versao = ResultadoHttp{ErroHttp::CertificadoRecusado, 0, 0};
+    EXPECT_EQ(b.roda(), ResultadoOta::CertificadoRecusado);
+    EXPECT_EQ(b.http.pedidos_base, 0U);
+}
+
+TEST(ErroPermanenteOta, consulta_sem_resposta_ou_com_erro_de_momento_nao_muda) {
+    for (const auto r : {ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0},
+                         ResultadoHttp{ErroHttp::StatusNaoOk, 503, 0}}) {
+        Bancada b;
+        b.http.resposta_versao = r;
+        EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar) << r.status;
+    }
+}
+
+TEST(ErroPermanenteOta, download_recusado_nao_e_repetido) {
+    for (const std::uint32_t status : {401U, 403U, 404U}) {
+        Bancada b;
+        b.http.resposta_base = ResultadoHttp{ErroHttp::StatusNaoOk, status, 0};
+        b.http.cura_na_tentativa = 99;
+        EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou) << status;
+        EXPECT_EQ(b.http.pedidos_base, 1U) << status;
+        EXPECT_TRUE(b.pausa.esperas.empty()) << status;
+        EXPECT_EQ(b.cartao.descartes, 1U) << "o temporario ficou no cartao";
+        EXPECT_FALSE(b.chamou("promove"));
+    }
+}
+
+TEST(ErroPermanenteOta, certificado_recusado_no_download_nao_e_repetido) {
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::CertificadoRecusado, 0, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::CertificadoRecusado);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(ErroPermanenteOta, recusa_que_chega_com_a_conexao_caindo_vale_pelo_status) {
+    // O servidor recusa sem ler o resto e fecha; o RST chega atras da
+    // resposta, e o cliente devolve `Interrompida` com o 401 que leu.
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::Interrompida, 401, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::ServidorRecusou);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
+}
+
+TEST(ErroPermanenteOta, erro_de_momento_do_servidor_continua_sendo_repetido) {
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::StatusNaoOk, 503, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoBaixar);
+    EXPECT_EQ(b.http.pedidos_base, kTentativas);
+}
+
+TEST(ErroPermanenteOta, pedido_que_o_cliente_nem_monta_acusa_a_configuracao) {
+    // Cabecalho que nao coube, ou token com caractere invalido: o pedido nem
+    // saiu, e repetir monta o mesmo pedido.
+    Bancada b;
+    b.http.resposta_base = ResultadoHttp{ErroHttp::UrlInvalida, 0, 0};
+    b.http.cura_na_tentativa = 99;
+    EXPECT_EQ(b.roda(), ResultadoOta::SemConfiguracao);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
 }
 
 TEST(AtualizadorOta, o_radio_desce_em_todos_os_desfechos) {
@@ -534,6 +775,7 @@ TEST(AtualizadorOta, ja_em_dia_nao_anuncia_download) {
     b.cartao.resposta_le_versao = ErroCartao::Nenhum;
     b.http.corpo_versao = "v9";
     AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.informa_vigente_em_uso(true);
     ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::JaEstavaEmDia);
 
     EXPECT_TRUE(obs.tem(FaseOta::JaEmDia));
@@ -556,6 +798,38 @@ TEST(AtualizadorOta, o_progresso_chega_com_total_depois_do_cabecalho) {
     EXPECT_GT(obs.ultimo_total, 0U) << "o total ficou desconhecido";
     EXPECT_EQ(obs.ultimos_recebidos, obs.ultimo_total)
         << "o download terminou sem alcancar o total anunciado";
+}
+
+TEST(AtualizadorOta, contagem_absurda_no_cabecalho_nao_estoura_o_total) {
+    // `kTamCabecalho + n_pontos * kTamRegistro` com o `n_pontos` que o
+    // servidor quiser: no Pico, `size_t` tem 32 bits, e 0xFFFFFFFF pontos
+    // davam um total que deu a volta. A tela recebia lixo como denominador.
+    Bancada b;
+    ObservadorEspiao obs;
+    b.http.corpo_base = cabecalho_que_promete(0xFFFFFFFFU);
+    // Um registro depois do cabecalho: o verificador so o da por lido
+    // quando chega o primeiro byte de dados.
+    b.http.corpo_base.resize(kTamCabecalho + kTamRegistro, 0);
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ota.executa(b.cfg, b.log);
+    ASSERT_GT(obs.avisos_de_progresso, 0U);
+    EXPECT_LE(obs.ultimo_total, kTetoBase);
+}
+
+TEST(AtualizadorOta, o_progresso_de_uma_base_sem_data_chega_ao_fim) {
+    // O formato 1 tem cabecalho de 16 B, e nao 20: com o tamanho fixo, a
+    // barra parava 4 B antes do total e nunca enchia.
+    Bancada b;
+    ObservadorEspiao obs;
+    auto v2 = base_valida(3);
+    std::vector<std::uint8_t> v1(v2.begin(), v2.begin() + kTamCabecalhoSemData);
+    v1[4] = static_cast<std::uint8_t>(kVersaoSemData);
+    v1[5] = static_cast<std::uint8_t>(kVersaoSemData >> 8);
+    v1.insert(v1.end(), v2.begin() + kTamCabecalho, v2.end());
+    b.http.corpo_base = v1;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa, &obs);
+    ASSERT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
+    EXPECT_EQ(obs.ultimos_recebidos, obs.ultimo_total);
 }
 
 TEST(AtualizadorOta, a_tentativa_aparece_na_fase_de_download) {
@@ -601,7 +875,9 @@ TEST(DescreveCurto, cabe_na_faixa_de_texto_da_tela) {
     for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
                          ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_LE(std::strlen(descreve_curto(r)), 26u)
             << "motivo longo demais: " << descreve_curto(r);
     }
@@ -613,7 +889,9 @@ TEST(DescreveCurto, cada_falha_tem_texto_proprio) {
     std::set<std::string> vistos;
     for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_TRUE(vistos.insert(descreve_curto(r)).second)
             << "motivo repetido: " << descreve_curto(r);
     }
@@ -623,7 +901,9 @@ TEST(DescreveCurto, nenhum_resultado_fica_sem_texto) {
     for (const auto r : {ResultadoOta::Atualizada, ResultadoOta::JaEstavaEmDia,
                          ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_GT(std::strlen(descreve_curto(r)), 0u);
     }
 }
@@ -640,7 +920,9 @@ TEST(EFalha, todo_o_resto_e_falha) {
     // o usuario dispensar uma atualizacao que simplesmente nao era precisa.
     for (const auto r : {ResultadoOta::SemConfiguracao, ResultadoOta::FalhaDeRede,
                          ResultadoOta::FalhaAoConsultar, ResultadoOta::FalhaAoBaixar,
-                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar}) {
+                         ResultadoOta::BaseRecusada, ResultadoOta::FalhaAoGravar,
+                         ResultadoOta::ServidorRecusou,
+                         ResultadoOta::CertificadoRecusado}) {
         EXPECT_TRUE(e_falha(r)) << descreve(r);
     }
 }

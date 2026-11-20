@@ -22,6 +22,8 @@
 #include "rede/CaixaDns.h"
 #include "rede/PlataformaMbedtls.h"
 #include "rede/RaizesConfiaveis.h"
+#include "rede/ResolucaoDns.h"
+#include "rede/PedidoHttp.h"
 #include "rede/RespostaHttp.h"
 
 namespace coruja {
@@ -197,9 +199,12 @@ err_t ao_receber(void* arg, struct altcp_pcb* pcb, struct pbuf* buf,
     if (p == nullptr) { return ERR_OK; }
 
     if (buf == nullptr || erro != ERR_OK) {
-        // Fim do fluxo. Nao e falha por si: numa resposta sem
-        // Content-Length nem pedacos, o fechamento E o fim do corpo.
-        if (buf != nullptr) { pbuf_free(buf); }
+        // Fim do fluxo. Nao e falha por si -- numa resposta sem
+        // Content-Length nem pedacos, o fechamento E o fim do corpo --, mas
+        // tambem nao e sucesso por si: quem diz se o corpo chegou inteiro e
+        // o leitor, que sabe o que a resposta anunciou.
+        if (buf == nullptr) { p->leitor.fim_do_fluxo(); }
+        else                { pbuf_free(buf); }
         return encerra(p, pcb, false) ? ERR_ABRT : ERR_OK;
     }
 
@@ -207,7 +212,11 @@ err_t ao_receber(void* arg, struct altcp_pcb* pcb, struct pbuf* buf,
     for (struct pbuf* parte = buf; parte != nullptr; parte = parte->next) {
         if (!p->leitor.alimenta(static_cast<const std::uint8_t*>(parte->payload),
                                 parte->len, p->ao_receber, p->ctx_recebe)) {
-            p->malformada = true;
+            // `false` por duas razoes diferentes: a resposta veio
+            // malformada, ou quem recebe pediu para parar. Parar nao e
+            // defeito da resposta -- e quem pediu sabe por que --, mas o
+            // pedido termina aqui do mesmo jeito.
+            p->malformada = !p->leitor.destino_parou();
             pbuf_free(buf);
             return encerra(p, pcb, true) ? ERR_ABRT : ERR_OK;
         }
@@ -270,8 +279,10 @@ void ao_resolver(const char*, const ip_addr_t* ip, void* arg) {
 /// O `ao_verificar` roda no ponto mais fundo da pilha do programa: dentro do
 /// handshake do mbedTLS, dentro do callback de recepcao do lwIP, dentro do
 /// `cyw43_arch_poll()`. Meio kibibyte de locais aqui e meio kibibyte tirado de
-/// onde ja e mais apertado -- a pilha inteira tem 8 KiB. Nao ha reentrancia: o
-/// cyw43 esta em modo poll e so existe um pedido por vez.
+/// onde ja e mais apertado -- a pilha inteira tem 24 KiB, e a verificacao da
+/// cadeia e justamente o que desce mais fundo nela (ver `PICO_STACK_SIZE`, no
+/// CMakeLists: eram 8 KiB, e nao bastaram). Nao ha reentrancia: o cyw43 esta
+/// em modo poll e so existe um pedido por vez.
 char g_nome_cert[80];
 char g_msg_cert[192];
 char g_porque_cert[112];
@@ -366,51 +377,9 @@ static_assert(kPrazoDnsMs > static_cast<std::uint32_t>(
 // `DNS_STATE_NEW`) e somar outro ciclo inteiro, que o prazo cortaria.
 static_assert(!LWIP_IPV6, "com IPv6 o DNS pode passar de kPrazoDnsMs");
 
-bool resolve(const char* host, ip_addr_t* destino, std::uint32_t limite_ms,
-             Logger& log) {
-    // `cache` e local e isso esta certo: o lwIP so escreve nele de forma
-    // SINCRONA, quando o nome ja esta em cache, e nunca o guarda para depois.
-    // Quem ele guarda e o `callback_arg`, e esse e que deixou de ser ponteiro.
-    ip_addr_t cache = {};
-    const std::uint32_t geracao = g_dns.abre();
-    cyw43_arch_lwip_begin();
-    const err_t imediato = dns_gethostbyname(
-        host, &cache, ao_resolver,
-        reinterpret_cast<void*>(static_cast<std::uintptr_t>(geracao)));
-    cyw43_arch_lwip_end();
-
-    if (imediato == ERR_OK) {
-        g_dns.abandona();
-        *destino = cache;
-        return true;
-    }
-    if (imediato != ERR_INPROGRESS) {
-        g_dns.abandona();
-        log.error(kOrigem, "DNS nao iniciou");
-        return false;
-    }
-    const absolute_time_t prazo = make_timeout_time_ms(limite_ms);
-    while (!g_dns.pronto()) {
-        if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
-            // O lwIP VAI chamar de volta, mais tarde, com esta geracao --
-            // nao ha como cancelar. Abandonar e o que faz essa chamada nao
-            // encontrar ninguem.
-            g_dns.abandona();
-            log.error(kOrigem, "DNS nao respondeu a tempo");
-            return false;
-        }
-        cyw43_arch_poll();
-        sleep_ms(1);
-    }
-    const bool achou = g_dns.achou();
-    g_dns.abandona();
-    if (!achou) {
-        log.error(kOrigem, "host nao resolveu");
-        return false;
-    }
-    *destino = g_endereco_dns;
-    return true;
-}
+/// O pedido deste cliente: caixa, callback e endereco desta unidade de
+/// traducao. A espera em si mora no `ResolucaoDns`, compartilhada com o NTP.
+const PedidoDns g_pedido_dns{&g_dns, ao_resolver, &g_endereco_dns, kOrigem};
 
 }  // namespace
 
@@ -510,7 +479,8 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     } else {
         const std::uint32_t prazo_dns =
             tempo_limite_ms < kPrazoDnsMs ? tempo_limite_ms : kPrazoDnsMs;
-        if (!resolve(url.host, &endereco, prazo_dns, log)) {
+        if (!resolve_nome(g_pedido_dns, url.host, &endereco, prazo_dns,
+                          log)) {
             saida.erro = ErroHttp::NaoIniciou;
             return saida;
         }
@@ -606,40 +576,14 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         return saida;
     }
 
-    // `Connection: close` de proposito: o fim do fluxo marca o fim da
-    // resposta quando o servidor nao diz tamanho.
-    //
-    // `Accept-Encoding: identity` porque o Cloudflare comprime por padrao, e
-    // um radares.bin em gzip chegaria com CRC que nao bate -- o firmware nao
-    // descomprime e nao deve passar a descomprimir.
-    //
-    // `Content-Length` so quando ha corpo. O que havia aqui era um ternario
-    // com os DOIS RAMOS IGUAIS -- a intencao de omitir estava escrita e nunca
-    // acontecia, e todo GET saia com `Content-Length: 0`. Legal, mas e codigo
-    // morto dizendo uma coisa e fazendo outra.
-    char tamanho[40] = {};
-    if (corpo > 0) {
-        std::snprintf(tamanho, sizeof tamanho, "Content-Length: %u\r\n",
-                      static_cast<unsigned>(corpo));
-    }
-
-    char cabecalho[512];
-    const int n_cab = std::snprintf(
-        cabecalho, sizeof cabecalho,
-        "%s %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-        "User-Agent: coruja-gps\r\n"
-        "Accept-Encoding: identity\r\n"
-        "%s%s%s"
-        "%s"
-        "Connection: close\r\n"
-        "\r\n",
-        metodo, url.caminho, url.host,
-        token != nullptr && token[0] != '\0' ? "X-Coruja-Token: " : "",
-        token != nullptr && token[0] != '\0' ? token : "",
-        token != nullptr && token[0] != '\0' ? "\r\n" : "",
-        tamanho);
-    if (n_cab <= 0 || static_cast<std::size_t>(n_cab) >= sizeof cabecalho) {
+    // O pedido e montado em `PedidoHttp`, que e portavel e testado no host:
+    // quando o `Content-Length` existe, quando o token acompanha e o que
+    // acontece quando nao cabe sao decisoes, e aqui elas nao teriam teste.
+    // O PORQUE de cada cabecalho esta la, uma vez so.
+    char cabecalho[kMaxPedidoHttp];
+    const std::size_t n_cab = monta_pedido_http(cabecalho, sizeof cabecalho,
+                                                metodo, url, token, corpo);
+    if (n_cab == 0) {
         cyw43_arch_lwip_begin();
         altcp_arg(pcb, nullptr);
         altcp_abort(pcb);
@@ -720,6 +664,17 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     saida.recebidos = pedido.leitor.recebidos();
     saida.status = pedido.leitor.status();
 
+    if (pedido.leitor.destino_parou()) {
+        // Nao foi a rede: quem recebe os bytes pediu para parar, e so ele
+        // sabe por que -- o teto da base, o cartao que recusou. O motivo sai
+        // no log de la; aqui fica so o que aconteceu com a conexao.
+        std::snprintf(msg, sizeof msg,
+                      "download interrompido a pedido de quem recebe, "
+                      "com %u B", static_cast<unsigned>(saida.recebidos));
+        log.warning(kOrigem, msg);
+        saida.erro = ErroHttp::Interrompida;
+        return saida;
+    }
     if (pedido.malformada) {
         log.error(kOrigem, "resposta malformada");
         saida.erro = ErroHttp::Interrompida;
@@ -770,6 +725,20 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         saida.erro = ErroHttp::StatusNaoOk;
         return saida;
     }
+    if (!pedido.leitor.completa()) {
+        // A conexao fechou antes do fim que a propria resposta anunciou. Ate
+        // 17/11/2026 isto era `ok()`, e um `radares.versao` cortado no meio
+        // ia parar no `versao.txt`. Ver `LeitorRespostaHttp::fim_do_fluxo`.
+        // Em pedacos nao ha total anunciado: o que faltou foi o pedaco zero.
+        std::snprintf(msg, sizeof msg,
+                      "corpo truncado: a conexao fechou com %u B, de %ld "
+                      "anunciados (-1 = em pedacos)",
+                      static_cast<unsigned>(saida.recebidos),
+                      pedido.leitor.content_length());
+        log.error(kOrigem, msg);
+        saida.erro = ErroHttp::Interrompida;
+        return saida;
+    }
 
     std::snprintf(msg, sizeof msg, "%u, %u bytes de corpo",
                   static_cast<unsigned>(saida.status),
@@ -795,8 +764,7 @@ ResultadoHttp ClienteTls::envia(const Url& url, const char* token,
         saida.erro = ErroHttp::NaoIniciou;
         return saida;
     }
-    return conversa(&configuracao_,
-                    token != nullptr && token[0] != '\0' ? token : token_,
+    return conversa(&configuracao_, token_para_cabecalho(token, token_),
                     &cache_host_, endereco_guardado_,
                     url, "PUT", fonte, contexto, tamanho, nullptr, nullptr,
                     log, tempo_limite_ms);
@@ -809,13 +777,14 @@ struct CorpoCurto {
     char        texto[32] = {};
     std::size_t n = 0;
 
-    static void ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
+    static bool ao_receber(void* ctx, const std::uint8_t* b, std::size_t n) {
         auto* c = static_cast<CorpoCurto*>(ctx);
         const std::size_t livre = sizeof c->texto - 1 - c->n;
         const std::size_t quanto = n < livre ? n : livre;
         std::memcpy(c->texto + c->n, b, quanto);
         c->n += quanto;
         c->texto[c->n] = '\0';
+        return true;
     }
 };
 
@@ -825,8 +794,7 @@ ResultadoHttp ClienteTls::consulta_crc(const Url& url, const char* token,
                                        std::uint32_t* crc, Logger& log,
                                        std::uint32_t tempo_limite_ms) {
     CorpoCurto corpo;
-    auto saida = conversa(&configuracao_,
-                          token != nullptr && token[0] != '\0' ? token : token_,
+    auto saida = conversa(&configuracao_, token_para_cabecalho(token, token_),
                           &cache_host_, endereco_guardado_,
                           url, "GET", nullptr, nullptr, 0,
                           CorpoCurto::ao_receber, &corpo, log,

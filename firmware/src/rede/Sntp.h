@@ -24,15 +24,26 @@ enum class ErroNtp : std::uint8_t {
     EstratoInvalido,     ///< 0 é "kiss-o'-death"; acima de 15 é inválido
     TimestampZero,       ///< o servidor não preencheu a hora de transmissão
     ForaDeFaixa,         ///< a hora não é plausível para este aparelho
+    /// O campo `originate` não traz o nonce que foi no pedido: quem
+    /// respondeu não viu o pedido, ou respondeu a outro.
+    NaoEhDoNossoPedido,
+    VersaoInvalida,      ///< campo `VN` fora de 3–4
 };
 
 const char* descreve(ErroNtp erro);
 
-/// Monta o pedido: 48 bytes, cliente, versão 4.
+/// Monta o pedido: 48 bytes, cliente, versão 4, com `nonce` no campo
+/// `transmit` (RFC 4330 §4).
+///
+/// **O nonce é a única amarra entre pedido e resposta** que o SNTP simples
+/// oferece: o servidor devolve esses oito bytes no campo `originate`, e quem
+/// não viu o pedido não tem como preenchê-los. Quem o escolhe tem de sortear
+/// — no aparelho, o TRNG do RP2350 pelo `get_rand_64()`, a mesma fonte da
+/// entropia do TLS.
 ///
 /// O resto é zero de propósito. Um cliente SNTP simples não precisa preencher
 /// mais nada, e campos inventados só dariam ao servidor motivo para recusar.
-void monta_pedido_ntp(std::uint8_t* pacote);
+void monta_pedido_ntp(std::uint8_t* pacote, std::uint64_t nonce);
 
 /// Lê a hora de transmissão da resposta, em segundos desde 1970.
 ///
@@ -43,14 +54,21 @@ void monta_pedido_ntp(std::uint8_t* pacote);
 /// e com ele a validação de certificado, na mão do primeiro pacote que
 /// chegasse.
 ///
-/// ⚠️ **Isto NÃO autentica nada.** NTP simples é UDP sem assinatura: quem
-/// controla a rede escolhe a hora que o aparelho vai acreditar, e com ela
-/// pode fazer um certificado vencido parecer válido. É o custo conhecido de
-/// dar prioridade ao NTP, e está assumido — ver `SincronizadorHora`.
+/// `nonce` é o que foi no `transmit` do pedido, e a resposta tem de
+/// devolvê-lo no `originate`. Sem isso, qualquer pacote que chegasse à porta
+/// durante a espera virava a hora do aparelho — e com ela a validação de
+/// certificado — sem precisar nem ter visto o pedido.
+///
+/// ⚠️ **Isto ainda NÃO autentica nada.** NTP simples é UDP sem assinatura, e
+/// o nonce não protege de quem está no caminho: quem vê o pedido copia o
+/// número. O que ele tira do jogo é quem só sabe o endereço e a porta. Para
+/// valer mais seria preciso NTS, que não cabe nesta placa — é o custo
+/// conhecido de dar prioridade ao NTP, e está assumido (ver
+/// `SincronizadorHora`).
 ///
 /// A parte fracionária é descartada: o aparelho não tem o que fazer com
 /// milissegundos, e carregá-los só daria precisão de mentira.
 ErroNtp le_resposta_ntp(const std::uint8_t* pacote, std::size_t tamanho,
-                        std::int64_t* segundos_unix);
+                        std::uint64_t nonce, std::int64_t* segundos_unix);
 
 }  // namespace coruja

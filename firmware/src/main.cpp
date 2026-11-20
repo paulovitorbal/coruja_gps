@@ -628,6 +628,10 @@ int main() {
 
     coruja::OtaNaTela      ponte{visor, led, pausa};
     coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
+    // Sem isto, um boot que caiu na reserva -- ou sem base -- ouvia JA ESTA
+    // EM DIA a cada clique, porque o `versao.txt` continua igual ao do
+    // servidor. A carga e quem sabe de onde a base veio.
+    ota.informa_vigente_em_uso(base.da_vigente);
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
     // `static` pelo mesmo motivo do `http`: sao 2,3 KiB.
     static coruja::RemessaDados remessa(cartao, rede, http, pausa,

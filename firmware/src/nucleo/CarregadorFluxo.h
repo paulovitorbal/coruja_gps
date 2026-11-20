@@ -78,6 +78,13 @@ using LeituraEmFluxo = ErroCartao (*)(void* fonte, const char* nome,
 struct BaseCarregada {
     std::size_t   pontos = 0;
     CabecalhoBase cabecalho{};
+    /// Veio do arquivo vigente, e nao da reserva nem de lugar nenhum.
+    ///
+    /// E o que diz ao OTA se o `versao.txt` descreve a base QUE ESTA EM USO.
+    /// Sem isto, "versao igual" bastava para o OTA dizer `JaEstavaEmDia`, e um
+    /// aparelho operando pela reserva nunca se recuperava pelo menu -- ver
+    /// `AtualizadorOta::informa_vigente_em_uso`.
+    bool          da_vigente = false;
 };
 
 /// Troca a base em `destino` pela do cartão — `nome`, ou `reserva` se aquele
