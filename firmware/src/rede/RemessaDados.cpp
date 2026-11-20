@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "nucleo/CaoSuspenso.h"
 #include "nucleo/Crc32.h"
 
 namespace coruja {
@@ -548,9 +549,12 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     // (12 s) e a associacao (20 s) sao chamadas do SDK sem gancho por
     // dentro, e a segunda passa do teto de 16,777 s do hardware. Ver
     // `AtualizadorOta::executa`.
-    if (cao_ != nullptr) { cao_->suspende(); }
-    const auto erro_rede = rede_.conecta(cfg, log);
-    if (cao_ != nullptr) { cao_->retoma(); }
+    ErroWifi erro_rede;
+    {
+        // RAII: a devolucao do cao nao depende de ninguem lembrar do retoma.
+        const CaoSuspenso solto(cao_);
+        erro_rede = rede_.conecta(cfg, log);
+    }
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[96] = {};
         std::snprintf(msg, sizeof msg, "sem rede: %s", descreve(erro_rede));

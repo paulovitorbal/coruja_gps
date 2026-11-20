@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "log/Logger.h"
+#include "nucleo/CaoSuspenso.h"
 #include "nucleo/Texto.h"
 #include "nucleo/Url.h"
 
@@ -293,9 +294,12 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     //
     // E o unico buraco da vigilancia, e ele e consciente: um cyw43 que
     // travar na associacao continua deixando o aparelho mudo.
-    if (cao_ != nullptr) { cao_->suspende(); }
-    const auto erro_rede = rede_.conecta(cfg, log);
-    if (cao_ != nullptr) { cao_->retoma(); }
+    ErroWifi erro_rede;
+    {
+        // RAII: a devolucao do cao nao depende de ninguem lembrar do retoma.
+        const CaoSuspenso solto(cao_);
+        erro_rede = rede_.conecta(cfg, log);
+    }
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[64];
         std::snprintf(msg, sizeof msg, "rede: %s", descreve(erro_rede));

@@ -27,6 +27,7 @@ set(CORUJA_BASE_REAL "" CACHE FILEPATH "radares.bin completo, opcional")
 
 add_executable(testes
     nucleo/GeoTest.cpp
+    nucleo/CaoSuspensoTest.cpp
     nucleo/LimiarInfracaoTest.cpp
     nucleo/BaseRadaresTest.cpp
     nucleo/LeitorConfigTest.cpp
