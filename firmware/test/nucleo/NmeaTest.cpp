@@ -241,6 +241,31 @@ TEST(Nmea, CamposComLixoSaoRecusados) {
     }
 }
 
+TEST(Nmea, rumo_360_00_e_o_receptor_arredondando_359_996_e_vira_zero) {
+    // O NEO-M8N escreve o rumo com duas casas. Um rumo de 359,996 sai como
+    // "360.00" -- e recusar isso derrubava a RMC INTEIRA, posicao e
+    // velocidade junto, por causa de um rumo que o receptor acabou de
+    // arredondar para cima. 360 e 0 sao a mesma direcao.
+    const std::string s = com_checksum(
+        "$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,1.0,360.00,220926,,,A");
+    Telemetria t;
+    ASSERT_EQ(analisa(s.c_str(), &t), ErroNmea::Nenhum);
+    EXPECT_TRUE(t.rumo_valido);
+    EXPECT_EQ(t.rumo_graus, 0.0F) << "360 tem de ser normalizado para 0";
+    // E a posicao, que se perdia junto com o rumo, esta la: 19 47,99496' sul.
+    EXPECT_NEAR(t.lat, -(19.0F + 47.99496F / 60.0F), 1e-4F);
+}
+
+TEST(Nmea, rumo_acima_de_360_continua_recusado) {
+    for (const char* rumo : {"360.01", "361.0", "400.0"}) {
+        const std::string s = com_checksum(
+            std::string("$GNRMC,123519.00,A,1947.99496,S,04401.26264,W,1.0,") +
+            rumo + ",220926,,,A");
+        Telemetria t;
+        EXPECT_EQ(analisa(s.c_str(), &t), ErroNmea::CampoInvalido) << rumo;
+    }
+}
+
 TEST(Nmea, NenhumaEntradaCausaLeituraForaDoBuffer) {
     // Todo prefixo da sentença de referência, cada um COPIADO para um bloco
     // do tamanho exato: lido direto da `std::string`, o byte seguinte ainda
