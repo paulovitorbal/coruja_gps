@@ -151,6 +151,10 @@ std::size_t RemessaDados::ao_pedir(void* contexto, std::uint8_t* destino,
         return 0;
     }
     b->entregues += lidos;
+    // **O progresso do envio: bytes que sairam do cartao.** Um PUT que gasta
+    // a janela de inatividade inteira sem puxar um pedaco nao passa por aqui
+    // uma vez sequer -- e e assim que o cao morde um transporte travado.
+    if (b->cao != nullptr) { b->cao->alimenta(); }
     if (b->observador != nullptr) {
         b->observador->progresso(b->entregues, b->total);
     }
@@ -282,13 +286,16 @@ RemessaDados::Desfecho RemessaDados::confirma(const Url& url,
             // depois que o tempo acabou so atrasa a tela.
             if (esgotou_o_tempo()) { break; }
             pausa_.espera_ms(kEsperaEntreTentativasRemessaMs);
+            alimenta_o_cao();
         }
         avisa(FaseRemessa::Confirmando, nome, indice, total, tentativa);
 
         std::uint32_t crc_remoto = 0;
+        alimenta_o_cao();
         const auto consulta = http_.consulta_crc(url, cfg.token_aparelho,
                                                  &crc_remoto, log,
                                                  kTempoLimiteConsultaMs);
+        alimenta_o_cao();
         if (consulta.ok()) {
             if (crc_remoto == crc_local) { return Desfecho::Entregue; }
             // CRC diferente NAO se resolve perguntando de novo: o que esta
@@ -339,6 +346,10 @@ RemessaDados::Desfecho RemessaDados::insiste(const Configuracao& cfg,
                           static_cast<unsigned long>(kEsperaEntreTentativasRemessaMs));
             log.warning(kOrigem, msg);
             pausa_.espera_ms(kEsperaEntreTentativasRemessaMs);
+            // Depois da espera: a tentativa seguinte comecou, e e ela o
+            // progresso. Sem isto a espera se somaria a inatividade do
+            // pedido anterior.
+            alimenta_o_cao();
         }
         d = despacha(cfg, nome, indice, total, t, log);
         if (d == Desfecho::Entregue) { return d; }
@@ -398,6 +409,10 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
         }
         crc.alimenta(bomba_.pedaco, lidos);
         somados += lidos;
+        // A primeira passada le o arquivo inteiro do cartao, e um
+        // `coruja.log` de 28 KB sao 28 leituras. Cada pedaco lido e
+        // progresso; um `le()` que nunca volte nao produz nenhum.
+        alimenta_o_cao();
     }
     if (!leitura_ok || somados != tamanho) {
         cartao_.fecha_leitura();
@@ -420,12 +435,17 @@ RemessaDados::Desfecho RemessaDados::despacha(const Configuracao& cfg,
     avisa(FaseRemessa::Enviando, nome, indice, total, tentativa);
     bomba_.cartao = &cartao_;
     bomba_.observador = observador_;
+    bomba_.cao = cao_;
     bomba_.entregues = 0;
     bomba_.total = tamanho;
     bomba_.falhou = false;
 
+    alimenta_o_cao();
     const auto envio = http_.envia(url, cfg.token_aparelho, ao_pedir, &bomba_,
                                    tamanho, log, kTempoLimiteEnvioMs);
+    // O pedido voltou, qualquer que tenha sido o desfecho. Por dentro dele
+    // quem alimenta e a bomba, e so com pedaco entregue.
+    alimenta_o_cao();
     // Fechar ANTES de falar com o servidor de novo: o cartao e removivel, e
     // manter um volume montado por toda uma consulta de rede e exatamente como
     // se corrompe um sistema de arquivos.
@@ -524,7 +544,13 @@ ResultadoRemessa RemessaDados::executa(const Configuracao& cfg, Logger& log) {
     }
 
     avisa(FaseRemessa::Conectando, "", 0, 0, 1);
+    // ⚠️ Cao SOLTO na associacao, pelo mesmo motivo do OTA: a varredura
+    // (12 s) e a associacao (20 s) sao chamadas do SDK sem gancho por
+    // dentro, e a segunda passa do teto de 16,777 s do hardware. Ver
+    // `AtualizadorOta::executa`.
+    if (cao_ != nullptr) { cao_->suspende(); }
     const auto erro_rede = rede_.conecta(cfg, log);
+    if (cao_ != nullptr) { cao_->retoma(); }
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[96] = {};
         std::snprintf(msg, sizeof msg, "sem rede: %s", descreve(erro_rede));

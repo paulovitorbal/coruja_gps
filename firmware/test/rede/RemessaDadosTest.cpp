@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "apoio/CaoDeGuardaFalso.h"
 #include "apoio/LoggerMock.h"
 #include "nucleo/Crc32.h"
 
@@ -186,8 +187,18 @@ public:
     std::uint32_t custo_ms = 0;
     PausaFalsa* relogio = nullptr;
 
+    /// O cao, visto de DENTRO da associacao. Ela passa do teto do hardware
+    /// e nao tem gancho por dentro: tem de rodar com ele solto.
+    const coruja::teste::CaoDeGuardaFalso* espia = nullptr;
+    unsigned suspensoes_ao_conectar = 0;
+    unsigned retomadas_ao_conectar = 0;
+
     ErroWifi conecta(const Configuracao&, Logger&) override {
         ++conectou;
+        if (espia != nullptr) {
+            suspensoes_ao_conectar = espia->suspensoes;
+            retomadas_ao_conectar = espia->retomadas;
+        }
         if (relogio != nullptr) { relogio->agora += custo_ms; }
         if (diario != nullptr) { diario->push_back("conecta"); }
         return erro;
@@ -232,8 +243,17 @@ public:
     int envios = 0;
     int consultas = 0;
 
+    /// O cao, visto de DENTRO do pedido. Responde a pergunta que decide se o
+    /// watchdog serve para alguma coisa: um pedido que nao entrega nada
+    /// alimenta?
+    const coruja::teste::CaoDeGuardaFalso* espia = nullptr;
+    unsigned refeicoes_no_envio = 0;
+
     void cobra() {
         if (relogio != nullptr) { relogio->agora += custo_ms; }
+    }
+    unsigned refeicoes() const {
+        return espia != nullptr ? espia->alimentacoes : 0;
     }
 
     ResultadoHttp envia(const Url& url, const char* token, FonteDeBytes fonte,
@@ -242,6 +262,14 @@ public:
         caminhos.push_back(url.caminho);
         tokens.push_back(token == nullptr ? "" : token);
         ++envios;
+        const unsigned antes = refeicoes();
+        const auto saida = envia_(url, fonte, ctx, tamanho);
+        refeicoes_no_envio = refeicoes() - antes;
+        return saida;
+    }
+
+    ResultadoHttp envia_(const Url& url, FonteDeBytes fonte, void* ctx,
+                         std::size_t tamanho) {
         cobra();
         if (falhas_de_envio_restantes > 0) {
             --falhas_de_envio_restantes;
@@ -345,7 +373,13 @@ Configuracao cfg_valida() {
 class PreparoEspiao : public PreparoDeSessao {
 public:
     std::vector<std::string>* diario = nullptr;
+    /// Quanto o preparo custa do relogio falso. No aparelho ele acerta o
+    /// relogio pelo SNTP: ate 5 s para o nome e 5 s para a resposta.
+    std::uint32_t custo_ms = 0;
+    PausaFalsa* relogio = nullptr;
+
     void apos_conectar(Logger&) override {
+        if (relogio != nullptr) { relogio->agora += custo_ms; }
         if (diario != nullptr) { diario->push_back("preparo"); }
     }
 };
@@ -358,15 +392,20 @@ struct Cenario {
     teste::LoggerMock log;
     Configuracao  cfg = cfg_valida();
     PreparoEspiao preparo;
+    coruja::teste::CaoCronometrado cao{pausa};
     std::vector<std::string> diario;
 
     ResultadoRemessa roda() {
         rede.diario = &diario;
         preparo.diario = &diario;
+        preparo.relogio = &pausa;
         servidor.relogio = &pausa;
         rede.relogio = &pausa;
-        RemessaDados r(cartao, rede, servidor, pausa, nullptr, &preparo);
+        servidor.espia = &cao;
+        rede.espia = &cao;
+        RemessaDados r(cartao, rede, servidor, pausa, nullptr, &preparo, &cao);
         auto saida = r.executa(cfg, log);
+        cao.fecha();
         // Em TODO cenario, inclusive os de erro: o cartao do aparelho nao
         // abre outra leitura enquanto uma estiver aberta.
         EXPECT_FALSE(cartao.aberto()) << "a remessa deixou uma leitura aberta";
@@ -1814,6 +1853,95 @@ TEST(Remessa, sem_entrega_entre_iguais_vale_a_mais_recente) {
         EXPECT_EQ(c.falhados, 2u);
         EXPECT_EQ(c.restantes, 1u);
     }
+}
+
+
+// ================================================= O CAO DE GUARDA (19/11)
+
+TEST(CaoDeGuardaNaRemessa, cada_pedaco_entregue_alimenta_o_cao) {
+    // **O progresso da remessa sao bytes que saem do cartao.** O arquivo e
+    // lido duas vezes -- uma para somar o CRC, outra para mandar --, e as
+    // duas passadas andam de `kPedacoRemessa` em `kPedacoRemessa`.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] =
+        std::string(5 * kPedacoRemessa, 'x');
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_GE(c.servidor.refeicoes_no_envio, 5U)
+        << "o corpo foi bombeado sem alimentar o cao";
+}
+
+TEST(CaoDeGuardaNaRemessa, o_envio_que_nao_pede_nada_nao_alimenta_o_cao) {
+    // **O teste que torna o cao util.** Um PUT que gasta a janela de
+    // inatividade inteira sem puxar um byte do cartao nao pode produzir
+    // refeicao: se produzisse, um transporte travado ficaria para sempre
+    // vigiado e mudo.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "uma viagem qualquer";
+    c.servidor.erro_no_envio = ErroHttp::TempoEsgotado;
+    c.servidor.custo_ms = 15000;   // a janela do ClienteTls
+    ASSERT_NE(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.servidor.refeicoes_no_envio, 0U)
+        << "o cao foi alimentado por um envio que nao progrediu";
+}
+
+TEST(CaoDeGuardaNaRemessa, uma_remessa_lenta_nao_deixa_o_cao_sem_comer) {
+    // O caminho longo de verdade: varios arquivos, cada pedido gastando a
+    // janela de inatividade inteira, com as esperas entre tentativas no
+    // meio. Nenhum trecho pode passar do prazo -- se passar, o aparelho
+    // reinicia sozinho durante um envio em Wi-Fi ruim.
+    Cenario c;
+    for (int i = 0; i < 4; ++i) {
+        char nome[32];
+        std::snprintf(nome, sizeof nome, "2026100%d_120000.log", i + 1);
+        c.cartao.arquivos[nome] = "viagem";
+    }
+    c.servidor.custo_ms = 15000;
+    c.rede.custo_ms = 20000;   // a associacao, que roda com o cao solto
+    c.roda();
+    EXPECT_GT(c.pausa.agora, kPrazoCaoMs)
+        << "o cenario nem gasta o prazo: ele nao prova nada";
+    EXPECT_LE(c.cao.maior_intervalo_ms, kPrazoCaoMs)
+        << "houve um trecho maior que o prazo: o cao morderia";
+}
+
+TEST(CaoDeGuardaNaRemessa, a_associacao_do_radio_roda_com_o_cao_solto) {
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    ASSERT_EQ(c.roda(), ResultadoRemessa::Enviada);
+    EXPECT_EQ(c.rede.suspensoes_ao_conectar, 1U)
+        << "o cao estava armado durante a associacao";
+    EXPECT_EQ(c.rede.retomadas_ao_conectar, 0U);
+    EXPECT_EQ(c.cao.retomadas, 1U) << "o cao ficou solto depois de conectar";
+}
+
+TEST(CaoDeGuardaNaRemessa, sem_cao_a_remessa_roda_igual) {
+    CartaoFalso cartao;
+    RedeFalsa rede;
+    ServidorFalso servidor;
+    PausaFalsa pausa;
+    teste::LoggerMock log;
+    Configuracao cfg = cfg_valida();
+    cartao.arquivos["20261001_120000.log"] = "viagem";
+    RemessaDados r(cartao, rede, servidor, pausa);
+    EXPECT_EQ(r.executa(cfg, log), ResultadoRemessa::Enviada);
+}
+
+TEST(CaoDeGuardaNaRemessa, o_preparo_da_sessao_nao_deixa_o_cao_sem_comer) {
+    // ⚠️ **Este passou de primeira, e ele fica como guarda.**
+    //
+    // O preparo acerta o relogio pelo SNTP logo depois de a rede subir: ate
+    // 5 s para o nome e 5 s para a resposta, bloqueantes, entre a associacao
+    // e o primeiro pedido. Dez segundos cabem no prazo -- a margem e de 6,5 s
+    // --, entao nao foi preciso alimentar ali. Mas a margem e o resultado de
+    // DUAS escolhas: o prazo e a refeicao que a passada do CRC faz antes do
+    // envio. Mexer em qualquer uma delas sem olhar esta conta quebra aqui.
+    Cenario c;
+    c.cartao.arquivos["20261001_120000.log"] = "viagem";
+    c.preparo.custo_ms = 10000;
+    c.servidor.custo_ms = 15000;
+    c.roda();
+    EXPECT_LE(c.cao.maior_intervalo_ms, kPrazoCaoMs)
+        << "o preparo e o primeiro pedido viraram um bloco so";
 }
 
 }  // namespace

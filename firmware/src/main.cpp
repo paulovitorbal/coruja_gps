@@ -58,6 +58,7 @@
 #include "placa/PausaReal.h"
 #include "rede/AtualizadorOta.h"
 #include "nucleo/SincronizadorHora.h"
+#include "placa/CaoDeGuardaPico.h"
 #include "placa/MedidorPilha.h"
 #include "placa/Termometro.h"
 #include "placa/RelogioAon.h"
@@ -189,10 +190,12 @@ public:
                     coruja::Pausa& pausa, coruja::Encoder& encoder,
                     coruja::LoggerCartao& log, coruja::ClienteTls& http,
                     coruja::SincronizadorHora& sincronizador,
-                    coruja::LeitorGps& gps, RelogioAntesDoTls& preparo)
+                    coruja::LeitorGps& gps, RelogioAntesDoTls& preparo,
+                    coruja::CaoDeGuarda& cao)
         : cartao_(cartao), ota_(ota), ponte_(ponte), remessa_(remessa),
           ponte_remessa_(ponte_remessa), piloto_(piloto),
-          led_(led), buzzer_(buzzer), pausa_(pausa), espera_(encoder, pausa),
+          led_(led), buzzer_(buzzer), pausa_(pausa),
+          espera_(encoder, pausa, &cao),
           log_(log), http_(http), sincronizador_(sincronizador),
           gps_(gps), preparo_(preparo) {}
 
@@ -457,6 +460,14 @@ static std::uint32_t agora_ms() {
 }
 
 int main() {
+    // ⚠️ **ANTES de qualquer outra coisa, e so a PERGUNTA.** `watchdog_enable`
+    // reescreve o registrador de rascunho em que a resposta mora, entao ela
+    // tem de ser lida antes de o cao ser armado. O aviso so sai no log mais
+    // adiante, quando a gravacao no cartao ja estiver ligada -- antes disso
+    // ele iria para o console, que no carro nao existe.
+    coruja::CaoDeGuardaPico cao;
+    const bool veio_de_travamento = cao.reiniciou_por_travamento();
+
     stdio_init_all();
     // Ver `CORUJA_ESPERA_CONSOLE_MS` no CMakeLists: zero no firmware do
     // carro, onde nao ha console para esperar.
@@ -566,6 +577,24 @@ int main() {
                       static_cast<unsigned long>(t_config - t_cartao));
         log.info("boot", msg);
     }
+
+    // 🔴 **A ligacao anterior terminou numa mordida do cao.**
+    //
+    // ERRO, e nao aviso: isto e um defeito, e ERRO ainda forca a descarga do
+    // buffer do diario -- a linha vai para o cartao agora, e nao daqui a
+    // cinco minutos, porque quem reiniciou pode reiniciar de novo.
+    //
+    // Sem esta linha o reinicio seria INVISIVEL: o log recomecaria com um
+    // `boot` igual a qualquer outro e quem lesse concluiria que alguem
+    // cortou a ignicao. Metade do problema de nao ter watchdog e nao saber
+    // que houve travamento.
+    if (veio_de_travamento) {
+        log.error("boot", "a ligacao anterior terminou em REINICIO POR "
+                          "TRAVAMENTO: o cao de guarda mordeu. Procure, "
+                          "acima desta linha, a ultima coisa que o aparelho "
+                          "registrou na ligacao passada");
+    }
+
     brilho.define_presets(config.brilho_dia, config.brilho_noite);
     luz.define_duty(brilho.duty());
 
@@ -577,7 +606,7 @@ int main() {
     // quando o passo 1 não acha o módulo, a porta não é reconfigurada e o
     // aparelho fica lendo um fluxo ilegível — mudo, não lento. Descartar este
     // retorno era jogar fora o único aviso que existia.
-    coruja::ConfiguradorGps configurador(uart, pausa);
+    coruja::ConfiguradorGps configurador(uart, pausa, &cao);
     // ⚠️ **Com repetição, e só aqui.** No arranque o aparelho ainda não está
     // dirigindo, então bloquear vale a pena: foi desistir na primeira que
     // deixou a viagem de 24/10/2026 inteira com o receptor meio configurado.
@@ -635,7 +664,8 @@ int main() {
     RelogioAntesDoTls         preparo(sincronizador, gps);
 
     coruja::OtaNaTela      ponte{visor, led, pausa};
-    coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo);
+    coruja::AtualizadorOta ota(cartao, rede, http, pausa, &ponte, &preparo,
+                               &cao);
     // Sem isto, um boot que caiu na reserva -- ou sem base -- ouvia JA ESTA
     // EM DIA a cada clique, porque o `versao.txt` continua igual ao do
     // servidor. A carga e quem sabe de onde a base veio.
@@ -643,10 +673,10 @@ int main() {
     coruja::RemessaNaTela  ponte_remessa{visor, led, pausa};
     // `static` pelo mesmo motivo do `http`: sao 2,3 KiB.
     static coruja::RemessaDados remessa(cartao, rede, http, pausa,
-                                        &ponte_remessa, &preparo);
+                                        &ponte_remessa, &preparo, &cao);
     AcoesDoAparelho        acoes(cartao, ota, ponte, remessa, ponte_remessa,
                                  piloto, led, buzzer, pausa, encoder, log,
-                                 http, sincronizador, gps, preparo);
+                                 http, sincronizador, gps, preparo, cao);
     acoes.define_base(base);
 
     coruja::Aplicacao app(gps, encoder, piloto, brilho, luz, led, cartao,
@@ -809,8 +839,37 @@ int main() {
     constexpr std::uint32_t kJanelaPreFixMs = 10U * 60U * 1000U;
     std::uint32_t proxima_pre_fix_ms = pausa.agora_ms() + kIntervaloPreFixMs;
 
+    // ===================== o cao de guarda, 19/11/2026
+    //
+    // **Armado AQUI, e nao no comeco do `main`.** Tudo acima tem tempo
+    // proprio e nenhum gancho: o cartao monta, a configuracao e lida, a tela
+    // sobe, e a configuracao do receptor repete a sequencia ate duas vezes.
+    // Um cao armado antes disso transformaria um cartao lento ou um GPS frio
+    // num ciclo de reinicios -- e aparelho que reinicia em laco esta pior do
+    // que aparelho que demora a ligar.
+    //
+    // O que se protege daqui para a frente e o que acontece com o carro
+    // andando, que e onde ficar mudo custa caro. Travamento no arranque fica
+    // de fora, assumidamente: ele acontece com o aparelho na mao de quem o
+    // ligou, e nao a 80 km/h.
+    //
+    // O prazo esta em `nucleo/CaoDeGuarda.h`, com a conta. Em uma linha:
+    // quem o decide nao e este laco -- a pior volta medida e dezena de
+    // milissegundos --, e sim a maior espera LEGITIMA de uma operacao longa,
+    // que e a janela de inatividade do cliente HTTP.
+    static_assert(coruja::kPrazoCaoMs > coruja::kInatividadeHttpMs,
+                  "o cao morderia durante um pedido HTTP lento, mas vivo");
+    cao.arma(coruja::kPrazoCaoMs);
+    log.info("boot", "cao de guarda armado");
+
     std::uint32_t volta_comecou_ms = pausa.agora_ms();
     while (true) {
+        // **A volta fechou: isto e o progresso do laco.** Nao e tempo
+        // decorrido -- e a prova de que `app.passo`, o desenho e a leitura
+        // do GPS voltaram. As operacoes longas alimentam por dentro, cada
+        // uma nos seus pontos de progresso.
+        cao.alimenta();
+
         // Medido no TOPO da volta seguinte: assim a conta inclui tudo o que
         // a volta fez, inclusive o desenho, que é justamente o suspeito.
         {

@@ -556,6 +556,89 @@ Dois testes amarram o gerador ao parser em C++, que estão em linguagens diferen
 C++ lê o `coruja.cfg.exemplo` versionado e falha se o formato divergir, e o Python
 compara suas constantes de limite com as do `Configuracao.h`.
 
+## Cão de guarda — o aparelho reinicia sozinho quando trava
+
+**Isto muda o comportamento visível.** Desde 19/11/2026 o firmware arma o
+watchdog do RP2350. Se o aparelho parar de progredir por **16,5 s**, ele
+reinicia — sozinho, sem ninguém tocar nele.
+
+Existe porque o pior modo de falha deste produto é ficar mudo sem avisar: um
+travamento no cartão, no cyw43 ou no mbedTLS deixava o detector com a tela
+parada e o alerta desligado, e o motorista não reinicia o aparelho dirigindo.
+
+### Como se sabe que foi o cão
+
+O primeiro bloco de linhas do boot ganha uma linha de **ERRO** quando a
+ligação anterior terminou numa mordida:
+
+```
+ERRO boot: a ligacao anterior terminou em REINICIO POR TRAVAMENTO: o cao de
+guarda mordeu. Procure, acima desta linha, a ultima coisa que o aparelho
+registrou na ligacao passada
+```
+
+Sem ela o reinício seria invisível: o log recomeçaria com um `boot` igual a
+qualquer outro, e quem lesse concluiria que alguém cortou a ignição. A linha é
+ERRO e não aviso porque ERRO força a descarga do buffer do diário — ela chega
+ao cartão **agora**, e não daqui a cinco minutos, porque quem reiniciou pode
+reiniciar de novo.
+
+Ela vem de `watchdog_enable_caused_reboot()`, e não de
+`watchdog_caused_reboot()`: o segundo diz "sim" também quando se arrasta um
+`.uf2` para o RPI-RP2, e um aviso que mente é pior que a falta dele.
+
+### O prazo, e de onde o número vem
+
+O teto do hardware é **16 777 ms** — 24 bits de microssegundos. (Os 8,3 s que
+se lê por aí são do RP2040, onde o contador decrementa duas vezes por tick,
+errata RP2040-E1.)
+
+Quem decide o prazo **não é o laço principal**: a `vigia` mede a pior volta e
+o estado saudável é a dezena de milissegundos. Quem decide é a maior espera
+**legítima** de uma operação longa — os 15 s de `kInatividadeHttpMs`, que são
+o enlace fraco, não um travamento. Abaixo disso o aparelho reiniciaria em toda
+rede ruim, e reiniciar custa a viagem em andamento. Sobra a faixa entre 15 s e
+16,777 s; 16,5 s deixa 1,5 s para o cliente HTTP desistir e voltar.
+
+**Encompridar qualquer espera de rede acima de 15 s passa a exigir alimentar o
+cão por dentro dela.** O `static_assert` no `main.cpp` quebra o build se isso
+for esquecido.
+
+### Alimentar por progresso, não por tempo
+
+A regra, que é a decisão de desenho inteira: **alimenta-se o cão onde algo de
+fato andou**, nunca por tempo decorrido e nunca no topo de um laço de espera.
+
+| Onde | O que conta como progresso |
+| :--- | :--- |
+| laço principal | a volta fechou |
+| OTA | um pedaço que chegou **e foi gravado** no cartão |
+| remessa | um pedaço lido do cartão; um pedaço entregue ao PUT |
+| configuração do GPS | um quadro UBX que saiu pela porta |
+| tela de falha | uma pintura do painel |
+
+Um download que gasta os 120 s do teto sem entregar um byte não alimenta
+nenhuma vez — e é exatamente aí que o cão morde.
+
+### O buraco consciente: a associação do rádio
+
+A varredura (12 s) e a associação Wi-Fi (20 s) rodam com o cão **solto**. São
+chamadas do SDK sem gancho por dentro, e 20 s passa do teto do hardware:
+mantê-lo armado reiniciaria o aparelho em toda conexão que falha — senha
+errada, rede fora de alcance —, que é desfecho comum e não travamento.
+
+O preço está assumido: **um cyw43 que trave na associação continua deixando o
+aparelho mudo.** É o único ponto do firmware em que isso vale.
+
+### O que ainda não é coberto
+
+O cão é armado **depois** do arranque: cartão, configuração, tela e a
+configuração do receptor rodam sem ele. Um cão armado antes transformaria um
+cartão lento ou um GPS frio num ciclo de reinícios, e aparelho que reinicia em
+laço está pior que aparelho que demora a ligar. Travamento no arranque fica de
+fora assumidamente — ele acontece com o aparelho na mão de quem o ligou, e não
+a 80 km/h.
+
 ## Organização
 
 ```

@@ -106,6 +106,7 @@ if(NOT CORUJA_TESTES)
         display/PainelSt7789.cpp
         display/DesenhaTexto.cpp
         display/VisorSt7789.cpp
+        placa/CaoDeGuardaPico.cpp
     )
     target_include_directories(coruja_portes PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(coruja_portes PUBLIC
@@ -113,7 +114,9 @@ if(NOT CORUJA_TESTES)
         # o relogio que atravessa a ligacao: no RP2350 e o POWMAN, nao o RTC
         pico_aon_timer
         # o sensor de temperatura da pastilha, no canal 4 do ADC
-        hardware_adc)
+        hardware_adc
+        # o cao de guarda do RF-watchdog: ver placa/CaoDeGuardaPico.cpp
+        hardware_watchdog)
 
     # coruja_armazenamento: cartao microSD e FAT32.
     #

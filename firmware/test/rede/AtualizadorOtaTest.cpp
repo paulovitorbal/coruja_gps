@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "apoio/CaoDeGuardaFalso.h"
 #include "apoio/LoggerMock.h"
 #include "nucleo/BaseRadares.h"
 #include "nucleo/Crc32.h"
@@ -136,13 +137,37 @@ public:
     }
 };
 
+class PausaFalsa : public Pausa {
+public:
+    std::vector<std::uint32_t> esperas;
+    std::uint32_t agora = 0;
+    void espera_ms(std::uint32_t ms) override {
+        esperas.push_back(ms);
+        // O relogio ANDA com a espera: sem isso um teste que verificasse
+        // tempo veria o relogio parado apesar de 5 s de pausa.
+        agora += ms;
+    }
+    std::uint32_t agora_ms() override { return agora; }
+};
+
 class ConexaoFalsa : public Conexao {
 public:
     ErroWifi resposta = ErroWifi::Nenhum;
     unsigned conexoes = 0;
     unsigned desconexoes = 0;
+    /// O cao, visto de DENTRO do `conecta`. A associacao do cyw43 bloqueia
+    /// por mais do que o prazo e nao tem gancho por dentro: o que se afirma
+    /// e que ela roda com o cao solto, e que ele volta depois.
+    const teste::CaoDeGuardaFalso* espia = nullptr;
+    unsigned suspensoes_ao_conectar = 0;
+    unsigned retomadas_ao_conectar = 0;
+
     ErroWifi conecta(const Configuracao&, Logger&) override {
         ++conexoes;
+        if (espia != nullptr) {
+            suspensoes_ao_conectar = espia->suspensoes;
+            retomadas_ao_conectar = espia->retomadas;
+        }
         return resposta;
     }
     void desconecta(Logger&) override { ++desconexoes; }
@@ -164,9 +189,33 @@ public:
     /// por aqui que se ve um download que nao parou quando devia.
     std::size_t       entregues_base = 0;
 
+    /// O cao, visto de DENTRO do pedido. A pergunta que isto responde e a
+    /// unica que importa: durante um pedido que nao entrega nada, quantas
+    /// refeicoes saem? A resposta tem de ser zero.
+    const teste::CaoDeGuardaFalso* espia = nullptr;
+    unsigned          refeicoes_no_pedido = 0;
+
+    /// Quanto tempo o pedido consome do relogio falso. Zero faz o download
+    /// ser instantaneo, que e o que quase toda a suite quer; quem mede
+    /// intervalo entre refeicoes precisa de um pedido que custe tempo.
+    PausaFalsa*       relogio = nullptr;
+    std::uint32_t     gasta_ms = 0;
+
     ResultadoHttp baixa(const Url& url, AoReceber ao_receber, void* contexto,
                         Logger&, std::uint32_t) override {
         caminhos.emplace_back(url.caminho);
+        const unsigned antes = espia != nullptr ? espia->alimentacoes : 0;
+        const auto r = responde(url, ao_receber, contexto);
+        if (espia != nullptr) {
+            refeicoes_no_pedido = espia->alimentacoes - antes;
+        }
+        return r;
+    }
+
+private:
+    ResultadoHttp responde(const Url& url, AoReceber ao_receber,
+                           void* contexto) {
+        if (relogio != nullptr) { relogio->agora += gasta_ms; }
         const bool e_versao = std::strstr(url.caminho, "versao") != nullptr;
         if (e_versao) {
             ++pedidos_versao;
@@ -194,19 +243,6 @@ public:
     }
 };
 
-class PausaFalsa : public Pausa {
-public:
-    std::vector<std::uint32_t> esperas;
-    std::uint32_t agora = 0;
-    void espera_ms(std::uint32_t ms) override {
-        esperas.push_back(ms);
-        // O relogio ANDA com a espera: sem isso um teste que verificasse
-        // tempo veria o relogio parado apesar de 5 s de pausa.
-        agora += ms;
-    }
-    std::uint32_t agora_ms() override { return agora; }
-};
-
 // ================================================================== cenário
 
 struct Bancada {
@@ -219,8 +255,12 @@ struct Bancada {
     /// O que o boot diria: a base em uso veio do `radares.bin`. E o caso
     /// sao, e e o de quase toda a suite; os testes do F3 o desligam.
     bool               vigente_em_uso = true;
+    teste::CaoCronometrado cao{pausa};
 
     Bancada() {
+        http.espia = &cao;
+        http.relogio = &pausa;
+        rede.espia = &cao;
         std::snprintf(cfg.url_versao, sizeof cfg.url_versao,
                       "http://exemplo/radares.versao");
         std::snprintf(cfg.url_base, sizeof cfg.url_base,
@@ -232,9 +272,11 @@ struct Bancada {
     }
 
     ResultadoOta roda() {
-        AtualizadorOta ota(cartao, rede, http, pausa);
+        AtualizadorOta ota(cartao, rede, http, pausa, nullptr, nullptr, &cao);
         ota.informa_vigente_em_uso(vigente_em_uso);
-        return ota.executa(cfg, log);
+        const auto r = ota.executa(cfg, log);
+        cao.fecha();
+        return r;
     }
 
     bool chamou(const std::string& o) const {
@@ -959,6 +1001,86 @@ TEST(OtaComToken, o_token_nunca_aparece_no_log) {
         EXPECT_EQ(e.mensagem.find("nao-pode-vazar"), std::string::npos)
             << e.mensagem;
     }
+}
+
+// ================================================= o cao de guarda (19/11)
+
+TEST(AtualizadorOta, cada_pedaco_gravado_alimenta_o_cao) {
+    // **A regra: byte que chegou E foi para o cartao.** E o progresso de
+    // verdade do download -- nao o tempo decorrido, nao a volta do laco de
+    // espera. O duble entrega em pedacos de 64 B, como a rede faz.
+    Bancada b;
+    const std::size_t pedacos = (b.http.corpo_base.size() + 63) / 64;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_GE(b.http.refeicoes_no_pedido, pedacos)
+        << "o download andou sem alimentar o cao";
+}
+
+TEST(AtualizadorOta, o_download_que_nao_entrega_nada_nao_alimenta_o_cao) {
+    // **Este e o teste que torna o cao util.** Um pedido que gasta o tempo
+    // inteiro sem um byte chegar NAO pode produzir refeicao nenhuma: se
+    // produzisse, um mbedTLS girando em falso manteria o aparelho mudo e
+    // vigiado para sempre, que e o estado de hoje com um custo a mais.
+    //
+    // As refeicoes das pontas -- antes de pedir, depois de voltar -- nao
+    // entram: o duble so conta o que aconteceu DENTRO do pedido.
+    Bancada b;
+    b.http.corpo_base.clear();
+    b.http.resposta_base = ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0};
+    b.http.cura_na_tentativa = 99;   // nunca sara: o pedido sempre estoura
+    b.http.gasta_ms = 15000;   // a janela de inatividade do ClienteTls
+    ASSERT_EQ(b.roda(), ResultadoOta::FalhaAoBaixar);
+    EXPECT_EQ(b.http.refeicoes_no_pedido, 0U)
+        << "o cao foi alimentado por um download que nao progrediu";
+}
+
+TEST(AtualizadorOta, tres_tentativas_lentas_nao_deixam_o_cao_sem_comer) {
+    // O pior caminho de tempo do OTA: tres downloads que gastam a janela de
+    // inatividade inteira, com 5 s de espera entre eles. Nenhum trecho pode
+    // passar do prazo.
+    //
+    // Sem a refeicao no RETORNO de cada pedido, os 15 s do download e os 5 s
+    // da espera seguinte viram um bloco de 20 s -- acima do prazo, e o
+    // aparelho reiniciaria sozinho toda vez que o Wi-Fi ficasse ruim.
+    Bancada b;
+    b.http.corpo_base.clear();
+    b.http.resposta_base = ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0};
+    b.http.cura_na_tentativa = 99;   // nunca sara: o pedido sempre estoura
+    b.http.gasta_ms = 15000;
+    ASSERT_EQ(b.roda(), ResultadoOta::FalhaAoBaixar);
+    ASSERT_EQ(b.http.pedidos_base, kTentativas);
+    EXPECT_LE(b.cao.maior_intervalo_ms, kPrazoCaoMs)
+        << "houve um trecho maior que o prazo: o cao morderia";
+}
+
+TEST(AtualizadorOta, a_associacao_do_radio_roda_com_o_cao_solto) {
+    // A varredura (12 s) e a associacao (20 s) do `RedeWifi` sao chamadas do
+    // SDK sem gancho por dentro, e a segunda passa do teto de 16,777 s do
+    // hardware. Manter o cao armado ali seria reiniciar o aparelho em toda
+    // conexao que falha -- senha errada, rede fora de alcance --, que e
+    // desfecho comum e nao travamento.
+    Bancada b;
+    ASSERT_EQ(b.roda(), ResultadoOta::Atualizada);
+    EXPECT_EQ(b.rede.suspensoes_ao_conectar, 1U)
+        << "o cao estava armado durante a associacao";
+    EXPECT_EQ(b.rede.retomadas_ao_conectar, 0U);
+    EXPECT_EQ(b.cao.retomadas, 1U) << "o cao ficou solto depois de conectar";
+}
+
+TEST(AtualizadorOta, a_rede_que_falha_tambem_devolve_o_cao) {
+    // Sair pelo caminho de erro nao pode deixar o aparelho sem vigilancia
+    // pelo resto da ligacao.
+    Bancada b;
+    b.rede.resposta = ErroWifi::NenhumaRedeVisivel;
+    ASSERT_EQ(b.roda(), ResultadoOta::FalhaDeRede);
+    EXPECT_EQ(b.cao.suspensoes, 1U);
+    EXPECT_EQ(b.cao.retomadas, 1U);
+}
+
+TEST(AtualizadorOta, sem_cao_a_atualizacao_roda_igual) {
+    Bancada b;
+    AtualizadorOta ota(b.cartao, b.rede, b.http, b.pausa);
+    EXPECT_EQ(ota.executa(b.cfg, b.log), ResultadoOta::Atualizada);
 }
 
 }  // namespace

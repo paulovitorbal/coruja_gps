@@ -39,6 +39,7 @@ struct DestinoDownload {
     VerificadorDownload* verificador = nullptr;
     Armazenamento*       cartao = nullptr;
     ObservadorOta*       observador = nullptr;
+    CaoDeGuarda*         cao = nullptr;
     bool                 falhou_a_escrita = false;
     bool                 passou_do_teto = false;
 };
@@ -78,6 +79,12 @@ bool ao_receber_base(void* contexto, const std::uint8_t* bytes,
         destino->falhou_a_escrita = true;
         return false;
     }
+
+    // **O progresso do download, e e so este.** Bytes que chegaram E foram
+    // para o cartao. Um pedido que gasta os 120 s do teto sem entregar nada
+    // nao passa por aqui uma vez sequer, e e exatamente assim que o cao
+    // morde um transporte travado.
+    if (destino->cao != nullptr) { destino->cao->alimenta(); }
 
     if (destino->observador != nullptr) {
         // O total so existe depois do cabecalho: e ele que diz quantos
@@ -276,7 +283,19 @@ ResultadoOta AtualizadorOta::executa(const Configuracao& cfg, Logger& log) {
     le_versao_local(log);
 
     avisa(FaseOta::Conectando);
+    // ⚠️ **O cao sai solto para a associacao, e volta logo depois.** A
+    // varredura leva ate 12 s e a associacao ate 20 s, e as duas sao
+    // chamadas do SDK sem gancho por dentro: 20 s passa do teto de 16,777 s
+    // do hardware, entao manter o cao armado reiniciaria o aparelho em TODA
+    // conexao que falha -- senha errada, rede fora de alcance. Isso e
+    // desfecho comum, nao travamento, e o preco de reiniciar e perder a
+    // viagem em andamento.
+    //
+    // E o unico buraco da vigilancia, e ele e consciente: um cyw43 que
+    // travar na associacao continua deixando o aparelho mudo.
+    if (cao_ != nullptr) { cao_->suspende(); }
     const auto erro_rede = rede_.conecta(cfg, log);
+    if (cao_ != nullptr) { cao_->retoma(); }
     if (erro_rede != ErroWifi::Nenhum) {
         char msg[64];
         std::snprintf(msg, sizeof msg, "rede: %s", descreve(erro_rede));
@@ -356,8 +375,12 @@ bool AtualizadorOta::consulta_versao(const Url& url, Logger& log,
                                      ResultadoOta* motivo) {
     avisa(FaseOta::Consultando);
     ColetaVersao coleta{versao_remota_, kMaxVersao};
+    // Nas duas pontas do pedido, e nao por dentro dele: a consulta e uma
+    // linha curta, e o que ela tem de longo e a espera por ela.
+    alimenta_o_cao();
     const auto consulta = http_.baixa(url, ao_receber_versao, &coleta, log,
                                       15'000);
+    alimenta_o_cao();
     if (!consulta.ok()) {
         // O status vai junto: um 401 e um 503 pedem consertos diferentes.
         char msg[96];
@@ -427,6 +450,11 @@ ResultadoOta AtualizadorOta::baixa_com_tentativas(const Url& url,
                           static_cast<unsigned long>(kEsperaEntreTentativasMs));
             log.warning("ota", msg);
             pausa_.espera_ms(kEsperaEntreTentativasMs);
+            // Depois da espera, e nao antes: a tentativa seguinte comecou, e
+            // esse e o progresso. Sem isto a espera de 5 s se somaria aos
+            // 15 s de inatividade do download anterior, e os 20 s passariam
+            // do prazo.
+            alimenta_o_cao();
         }
         bool repete = false;
         ultimo_erro = tenta_baixar(url, tentativa, log, &repete);
@@ -460,9 +488,15 @@ ResultadoOta AtualizadorOta::tenta_baixar(const Url& url, unsigned tentativa,
     destino.verificador = &verificador_;
     destino.cartao = &cartao_;
     destino.observador = observador_;
+    destino.cao = cao_;
 
+    alimenta_o_cao();
     const auto download = http_.baixa(url, ao_receber_base, &destino, log,
                                       120'000);
+    // O pedido voltou: isso e progresso, qualquer que tenha sido o desfecho.
+    // Por dentro dele quem alimenta e `ao_receber_base`, so com pedaco
+    // gravado.
+    alimenta_o_cao();
 
     // Os motivos daqui ANTES do erro do cliente: quando o destino para o
     // download, o cliente volta com `Interrompida`, e a causa e esta.
@@ -518,6 +552,10 @@ ResultadoOta AtualizadorOta::verifica_e_promove(unsigned tentativa,
         cartao_.descarta_escrita(kArquivoTmp, log);
         return ResultadoOta::FalhaAoGravar;
     }
+    // Fechar o arquivo descarrega a FAT, e a troca atomica renomeia tres
+    // nomes. Sao etapas curtas e LIMITADAS -- cada uma acontece uma vez --,
+    // entao concluir cada uma e progresso.
+    alimenta_o_cao();
 
     // ---- 3 e 4. a troca atômica ------------------------------------------
     avisa(FaseOta::Gravando, tentativa);
@@ -531,6 +569,7 @@ ResultadoOta AtualizadorOta::verifica_e_promove(unsigned tentativa,
         *repete = false;
         return ResultadoOta::FalhaAoGravar;
     }
+    alimenta_o_cao();
     // O que esta no lugar agora e o que acabou de passar na verificacao.
     vigente_em_uso_ = true;
 

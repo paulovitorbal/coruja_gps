@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "encoder/Encoder.h"
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Pausa.h"
 
 namespace coruja {
@@ -32,8 +33,9 @@ public:
 /// parecer que não funcionou.
 class EsperaDispensa {
 public:
-    EsperaDispensa(Encoder& encoder, Pausa& pausa)
-        : encoder_(encoder), pausa_(pausa) {}
+    /// `cao` e opcional: nulo e "ninguem esta vigiando".
+    EsperaDispensa(Encoder& encoder, Pausa& pausa, CaoDeGuarda* cao = nullptr)
+        : encoder_(encoder), pausa_(pausa), cao_(cao) {}
 
     void ate_dispensar(Batimento& batimento);
 
@@ -43,8 +45,9 @@ private:
     /// piscar sairia errático.
     static constexpr std::uint32_t kPassoMs = 50;
 
-    Encoder& encoder_;
-    Pausa&   pausa_;
+    Encoder&     encoder_;
+    Pausa&       pausa_;
+    CaoDeGuarda* cao_ = nullptr;
 };
 
 }  // namespace coruja

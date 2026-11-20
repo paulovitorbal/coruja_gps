@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "apoio/CaoDeGuardaFalso.h"
 #include "apoio/EncoderMock.h"
 
 namespace {
@@ -149,6 +150,36 @@ TEST(EsperaDispensa, pinta_pelo_menos_uma_vez) {
 
     EXPECT_EQ(bat.batidas, 1);
     EXPECT_TRUE(pausa.esperas.empty()) << "dormiu sem precisar";
+}
+
+TEST(EsperaDispensa, alimenta_o_cao_a_cada_pintura) {
+    // **A espera que o usuario encerra.** Sem alimentar aqui, o aparelho
+    // reiniciaria 16,5 s depois de mostrar o motivo de uma falha -- e o
+    // motivo e tudo o que o usuario recebe para decidir o que tentar.
+    //
+    // Uma refeicao por PINTURA, e nao por volta de relogio: o `mantem()` e
+    // uma transacao com o painel. Um display travado nao fecha a volta, e o
+    // cao morde.
+    teste::EncoderMock enc;
+    PausaFalsa pausa;
+    teste::CaoDeGuardaFalso cao;
+    BatimentoEspiao bat(&enc, 7, EventoEncoder::Clique);
+    EsperaDispensa espera(enc, pausa, &cao);
+
+    dispensa(espera, bat);
+
+    EXPECT_EQ(cao.alimentacoes, static_cast<unsigned>(bat.batidas));
+}
+
+TEST(EsperaDispensa, sem_cao_a_espera_roda_igual) {
+    teste::EncoderMock enc;
+    PausaFalsa pausa;
+    BatimentoEspiao bat(&enc, 3, EventoEncoder::Clique);
+    EsperaDispensa espera(enc, pausa);
+
+    dispensa(espera, bat);
+
+    EXPECT_EQ(bat.batidas, 3);
 }
 
 }  // namespace
