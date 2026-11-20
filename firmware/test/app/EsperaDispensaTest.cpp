@@ -33,7 +33,7 @@ public:
 /// defeito vira uma falha com nome.
 class BatimentoEspiao : public Batimento {
 public:
-    static constexpr int kTeto = 1000;
+    static constexpr int kTeto = 5000;
 
     BatimentoEspiao(teste::EncoderMock* enc, int na_batida,
                     EventoEncoder e = EventoEncoder::Clique)
@@ -169,6 +169,51 @@ TEST(EsperaDispensa, alimenta_o_cao_a_cada_pintura) {
     dispensa(espera, bat);
 
     EXPECT_EQ(cao.alimentacoes, static_cast<unsigned>(bat.batidas));
+}
+
+TEST(EsperaDispensa, sem_ninguem_para_dispensar_ela_se_dispensa_no_teto) {
+    // **A unica espera que dependia so do usuario, e ela segurava o aparelho
+    // MUDO**: enquanto espera, `app.passo`, o GPS e os alertas nao rodam. Com
+    // o cao alimentado a cada pintura, nem o cao mordia. Sem evento nenhum,
+    // tem de acabar sozinha.
+    teste::EncoderMock enc;
+    PausaFalsa pausa;
+    teste::CaoDeGuardaFalso cao;
+    BatimentoEspiao bat(&enc, 0, EventoEncoder::Clique);   // nunca solta
+    EsperaDispensa espera(enc, pausa, &cao);
+
+    espera.ate_dispensar(bat);
+
+    EXPECT_FALSE(bat.estourou) << "so o freio do teste encerrou a espera";
+    EXPECT_GE(pausa.relogio, EsperaDispensa::kTetoMs);
+    EXPECT_LE(pausa.relogio, EsperaDispensa::kTetoMs + 100u)
+        << "passou do teto por mais que um passo";
+}
+
+TEST(EsperaDispensa, o_teto_conta_desde_a_entrada_e_nao_desde_o_boot) {
+    // O relogio real ja esta longe de zero quando a falha aparece.
+    teste::EncoderMock enc;
+    PausaFalsa pausa;
+    pausa.relogio = 3'600'000;
+    BatimentoEspiao bat(&enc, 0, EventoEncoder::Clique);
+    EsperaDispensa espera(enc, pausa);
+
+    espera.ate_dispensar(bat);
+
+    EXPECT_FALSE(bat.estourou);
+    EXPECT_GE(pausa.relogio - 3'600'000u, EsperaDispensa::kTetoMs);
+    EXPECT_LE(pausa.relogio - 3'600'000u, EsperaDispensa::kTetoMs + 100u);
+}
+
+TEST(EsperaDispensa, o_usuario_dispensa_bem_antes_do_teto) {
+    teste::EncoderMock enc;
+    PausaFalsa pausa;
+    BatimentoEspiao bat(&enc, 20, EventoEncoder::Clique);
+    EsperaDispensa espera(enc, pausa);
+
+    dispensa(espera, bat);
+
+    EXPECT_LT(pausa.relogio, EsperaDispensa::kTetoMs);
 }
 
 TEST(EsperaDispensa, sem_cao_a_espera_roda_igual) {
