@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "nucleo/CaoDeGuarda.h"
 #include "nucleo/Url.h"
 #include "rede/Baixador.h"
 #include "rede/CacheDeHost.h"
@@ -75,6 +76,15 @@ public:
     /// 401, que é visível — guardar o token torto não seria.
     bool define_token(const char* token);
 
+    /// Quem alimentar enquanto este cliente espera a rede. Nulo (o padrao) e
+    /// "ninguem vigia".
+    ///
+    /// O cliente alimenta a cada volta dos seus laços de espera, DEPOIS de a
+    /// chamada de poll voltar, e antes de registrar uma desistencia no log.
+    /// O porque, e por que isso nao e "alimentar por tempo", esta em
+    /// `CaoDeGuarda.h` e em `espera_vigiada`. O ponteiro nao e dono.
+    void define_cao(CaoDeGuarda* cao) { cao_ = cao; }
+
     /// O maior uso do heap do lwIP já alcançado, e o total, em bytes.
     ///
     /// É de lá que sai a sessão TLS — `altcp_tls_create_config_client` aloca
@@ -97,6 +107,7 @@ public:
 private:
     void* configuracao_ = nullptr;   ///< `struct altcp_tls_config*`
     char  token_[64] = {};
+    CaoDeGuarda* cao_ = nullptr;
 
     /// Qual nome já foi resolvido, e por quanto tempo isso ainda vale.
     ///

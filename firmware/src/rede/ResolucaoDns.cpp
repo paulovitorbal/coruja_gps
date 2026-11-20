@@ -5,6 +5,7 @@
 #include <pico/stdlib.h>
 
 #include "log/Logger.h"
+#include "nucleo/EsperaVigiada.h"
 
 namespace coruja {
 
@@ -39,19 +40,27 @@ bool resolve_nome(const PedidoDns& pedido, const char* host,
     }
 
     const absolute_time_t prazo = make_timeout_time_ms(limite_ms);
-    while (!pedido.caixa->pronto()) {
-        if (absolute_time_diff_us(get_absolute_time(), prazo) <= 0) {
-            // O lwIP VAI chamar de volta, mais tarde, com esta geracao --
-            // nao ha como cancelar. Abandonar e o que faz essa chamada nao
-            // encontrar ninguem.
-            pedido.caixa->abandona();
-            log.error(pedido.origem, "DNS nao respondeu a tempo");
-            return false;
-        }
-        // `sleep_ms(1)` e nao espera ocupada: o stdio USB depende de um
-        // alarme para chamar `tud_task()`, e um laco fechado o emudece.
-        cyw43_arch_poll();
-        sleep_ms(1);
+    // A refeicao do cao mora na `espera_vigiada`, DEPOIS do poll: se o
+    // `cyw43_arch_poll` travar por dentro, ela nao acontece e o cao morde; se
+    // for so o DNS que nao responde, o `prazo` acima encerra. Um DNS de 15 s
+    // somado ao handshake e a resposta passava dos 16,5 s do cao.
+    const FimDaEspera fim = espera_vigiada(
+        pedido.cao,
+        [&] { return pedido.caixa->pronto(); },
+        [&] { return absolute_time_diff_us(get_absolute_time(), prazo) <= 0; },
+        [] {
+            // `sleep_ms(1)` e nao espera ocupada: o stdio USB depende de um
+            // alarme para chamar `tud_task()`, e um laco fechado o emudece.
+            cyw43_arch_poll();
+            sleep_ms(1);
+        });
+    if (fim == FimDaEspera::Expirou) {
+        // O lwIP VAI chamar de volta, mais tarde, com esta geracao -- nao ha
+        // como cancelar. Abandonar e o que faz essa chamada nao encontrar
+        // ninguem. O cao ja foi alimentado: o log abaixo forca descarga.
+        pedido.caixa->abandona();
+        log.error(pedido.origem, "DNS nao respondeu a tempo");
+        return false;
     }
 
     const bool achou = pedido.caixa->achou();

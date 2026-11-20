@@ -29,6 +29,7 @@ add_executable(testes
     nucleo/GeoTest.cpp
     nucleo/CaoSuspensoTest.cpp
     nucleo/PoliticaDoCaoTest.cpp
+    nucleo/EsperaVigiadaTest.cpp
     nucleo/LimiarInfracaoTest.cpp
     nucleo/BaseRadaresTest.cpp
     nucleo/LeitorConfigTest.cpp

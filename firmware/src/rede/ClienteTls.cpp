@@ -427,7 +427,8 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
                               std::size_t corpo,
                               Baixador::AoReceber ao_receber_corpo,
                               void* ctx_recebe, Logger& log,
-                              std::uint32_t tempo_limite_ms) {
+                              std::uint32_t tempo_limite_ms,
+                              CaoDeGuarda* cao) {
     static_assert(sizeof(ip_addr_t) <= 16,
                   "o endereco guardado no ClienteTls nao cabe mais");
     ResultadoHttp saida;
@@ -479,8 +480,11 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
     } else {
         const std::uint32_t prazo_dns =
             tempo_limite_ms < kPrazoDnsMs ? tempo_limite_ms : kPrazoDnsMs;
-        if (!resolve_nome(g_pedido_dns, url.host, &endereco, prazo_dns,
-                          log)) {
+        // O pedido e o global const com o cao desta chamada: o DNS alimenta a
+        // cada volta da espera (ver `espera_vigiada`).
+        PedidoDns pedido_dns = g_pedido_dns;
+        pedido_dns.cao = cao;
+        if (!resolve_nome(pedido_dns, url.host, &endereco, prazo_dns, log)) {
             saida.erro = ErroHttp::NaoIniciou;
             return saida;
         }
@@ -489,6 +493,8 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
             cache->guarda(url.host, agora_dns);
         }
     }
+    // A resolucao terminou (ou nem foi preciso): fase concluida.
+    if (cao != nullptr) { cao->alimenta(); }
 
     Pedido pedido;
     pedido.fonte = fonte;
@@ -612,6 +618,11 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
             conectou_antes = pedido.conectou;
         }
         if (prazo.expirou(agora)) {
+            // **Antes do log.** `log.error` forca a descarga no cartao, e a
+            // margem que sobrava para registrar a desistencia era de 1,5 s --
+            // um cartao lento nao cabe nela, e o cao mordia exatamente no
+            // registro de que o pedido tinha desistido.
+            if (cao != nullptr) { cao->alimenta(); }
             const bool teto = prazo.estourou_o_teto(agora);
             cyw43_arch_lwip_begin();
             altcp_arg(pcb, nullptr);
@@ -659,6 +670,14 @@ static ResultadoHttp conversa(void** configuracao, const char* token,
         }
         cyw43_arch_poll();
         sleep_ms(1);
+        // **Depois do poll, e so depois.** O que o cao pega e um travamento
+        // DENTRO desta chamada (lwIP, mbedTLS no handshake, o cartao via
+        // callback de recepcao): se ela nao volta, esta linha nao roda. Se o
+        // laco girar por logica -- nada chega --, o `PrazoDeProgresso` acima
+        // o encerra em 15 s. Sem isto, DNS + handshake + resposta, cada fase
+        // dentro dos seus 15 s, somavam mais que os 16,5 s do cao num
+        // Wi-Fi fraco e vivo. Ver `espera_vigiada`.
+        if (cao != nullptr) { cao->alimenta(); }
     }
 
     saida.recebidos = pedido.leitor.recebidos();
@@ -752,7 +771,7 @@ ResultadoHttp ClienteTls::baixa(const Url& url, AoReceber ao_receber,
                                 std::uint32_t tempo_limite_ms) {
     return conversa(&configuracao_, token_, &cache_host_, endereco_guardado_,
                     url, "GET", nullptr, nullptr, 0,
-                    ao_receber, contexto, log, tempo_limite_ms);
+                    ao_receber, contexto, log, tempo_limite_ms, cao_);
 }
 
 ResultadoHttp ClienteTls::envia(const Url& url, const char* token,
@@ -767,7 +786,7 @@ ResultadoHttp ClienteTls::envia(const Url& url, const char* token,
     return conversa(&configuracao_, token_para_cabecalho(token, token_),
                     &cache_host_, endereco_guardado_,
                     url, "PUT", fonte, contexto, tamanho, nullptr, nullptr,
-                    log, tempo_limite_ms);
+                    log, tempo_limite_ms, cao_);
 }
 
 namespace {
@@ -798,7 +817,7 @@ ResultadoHttp ClienteTls::consulta_crc(const Url& url, const char* token,
                           &cache_host_, endereco_guardado_,
                           url, "GET", nullptr, nullptr, 0,
                           CorpoCurto::ao_receber, &corpo, log,
-                          tempo_limite_ms);
+                          tempo_limite_ms, cao_);
     if (!saida.ok()) { return saida; }
 
     if (!le_crc_hex(corpo.texto, corpo.n, crc)) {

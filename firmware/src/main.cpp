@@ -545,6 +545,9 @@ int main() {
     // em cima de um pico medido de 21 172 B. `main()` nunca retorna, entao a
     // vida dos dois nao muda.
     static coruja::ClienteTls http;
+    // O cliente alimenta o cao dentro dos seus lacos de espera. Ver
+    // `espera_vigiada` e `CaoDeGuarda.h`.
+    http.define_cao(&cao);
     coruja::ClienteSntp      ntp;
     coruja::RelogioAon       relogio;
 
