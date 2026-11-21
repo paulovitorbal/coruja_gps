@@ -464,6 +464,52 @@ TEST(AtualizadorOta, versao_comum_do_servidor_continua_passando) {
     }
 }
 
+TEST(AtualizadorOta, a_versao_na_forma_que_o_servidor_REALMENTE_manda_passa) {
+    // 🔴 A regressao da v0.2.26, que deixou a base sem atualizar no carro.
+    //
+    // A linha vem de `servidor.versao_de`, em Python: `crc32:... pontos:...
+    // formato:... data:...`, com ESPACOS e um `\n` no fim (54 bytes no log do
+    // aparelho). A validacao de entrada reaproveitava `seguro_para_cabecalho`,
+    // que foi escrito para token e URL e RECUSA o espaco de proposito -- e
+    // por isso recusava TODA versao legitima do servidor:
+    //   ota: a versao do servidor tem caractere que nao se registra; recusada
+    //
+    // Passou por tres revisoes e por todos os testes porque as amostras do
+    // par acima ("v1.2.3", "a7f3c9e") foram inventadas, e nenhuma tinha
+    // espaco. O contrato entre o servidor e o firmware so se prova com o dado
+    // de verdade; a forma exata esta no teste do lado do servidor
+    // (`test_a_versao_anunciada_e_ascii_imprimivel`).
+    const char* real = "crc32:34e87e07 pontos:18479 formato:2 data:2026-11-20";
+    {
+        Bancada b;
+        b.http.corpo_versao = real;
+        EXPECT_EQ(b.roda(), ResultadoOta::Atualizada);
+        EXPECT_EQ(b.cartao.versao_gravada, real);
+    }
+    {   // E com o \n que o servidor manda, aparado antes de comparar e gravar.
+        Bancada b;
+        b.http.corpo_versao = std::string(real) + "\n";
+        EXPECT_EQ(b.roda(), ResultadoOta::Atualizada);
+        EXPECT_EQ(b.cartao.versao_gravada, real) << "gravou o \\n junto";
+    }
+}
+
+TEST(AtualizadorOta, versao_com_controle_no_meio_segue_recusada) {
+    // O outro lado: o espaco passa, mas o que a validacao existe para barrar
+    // -- quebra de linha forjando entrada no log que sobe pela remessa, ou
+    // sequencia de escape -- continua barrado, mesmo no meio de uma linha
+    // que de resto parece a real.
+    for (const char* v : {"crc32:34e87e07 pontos:18479\r\nERRO: forjado",
+                          "crc32:34e87e07\tpontos:18479",
+                          "crc32:34e87e07 pontos:18479\x1b[2J",
+                          "crc32:34e87e07 pontos:18479 \xc3\xa9"}) {
+        Bancada b;
+        b.http.corpo_versao = v;
+        EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar) << v;
+        EXPECT_EQ(b.http.pedidos_base, 0U) << v;
+    }
+}
+
 TEST(AtualizadorOta, consulta_que_falha_nao_baixa) {
     Bancada b;
     b.http.resposta_versao = ResultadoHttp{ErroHttp::TempoEsgotado, 0, 0};

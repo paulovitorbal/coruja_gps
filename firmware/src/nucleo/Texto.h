@@ -52,4 +52,22 @@ bool inteiro(const char* ini, std::size_t n, std::uint32_t* destino);
 /// fazer com ele não é esta função. `nullptr` recusa.
 bool seguro_para_cabecalho(const char* texto);
 
+/// Texto que cabe em UMA linha: so ASCII imprimivel, `0x20`-`0x7E`, **com
+/// espaco**.
+///
+/// O irmao de `seguro_para_cabecalho` para o que NAO e um token nem uma URL --
+/// a versao que o servidor anuncia, por exemplo: `crc32:34e87e07 pontos:18479
+/// formato:2 data:2026-11-20`. A unica diferenca e o espaco, e e a que
+/// importa: o predicado de cabecalho o recusa DE PROPOSITO (numa URL ele parte
+/// a linha de pedido em duas), e reaproveita-lo para validar a versao fazia o
+/// aparelho recusar TODA versao legitima do servidor, e a base nunca mais
+/// atualizar (v0.2.26).
+///
+/// O que ela barra e o que a guarda existe para barrar: quebra de linha que
+/// forja uma entrada no log -- que sobe ao servidor pela remessa --, escape de
+/// terminal, tabulacao, `DEL` e qualquer byte acima de `0x7E`.
+///
+/// Vazio passa; `nullptr` recusa.
+bool linha_imprimivel(const char* texto);
+
 }  // namespace coruja

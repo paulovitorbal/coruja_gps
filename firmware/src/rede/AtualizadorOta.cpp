@@ -413,8 +413,15 @@ bool AtualizadorOta::consulta_versao(const Url& url, Logger& log,
     // de passar. Ela e registrada no log -- que e lido linha a linha para
     // saber o que aconteceu, e uma quebra de linha nela escreveria linhas
     // que ninguem registrou -- e gravada no `versao.txt`, de onde volta na
-    // comparacao do clique seguinte. A mesma regra do token e da URL.
-    if (!seguro_para_cabecalho(versao_remota_)) {
+    // comparacao do clique seguinte.
+    //
+    // ⚠️ NAO e a regra do token nem a da URL. `seguro_para_cabecalho` recusa
+    // o espaco de proposito, e a linha que o servidor anuncia TEM espacos
+    // (`crc32:... pontos:... formato:... data:...`): reaproveita-lo aqui
+    // recusava toda versao legitima, e a base nunca atualizava (v0.2.26).
+    // O que se quer barrar e a quebra de linha e o controle, e e isso que
+    // `linha_imprimivel` barra.
+    if (!linha_imprimivel(versao_remota_)) {
         log.error("ota", "a versao do servidor tem caractere que nao se "
                          "registra; recusada");
         versao_remota_[0] = '\0';

@@ -130,3 +130,54 @@ TEST(SeguroParaCabecalho, ByteAltoRecusa) {
 }
 
 }  // namespace
+
+// --- linha_imprimivel ------------------------------------------------------
+//
+// O irmao de `seguro_para_cabecalho` para texto que e UMA LINHA, nao um
+// token: a versao que o servidor anuncia (`crc32:... pontos:... formato:...
+// data:...`) e o que mais vai para o log. A diferenca e uma so, e foi o que
+// quebrou a atualizacao da base na v0.2.26: o ESPACO passa aqui.
+
+TEST(LinhaImprimivel, AVersaoRealDoServidorPassa) {
+    EXPECT_TRUE(linha_imprimivel(
+        "crc32:34e87e07 pontos:18479 formato:2 data:2026-11-20"));
+}
+
+TEST(LinhaImprimivel, EspacoPassaOndeOCabecalhoRecusa) {
+    EXPECT_TRUE(linha_imprimivel("a b"));
+    EXPECT_FALSE(seguro_para_cabecalho("a b"))
+        << "os dois predicados existem justamente por divergirem aqui";
+}
+
+TEST(LinhaImprimivel, VazioPassaENuloRecusa) {
+    EXPECT_TRUE(linha_imprimivel(""));
+    EXPECT_FALSE(linha_imprimivel(nullptr));
+}
+
+TEST(LinhaImprimivel, QuebraDeLinhaRecusa) {
+    // O que a guarda existe para barrar: uma linha de log forjada.
+    EXPECT_FALSE(linha_imprimivel("abc\r\nERRO: forjado"));
+    EXPECT_FALSE(linha_imprimivel("abc\nERRO: forjado"));
+    EXPECT_FALSE(linha_imprimivel("abc\r"));
+}
+
+TEST(LinhaImprimivel, ControleEscapeETabRecusam) {
+    EXPECT_FALSE(linha_imprimivel("a\tb"));
+    EXPECT_FALSE(linha_imprimivel("a\x1b[2Jb"));
+    EXPECT_FALSE(linha_imprimivel("a\x01" "b"));
+}
+
+TEST(LinhaImprimivel, DelEBytesAltosRecusam) {
+    EXPECT_FALSE(linha_imprimivel("a\x7f" "b"));
+    EXPECT_FALSE(linha_imprimivel("caf\xc3\xa9"));
+}
+
+TEST(LinhaImprimivel, AsFronteirasDaFaixa) {
+    // 0x20 (espaco) e 0x7E (til) passam; 0x1F e 0x7F nao. A comparacao e
+    // `unsigned`, como a do irmao: com `char` com sinal os altos viram
+    // negativos e caem fora da faixa por acidente.
+    EXPECT_TRUE(linha_imprimivel(" "));
+    EXPECT_TRUE(linha_imprimivel("~"));
+    EXPECT_FALSE(linha_imprimivel("\x1f"));
+    EXPECT_FALSE(linha_imprimivel("\x7f"));
+}

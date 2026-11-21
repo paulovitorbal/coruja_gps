@@ -55,4 +55,15 @@ bool seguro_para_cabecalho(const char* texto) {
     return true;
 }
 
+bool linha_imprimivel(const char* texto) {
+    if (texto == nullptr) { return false; }
+    // `unsigned char` pelo mesmo motivo do irmao: com `char` com sinal os
+    // bytes altos viram negativos e caem fora da faixa por acidente.
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(texto);
+         *p != '\0'; ++p) {
+        if (*p < 0x20 || *p > 0x7E) { return false; }
+    }
+    return true;
+}
+
 }  // namespace coruja
