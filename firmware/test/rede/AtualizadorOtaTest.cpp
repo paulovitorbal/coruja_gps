@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <set>
+#include <fstream>
 #include <string>
 
 #include <cstring>
@@ -508,6 +509,43 @@ TEST(AtualizadorOta, versao_com_controle_no_meio_segue_recusada) {
         EXPECT_EQ(b.roda(), ResultadoOta::FalhaAoConsultar) << v;
         EXPECT_EQ(b.http.pedidos_base, 0U) << v;
     }
+}
+
+TEST(AtualizadorOta, com_a_base_real_do_servidor_o_ota_completa_de_ponta_a_ponta) {
+    // Roda so quando ha uma base completa configurada (-DCORUJA_BASE_REAL=...),
+    // como o `BaseCompleta`. A linha de versao sai do CABECALHO do proprio
+    // arquivo, que e como o servidor a deriva (`servidor.versao_de`), e o
+    // download passa por TODO o caminho: consulta, verificacao em fluxo,
+    // gravacao, troca atomica e versao.
+    //
+    // Existe porque na v0.2.26 o aparelho nunca passou da consulta de versao,
+    // e o que vem depois -- 221 KB, reescrito naquela serie -- nunca foi
+    // exercitado com dado de verdade.
+    if (std::string(CORUJA_BASE_REAL).empty()) {
+        GTEST_SKIP() << "sem base real; passe -DCORUJA_BASE_REAL=/caminho";
+    }
+    std::ifstream f(CORUJA_BASE_REAL, std::ios::binary);
+    std::vector<std::uint8_t> real((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+    ASSERT_GT(real.size(), 20U) << "base real ilegivel";
+    auto u16 = [&](std::size_t o) { return real[o] | (real[o + 1] << 8); };
+    auto u32 = [&](std::size_t o) {
+        return static_cast<std::uint32_t>(real[o]) | (real[o + 1] << 8) |
+               (real[o + 2] << 16) | (static_cast<std::uint32_t>(real[o + 3]) << 24);
+    };
+    char linha[96];
+    std::snprintf(linha, sizeof linha,
+                  "crc32:%08x pontos:%u formato:%u data:%04u-%02u-%02u",
+                  u32(12), u32(8), u16(4), u16(16), real[18], real[19]);
+
+    Bancada b;
+    b.cartao.versao_no_cartao = "crc32:2a2129db pontos:18469 formato:2 data:2026-11-11";
+    b.http.corpo_versao = std::string(linha) + "\n";
+    b.http.corpo_base = real;
+    EXPECT_EQ(b.roda(), ResultadoOta::Atualizada) << linha;
+    EXPECT_EQ(b.cartao.escrito, real) << "gravou algo diferente do que chegou";
+    EXPECT_EQ(b.cartao.versao_gravada, linha);
+    EXPECT_EQ(b.http.pedidos_base, 1U);
 }
 
 TEST(AtualizadorOta, consulta_que_falha_nao_baixa) {
