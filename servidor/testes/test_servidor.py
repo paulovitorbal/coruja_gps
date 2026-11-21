@@ -128,6 +128,32 @@ class ServidorEmTeste(unittest.TestCase):
         self.assertEqual(len(self.get(s.ROTA_VERSAO).read().decode().strip()
                              .splitlines()), 1)
 
+    def test_a_versao_anunciada_e_ascii_imprimivel(self):
+        """O contrato com o firmware, que e a outra metade de um defeito real.
+
+        O aparelho valida a linha que recebe com `linha_imprimivel`
+        (`firmware/src/nucleo/Texto.h`): so ASCII de 0x20 a 0x7E, **com**
+        espaco. Em 21/11/2026 a v0.2.26 recusou toda versao do servidor,
+        porque reaproveitou o predicado de cabecalho, que recusa o espaco --
+        e esta linha SEMPRE teve espacos. O defeito passou por tres revisoes
+        porque o teste do lado do firmware usava amostras inventadas.
+
+        Este teste prende o lado do servidor: se alguem passar a anunciar um
+        byte fora da faixa (um acento numa mensagem, uma tabulacao num campo
+        novo), o aparelho recusa a versao e a base deixa de atualizar sem
+        nenhum erro visivel aqui.
+        """
+        self.publica(base_valida(n_pontos=18479, crc=0x34E87E07,
+                                 versao=2, data=(2026, 11, 20)))
+        corpo = self.get(s.ROTA_VERSAO).read().decode().strip()
+        self.assertEqual(
+            corpo, "crc32:34e87e07 pontos:18479 formato:2 data:2026-11-20",
+            "a forma exata que o aparelho recebeu em campo mudou: confira "
+            "`linha_imprimivel` no firmware antes de aceitar")
+        for c in corpo:
+            self.assertTrue(0x20 <= ord(c) <= 0x7E,
+                            f"byte {ord(c):#04x} fora de ASCII imprimivel")
+
     def test_a_versao_muda_quando_os_dados_mudam(self):
         self.publica(base_valida(crc=0x11111111))
         antes = self.get(s.ROTA_VERSAO).read()
